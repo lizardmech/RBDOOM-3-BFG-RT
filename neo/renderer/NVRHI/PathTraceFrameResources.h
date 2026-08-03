@@ -21,7 +21,10 @@ enum RtPathTraceFrameResetReason : uint32_t
     RT_FRAME_RESET_BACKBUFFER_RESIZE = 1u << 1,
     RT_FRAME_RESET_SCENE_RESOURCES = 1u << 2,
     RT_FRAME_RESET_PRIMARY_HISTORY = 1u << 5,
-    RT_FRAME_RESET_GPU_IDLE_WAIT = 1u << 6
+    RT_FRAME_RESET_GPU_IDLE_WAIT = 1u << 6,
+    // Reserved explicit history discontinuity. Ordinary camera motion must not
+    // set this bit; a future cut detector or game-owned cut signal does.
+    RT_FRAME_RESET_CAMERA_CUT = 1u << 7
 };
 
 struct RtPathTraceFrameCameraState
@@ -110,6 +113,9 @@ struct RtPathTraceFrameResources
     nvrhi::BufferHandle unifiedPtPrimaryReceiverBuffer;
     nvrhi::BufferHandle unifiedPtPrimaryReceiver32Buffer;
     uint32_t restirPTFrameIndex = 0;
+    // Full-width host token shared by temporal consumers. It advances only on
+    // explicit history invalidation, never from the live projection hash.
+    uint64_t historyEpoch = 1;
 
     bool primarySurfaceHistoryNeedsClear = true;
     RtPathTracePrimarySurfaceHistoryState primarySurfaceHistoryState;
@@ -132,6 +138,7 @@ struct RtPathTraceFrameResources
     void ResetSceneDependentState();
     void ResetReadbackQueue();
     void MarkResetReason(uint32_t reasonFlags);
+    void AdvanceHistoryEpoch(uint32_t reasonFlags);
     void ClearResetReasons();
     void SetPrimarySurfaceHistoryView(const RtPathTraceFrameCameraState& view, bool objectMotionAvailable);
     void InvalidatePrimarySurfaceHistory(uint32_t reasonFlags);

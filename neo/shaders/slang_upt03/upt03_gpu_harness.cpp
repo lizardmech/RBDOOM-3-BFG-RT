@@ -29,7 +29,7 @@ namespace {
 constexpr uint32_t kOutputCount = 8;
 constexpr uint32_t kCandidatesPerOutput = 4;
 constexpr uint32_t kExpectedGeneration = 0x10203040u;
-constexpr uint64_t kExpectedOutputHash = 0x72ee283cfb295d70ull;
+constexpr uint64_t kExpectedOutputHash = 0x597665ea8b594bcaull;
 
 struct GpuCandidate {
 	uint32_t status = 0;

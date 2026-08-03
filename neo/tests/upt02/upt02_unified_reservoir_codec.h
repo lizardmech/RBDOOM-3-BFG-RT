@@ -286,6 +286,9 @@ inline uint32_t PackHeader(const Candidate& candidate) {
 		(static_cast<uint32_t>(candidate.reconnectionVertexLength & 0x0fu) << 28u);
 }
 
+inline constexpr uint32_t kPackedSelectedTag = 1u;
+inline constexpr uint32_t kPackedCountOnlyTag = 2u;
+
 inline bool NarrowFiniteFloat(double value, float& result, bool requirePositive) {
 	if (!std::isfinite(value) || value > static_cast<double>(std::numeric_limits<float>::max()) ||
 		value < -static_cast<double>(std::numeric_limits<float>::max())) {
@@ -301,7 +304,14 @@ inline bool PackReservoir(
 	PackedReservoir& packed) {
 	packed = {};
 	if (!reservoir.hasSelectedSample) {
-		return reservoir.weightSum == 0.0;
+		if (reservoir.weightSum != 0.0) {
+			return false;
+		}
+		if (reservoir.effectiveM != 0) {
+			packed.words[0] = kPackedCountOnlyTag;
+			packed.words[1] = reservoir.effectiveM;
+		}
+		return true;
 	}
 	if (reservoir.effectiveM == 0 || !IsFinitePositive(reservoir.weightSum) ||
 		reservoir.selected.status != CandidateStatus::ValidPositive ||
@@ -374,7 +384,19 @@ inline bool UnpackReservoir(
 		return true;
 	}
 	const uint32_t header = packed.words[0];
-	if ((header & 0x0fu) != 1u) {
+	if ((header & 0x0fu) == kPackedCountOnlyTag) {
+		if (header != kPackedCountOnlyTag || packed.words[1] == 0) {
+			return false;
+		}
+		for (size_t word = 2; word < packed.words.size(); ++word) {
+			if (packed.words[word] != 0) {
+				return false;
+			}
+		}
+		reservoir.effectiveM = packed.words[1];
+		return true;
+	}
+	if ((header & 0x0fu) != kPackedSelectedTag) {
 		return false;
 	}
 

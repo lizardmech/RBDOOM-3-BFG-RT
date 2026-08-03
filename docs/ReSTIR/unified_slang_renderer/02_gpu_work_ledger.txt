@@ -109,7 +109,9 @@ R1. Unified packed reservoir page 0
     New allocation: yes, after UPT-02 freezes and readback-proves the packed
         format.
     Purpose: one selected direct/global path contribution per reservoir pixel.
-    Initial phase pages: one.
+    UPT-04/05 active pages: one. UPT-06 admits the second physical page before
+        reuse so allocation, lifetime, and invalidation can be proven in
+        isolation; no-reuse dispatches still read/write page 0 only.
     Format: structured buffer, final stride not accepted until packing audit;
         target ceiling is 64 bytes per pixel unless evidence requires more.
     Lifetime: renderer-owned, resolution-sized, recreated on dimension/ABI
@@ -233,21 +235,27 @@ D1. Trace-free final resolve
         revalidation yet.
     No hit/miss/any-hit exports may exist in this module.
 
+R5. Unified packed reservoir page 1 and page metadata
+
+    New allocation: yes, admitted by UPT-06 after UPT-05 acceptance.
+    Purpose: the only previous-history/spatial-output page allowed by the
+        two-page schedules in 03_unified_reservoir_contract.txt.
+    Format/size/lifetime: identical to R1; exactly width * height * 64 bytes.
+    Current no-reuse producer/consumer: none. D0 and R0 remain page-0-only.
+    Clear: never. Newly allocated bytes are unavailable because the page's
+        host metadata starts fullyWritten=false. A future full-domain producer
+        must write every selected/count-only/canonical-empty record before
+        publishing the page.
+    Metadata: one host-owned record per page containing fully-written state,
+        width/height, a uint64 content/proposal generation, and a uint64
+        monotonic history epoch. No GPU header buffer and no per-pixel epoch.
+    Invalidation: metadata only. Scene/resize/primary-history reset advances
+        the shared host epoch; ordinary cameraProjection changes do not.
+    Total page count: exactly two. No third full-resolution reservoir is
+        allocated or named by the owner.
+
 Future resources already planned but not admitted
 --------------------------------------------------
-
-F0. Reservoir page 1
-
-    Added only with temporal or spatial reuse. See page schedules in
-    03_unified_reservoir_contract.txt.
-    Each physical page carries one small host-visible logical metadata record:
-        fully-written/valid state
-        full-width proposal/content generation
-        monotonic camera-cut/history epoch
-    This is page metadata, not a field duplicated into every 64-byte reservoir.
-    Invalidation changes the metadata and never clears the full page. Do not
-    allocate a GPU metadata buffer unless the admitted temporal consumer proves
-    that host-owned state plus dispatch control cannot enforce the same check.
 
 F1. Compact sample-ID image
 

@@ -252,6 +252,11 @@ specialization. Do not alter ReSTIR or material code to force an improvement.
 UPT-06: History/resource page admission
 ---------------------------------------
 
+Status:
+    implemented; offline codec/GPU/build proof recorded in
+    20_upt06_history_resource_admission.txt; live allocation/reset log remains
+    the runtime acceptance check before UPT-07 dispatch work
+
 Type:
     planning and allocation only after UPT-05 acceptance
 

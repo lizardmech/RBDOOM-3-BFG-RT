@@ -2,6 +2,8 @@
 // material, random-provider, renderer, ray-tracing, or NVRHI dependency.
 
 public static const uint kUpt03ExpectedGeneration = 0x10203040u;
+public static const uint kUpt03PackedSelectedTag = 1u;
+public static const uint kUpt03PackedCountOnlyTag = 2u;
 
 public struct Upt03Candidate
 {
@@ -174,7 +176,14 @@ public Upt03PackedReservoir Upt03PackReservoir(Upt03LogicalReservoir reservoir)
 {
     Upt03PackedReservoir packed = (Upt03PackedReservoir)0;
     if (reservoir.hasSelectedSample == 0u)
+    {
+        if (reservoir.effectiveM != 0u && reservoir.weightSum == 0.0f)
+        {
+            packed.word0 = kUpt03PackedCountOnlyTag;
+            packed.word1 = reservoir.effectiveM;
+        }
         return packed;
+    }
 
     const Upt03Candidate candidate = reservoir.selected;
     packed.word0 = Upt03PackHeader(candidate);

@@ -1,0 +1,139 @@
+UPT-06 History/Resource Page Admission
+======================================
+
+Scope
+-----
+
+UPT-06 admits resource ownership and history validity only. It adds no temporal
+or spatial shader, neighbor read, shift, visibility ray, dispatch, output, or
+third full-resolution scratch page. UPT-05 D0 still writes page 0 and R0 still
+reads page 0.
+
+Zero-only prerequisite
+----------------------
+
+The UPT-04 codec formerly finalized both of these to all-zero bytes:
+
+    no mathematically defined candidate occurred;
+    one or more VALID_ZERO candidates occurred but no sample was selectable.
+
+That ambiguity is harmless for no-reuse display but incorrect once a valid
+history sample is combined with the current proposal set: the current defined
+zero trial must remain in the estimator normalization.
+
+UPT-06 retains the 64-byte stride and defines the low-nibble record tags:
+
+    0: canonical empty/no defined trial; all 64 bytes zero
+    1: selected-sample record; existing payload contract
+    2: count-only record; word1 is positive M, words2..15 are zero
+
+The initial path-tree proposal set is collapsed to one reservoir candidate, so
+zero-only initial output is tag 2 with M = 1. It has no selected identity,
+weight, target, age, or history authority. Resolve continues to require tag bit
+0 and therefore displays count-only exactly like black/empty while preserving
+the information for reuse.
+
+Physical pages and memory
+-------------------------
+
+The owner has exactly two structured buffers:
+
+    page bytes = width * height * 64
+    page count = 2
+    total bytes = width * height * 128
+
+At 2560 x 1440 this is 235,929,600 bytes per page and 471,859,200 bytes total.
+There is no GPU metadata/header allocation. Page 0 receives its existing
+allocation-only clear so partial proof stages remain deterministic. Page 1 is
+never cleared; its bytes are unavailable until a future full-domain producer
+publishes fullyWritten=true.
+
+Host metadata
+-------------
+
+Each physical page owns one PathTraceUnifiedPtPageMetadata record:
+
+    fullyWritten
+    width and height
+    uint64 contentGeneration
+    uint64 historyEpoch
+
+contentGeneration fingerprints the reservoir ABI, enabled family/backend,
+proposal and transport policy, route availability, material policy, stable
+scene/geometry/material/texture/light publications, and output resolution. It
+deliberately excludes cameraProjection and cpuUploadGeneration because both
+change during ordinary frames.
+
+historyEpoch is a full-width monotonic host token published by frame resources.
+It advances on explicit output/scene/primary-history invalidation. Zero is
+reserved for unpublished state. RT_FRAME_RESET_CAMERA_CUT is reserved for the
+UPT-07 cut detector or an explicit game-owned cut signal; ordinary camera motion
+must not set it. UPT-06 does not pretend that cameraProjection is a cut serial.
+
+When the observed epoch changes, both metadata records are invalidated. Neither
+buffer is cleared. After a production full-frame D0 dispatch, page 0 alone is
+published fully written with the current generation and epoch. Partial proof
+stages 7 and 8 never publish full coverage. R0 rejects page 0 unless its metadata
+matches the current extent and epoch.
+
+Page-role schedules
+-------------------
+
+No reuse:
+
+    page 0 <- initial
+    resolve <- page 0
+    page 1 metadata remains invalid
+
+Temporal only:
+
+    roles flip once per completed frame
+    current <- initial
+    temporal reads current plus history and writes current in-place
+    resolve <- current
+    current becomes next history
+
+The in-place temporal write remains gated on proving that an invocation never
+reads another current pixel after it may have been overwritten. Previous
+history neighborhood reads always use the other physical page.
+
+Spatial only:
+
+    page 0 <- initial
+    page 1 <- spatial(page 0)
+    resolve <- page 1
+
+Temporal plus spatial:
+
+    page 0 <- initial
+    page 0 <- temporal(page 0 current, page 1 previous history)
+    full UAV barrier
+    page 1 <- spatial(page 0)
+    resolve <- page 1
+    page 1 becomes next history and physical roles flip
+
+Every admitted producer must cover its full output domain with selected,
+count-only, or canonical-empty records. No invalidation path may clear a page.
+No third full-resolution reservoir is justified by these schedules.
+
+Runtime acceptance
+------------------
+
+Use the normal UPT route with proofStage 9. The first enable must report:
+
+    allocated pages 0+1 ... totalBytes=... page1Clear=never
+    history metadata invalidated ... pageClear=none
+    page metadata page0(...)=... page1Full=0 ... pages=2
+
+Reload/resize must advance the epoch and print metadata invalidation without a
+page clear. Ordinary camera movement must not repeatedly print invalidation.
+The resolved image must remain equivalent to UPT-05 because count-only records
+have no selected contribution.
+
+UPT-07 boundary
+---------------
+
+UPT-07 owns the first temporal shader, prior-primary receiver admission,
+reprojection/compatibility, explicit camera-cut observation, history page role
+flip, and history candidate math. It must consume the host metadata before any
+per-pixel history load and must not add a clear or a third page.

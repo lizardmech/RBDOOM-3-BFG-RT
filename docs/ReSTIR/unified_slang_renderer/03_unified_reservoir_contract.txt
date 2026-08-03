@@ -108,13 +108,15 @@ An empty reservoir is a single canonical all-zero/known-tag representation:
 Empty writes are mandatory for invalid receivers and receivers with no selected
 sample. Do not leave a previous frame's bytes in place.
 
-The current 64-byte codec deliberately finalizes a zero-only stream as canonical
-empty and therefore discards its transient logical M. That is accepted only for
-UPT-04, which has no history consumer. Before UPT-06 admits history, the public
-reuse derivation must either prove that zero-only trial count is irrelevant or
-admit a distinct count-only representation with no selectable identity. Do not
-let temporal/spatial reuse silently interpret canonical empty as evidence that
-no mathematically defined trial occurred.
+UPT-06 adds a distinct count-only representation without changing the 64-byte
+stride. Low-nibble tag 0 is canonical empty/no defined trial, tag 1 is a
+selected sample, and tag 2 is count-only. A count-only record stores only a
+positive M in word1; words2..15 must be zero and it has no selectable identity,
+weight, target, age, or history authority. The initial path-tree proposal set is
+collapsed to one reservoir candidate, so a zero-only initial result stores
+M = 1. This preserves the normalization evidence needed when valid history is
+later combined with a current zero contribution while keeping invalid receivers
+as all-zero canonical empty.
 
 Initial unified sampling contract
 ---------------------------------
@@ -127,8 +129,10 @@ For every valid primary receiver:
 3. Classify each proposal INVALID / VALID_ZERO / VALID_POSITIVE before update.
 4. Stream direct and global candidates through one update contract.
 5. Finalize once after all admitted candidates.
-6. If nothing selectable survived, store canonical empty.
-7. Otherwise store exactly one selected shared reservoir.
+6. If defined trials occurred but nothing selectable survived, store count-only
+   M = 1 with no identity.
+7. If no defined trial occurred, store canonical empty.
+8. Otherwise store exactly one selected shared reservoir.
 
 The reservoir/update/reuse modules may consume material-evaluation results such
 as value, PDF, lobe/event flags, emission, and validity. They may not inspect a
@@ -153,8 +157,8 @@ Russian roulette is transport sampling, not a reservoir candidate family:
         probability in its path PDF/throughput exactly once;
     replay and receiver-domain re-evaluation consume the stored accumulated
         survival-probability semantics without replaying roulette decisions;
-    if no selectable candidate exists, canonical empty is written under the
-        normal candidate contract.
+    if defined candidates exist but none is selectable, count-only M = 1 is
+        written; canonical empty remains reserved for no defined trial.
 
 The initial pass must expose counters for:
 
@@ -291,7 +295,9 @@ Baseline, no reuse:
 
     page 0 <- initial
     resolve reads page 0
-    allocated pages: 1
+    UPT-04/05 allocated pages: 1
+    UPT-06 admitted physical pages: 2; page 1 remains metadata-invalid and is
+        neither bound nor cleared until reuse owns a full-domain producer
 
 Temporal only:
 
@@ -363,9 +369,10 @@ changes while moving and therefore cannot be used as the page history epoch.
 Temporal admission requires a separately published monotonic camera-cut/history
 generation. Resolution changes recreate output-sized pages and metadata.
 
-Packed word0 bit 0 remains only per-pixel selected-sample validity. Bits 1..3
-remain reserved; they are not a rolling epoch. Three bits wrap after eight
-invalidations and cannot provide lifetime-safe staleness rejection. The
+Packed word0 bit 0 remains only per-pixel selected-sample validity. Bit 1 is the
+mutually exclusive count-only tag admitted by UPT-06. Bits 2..3 remain reserved;
+none of bits 1..3 is a rolling epoch. A narrow rolling value would wrap and
+cannot provide lifetime-safe staleness rejection. The
 compile-time kUpt03ExpectedGeneration validates candidate construction but is
 not stored in the packed reservoir and is not a runtime history stamp.
 

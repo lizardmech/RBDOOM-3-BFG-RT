@@ -24,10 +24,13 @@ multiple 168-byte work records across three inline traversal loops. A 5,732-
 byte full-frame traversal-isolation shader is built and deployed as proof mode
 14. Its live Nsight result reached nearly maximum RT-core utilization and was
 read-constrained, proving that the live TLAS and Vulkan RayQuery path can feed
-traversal when production D0 state is absent. Production raygen versus
-RayQuery remains the final discriminator before admitting a D0 split. Timing
-stability is retained, but low-level efficiency is not yet accepted. Temporal
-and spatial work remains unauthorized pending that A/B.
+traversal when production D0 state is absent. The later compact-record and
+split A/Bs retained compact primary/geometry/light data but rejected both D0
+splits: each serialized traversal and was slower than the roughly 0.9 ms
+monolithic result. UPT-06 now admits exactly two 64-byte reservoir pages,
+host-owned full-width metadata, and a count-only zero-trial encoding without a
+stride increase. Page 1 is not consumed or cleared yet; temporal/spatial math
+remains outside this admission task.
 
 Purpose
 -------
@@ -289,6 +292,11 @@ Packet index
         three-query megakernel evidence, and the deployed full-frame
         traversal-isolation proof mode 14, plus the UPT-only 336-byte versus
         172-byte compact-primary payload A/B.
+
+    20_upt06_history_resource_admission.txt
+        Two-page allocation/lifetime admission, host-owned page metadata,
+        count-only zero-trial encoding, no-clear invalidation, and the exact
+        temporal/spatial page-role schedules.
 
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,

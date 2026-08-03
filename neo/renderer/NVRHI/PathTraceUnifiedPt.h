@@ -2,11 +2,12 @@
 
 // Isolated runtime owner for the clean Slang unified ReSTIR PT lane.
 //
-// UPT-04 owns exactly one 64-byte reservoir page and exactly one selected
-// initial-sampling pipeline. UPT-05 adds one trace-free resolve pipeline and
-// one RGBA16F output. Neither stage owns history, temporal/spatial reuse,
-// queues, or any legacy smoke constants. A separate one-shot diagnostic
-// specialization owns one fixed counter/readback pair.
+// UPT-06 admits exactly two 64-byte reservoir pages plus host-owned page
+// metadata. Initial sampling still writes page 0 and UPT-05 resolve still reads
+// page 0; page 1 is invalid until an admitted reuse producer fully covers it.
+// There is no temporal/spatial dispatch yet, no third page, and no per-frame
+// full-page clear. A separate one-shot diagnostic specialization owns one fixed
+// counter/readback pair.
 
 #include "PathTraceSceneInputs.h"
 
@@ -55,7 +56,27 @@ struct PathTraceUnifiedPtDispatchInputs
     bool compactMaterials = false;
     bool splitInitial = false;
     bool splitContinuation = false;
+    uint64_t historyEpoch = 0;
+    uint32_t historyResetReasonFlags = 0;
     float primaryCameraOrigin[3] = {};
+};
+
+struct PathTraceUnifiedPtPageMetadata
+{
+    bool fullyWritten = false;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint64_t contentGeneration = 0;
+    uint64_t historyEpoch = 0;
+
+    void Invalidate()
+    {
+        fullyWritten = false;
+        width = 0;
+        height = 0;
+        contentGeneration = 0;
+        historyEpoch = 0;
+    }
 };
 
 class PathTraceUnifiedPtState
@@ -73,7 +94,7 @@ public:
     void Release();
 
 private:
-    bool EnsurePage(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsurePages(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsurePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureDiagnosticBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -121,13 +142,17 @@ private:
     bool m_splitContinuation = false;
     bool m_pipelineAttempted = false;
     bool m_resourceFailureLogged = false;
-    bool m_pageNeedsClear = false;
+    bool m_page0NeedsAllocationClear = false;
     uint32_t m_reportedProofStage = UINT32_MAX;
 
     uint32_t m_pageWidth = 0;
     uint32_t m_pageHeight = 0;
     uint64_t m_pageBytes = 0;
     nvrhi::BufferHandle m_page0;
+    nvrhi::BufferHandle m_page1;
+    PathTraceUnifiedPtPageMetadata m_page0Metadata;
+    PathTraceUnifiedPtPageMetadata m_page1Metadata;
+    uint64_t m_observedHistoryEpoch = 0;
     nvrhi::BufferHandle m_diagnosticCounters;
     nvrhi::BufferHandle m_diagnosticReadback;
     bool m_diagnosticReadbackPending = false;

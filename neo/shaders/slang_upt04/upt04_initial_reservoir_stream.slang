@@ -53,9 +53,13 @@ public void Upt04StreamInitialTraceWork(
 public Upt03PackedReservoir Upt04FinalizeInitialReservoir(
     inout Upt03LogicalReservoir reservoir)
 {
-    if (reservoir.hasSelectedSample != 0u && reservoir.effectiveM != 0u)
+    if (reservoir.effectiveM != 0u)
     {
-        reservoir.weightSum /= float(reservoir.effectiveM);
+        if (reservoir.hasSelectedSample != 0u)
+            reservoir.weightSum /= float(reservoir.effectiveM);
+        // The complete initial proposal set is one current-frame reservoir
+        // candidate for reuse. Preserve that one defined trial even when every
+        // streamed proposal was VALID_ZERO and no selectable identity exists.
         reservoir.effectiveM = 1u;
     }
     return Upt03PackReservoir(reservoir);

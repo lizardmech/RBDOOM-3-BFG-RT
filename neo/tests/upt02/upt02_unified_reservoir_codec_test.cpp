@@ -209,8 +209,15 @@ void TestCanonicalEmpty() {
 	LogicalReservoir zerosOnly = {};
 	Check(StreamCandidate(zerosOnly, ZeroCandidate(1), 0.0, 1) == UpdateResult::CountedValidZero,
 		"zero-only stream must count while logical streaming is active");
-	Check(PackReservoir(zerosOnly, 1, packed) && IsCanonicalEmpty(packed),
-		"a finalized stream with no selectable sample must discard transient M and write canonical empty");
+	Check(PackReservoir(zerosOnly, 1, packed) && !IsCanonicalEmpty(packed) &&
+		packed.words[0] == kPackedCountOnlyTag && packed.words[1] == 1,
+		"a finalized zero-only stream must preserve M in the count-only representation");
+	Check(UnpackReservoir(packed, 1, decoded) && !decoded.hasSelectedSample &&
+		decoded.effectiveM == 1 && decoded.weightSum == 0.0,
+		"count-only state must round-trip without acquiring a selected identity");
+	packed.words[2] = 1;
+	Check(!UnpackReservoir(packed, 1, decoded),
+		"count-only records with stray selected-sample payload must be rejected");
 }
 
 void TestPackRoundTrip() {

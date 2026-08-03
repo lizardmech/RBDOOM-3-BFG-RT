@@ -1369,7 +1369,7 @@ idCVar r_pathTracingUnifiedPtEnable(
     "r_pathTracingUnifiedPtEnable",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean unified Slang ReSTIR PT route request; overrides legacy Clean-DI/GI execution, runs the selected primary producer and one selected UPT-04 initial sampler into a private 64-byte reservoir page; UPT-05 presentation is separately admitted by r_pathTracingUnifiedPtResolve" );
+    "Clean unified Slang ReSTIR PT route request; overrides legacy Clean-DI/GI execution; UPT-06 owns two private 64-byte reservoir pages while no-reuse D0/R0 still use page 0 only; UPT-05 presentation is separately admitted by r_pathTracingUnifiedPtResolve" );
 
 idCVar r_pathTracingUnifiedPtLeanPrimary(
     "r_pathTracingUnifiedPtLeanPrimary",
@@ -1429,7 +1429,7 @@ idCVar r_pathTracingUnifiedPtProofStage(
     "r_pathTracingUnifiedPtProofStage",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "UPT-04 live admission ladder after the full-frame GPU watchdog: 1 input closure only (safe default), 2 page allocation, 3 selected pipeline creation, 4 descriptor creation, 5 barriers+initial clear, 6 state+push binding, 7 one 8x8 group, 8 one full-width 8-pixel row, 9 full-frame dispatch" );
+    "UPT live admission ladder after the full-frame GPU watchdog: 1 input closure only (safe default), 2 two-page allocation, 3 selected pipeline creation, 4 descriptor creation, 5 barriers+page-0 allocation clear, 6 state+push binding, 7 one 8x8 group, 8 one full-width 8-pixel row, 9 full-frame dispatch" );
 
 idCVar r_pathTracingUnifiedPtShaderProof(
     "r_pathTracingUnifiedPtShaderProof",

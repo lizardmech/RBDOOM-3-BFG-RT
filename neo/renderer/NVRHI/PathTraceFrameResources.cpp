@@ -643,6 +643,7 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     primarySurfaceHistoryNeedsClear = true;
     primarySurfaceHistoryState.Reset(reasonFlags);
     primarySurfaceHistoryView.Reset();
+    AdvanceHistoryEpoch(reasonFlags);
     smokeAccumulationSignature = 0;
     smokeAccumulationFrameCount = 0;
     ResetReadbackQueue();
@@ -656,6 +657,7 @@ void RtPathTraceFrameResources::ResetSceneDependentState()
     primarySurfaceHistoryNeedsClear = true;
     primarySurfaceHistoryState.Reset(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_PRIMARY_HISTORY);
     primarySurfaceHistoryView.Reset();
+    AdvanceHistoryEpoch(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_PRIMARY_HISTORY);
     ResetReadbackQueue();
     MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_PRIMARY_HISTORY);
 }
@@ -670,6 +672,18 @@ void RtPathTraceFrameResources::ResetReadbackQueue()
 void RtPathTraceFrameResources::MarkResetReason(uint32_t reasonFlags)
 {
     settings.resetReasonFlags |= reasonFlags;
+}
+
+void RtPathTraceFrameResources::AdvanceHistoryEpoch(uint32_t reasonFlags)
+{
+    // Zero is reserved for "not published". A practical uint64 wrap is not a
+    // runtime concern, but fail closed if it ever occurs.
+    ++historyEpoch;
+    if (historyEpoch == 0)
+    {
+        historyEpoch = 1;
+    }
+    MarkResetReason(reasonFlags);
 }
 
 void RtPathTraceFrameResources::ClearResetReasons()
@@ -693,7 +707,7 @@ void RtPathTraceFrameResources::InvalidatePrimarySurfaceHistory(uint32_t reasonF
     primarySurfaceHistoryNeedsClear = true;
     primarySurfaceHistoryState.Reset(reasonFlags | RT_FRAME_RESET_PRIMARY_HISTORY);
     primarySurfaceHistoryView.Reset();
-    MarkResetReason(reasonFlags | RT_FRAME_RESET_PRIMARY_HISTORY);
+    AdvanceHistoryEpoch(reasonFlags | RT_FRAME_RESET_PRIMARY_HISTORY);
 }
 
 void RtPathTraceFrameResources::RecordSceneResourceCommit(uint64_t uploadBytes, bool rebuiltBindingSet, bool committedAccelerationStructures)
@@ -752,6 +766,10 @@ void RtPathTraceFrameResources::DescribeResetReasons(idStr& out) const
     if ((reasons & RT_FRAME_RESET_GPU_IDLE_WAIT) != 0)
     {
         AppendReason(out, "gpu-idle-wait");
+    }
+    if ((reasons & RT_FRAME_RESET_CAMERA_CUT) != 0)
+    {
+        AppendReason(out, "camera-cut");
     }
 }
 

@@ -28,7 +28,7 @@ static constexpr uint32_t UPT04_MATERIAL_LEGACY_SPECMAP_TO_PBR = 1u << 5u;
 static constexpr uint32_t UPT04_TRANSPORT_K_MAX = 2u;
 static constexpr uint32_t UPT04_TRANSPORT_POLICY_ID = 1u;
 static constexpr uint32_t UPT04_NEE_RIS_CANDIDATE_COUNT = 1u;
-static constexpr uint32_t UPT04_ABI_VERSION = 6u;
+static constexpr uint32_t UPT04_ABI_VERSION = 7u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 20u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
@@ -287,18 +287,17 @@ static uint64_t Upt04HashValue(uint64_t hash, uint64_t value)
     return hash;
 }
 
-static uint64_t Upt04BuildPageGeneration(
+static uint64_t Upt06BuildContentGeneration(
     const PathTraceUnifiedPtDispatchInputs& dispatch,
     uint32_t enabledFamilyMask,
     uint32_t specializationIdentity,
     uint32_t availabilityFlags)
 {
-    // UPT-04 uses this only as a current-dispatch proposal fingerprint.  It is
-    // not yet a temporal-history key: cameraProjection changes during ordinary
-    // camera motion, and the live inputs do not publish a dedicated camera-cut
-    // generation.  UPT-06 must attach full-width metadata to each physical page,
-    // exclude ordinary projection motion, and include a monotonic history/cut
-    // epoch.  Do not duplicate a rolling epoch into every 64-byte pixel record.
+    // Full-width page content/proposal fingerprint. Camera projection and the
+    // per-frame CPU upload serial are deliberately excluded: ordinary camera
+    // motion must preserve history, and both physical pages carry a separate
+    // monotonic host-owned history epoch. Do not duplicate this state into
+    // every 64-byte pixel record.
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     uint64_t hash = 1469598103934665603ull;
     hash = Upt04HashValue(hash, UPT04_ABI_VERSION);
@@ -319,8 +318,6 @@ static uint64_t Upt04BuildPageGeneration(
     hash = Upt04HashValue(hash, inputs.signatures.materialTable);
     hash = Upt04HashValue(hash, inputs.signatures.lightMembership);
     hash = Upt04HashValue(hash, inputs.signatures.outputResolution);
-    hash = Upt04HashValue(hash, inputs.signatures.cameraProjection);
-    hash = Upt04HashValue(hash, inputs.signatures.cpuUploadGeneration);
     hash = Upt04HashValue(hash, inputs.signatures.reservoirScene);
     hash = Upt04HashValue(hash, inputs.materials.textureDescriptorGeneration);
     hash = Upt04HashValue(hash, inputs.lights.restirLightManagerStructuralSignature);
@@ -735,17 +732,6 @@ static Upt04InitialControl Upt04BuildControl(const PathTraceUnifiedPtDispatchInp
                 & PATH_TRACE_UPT_MATERIAL_LEGACY_SPECMAP_TO_PBR) != 0u
             ? UPT04_MATERIAL_LEGACY_SPECMAP_TO_PBR
             : 0u);
-    const uint64_t pageGeneration = Upt04BuildPageGeneration(
-        dispatch,
-        enabledFamilyMask,
-        specializationIdentity,
-        availabilityFlags);
-    // UPT-04 has no history page yet. Preserve construction of the current-page
-    // proposal fingerprint while its former push-constant words carry the
-    // camera origin for the compact32 experiment.  UPT-06 owns publication of
-    // per-page history metadata; this value must not silently become that key
-    // without the camera-motion correction documented above.
-    static_cast<void>(pageGeneration);
     const uint64_t surfaceCount64 = uint64_t(dispatch.width) * uint64_t(dispatch.height);
 
     Upt04InitialControl control = {};
@@ -875,10 +861,14 @@ void PathTraceUnifiedPtState::Release()
     ReleaseContinuation();
     ReleaseResolve();
     m_page0 = nullptr;
+    m_page1 = nullptr;
+    m_page0Metadata.Invalidate();
+    m_page1Metadata.Invalidate();
+    m_observedHistoryEpoch = 0;
     m_pageWidth = 0;
     m_pageHeight = 0;
     m_pageBytes = 0;
-    m_pageNeedsClear = false;
+    m_page0NeedsAllocationClear = false;
     m_diagnosticCounters = nullptr;
     m_diagnosticReadback = nullptr;
     m_diagnosticReadbackPending = false;
@@ -935,7 +925,7 @@ void PathTraceUnifiedPtState::ReportProofStage(
     m_reportedProofStage = stage;
 }
 
-bool PathTraceUnifiedPtState::EnsurePage(const PathTraceUnifiedPtDispatchInputs& inputs)
+bool PathTraceUnifiedPtState::EnsurePages(const PathTraceUnifiedPtDispatchInputs& inputs)
 {
     const uint64_t count = uint64_t(inputs.width) * uint64_t(inputs.height);
     if (count == 0 || count > std::numeric_limits<uint32_t>::max() ||
@@ -944,9 +934,11 @@ bool PathTraceUnifiedPtState::EnsurePage(const PathTraceUnifiedPtDispatchInputs&
         return false;
     }
     const uint64_t bytes = count * UPT04_RESERVOIR_STRIDE;
-    if (m_page0 && m_pageWidth == inputs.width && m_pageHeight == inputs.height &&
+    if (m_page0 && m_page1 && m_pageWidth == inputs.width && m_pageHeight == inputs.height &&
         m_page0->getDesc().structStride == UPT04_RESERVOIR_STRIDE &&
-        m_page0->getDesc().byteSize >= bytes)
+        m_page0->getDesc().byteSize >= bytes &&
+        m_page1->getDesc().structStride == UPT04_RESERVOIR_STRIDE &&
+        m_page1->getDesc().byteSize >= bytes)
     {
         return true;
     }
@@ -958,18 +950,23 @@ bool PathTraceUnifiedPtState::EnsurePage(const PathTraceUnifiedPtDispatchInputs&
     desc.canHaveUAVs = true;
     desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
     desc.keepInitialState = true;
-    nvrhi::BufferHandle page = inputs.device->createBuffer(desc);
-    if (!page)
+    nvrhi::BufferHandle page0 = inputs.device->createBuffer(desc);
+    desc.debugName = "PathTraceUnifiedPtReservoirPage1";
+    nvrhi::BufferHandle page1 = inputs.device->createBuffer(desc);
+    if (!page0 || !page1)
     {
         common->Printf(
-            "PathTraceUnifiedPt: failed to allocate page 0 (%ux%u, %llu bytes)\n",
+            "PathTraceUnifiedPt: failed to allocate two-page history set (%ux%u, %llu bytes/page)\n",
             inputs.width,
             inputs.height,
             static_cast<unsigned long long>(bytes));
         return false;
     }
 
-    m_page0 = page;
+    m_page0 = page0;
+    m_page1 = page1;
+    m_page0Metadata.Invalidate();
+    m_page1Metadata.Invalidate();
     m_pageWidth = inputs.width;
     m_pageHeight = inputs.height;
     m_pageBytes = bytes;
@@ -977,17 +974,18 @@ bool PathTraceUnifiedPtState::EnsurePage(const PathTraceUnifiedPtDispatchInputs&
     // stages. Production D0 fully overwrites the page, including canonical
     // empty records. Never set this for camera cuts or history invalidation;
     // future reuse invalidates small per-page metadata instead.
-    m_pageNeedsClear = true;
+    m_page0NeedsAllocationClear = true;
     m_bindingSet = nullptr;
     m_bindingSetDescValid = false;
     m_resolveBindingSet = nullptr;
     m_resolveBindingSetDescValid = false;
     common->Printf(
-        "PathTraceUnifiedPt: allocated page 0 %ux%u records=%llu bytes=%llu stride=%u\n",
+        "PathTraceUnifiedPt: allocated pages 0+1 %ux%u records/page=%llu bytes/page=%llu totalBytes=%llu stride=%u page1Clear=never\n",
         inputs.width,
         inputs.height,
         static_cast<unsigned long long>(count),
         static_cast<unsigned long long>(bytes),
+        static_cast<unsigned long long>(bytes * 2ull),
         UPT04_RESERVOIR_STRIDE);
     return true;
 }
@@ -2499,7 +2497,27 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         ReportProofStage(1u, "input-closure", inputs.backend, inputs.family);
         return true;
     }
-    if (!EnsurePage(inputs))
+    if (inputs.historyEpoch == 0)
+    {
+        if (!m_resourceFailureLogged)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: missing full-width history epoch; dispatch skipped\n");
+            m_resourceFailureLogged = true;
+        }
+        return false;
+    }
+    if (m_observedHistoryEpoch != inputs.historyEpoch)
+    {
+        m_page0Metadata.Invalidate();
+        m_page1Metadata.Invalidate();
+        m_observedHistoryEpoch = inputs.historyEpoch;
+        common->Printf(
+            "PathTraceUnifiedPt: history metadata invalidated epoch=%llu reasons=0x%08x pageClear=none\n",
+            static_cast<unsigned long long>(inputs.historyEpoch),
+            inputs.historyResetReasonFlags);
+    }
+    if (!EnsurePages(inputs))
     {
         return false;
     }
@@ -2638,12 +2656,12 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 m_diagnosticCounters, nvrhi::ResourceStates::UnorderedAccess);
         }
         inputs.commandList->commitBarriers();
-        if (m_pageNeedsClear)
+        if (m_page0NeedsAllocationClear)
         {
             // One-shot allocation clear, not a per-frame reservoir operation.
             inputs.commandList->clearBufferUInt(m_page0, 0u);
             nvrhi::utils::BufferUavBarrier(inputs.commandList, m_page0);
-            m_pageNeedsClear = false;
+            m_page0NeedsAllocationClear = false;
         }
         if (inputs.diagnostics)
         {
@@ -2827,6 +2845,36 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
             m_diagnosticReadbackFamily = inputs.family;
         }
     }
+    const bool productionFullFrame = inputs.proofStage >= 9u &&
+        Upt04PipelineVariant(inputs) == 0u;
+    if (productionFullFrame)
+    {
+        const uint32_t enabledFamilyMask = Upt04FamilyMask(inputs.family);
+        const uint32_t specializationIdentity =
+            static_cast<uint32_t>(inputs.family) |
+            (static_cast<uint32_t>(inputs.backend) << 8u);
+        const uint64_t contentGeneration = Upt06BuildContentGeneration(
+            inputs,
+            enabledFamilyMask,
+            specializationIdentity,
+            control.availabilityFlags);
+        const bool firstPublicationForEpoch = !m_page0Metadata.fullyWritten ||
+            m_page0Metadata.historyEpoch != inputs.historyEpoch;
+        m_page0Metadata.fullyWritten = true;
+        m_page0Metadata.width = inputs.width;
+        m_page0Metadata.height = inputs.height;
+        m_page0Metadata.contentGeneration = contentGeneration;
+        m_page0Metadata.historyEpoch = inputs.historyEpoch;
+        if (firstPublicationForEpoch)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: page metadata page0(full/generation/epoch)=%d/%016llx/%llu page1Full=%d clears(allocation/invalidation)=1/0 pages=2\n",
+                m_page0Metadata.fullyWritten ? 1 : 0,
+                static_cast<unsigned long long>(contentGeneration),
+                static_cast<unsigned long long>(inputs.historyEpoch),
+                m_page1Metadata.fullyWritten ? 1 : 0);
+        }
+    }
     if (inputs.proofStage == 7u)
     {
         ReportProofStage(
@@ -2998,7 +3046,10 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
     const bool productionFullFrame = inputs.proofStage >= 9u &&
         Upt04PipelineVariant(inputs) == 0u;
     if (!productionFullFrame || !m_page0 || m_pageWidth != inputs.width ||
-        m_pageHeight != inputs.height)
+        m_pageHeight != inputs.height || !m_page0Metadata.fullyWritten ||
+        m_page0Metadata.width != inputs.width ||
+        m_page0Metadata.height != inputs.height ||
+        m_page0Metadata.historyEpoch != inputs.historyEpoch)
     {
         if (!m_resolveFailureLogged)
         {
