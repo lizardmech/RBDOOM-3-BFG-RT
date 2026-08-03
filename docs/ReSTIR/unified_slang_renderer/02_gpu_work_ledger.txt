@@ -113,9 +113,11 @@ R1. Unified packed reservoir page 0
     Format: structured buffer, final stride not accepted until packing audit;
         target ceiling is 64 bytes per pixel unless evidence requires more.
     Lifetime: renderer-owned, resolution-sized, recreated on dimension/ABI
-        change, explicitly invalidated on scene/light/material generation reset.
-    Clear: only at creation/reset. The initial pass must write a canonical
-        valid-or-empty record for every in-domain pixel, so no per-frame clear.
+        change; small page metadata is invalidated on scene/light/material
+        generation reset without touching the full page.
+    Clear: allocation-only for deterministic partial proof stages. The initial
+        pass writes a canonical valid-or-empty record for every in-domain pixel,
+        so there is no per-frame, reset, or camera-cut page clear.
 
 R2. Test HDR output
 
@@ -238,6 +240,14 @@ F0. Reservoir page 1
 
     Added only with temporal or spatial reuse. See page schedules in
     03_unified_reservoir_contract.txt.
+    Each physical page carries one small host-visible logical metadata record:
+        fully-written/valid state
+        full-width proposal/content generation
+        monotonic camera-cut/history epoch
+    This is page metadata, not a field duplicated into every 64-byte reservoir.
+    Invalidation changes the metadata and never clears the full page. Do not
+    allocate a GPU metadata buffer unless the admitted temporal consumer proves
+    that host-owned state plus dispatch control cannot enforce the same check.
 
 F1. Compact sample-ID image
 
@@ -282,6 +292,9 @@ Future dispatches already planned but not admitted
 F-D0. Temporal resampling
     One pass. Reads current initial plus previous history, writes current page.
     Must rescue an invalid current reservoir from valid history.
+    Reject the entire previous page before per-pixel reads when its page
+    metadata is invalid or its generation/epoch does not match. Ordinary camera
+    motion uses reprojection and must not change the global history epoch.
 
 F-D1. Spatial resampling
     One pass. Reads temporal/current page, writes the other page.

@@ -324,6 +324,68 @@ Temporal + spatial:
 No third full-resolution scratch reservoir is admitted unless the two-page
 schedule is proven unsafe.
 
+Full coverage, invalidation, and clear prohibition
+--------------------------------------------------
+
+Every full-resolution UPT buffer must satisfy one of two contracts:
+
+    its producer writes every in-domain element every frame, including an
+        explicit canonical invalid/no-data value; or
+    a consumer validates an explicit stamp before reading any element that a
+        sparse producer may have skipped.
+
+The reservoir pages use the first contract. Initial, temporal, and spatial
+producers write one selected or all-zero canonical-empty record for every pixel
+in their output domain. Therefore camera cuts, scene/material/light changes,
+ordinary history resets, and feature toggles must never call clearBufferUInt on
+a full reservoir page. The current UPT-04 allocation-time clear exists only to
+make partial watchdog proof stages deterministic before the first full-frame
+write; it is not part of steady-state rendering or future invalidation.
+
+All records in one physical reservoir page share one small logical page-metadata
+record. It contains at least:
+
+    whether a full producer dispatch completed/was admitted for the page;
+    a full-width proposal/content generation covering ABI, scene, geometry,
+        material, texture, light, provider, family, and transport policy; and
+    a monotonic camera-cut/history epoch.
+
+The metadata may remain host-owned if temporal admission can reject a history
+page uniformly through dispatch control; do not allocate a GPU header merely to
+mirror host state. If a GPU record is later justified, it is one small record
+per physical page, not a generation field in every 64-byte pixel reservoir.
+Generation mismatch makes the whole history page unavailable before sample
+metadata is consumed. Invalidation updates this metadata; it does not touch the
+225 MiB page at 2560x1440.
+
+Ordinary camera motion is not a history reset. A live camera-projection hash
+changes while moving and therefore cannot be used as the page history epoch.
+Temporal admission requires a separately published monotonic camera-cut/history
+generation. Resolution changes recreate output-sized pages and metadata.
+
+Packed word0 bit 0 remains only per-pixel selected-sample validity. Bits 1..3
+remain reserved; they are not a rolling epoch. Three bits wrap after eight
+invalidations and cannot provide lifetime-safe staleness rejection. The
+compile-time kUpt03ExpectedGeneration validates candidate construction but is
+not stored in the packed reservoir and is not a runtime history stamp.
+
+The compact32 primary receiver likewise must not acquire a per-pixel history
+epoch by assumption. Its 16-bit header currently consists of a 15-bit version
+domain plus one valid bit; the 15 spare-bit observation applies only to the
+older compact48 header. Primary-history validity is page/producer metadata plus
+per-pixel surface validity, motion, identity, depth, and normal tests.
+
+Future sparse reconnection/secondary-surface sidecars cannot rely on page
+metadata alone because skipped elements can be stale within an otherwise
+current page. They require a sufficiently wide per-record stamp with a proven
+non-wrapping lifetime, a measured compact active representation, or full-domain
+canonical-invalid writes. An unproven 3-bit or 8-bit rolling stamp is rejected.
+
+Output and denoiser-guide textures follow the same rule. Producers must cover
+the full output domain and encode no-data in-band (for example, zero hit
+distance where that guide contract defines zero as invalid); conditional guide
+paths may not be repaired with a full-texture clear.
+
 Duplication map plan
 --------------------
 

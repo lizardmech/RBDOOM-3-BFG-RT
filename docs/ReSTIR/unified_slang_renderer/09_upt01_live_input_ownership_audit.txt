@@ -459,7 +459,8 @@ M7. Neutral primary producer schedule
     Extract primary production from the Clean DI branch. Its contract is:
 
         prepare/validate existing scene and primary output
-        clear history only on an explicit invalidation
+        invalidate small history/page metadata on an explicit invalidation;
+            never clear a full-resolution history or reservoir page
         dispatch the producer once if any active route requests it
         issue the current-buffer UAV barrier
         allow all consumers to run
@@ -583,13 +584,14 @@ Lifecycle and invalidation matrix
 Event                         Existing owner/action                  UPT action
 -----                         ---------------------                  ----------
 map/render-world/load serial  scene build waits idle, resets scene  drop bindings,
-change                        resources and primary history          reservoir empty
+change                        resources and primary history          mark page metadata
+                                                                      invalid; no page clear
 
 committed handle change       old package retired for configured    rebuild only the
                               frames; new m_sceneInputs installed    affected binding
 
-render/output resize          frame resources wait idle, recreate   recreate R1/R2,
-                              output-sized resources, reset scene    reset generations
+render/output resize          frame resources wait idle, recreate   recreate R1/R2 and
+                              output-sized resources, reset scene    page metadata
 
 backbuffer resize             scene reset plus output reset          recreate/republish
 
@@ -605,7 +607,8 @@ light payload/remap change    manager computes payload/mapping hash  compare pub
 ordinary camera motion        cameraProjection changes               no blanket history
                                                                       reset
 
-camera cut                    no dedicated published generation       require M2 token
+camera cut                    no dedicated published generation       require monotonic M2
+                                                                      history/cut token
 
 primary ABI change            record version/stride constants         reject and reset
 

@@ -251,7 +251,10 @@ New UPT-owned runtime allocation:
         width * height * 64 bytes, structured UAV/SRV
         created only while the UPT route is active
         every in-domain invocation writes selected or canonical empty
-        no per-frame clear; clear only at creation/reset before first dispatch
+        no per-frame clear; one allocation-only clear protects partial proof
+            stages before the first full dispatch
+        camera cuts/history invalidation must update future page metadata and
+            must not clear this page
 
 Required UPT-04 diagnostic specialization; optional at runtime and absent from
 production timing/binaries:
@@ -418,13 +421,22 @@ P6. Stable page generation snapshot
     Freeze scene/map, TLAS/geometry, material/dynamic/texture, light payload,
     primary producer, resolution, camera-cut, ABI, enabled family, backend,
     provider availability, and sampleable light-range tokens before binding.
-    Any change drops the cached binding set and writes a new page generation.
-    UPT-04 has no history consumer, but stale identity must still fail closed.
+    Any change drops the cached binding set. UPT-04 has no history consumer, so
+    the current code computes this fingerprint but does not publish or consume
+    page metadata yet.
 
-    Implemented for the currently available providers. enabledFamilyMask,
+    The current fingerprint covers the currently available providers.
+    enabledFamilyMask,
     specialization identity, availability flags, and emissive/analytic range
     starts/counts now participate explicitly. A future environment provider
     must add its availability/policy generation to this same hash.
+
+    Do not use the function unchanged as the temporal-history key: it currently
+    includes cameraProjection, which changes during ordinary camera motion.
+    UPT-06 must store full-width metadata once per physical page, use a dedicated
+    monotonic camera-cut/history generation, and reject stale history uniformly
+    without clearing the page. Do not duplicate rolling epoch bits into the
+    packed reservoir or compact primary receiver.
 
 P7. Skinned source-index count
 

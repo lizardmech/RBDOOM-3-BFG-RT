@@ -293,6 +293,12 @@ static uint64_t Upt04BuildPageGeneration(
     uint32_t specializationIdentity,
     uint32_t availabilityFlags)
 {
+    // UPT-04 uses this only as a current-dispatch proposal fingerprint.  It is
+    // not yet a temporal-history key: cameraProjection changes during ordinary
+    // camera motion, and the live inputs do not publish a dedicated camera-cut
+    // generation.  UPT-06 must attach full-width metadata to each physical page,
+    // exclude ordinary projection motion, and include a monotonic history/cut
+    // epoch.  Do not duplicate a rolling epoch into every 64-byte pixel record.
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     uint64_t hash = 1469598103934665603ull;
     hash = Upt04HashValue(hash, UPT04_ABI_VERSION);
@@ -734,9 +740,11 @@ static Upt04InitialControl Upt04BuildControl(const PathTraceUnifiedPtDispatchInp
         enabledFamilyMask,
         specializationIdentity,
         availabilityFlags);
-    // UPT-04 has no history page yet. Preserve construction of the frozen
-    // generation signature while its former push-constant words carry the
-    // camera origin for the compact32 experiment.
+    // UPT-04 has no history page yet. Preserve construction of the current-page
+    // proposal fingerprint while its former push-constant words carry the
+    // camera origin for the compact32 experiment.  UPT-06 owns publication of
+    // per-page history metadata; this value must not silently become that key
+    // without the camera-motion correction documented above.
     static_cast<void>(pageGeneration);
     const uint64_t surfaceCount64 = uint64_t(dispatch.width) * uint64_t(dispatch.height);
 
@@ -965,6 +973,10 @@ bool PathTraceUnifiedPtState::EnsurePage(const PathTraceUnifiedPtDispatchInputs&
     m_pageWidth = inputs.width;
     m_pageHeight = inputs.height;
     m_pageBytes = bytes;
+    // Allocation-only deterministic initialization protects partial proof
+    // stages. Production D0 fully overwrites the page, including canonical
+    // empty records. Never set this for camera cuts or history invalidation;
+    // future reuse invalidates small per-page metadata instead.
     m_pageNeedsClear = true;
     m_bindingSet = nullptr;
     m_bindingSetDescValid = false;
@@ -2628,6 +2640,7 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         inputs.commandList->commitBarriers();
         if (m_pageNeedsClear)
         {
+            // One-shot allocation clear, not a per-frame reservoir operation.
             inputs.commandList->clearBufferUInt(m_page0, 0u);
             nvrhi::utils::BufferUavBarrier(inputs.commandList, m_page0);
             m_pageNeedsClear = false;

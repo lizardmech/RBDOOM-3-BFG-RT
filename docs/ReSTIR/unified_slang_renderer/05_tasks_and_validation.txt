@@ -260,9 +260,18 @@ Deliver:
     second reservoir-page size/lifetime
     page-role schedule for temporal-only, spatial-only, and combined modes
     reset/generation matrix
+    one logical metadata record per physical page: fully-written validity,
+        full-width proposal/content generation, and monotonic history epoch
+    dedicated camera-cut/history generation distinct from cameraProjection
+    proof that every reservoir producer fully covers its output domain
+    proof that invalidation changes metadata without clearing either page
     proof that no third full-resolution reservoir is required
 
 No resampling math in this task.
+
+Do not reserve rolling epoch bits in packed word0 or either compact primary
+receiver. Do not allocate a GPU page-header buffer unless host-owned page state
+plus dispatch control is proven insufficient for uniform history rejection.
 
 UPT-07: Temporal reuse with empty-current recovery
 --------------------------------------------------
@@ -284,6 +293,9 @@ Acceptance:
     current-empty/history-valid recovery proof
     current-valid/history-invalid proof
     light/material/scene reset proof
+    camera cut rejects history while ordinary camera motion preserves it
+    reset/cut capture contains no full-page clear
+    stale page rejected before any per-pixel history metadata changes M or age
     exact shift/reconnection ray count
 
 UPT-08: Duplication history reduction

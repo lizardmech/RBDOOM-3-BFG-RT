@@ -800,3 +800,46 @@ Validation sequence:
    then compare that sum against `UPT.D0 Initial RayQuery Dispatch FullFrame`.
 6. Record total time, L2/VRAM throughput, RTCORE dependency, registers/live
    warps, and frame stability.  Reject/default-off on a neutral or slower sum.
+
+Runtime rejection: the continuation split was also slower. Offline SPIR-V
+inspection confirms this was not a fourth or duplicated continuation query: C0
+contains one OpRayQueryProceedKHR loop, continuation-shade D0 contains two, and
+monolithic D0 contains three. The split serializes one traversal, a full-frame
+hit-facts boundary, and the remaining two-query shade work. Monolithic D0 can
+hide continuation traversal latency behind other warps performing visibility,
+material, and reservoir work. Its fastest measured duration was about 0.9 ms.
+High L2/VRAM throughput in that short interval is therefore not itself evidence
+of a bottleneck; elapsed time and dependency stalls are authoritative. Keep both
+split experiments default-off and do not pursue another D0 boundary without a
+new measured critical path.
+
+Full-page clear and future invalidation audit
+---------------------------------------------
+
+Current UPT steady-state rendering performs no full-page clear. Page 0 is
+cleared once when allocated so partial proof stages are deterministic; full-frame
+D0 subsequently overwrites every 64-byte record every frame, writing the
+all-zero canonical empty for invalid/no-selection pixels. The only per-frame
+clear in this owner is the optional 80-byte diagnostic counter UAV.
+
+Protect this property as temporal, spatial, reconnection, output, and denoiser
+work lands:
+
+    every full-resolution producer fully covers its output with valid or
+        canonical-invalid values; or sparse records carry a proven safe stamp;
+    reservoir/history invalidation updates one metadata record per physical
+        page and never clears the page itself;
+    page metadata uses a full-width proposal/content generation plus a monotonic
+        camera-cut/history epoch;
+    ordinary camera motion is reprojected and does not bump that epoch;
+    packed reservoir bits 1..3 remain reserved, not a three-bit rolling epoch;
+    compact32 has a 15-bit version domain plus validity and does not inherit the
+        compact48 claim of 15 spare header bits;
+    guide no-data values are encoded in-band so their producers can cover the
+        complete output without a preparatory texture clear.
+
+The pre-history Upt04BuildPageGeneration fingerprint is currently computed but
+discarded, and includes cameraProjection. UPT-06 must not silently promote it to
+a history key. The authoritative page-metadata and no-clear contract is in
+03_unified_reservoir_contract.txt; UPT-06/07 acceptance gates are updated in
+05_tasks_and_validation.txt.
