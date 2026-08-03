@@ -167,3 +167,9 @@ UPT-07 owns the first temporal shader, prior-primary receiver admission,
 reprojection/compatibility, explicit camera-cut observation, history page role
 flip, and history candidate math. It must consume the host metadata before any
 per-pixel history load and must not add a clear or a third page.
+
+The first bounded ownership/merge proof is recorded in
+21_upt07_temporal_contract_slice.txt. It assigns packed word0 bit 2 as a
+reservoir-local needs-rescue marker for non-selected records, fixes packed
+word11 as finalized mean source weight for reuse, and keeps its proof shader
+offline until a current-domain shift provider is admitted.

@@ -4,6 +4,7 @@
 public static const uint kUpt03ExpectedGeneration = 0x10203040u;
 public static const uint kUpt03PackedSelectedTag = 1u;
 public static const uint kUpt03PackedCountOnlyTag = 2u;
+public static const uint kUpt03PackedNeedsRescueBit = 4u;
 
 public struct Upt03Candidate
 {

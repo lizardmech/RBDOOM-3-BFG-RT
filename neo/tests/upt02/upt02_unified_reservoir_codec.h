@@ -94,6 +94,7 @@ struct Candidate {
 
 struct LogicalReservoir {
 	bool hasSelectedSample = false;
+	bool needsRescue = false;
 	uint32_t effectiveM = 0;
 	double weightSum = 0.0;
 	Candidate selected = {};
@@ -288,6 +289,12 @@ inline uint32_t PackHeader(const Candidate& candidate) {
 
 inline constexpr uint32_t kPackedSelectedTag = 1u;
 inline constexpr uint32_t kPackedCountOnlyTag = 2u;
+// Bit 2 is a reservoir-local request for the later bounded spatial rescue
+// policy.  It is meaningful only when no selected sample exists.  This keeps
+// tag 0 as the canonical all-zero empty record and tag 2 as count-only while
+// allowing UPT-07 to distinguish an ordinary empty write from an empty result
+// that exhausted both current and compatible temporal candidates.
+inline constexpr uint32_t kPackedNeedsRescueBit = 4u;
 
 inline bool NarrowFiniteFloat(double value, float& result, bool requirePositive) {
 	if (!std::isfinite(value) || value > static_cast<double>(std::numeric_limits<float>::max()) ||
@@ -310,6 +317,9 @@ inline bool PackReservoir(
 		if (reservoir.effectiveM != 0) {
 			packed.words[0] = kPackedCountOnlyTag;
 			packed.words[1] = reservoir.effectiveM;
+		}
+		if (reservoir.needsRescue) {
+			packed.words[0] |= kPackedNeedsRescueBit;
 		}
 		return true;
 	}
@@ -384,8 +394,26 @@ inline bool UnpackReservoir(
 		return true;
 	}
 	const uint32_t header = packed.words[0];
-	if ((header & 0x0fu) == kPackedCountOnlyTag) {
-		if (header != kPackedCountOnlyTag || packed.words[1] == 0) {
+	const uint32_t lowTag = header & 0x03u;
+	const bool needsRescue = (header & kPackedNeedsRescueBit) != 0u;
+	if ((header & 0x08u) != 0u) {
+		return false;
+	}
+	if (lowTag == 0u && needsRescue) {
+		if (header != kPackedNeedsRescueBit || packed.words[1] != 0u) {
+			return false;
+		}
+		for (size_t word = 2; word < packed.words.size(); ++word) {
+			if (packed.words[word] != 0) {
+				return false;
+			}
+		}
+		reservoir.needsRescue = true;
+		return true;
+	}
+	if (lowTag == kPackedCountOnlyTag) {
+		if (header != (kPackedCountOnlyTag |
+			(needsRescue ? kPackedNeedsRescueBit : 0u)) || packed.words[1] == 0) {
 			return false;
 		}
 		for (size_t word = 2; word < packed.words.size(); ++word) {
@@ -394,6 +422,7 @@ inline bool UnpackReservoir(
 			}
 		}
 		reservoir.effectiveM = packed.words[1];
+		reservoir.needsRescue = needsRescue;
 		return true;
 	}
 	if ((header & 0x0fu) != kPackedSelectedTag) {

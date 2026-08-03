@@ -1,0 +1,153 @@
+UPT-07 Temporal Contract Slice: Ownership Before Rays
+=====================================================
+
+Status
+------
+
+Implemented as an offline CPU oracle plus an isolated Slang ownership probe.
+It is not a runtime temporal renderer yet and no UPT-07 SPIR-V is deployed to
+base/renderprogs2. This is intentional: reprojection, compatibility, page
+admission, finalized-weight combination, and empty-current recovery are frozen
+before a shift/reconnection provider is allowed to add ray work.
+
+Live ownership audit
+--------------------
+
+The renderer already owns the two full 176-byte primary-surface streams needed
+by temporal reuse:
+
+    primarySurfaceHistoryBuffers.current
+    primarySurfaceHistoryBuffers.previous
+
+The UPT route executes before publishPrimarySurfaceHistory copies or swaps the
+current primary stream into the previous stream. Therefore the previous handle
+still contains the prior frame while UPT executes. Temporal must consume these
+existing canonical streams; it must not allocate another full-frame receiver or
+attempt to reconstruct prior identity from the compact 32-byte D0 receiver.
+
+The existing UPT-06 reservoir allocation already owns exactly two 64-byte
+pages. The admitted temporal schedule remains:
+
+    current physical page <- full-frame D0 initial
+    T0 reads current[index] plus bounded taps from the other history page
+    T0 overwrites only current[index]
+    resolve reads current
+    physical roles flip exactly once after the completed temporal frame
+
+An aborted/proof-stage frame does not flip. T0 may not read a neighboring
+current record, so an in-place current output is safe. No third reservoir page,
+page-header buffer, output surface stream, or per-frame clear is admitted.
+
+Uniform page gate
+-----------------
+
+History availability is decided once on the host before dispatch. All of these
+must match:
+
+    fullyWritten
+    width and height
+    full-width contentGeneration
+    monotonic historyEpoch
+
+The shader receives one uniform historyAvailable value. When it is false, no
+previous surface or reservoir element is read. A stale page therefore cannot
+change per-pixel M, age, identity, or weight.
+
+First neighborhood contract
+---------------------------
+
+The first proof uses five compile-time taps:
+
+    center, left, right, up, down
+
+Each tap checks bounds, prior surface validity, material id/index/surface class,
+geometric-normal agreement, roughness agreement, projected previous depth, and
+selected reservoir validity. The bound is five surface/reservoir attempts and
+zero rays. A rejected surface never reaches shift/reconnection work.
+
+This is a correctness starting point, not the final sampling policy. UPT-09
+still owns reciprocal spatial neighbor selection. Changing the temporal tap
+set requires an explicit quality/cost A/B and an updated ledger maximum.
+
+Finalized weight contract
+-------------------------
+
+D0 streams raw candidate weights only in registers. Before storing, D0 divides
+the raw sum by its proposal count and collapses the initial proposal set to one
+reservoir candidate. Therefore packed word11 is a finalized mean source weight,
+not the transient raw streaming sum.
+
+For current finalized reservoir C and accepted shifted history H:
+
+    currentMass = C.meanWeight * C.M
+    historyMass = H.meanWeight * capped(H.M)
+        * shiftedTarget / H.selectedTarget
+    outputM = C.M + capped(H.M)
+    outputMeanWeight = (currentMass + historyMass) / outputM
+
+Weighted winner selection uses currentMass and historyMass. If history wins,
+the stored candidate is the current-domain shifted/re-evaluated candidate and
+age increments once. Current count-only M participates in outputM with zero
+mass. Previous count-only records have no selected identity and no history
+authority, so they do not enter the merge. Invalid page/surface/reservoir/shift
+state adds neither M nor age.
+
+The CPU oracle accepts an already shifted current-domain candidate. It does not
+pretend that copying prior shaded radiance is a valid shift.
+
+Empty-current and rescue encoding
+---------------------------------
+
+The earlier wording "canonical empty plus a rescue flag" was physically
+impossible because canonical empty is all zero. UPT-07 assigns packed word0 bit
+2 as needs-rescue only for records without a selected sample:
+
+    word0 = 0    canonical empty, no rescue request
+    word0 = 2    count-only, M in word1
+    word0 = 4    rescue-only, M = 0
+    word0 = 6    count-only plus rescue, M in word1
+
+Bit 3 remains reserved. Bits 12..17 remain selected-candidate flags and are not
+repurposed. The rescue bit is not an epoch, validity stamp, or history authority.
+UPT-05 already renders all non-selected tags black, so the new state cannot
+create a stale contribution.
+
+Proof artifacts
+---------------
+
+CPU:
+
+    PathTraceUnifiedTemporalContractHarness
+
+It covers uniform page rejection, two-page role flips, projection, bounded
+fallback search, material/normal/roughness/depth incompatibility, empty-current
+history recovery, current-valid stale-history identity, failed-shift atomicity,
+valid-zero M preservation, finalized mean-weight math, and rescue round trip.
+
+Slang:
+
+    PathTraceSlangUpt07TemporalOwnership
+
+The isolated kernel binds exactly two canonical surface streams and two
+reservoir pages. Verification requires 8x8 groups, 176-byte surface and 64-byte
+reservoir strides, and rejects ray, ray-query, texture, image, or native 16-bit
+SPIR-V work. It demonstrates current-index-only in-place output and a separate
+history neighborhood. Its history copy is explicitly proof-only and is not a
+valid estimator or runtime artifact.
+
+Next admission boundary
+-----------------------
+
+The next UPT-07 slice must provide event-specific current-domain history
+re-evaluation behind the existing generic material boundary. It must state the
+exact shift/reconnection ray maximum before adding a trace site. Only after the
+CPU formula and live shader agree may the runtime add:
+
+    default-off temporal CVar
+    T0 pipeline/bindings
+    canonical current/previous primary buffers
+    uniform page-admission push constant
+    completed-frame page-role flip
+    resolve selection of the current physical page
+
+The proof-only history copy must never be deployed or presented.

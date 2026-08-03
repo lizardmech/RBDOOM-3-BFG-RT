@@ -26,6 +26,7 @@ bool Near(double actual, double expected, double tolerance) {
 
 bool SameCriticalState(const LogicalReservoir& a, const LogicalReservoir& b) {
 	return a.hasSelectedSample == b.hasSelectedSample &&
+		a.needsRescue == b.needsRescue &&
 		a.effectiveM == b.effectiveM &&
 		a.weightSum == b.weightSum &&
 		a.selected.eventKind == b.selected.eventKind &&
@@ -218,6 +219,23 @@ void TestCanonicalEmpty() {
 	packed.words[2] = 1;
 	Check(!UnpackReservoir(packed, 1, decoded),
 		"count-only records with stray selected-sample payload must be rejected");
+
+	LogicalReservoir rescueOnly = {};
+	rescueOnly.needsRescue = true;
+	Check(PackReservoir(rescueOnly, 1, packed) &&
+		packed.words[0] == kPackedNeedsRescueBit && packed.words[1] == 0,
+		"empty temporal exhaustion must encode a reservoir-local rescue request");
+	Check(UnpackReservoir(packed, 1, decoded) && decoded.needsRescue &&
+		!decoded.hasSelectedSample && decoded.effectiveM == 0,
+		"rescue-only state must round-trip without acquiring history authority");
+
+	zerosOnly.needsRescue = true;
+	Check(PackReservoir(zerosOnly, 1, packed) &&
+		packed.words[0] == (kPackedCountOnlyTag | kPackedNeedsRescueBit),
+		"count-only state must retain M while requesting bounded rescue");
+	Check(UnpackReservoir(packed, 1, decoded) && decoded.needsRescue &&
+		decoded.effectiveM == 1 && !decoded.hasSelectedSample,
+		"count-only rescue state must round-trip without a selected identity");
 }
 
 void TestPackRoundTrip() {

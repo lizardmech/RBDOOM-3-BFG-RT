@@ -1671,6 +1671,11 @@ add_subdirectory(tests/upt02)
 # producer is mechanically extracted from the Clean-DI branch.
 add_subdirectory(tests/upt04)
 
+# UPT-07 proves two-page temporal ownership, bounded reprojection, finalized
+# reservoir combination, and empty-current recovery before a live history ray
+# or runtime temporal dispatch is admitted.
+add_subdirectory(tests/upt07)
+
 if(WIN32 AND PATH_TRACING_ENABLE_STREAMLINE_DLSS_RR)
 	set(PATH_TRACING_STREAMLINE_INCLUDE_DIR "${PATH_TRACING_STREAMLINE_SDK_ROOT}/include")
 	set(PATH_TRACING_STREAMLINE_LIB "${PATH_TRACING_STREAMLINE_SDK_ROOT}/lib/x64/sl.interposer.lib")
@@ -1709,5 +1714,6 @@ add_subdirectory(shaders/slang_upt00)
 add_subdirectory(shaders/slang_upt03)
 add_subdirectory(shaders/slang_upt04)
 add_subdirectory(shaders/slang_upt05)
+add_subdirectory(shaders/slang_upt07)
 add_dependencies(Shaders ShaderMake)
 add_dependencies(${APP_NAME} Shaders ${MASKED_OCCLUSION_LIBRARY} ${ISPC_TEXCOMP_LIBRARY})
