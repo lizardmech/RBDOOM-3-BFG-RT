@@ -1,7 +1,10 @@
 foreach(required UPT04_RAYQUERY_REFLECTION UPT04_RAYQUERY_DISASSEMBLY
         UPT04_DIAGNOSTIC_REFLECTION UPT04_DIAGNOSTIC_DISASSEMBLY
         UPT04_RAYGEN_REFLECTION UPT04_RAYGEN_DISASSEMBLY
-        UPT04_MISS_DISASSEMBLY UPT04_CLOSEST_HIT_DISASSEMBLY UPT04_STAMP)
+        UPT04_MISS_DISASSEMBLY UPT04_CLOSEST_HIT_DISASSEMBLY
+        UPT04_COMPACT_PRODUCTION_DISASSEMBLY
+        UPT04_COMPACT_GEOMETRY_PACK_DISASSEMBLY
+        UPT04_COMPACT_LIGHT_PACK_DISASSEMBLY UPT04_STAMP)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "UPT-04 backend verification missing ${required}")
     endif()
@@ -15,6 +18,17 @@ file(READ "${UPT04_RAYGEN_REFLECTION}" raygen_reflection)
 file(READ "${UPT04_RAYGEN_DISASSEMBLY}" raygen_disassembly)
 file(READ "${UPT04_MISS_DISASSEMBLY}" miss_disassembly)
 file(READ "${UPT04_CLOSEST_HIT_DISASSEMBLY}" closest_hit_disassembly)
+file(READ "${UPT04_COMPACT_PRODUCTION_DISASSEMBLY}" compact_production_disassembly)
+file(READ "${UPT04_COMPACT_GEOMETRY_PACK_DISASSEMBLY}" compact_geometry_pack_disassembly)
+file(READ "${UPT04_COMPACT_LIGHT_PACK_DISASSEMBLY}" compact_light_pack_disassembly)
+
+foreach(kind compact_production compact_geometry_pack compact_light_pack)
+    if(${kind}_disassembly MATCHES "OpCapability (Int16|Float16)" OR
+       ${kind}_disassembly MATCHES "OpType(Int|Float) 16")
+        message(FATAL_ERROR
+            "UPT-04 ${kind} introduced native 16-bit SPIR-V without a device feature contract")
+    endif()
+endforeach()
 
 foreach(kind rayquery raygen)
     foreach(stride 4 16 36 64 80 112 144 176)
@@ -93,4 +107,4 @@ if(NOT closest_hit_disassembly MATCHES "Upt04HitFacts = OpTypeStruct %uint %uint
 endif()
 
 file(WRITE "${UPT04_STAMP}"
-    "UPT-04 backend closure verified: production set0[0..22]+set1[0], diagnostic set0[0..23]+set1[0], live strides=4/16/36/64/80/112x3/144x2/176, hit facts=32, bounded trace sites=3, RayQuery/raygen adapters isolated\n")
+    "UPT-04 backend closure verified: production set0[0..22]+set1[0], diagnostic set0[0..23]+set1[0], live strides=4/16/36/64/80/112x3/144x2/176, hit facts=32, bounded trace sites=3, RayQuery/raygen adapters isolated, compact binary16 storage uses no native Int16/Float16 capability\n")

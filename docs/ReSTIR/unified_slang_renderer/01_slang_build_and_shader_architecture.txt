@@ -67,6 +67,14 @@ Do not remove the feature from only one consumer: without scalar layout, Slang
 uses std430 alignment for fields such as a float2 following a scalar while DXC's
 HLSL layout remains tighter, breaking byte-identical structured records.
 
+Packed binary16 is a storage encoding, not an enabled arithmetic feature. The
+game device contract does not enable shaderInt16 or shaderFloat16. Slang's
+f32tof16/f16tof32 lowering in SDK 1.4.341.1 declares both capabilities even
+when the values live only inside uint words, so UPT must use the 32-bit
+GLSL.std.450 PackHalf2x16/UnpackHalf2x16 operations instead. Production compact
+artifacts are build-gated against OpCapability Int16/Float16 and 16-bit SPIR-V
+types. Do not expand Vulkan device features merely to satisfy a storage codec.
+
 HLSL coexistence
 ----------------
 

@@ -253,9 +253,9 @@ UPT-06: History/resource page admission
 ---------------------------------------
 
 Status:
-    implemented; offline codec/GPU/build proof recorded in
-    20_upt06_history_resource_admission.txt; live allocation/reset log remains
-    the runtime acceptance check before UPT-07 dispatch work
+    accepted; offline codec/GPU/build proof and the 2026-08-03 live allocation,
+    no-clear, page-publication, and ordinary-camera-motion checks are recorded
+    in 20_upt06_history_resource_admission.txt
 
 Type:
     planning and allocation only after UPT-05 acceptance

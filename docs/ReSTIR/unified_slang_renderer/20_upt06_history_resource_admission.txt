@@ -130,6 +130,36 @@ page clear. Ordinary camera movement must not repeatedly print invalidation.
 The resolved image must remain equivalent to UPT-05 because count-only records
 have no selected contribution.
 
+Observed acceptance, 2026-08-03
+--------------------------------
+
+The requested 2560 x 1440 full-frame unified configuration reported:
+
+    history metadata invalidated epoch=4 reasons=0x00000000 pageClear=none
+    allocated pages 0+1 ... bytes/page=235929600
+        totalBytes=471859200 stride=64 page1Clear=never
+    page metadata page0(full/generation/epoch)=1/.../4
+        page1Full=0 clears(allocation/invalidation)=1/0 pages=2
+    proofStage=9 reached=full-frame-dispatch
+
+Ordinary camera movement did not print another history invalidation. This
+accepts the UPT-06 allocation, full-coverage publication, no-clear invalidation,
+and camera-motion gates. Reload/resize epoch advancement remains a regression
+case, not a prerequisite for starting the first bounded UPT-07 shader slice.
+
+The same validation-layer run exposed a separate compiler/device mismatch.
+Slang lowered f32tof16/f16tof32 storage helpers into native SPIR-V %half and
+%ushort types and declared OpCapability Float16 and Int16, while the Vulkan
+device did not enable shaderFloat16 or shaderInt16. The shaders happened to run
+on the test GPU, but that was invalid Vulkan and is not accepted proof.
+
+The compact receiver, geometry, and light layouts remain byte-identical. Their
+binary16 helpers now emit GLSL.std.450 PackHalf2x16/UnpackHalf2x16 with only
+32-bit inputs/results. The build rejects native Int16/Float16 capabilities or
+16-bit SPIR-V types in the compact production D0 and both pack passes. Enabling
+broader device features was deliberately rejected because no UPT buffer or
+algorithm requires native 16-bit arithmetic or storage.
+
 UPT-07 boundary
 ---------------
 

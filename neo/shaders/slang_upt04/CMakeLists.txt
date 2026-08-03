@@ -27,6 +27,7 @@ set(UPT04_MODULES
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang")
 
 set(UPT04_BACKEND_MODULES
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_binary16.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_primary_surface_live_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_packed_primary_surface.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_packed_primary_surface32.slang"
@@ -178,6 +179,7 @@ path_tracing_declare_slang_spirv_module(
         "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
     DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_compact_geometry_pack.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_binary16.slang"
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_contract.slang"
     OUT_VAR compact_geometry_pack_outputs)
 list(APPEND UPT04_BACKEND_OUTPUTS ${compact_geometry_pack_outputs})
@@ -211,6 +213,7 @@ path_tracing_declare_slang_spirv_module(
         "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
     DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_compact_light_pack.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_binary16.slang"
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_contract.slang"
     OUT_VAR compact_light_pack_outputs)
 list(APPEND UPT04_BACKEND_OUTPUTS ${compact_light_pack_outputs})
@@ -446,6 +449,9 @@ add_custom_command(
         -DUPT04_RAYGEN_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_raygen.slang.spvasm
         -DUPT04_MISS_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_miss.slang.spvasm
         -DUPT04_CLOSEST_HIT_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_closest_hit.slang.spvasm
+        -DUPT04_COMPACT_PRODUCTION_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_rayquery_compact32_geometry48_light64.slang.spvasm
+        -DUPT04_COMPACT_GEOMETRY_PACK_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_compact_geometry_pack.slang.spvasm
+        -DUPT04_COMPACT_LIGHT_PACK_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_compact_light_pack.slang.spvasm
         -DUPT04_STAMP=${UPT04_BACKEND_VERIFY_STAMP}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04BackendClosure.cmake"
     DEPENDS ${UPT04_BACKEND_OUTPUTS}
@@ -459,6 +465,7 @@ set_target_properties(PathTraceSlangUpt04BackendClosure PROPERTIES FOLDER "Shade
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04BackendClosure)
 
 set(UPT04_GEOMETRY_MODULES
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_binary16.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_bindings.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_control.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_primary_surface_live_contract.slang"

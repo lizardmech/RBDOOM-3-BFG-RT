@@ -1,4 +1,5 @@
 import upt04_primary_surface_live_contract;
+import upt04_binary16;
 
 public static const uint kUpt04PackedPrimaryVersion = 1u;
 public static const uint kUpt04PackedPrimaryValid = 0x00010000u;
@@ -13,9 +14,7 @@ public struct Upt04PackedPrimarySurfaceRecord
 
 public float2 Upt04UnpackHalf2(uint packed)
 {
-    return float2(
-        f16tof32(packed & 0xffffu),
-        f16tof32((packed >> 16u) & 0xffffu));
+    return Upt04UnpackBinary16Pair(packed);
 }
 public float3 Upt04DecodeOctahedral(uint packed)
 {

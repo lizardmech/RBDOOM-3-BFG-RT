@@ -30,7 +30,7 @@ public Upt04PrimarySurfaceRecord Upt04UnpackPrimarySurface32(
     const float2 baseRg = Upt04UnpackHalf2(packed.material.x);
     const float2 baseBRoughness = Upt04UnpackHalf2(packed.material.y);
     const float2 specularRg = Upt04UnpackHalf2(packed.material.z);
-    const float specularB = f16tof32(packed.material.w & 0xffffu);
+    const float specularB = Upt04UnpackHalf2(packed.material.w).x;
     surface.header = uint4(
         kUpt04PrimarySurfaceVersion,
         kUpt04PrimarySurfaceValid,

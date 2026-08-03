@@ -29,8 +29,11 @@ split A/Bs retained compact primary/geometry/light data but rejected both D0
 splits: each serialized traversal and was slower than the roughly 0.9 ms
 monolithic result. UPT-06 now admits exactly two 64-byte reservoir pages,
 host-owned full-width metadata, and a count-only zero-trial encoding without a
-stride increase. Page 1 is not consumed or cleared yet; temporal/spatial math
-remains outside this admission task.
+stride increase. Its allocation/no-clear/page-publication runtime gate passed
+on 2026-08-03. Page 1 is not consumed or cleared yet; temporal/spatial math
+remains outside this admission task. The same validation run found and removed
+an unintended native Int16/Float16 SPIR-V feature dependency from the compact
+binary16 storage codec.
 
 Purpose
 -------
@@ -296,7 +299,8 @@ Packet index
     20_upt06_history_resource_admission.txt
         Two-page allocation/lifetime admission, host-owned page metadata,
         count-only zero-trial encoding, no-clear invalidation, and the exact
-        temporal/spatial page-role schedules.
+        temporal/spatial page-role schedules, including live acceptance and
+        the compact binary16 Vulkan capability correction.
 
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,

@@ -1,3 +1,5 @@
+import upt04_binary16;
+
 public static const uint kUpt04LightInvalid = 0u;
 public static const uint kUpt04LightEmissiveTriangle = 1u;
 public static const uint kUpt04LightDoomAnalytic = 2u;
@@ -48,15 +50,12 @@ public uint Upt04PackLightHalf2(float2 value)
             isfinite(value.y) ? value.y : 0.0f),
         float2(-65504.0f),
         float2(65504.0f));
-    return (f32tof16(finiteValue.x) & 0xffffu) |
-        ((f32tof16(finiteValue.y) & 0xffffu) << 16u);
+    return Upt04PackBinary16Pair(finiteValue);
 }
 
 public float2 Upt04UnpackLightHalf2(uint packed)
 {
-    return float2(
-        f16tof32(packed & 0xffffu),
-        f16tof32((packed >> 16u) & 0xffffu));
+    return Upt04UnpackBinary16Pair(packed);
 }
 
 public uint Upt04EncodeLightOctahedral(float3 value)
