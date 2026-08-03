@@ -172,6 +172,25 @@ void TestZeroTrialAndRescueState() {
 		combined.reservoir.effectiveM == 3 && Near(combined.reservoir.weightSum, 2.0),
 		"a defined current zero trial must remain in M when valid history is recovered");
 
+	Candidate occludedShift = shifted;
+	occludedShift.status = CandidateStatus::ValidZero;
+	occludedShift.target = 0.0;
+	occludedShift.contribution = { 0.0, 0.0, 0.0 };
+	const TemporalMergeResult occluded = MergeFinalizedTemporalCandidate(
+		currentZero, history, occludedShift, true, true, true, 0.25, generation);
+	Check(occluded.historyAccepted && !occluded.reservoir.hasSelectedSample &&
+		occluded.reservoir.needsRescue && occluded.reservoir.effectiveM == 3 &&
+		occluded.reservoir.weightSum == 0.0,
+		"a valid-zero shifted history trial must add capped M without inventing weight");
+
+	LogicalReservoir selectedCurrent = Finalized(31, generation, 1, 6.0);
+	const TemporalMergeResult attenuated = MergeFinalizedTemporalCandidate(
+		selectedCurrent, history, occludedShift, true, true, true, 0.25, generation);
+	Check(attenuated.historyAccepted && attenuated.reservoir.hasSelectedSample &&
+		attenuated.reservoir.selected.identity0 == 31 &&
+		attenuated.reservoir.effectiveM == 3 && Near(attenuated.reservoir.weightSum, 2.0),
+		"valid-zero shifted history must stay in the denominator of a positive current result");
+
 	LogicalReservoir empty = {};
 	const TemporalMergeResult noHistory = MergeFinalizedTemporalCandidate(
 		empty, LogicalReservoir{}, Candidate{}, true, false, false, 0.0, generation);

@@ -8,6 +8,7 @@
 
 import upt03_reservoir_contract;
 import upt04_primary_surface_live_contract;
+import upt07_temporal_surface_contract;
 
 public struct Upt07TemporalProofControl
 {
@@ -27,21 +28,6 @@ public struct Upt07TemporalProofControl
 [[vk::binding(3, 0)]] StructuredBuffer<Upt03PackedReservoir> gUpt07HistoryReservoirs;
 [[vk::push_constant]] ConstantBuffer<Upt07TemporalProofControl> gUpt07Control;
 
-public static const int2 kUpt07HistoryTap0 = int2(0, 0);
-public static const int2 kUpt07HistoryTap1 = int2(-1, 0);
-public static const int2 kUpt07HistoryTap2 = int2(1, 0);
-public static const int2 kUpt07HistoryTap3 = int2(0, -1);
-public static const int2 kUpt07HistoryTap4 = int2(0, 1);
-
-public int2 Upt07HistoryTap(uint index)
-{
-    if (index == 1u) return kUpt07HistoryTap1;
-    if (index == 2u) return kUpt07HistoryTap2;
-    if (index == 3u) return kUpt07HistoryTap3;
-    if (index == 4u) return kUpt07HistoryTap4;
-    return kUpt07HistoryTap0;
-}
-
 public bool Upt07Selected(Upt03PackedReservoir reservoir)
 {
     return (reservoir.word0 & 0x0fu) == kUpt03PackedSelectedTag
@@ -58,65 +44,6 @@ public Upt03PackedReservoir Upt07RequestRescue(Upt03PackedReservoir current)
     return current;
 }
 
-public bool Upt07ProjectPrevious(
-    Upt04PrimarySurfaceRecord current,
-    out int2 previousPixel,
-    out float previousDepth)
-{
-    previousPixel = int2(-1, -1);
-    previousDepth = 0.0f;
-    if (gUpt07Control.previousCameraOriginAndValid.w < 0.5f)
-        return false;
-    const float3 previousPosition = current.previousPositionOrMotion.w >= 0.5f
-        ? current.previousPositionOrMotion.xyz
-        : current.worldPositionAndViewDepth.xyz;
-    const float3 delta = previousPosition
-        - gUpt07Control.previousCameraOriginAndValid.xyz;
-    previousDepth = dot(delta, gUpt07Control.previousCameraForwardAndTanX.xyz);
-    if (!isfinite(previousDepth) || previousDepth <= 0.05f)
-        return false;
-    const float tanX = gUpt07Control.previousCameraForwardAndTanX.w;
-    const float tanY = gUpt07Control.previousCameraLeftAndTanY.w;
-    if (!isfinite(tanX) || !isfinite(tanY) || tanX <= 0.0f || tanY <= 0.0f)
-        return false;
-    const float2 ndc = float2(
-        -dot(delta, gUpt07Control.previousCameraLeftAndTanY.xyz)
-            / (previousDepth * tanX),
-        -dot(delta, gUpt07Control.previousCameraUpAndReserved.xyz)
-            / (previousDepth * tanY));
-    if (!all(isfinite(ndc)) || any(abs(ndc) > 1.0f))
-        return false;
-    const float2 pixelFloat = (ndc * 0.5f + 0.5f)
-        * float2(gUpt07Control.renderWidth, gUpt07Control.renderHeight);
-    previousPixel = int2(floor(pixelFloat));
-    return previousPixel.x >= 0 && previousPixel.y >= 0
-        && uint(previousPixel.x) < gUpt07Control.renderWidth
-        && uint(previousPixel.y) < gUpt07Control.renderHeight;
-}
-
-public bool Upt07SurfacesCompatible(
-    Upt04PrimarySurfaceRecord current,
-    Upt04PrimarySurfaceRecord previous,
-    float projectedPreviousDepth)
-{
-    if (!Upt04PrimarySurfaceRecordValid(previous)
-        || current.materialAndSurface.x != previous.materialAndSurface.x
-        || current.materialAndSurface.y != previous.materialAndSurface.y
-        || current.materialAndSurface.w != previous.materialAndSurface.w)
-        return false;
-    const float3 currentNormal = normalize(current.geometricNormalAndRoughness.xyz);
-    const float3 previousNormal = normalize(previous.geometricNormalAndRoughness.xyz);
-    if (!all(isfinite(currentNormal)) || !all(isfinite(previousNormal))
-        || dot(currentNormal, previousNormal) < 0.85f
-        || abs(current.geometricNormalAndRoughness.w
-            - previous.geometricNormalAndRoughness.w) > 0.20f)
-        return false;
-    const float depthTolerance = max(0.10f, abs(projectedPreviousDepth) * 0.10f);
-    return isfinite(previous.worldPositionAndViewDepth.w)
-        && abs(previous.worldPositionAndViewDepth.w - projectedPreviousDepth)
-            <= depthTolerance;
-}
-
 public bool Upt07FindHistory(
     Upt04PrimarySurfaceRecord current,
     out Upt03PackedReservoir history)
@@ -126,14 +53,25 @@ public bool Upt07FindHistory(
     // surface or reservoir element is read before it succeeds.
     if (gUpt07Control.historyAvailable == 0u)
         return false;
-    int2 center;
-    float previousDepth;
-    if (!Upt07ProjectPrevious(current, center, previousDepth))
+    Upt07PreviousCamera camera;
+    camera.origin = gUpt07Control.previousCameraOriginAndValid.xyz;
+    camera.valid = gUpt07Control.previousCameraOriginAndValid.w >= 0.5f ? 1u : 0u;
+    camera.forward = gUpt07Control.previousCameraForwardAndTanX.xyz;
+    camera.tanX = gUpt07Control.previousCameraForwardAndTanX.w;
+    camera.left = gUpt07Control.previousCameraLeftAndTanY.xyz;
+    camera.tanY = gUpt07Control.previousCameraLeftAndTanY.w;
+    camera.up = gUpt07Control.previousCameraUpAndReserved.xyz;
+    camera.reserved = 0u;
+    const uint2 dimensions = uint2(
+        gUpt07Control.renderWidth, gUpt07Control.renderHeight);
+    const Upt07PreviousProjection projection = Upt07ProjectPrevious(
+        current, camera, dimensions);
+    if (projection.valid == 0u)
         return false;
     [ForceUnroll]
     for (uint tap = 0u; tap < 5u; ++tap)
     {
-        const int2 pixel = center + Upt07HistoryTap(tap);
+        const int2 pixel = projection.pixel + Upt07HistoryTap(tap);
         if (pixel.x < 0 || pixel.y < 0
             || uint(pixel.x) >= gUpt07Control.renderWidth
             || uint(pixel.y) >= gUpt07Control.renderHeight)
@@ -141,7 +79,7 @@ public bool Upt07FindHistory(
         const uint index = uint(pixel.y) * gUpt07Control.renderWidth
             + uint(pixel.x);
         const Upt04PrimarySurfaceRecord previous = gUpt07PreviousSurfaces[index];
-        if (!Upt07SurfacesCompatible(current, previous, previousDepth))
+        if (!Upt07SurfacesCompatible(current, previous, projection.viewDepth))
             continue;
         const Upt03PackedReservoir candidate = gUpt07HistoryReservoirs[index];
         if (!Upt07Selected(candidate))

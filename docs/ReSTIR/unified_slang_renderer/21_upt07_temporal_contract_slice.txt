@@ -4,11 +4,10 @@ UPT-07 Temporal Contract Slice: Ownership Before Rays
 Status
 ------
 
-Implemented as an offline CPU oracle plus an isolated Slang ownership probe.
-It is not a runtime temporal renderer yet and no UPT-07 SPIR-V is deployed to
-base/renderprogs2. This is intentional: reprojection, compatibility, page
-admission, finalized-weight combination, and empty-current recovery are frozen
-before a shift/reconnection provider is allowed to add ray work.
+Implemented as an offline CPU oracle, an isolated Slang ownership probe, and a
+verified primary-analytic current-domain shift provider. It is not a runtime
+temporal renderer yet and no UPT-07 SPIR-V is deployed to base/renderprogs2.
+Host page-role/descriptor integration remains a separate admission gate.
 
 Live ownership audit
 --------------------
@@ -92,6 +91,12 @@ mass. Previous count-only records have no selected identity and no history
 authority, so they do not enter the merge. Invalid page/surface/reservoir/shift
 state adds neither M nor age.
 
+A structurally valid shifted history sample whose current-domain contribution
+is zero is VALID_ZERO, not INVALID. Its capped history M enters outputM with
+zero mass. This attenuates a positive current winner through the denominator,
+or produces count-only plus needs-rescue when no positive current exists.
+Occlusion must not be silently dropped merely to brighten temporal output.
+
 The CPU oracle accepts an already shifted current-domain candidate. It does not
 pretend that copying prior shaded radiance is a valid shift.
 
@@ -135,19 +140,72 @@ SPIR-V work. It demonstrates current-index-only in-place output and a separate
 history neighborhood. Its history copy is explicitly proof-only and is not a
 valid estimator or runtime artifact.
 
+First current-domain shift provider
+-----------------------------------
+
+The second offline specialization admits only the sample family whose complete
+replay state already exists in the 64-byte reservoir:
+
+    event kind = analytic local light
+    global flag = clear
+    path length = 1
+    reconnection length = 0
+
+It validates the stored dense light identity and manager source identity,
+replays the stored two-dimensional analytic-sphere coordinates at the current
+receiver, evaluates the current MaterialSet through IUpt07PrimaryMaterialSet,
+recomputes proposal PDF/contribution/target, and performs one current visibility
+query only when the shifted material/light result is positive. Occlusion becomes
+VALID_ZERO and still contributes capped M.
+
+The provider has exactly six bindings:
+
+    TLAS
+    canonical current primary surfaces, 176 bytes
+    canonical previous primary surfaces, 176 bytes
+    current reservoir page UAV, 64 bytes
+    history reservoir page SRV, 64 bytes
+    current light records, either manager 112-byte or compact 64-byte form
+
+It has no material table, bindless texture set, geometry stream, extra output,
+or diagnostic buffer. Reprojection and compatibility inspect at most five
+history records. Selection is completed before shift, so the compiler exposes
+one RayQuery site rather than duplicating a trace into each unrolled tap. The
+per-pixel maximum is therefore five surface/reservoir attempts and one
+visibility ray.
+
+Material composition remains separate. Temporal code is generic over
+IUpt07PrimaryMaterialSet; the current specialization is an OpenPBR adapter and
+the reservoir/reprojection modules import no concrete closure.
+
+Deliberate exclusions
+---------------------
+
+Emissive-primary history is not admitted yet. Exact replay needs triangle
+geometry; pulling the full D0 geometry closure into T0 without first designing
+a narrow replay input would repeat the old bandwidth mistake.
+
+Global/indirect history is also not admitted. The current replayKey is a hash of
+the initial pixel/frame/slot but cannot reconstruct the three continuation
+random values from the key alone. Reusing it as though it were a replay seed
+would generate a different path while claiming the old identity/PDF. UPT-07
+must either store a sufficient compact replay seed/coordinates or define an
+invertible keyed random mapping before indirect shift work exists.
+
 Next admission boundary
 -----------------------
 
-The next UPT-07 slice must provide event-specific current-domain history
-re-evaluation behind the existing generic material boundary. It must state the
-exact shift/reconnection ray maximum before adding a trace site. Only after the
-CPU formula and live shader agree may the runtime add:
+The next UPT-07 slice is host integration of the verified analytic provider.
+It must cache both physical binding-set permutations so the page-role flip does
+not rebuild descriptors every frame. Only then may the runtime add:
 
     default-off temporal CVar
-    T0 pipeline/bindings
+    T0 pipeline and two cached page-role binding sets
     canonical current/previous primary buffers
     uniform page-admission push constant
     completed-frame page-role flip
     resolve selection of the current physical page
 
-The proof-only history copy must never be deployed or presented.
+The proof-only history copy must never be deployed or presented. The first
+runtime view remains analytic-history only; other selected history families are
+rejected without changing current M or age.

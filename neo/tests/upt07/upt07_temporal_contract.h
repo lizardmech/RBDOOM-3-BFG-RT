@@ -229,10 +229,12 @@ inline TemporalMergeResult MergeFinalizedTemporalCandidate(
 	const bool historySelected = history.hasSelectedSample && history.effectiveM != 0u &&
 		IsFinitePositive(history.weightSum) &&
 		IsStructurallyValid(history.selected, expectedGeneration);
+	const bool shiftedStructurallyValid =
+		IsStructurallyValid(shiftedHistory, expectedGeneration);
 	const bool historyUsable = historyPageAdmitted && compatibleSurfaceFound &&
 		shiftedHistoryValid && historySelected &&
 		history.selected.age < maximumHistoryAge &&
-		IsStructurallyValid(shiftedHistory, expectedGeneration) &&
+		shiftedStructurallyValid &&
 		std::isfinite(selectionRandom) && selectionRandom >= 0.0 && selectionRandom < 1.0;
 	if (!historyUsable) {
 		if (!currentSelected) {
@@ -253,22 +255,32 @@ inline TemporalMergeResult MergeFinalizedTemporalCandidate(
 	}
 	const double currentMass = currentSelected ?
 		current.weightSum * static_cast<double>(current.effectiveM) : 0.0;
-	const double historyMass = history.weightSum * static_cast<double>(historyM) *
-		(shiftedHistory.target / history.selected.target);
+	const bool shiftedPositive =
+		shiftedHistory.status == upt02::CandidateStatus::ValidPositive;
+	const double historyMass = shiftedPositive
+		? history.weightSum * static_cast<double>(historyM) *
+			(shiftedHistory.target / history.selected.target)
+		: 0.0;
 	const uint32_t outputM = current.effectiveM + historyM;
 	const double totalMass = currentMass + historyMass;
-	if (!IsFinitePositive(historyMass) || !IsFinitePositive(totalMass) || outputM == 0u) {
+	if ((shiftedPositive && !IsFinitePositive(historyMass)) ||
+		(!shiftedPositive && historyMass != 0.0) || outputM == 0u ||
+		(totalMass != 0.0 && !IsFinitePositive(totalMass))) {
 		if (!currentSelected) {
 			result.reservoir.needsRescue = true;
 		}
 		return result;
 	}
 
-	const bool chooseHistory = !currentSelected || selectionRandom * totalMass < historyMass;
-	result.reservoir.hasSelectedSample = true;
-	result.reservoir.needsRescue = false;
+	const bool outputSelected = IsFinitePositive(totalMass);
+	const bool chooseHistory = shiftedPositive &&
+		(!currentSelected || selectionRandom * totalMass < historyMass);
+	result.reservoir.hasSelectedSample = outputSelected;
+	result.reservoir.needsRescue = !outputSelected;
 	result.reservoir.effectiveM = outputM;
-	result.reservoir.weightSum = totalMass / static_cast<double>(outputM);
+	result.reservoir.weightSum = outputSelected
+		? totalMass / static_cast<double>(outputM)
+		: 0.0;
 	if (chooseHistory) {
 		result.reservoir.selected = shiftedHistory;
 		result.reservoir.selected.age = static_cast<uint8_t>(

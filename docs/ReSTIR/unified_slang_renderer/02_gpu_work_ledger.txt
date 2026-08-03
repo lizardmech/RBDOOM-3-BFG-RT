@@ -304,6 +304,16 @@ F-D0. Temporal resampling
     metadata is invalid or its generation/epoch does not match. Ordinary camera
     motion uses reprojection and must not change the global history epoch.
 
+    First verified provider, not yet runtime-admitted:
+        five compile-time bounded prior surface/reservoir attempts;
+        choose one compatible source before any shift work;
+        primary non-global analytic sample replay only;
+        zero or one current visibility RayQuery per pixel;
+        six bindings total, with full-112 and compact-64 light variants;
+        no geometry/material-table/texture/diagnostic/output side resources;
+        emissive and global/indirect history rejected until their narrow replay
+            contracts are independently proved.
+
 F-D1. Spatial resampling
     One pass. Reads temporal/current page, writes the other page.
     Must search for valid neighbors even when center reservoir is empty.
