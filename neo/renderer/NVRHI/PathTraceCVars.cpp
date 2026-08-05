@@ -1379,9 +1379,9 @@ idCVar r_pathTracingUnifiedPtLeanPrimary(
 
 idCVar r_pathTracingUnifiedPtCompactReceiver(
     "r_pathTracingUnifiedPtCompactReceiver",
-    "1",
+    "2",
     CVAR_RENDERER | CVAR_INTEGER,
-    "UPT-only P0-to-D0 receiver A/B for production shader proofs 1..6: 0 legacy 176-byte history record; 1 UPT-owned 48-byte current-frame receiver; 2 experimental 32-byte distance/direction receiver with D0 world-position reconstruction" );
+    "UPT-only P0-to-D0 receiver A/B for production shader proofs 1..6: 0 legacy 176-byte history record; 1 UPT-owned 48-byte current-frame receiver without reuse; 2 production 32-byte distance/direction receiver with a separate 32-byte cold temporal/spatial history sidecar" );
 
 idCVar r_pathTracingUnifiedPtCompactGeometry(
     "r_pathTracingUnifiedPtCompactGeometry",
@@ -1412,6 +1412,78 @@ idCVar r_pathTracingUnifiedPtSplitContinuation(
     "0",
     CVAR_RENDERER | CVAR_BOOL,
     "UPT unified D0 A/B: trace the deterministic primary continuation into one 32-byte hit-facts sidecar, then run direct plus secondary shading with one final reservoir write; mutually exclusive with the rejected direct/indirect split" );
+
+idCVar r_pathTracingUnifiedPtDirectProposalParity(
+    "r_pathTracingUnifiedPtDirectProposalParity",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT D0 direct-proposal A/B: 1 uses one uniform emissive trial plus up to 32 range-stratified analytic trials while retaining one selected visibility ray; 0 keeps the fixed 8-trial split baseline" );
+
+idCVar r_pathTracingUnifiedPtTemporal(
+    "r_pathTracingUnifiedPtTemporal",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-07 bounded temporal reuse over two fully written 64-byte reservoir pages with at most one winner-only visibility RayQuery; default off" );
+
+idCVar r_pathTracingUnifiedPtTemporalSearch(
+    "r_pathTracingUnifiedPtTemporalSearch",
+    "2",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT-07 reprojection A/B: 0 exact floor single tap, 1 sub-pixel-dithered single tap, 2 dither plus up to eight randomized radius-4 compatible-surface probes (default); reservoir contents never steer the search" );
+
+idCVar r_pathTracingUnifiedPtTemporalMaxHistoryM(
+    "r_pathTracingUnifiedPtTemporalMaxHistoryM",
+    "32",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT-07 maximum effective M admitted from the previous reservoir; clamps to 1..1024, default 32" );
+
+idCVar r_pathTracingUnifiedPtTemporalMaxAge(
+    "r_pathTracingUnifiedPtTemporalMaxAge",
+    "32",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT-07 maximum selected-history age; clamps to 1..63, default 32 after temporal+spatial correlation acceptance; 63 remains the packed saturation/no-expiry stress value" );
+
+idCVar r_pathTracingUnifiedPtTemporalPreviousBest(
+    "r_pathTracingUnifiedPtTemporalPreviousBest",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-07 previous-best current-domain seed A/B with single-admission duplicate exclusion and winner-only current visibility; default off pending runtime validation" );
+
+idCVar r_pathTracingUnifiedPtTemporalPairwise(
+    "r_pathTracingUnifiedPtTemporalPairwise",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-07 estimator A/B: 1 replaces the cross-frame global basic-correction denominator with two-domain pairwise MIS using fresh targets at both receivers; 0 retains the existing temporal merge" );
+
+idCVar r_pathTracingUnifiedPtDuplication(
+    "r_pathTracingUnifiedPtDuplication",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-08 correlation proof: publish a 31-bit random-sample identity, count matching copies in a 17x17 neighborhood, and adapt the next temporal M cap from default to 1; allocates no resources and dispatches no work when disabled" );
+
+idCVar r_pathTracingUnifiedPtSpatial(
+    "r_pathTracingUnifiedPtSpatial",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-09 bounded direct spatial rescue: reads the completed D0/T0 page and fully writes the other existing 64-byte page; 3 regular or 12 empty-center attempts, 30-pixel radius, at most one visibility RayQuery; default off" );
+
+idCVar r_pathTracingUnifiedPtSpatialProofMode(
+    "r_pathTracingUnifiedPtSpatialProofMode",
+    "3",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT-09 deterministic fault isolation: 0 unique-neighbor basic correction with non-recursive rescue, 1 exact reservoir pass-through, 2 reproduce old recursive with-replacement rescue, 3 temporary safe default using non-recursive unique neighbors with standard 1/M normalization, 4 strict selected-center/selected-neighbor legacy admission, 5 mode 0 with every source-side target freshly replayed at its actual source surface, 6 selected-center pairwise MIS with fresh cross-domain targets and no empty-center rescue; clamps to 0..6" );
+
+idCVar r_pathTracingUnifiedPtDirectTargetPdfParity(
+    "r_pathTracingUnifiedPtDirectTargetPdfParity",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Use the RTXDI direct-light reservoir measure: luminance(BRDF*Li*cos)/solidAnglePdf with technique MIS in the scalar RIS weight. 0 restores the original UPT max-channel target with MIS embedded in the stored sample" );
+
+idCVar r_pathTracingUnifiedPtAnalyticPortalDomain(
+    "r_pathTracingUnifiedPtAnalyticPortalDomain",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT analytic-light domain A/B: 1 admits only lights selected by the current Doom portal region while retaining the global stable light universe for identity/remap; 0 samples the full global analytic range" );
 
 idCVar r_pathTracingUnifiedPtBackend(
     "r_pathTracingUnifiedPtBackend",
@@ -1459,7 +1531,7 @@ idCVar r_pathTracingUnifiedPtResolveView(
     "r_pathTracingUnifiedPtResolveView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "UPT-05 resolve view: 0 estimator, 1 direct/global classification, 2 diffuse/specular classification, 3 selected contribution, 4 normalization" );
+    "UPT-05 resolve view: 0 estimator, 1 direct/global classification, 2 diffuse/specular classification, 3 selected contribution, 4 normalization, 5 temporal state/rejection (selected blue-to-green; yellow no compatible history; red history empty; magenta unsupported event; cyan shift invalid; white shifted zero; green merge math)" );
 
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
@@ -1675,7 +1747,7 @@ idCVar r_pathTracingCleanRtxdiDiView8Band(
     "r_pathTracingCleanRtxdiDiView8Band",
     "-1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..16; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes, band 10 shows the NEE cache secondary emissive candidate field, bands 11..14 show previous-best source/translation/candidate/selection, band 15 shows selected light type, band 16 shows basic spatial reuse output when enabled" );
+    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..17; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes, band 10 shows the NEE cache secondary emissive candidate field, bands 11..14 show previous-best source/translation/candidate/selection, band 15 shows selected light type, band 16 shows basic spatial reuse output when enabled, band 17 shows the final temporal reservoir state using the UPT resolve-view-5 age palette" );
 
 idCVar r_pathTracingCleanRtxdiDiView18Tile(
     "r_pathTracingCleanRtxdiDiView18Tile",
@@ -1847,9 +1919,9 @@ idCVar r_pathTracingCleanRestirGiEnable(
 
 idCVar r_pathTracingCleanRestirGiPipelineWarmupLimit(
     "r_pathTracingCleanRestirGiPipelineWarmupLimit",
-    "16",
+    "18",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Vulkan clean-GI split-pipeline warmup cap: 0 builds none, 1..15 stop after that many modules for bounded validation, 16 builds the complete production lane (default)" );
+    "Vulkan clean-GI split-pipeline warmup cap: 0 builds none, 1..17 stop after that many modules for bounded validation, 18 builds the complete production lane (default)" );
 
 idCVar r_pathTracingCleanRestirGiView(
     "r_pathTracingCleanRestirGiView",
@@ -2042,6 +2114,18 @@ idCVar r_pathTracingCleanRestirGiBindingSetCache(
     "1",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI Vulkan performance A/B: retain identical binding sets instead of creating and destroying a dedicated Vulkan descriptor pool for every set every frame" );
+
+idCVar r_pathTracingCleanRestirGiSplitSpatialFinal(
+    "r_pathTracingCleanRestirGiSplitSpatialFinal",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI Vulkan performance A/B: production view 0 with spatial visibility disabled runs trace-free spatial reservoir reuse and final shading/visibility in separate raygen modules and Nsight markers instead of the fused reuse entry" );
+
+idCVar r_pathTracingCleanRestirGiSpatialCompute(
+    "r_pathTracingCleanRestirGiSpatialCompute",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI Vulkan performance A/B: with split spatial/final active, execute the same trace-free spatial contract as compute instead of an RT raygen pipeline" );
 
 idCVar r_pathTracingCleanRestirGiProducerSimple(
     "r_pathTracingCleanRestirGiProducerSimple",

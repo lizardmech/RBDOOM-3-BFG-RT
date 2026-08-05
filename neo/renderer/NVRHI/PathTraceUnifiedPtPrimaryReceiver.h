@@ -7,3 +7,4 @@
 // sidecars; they must not inflate the initial-shading load.
 static constexpr std::uint32_t PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE = 48u;
 static constexpr std::uint32_t PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE = 32u;
+static constexpr std::uint32_t PATH_TRACE_UNIFIED_PT_PRIMARY_HISTORY_SIDECAR_STRIDE = 32u;

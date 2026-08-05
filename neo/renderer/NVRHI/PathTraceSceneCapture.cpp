@@ -1142,23 +1142,6 @@ void ApplySmokeDetailDecalNormalOffset(
     }
 }
 
-static bool SmokeSurfaceClassPrefersGeometricNormal(
-    uint32_t surfaceClassId,
-    uint32_t particleAlphaClassId)
-{
-    const uint32_t surfaceClass = surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK;
-    if (surfaceClass != particleAlphaClassId)
-    {
-        return false;
-    }
-
-    const uint32_t translucentSubtype =
-        (surfaceClassId & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
-    return
-        translucentSubtype != SmokeTranslucentSubtypeId(RtSmokeTranslucentSubtype::ObjectGlass) &&
-        translucentSubtype != SmokeTranslucentSubtypeId(RtSmokeTranslucentSubtype::PortalWindow);
-}
-
 int AppendSmokeSurfaceGeometry(
     const drawSurf_t* drawSurf,
     const srfTriangles_t* tri,
@@ -1175,6 +1158,9 @@ int AppendSmokeSurfaceGeometry(
     RtSmokeSurfaceSkipStats& skipStats,
     RtSmokeAttributeStats& attributeStats)
 {
+    // Kept in the shared capture ABI for its existing callers; surface class
+    // no longer overrides valid authored normals.
+    (void)particleAlphaClassId;
     const size_t vertexStart = vertices.size();
     const size_t indexStart = indexes.size();
     const size_t classStart = triangleClasses.size();
@@ -1269,9 +1255,13 @@ int AppendSmokeSurfaceGeometry(
             !SmokeTexCoordIsUsable(SmokeVertexTexCoord(v0)) ||
             !SmokeTexCoordIsUsable(SmokeVertexTexCoord(v1)) ||
             !SmokeTexCoordIsUsable(SmokeVertexTexCoord(v2));
-        const bool preferGeometricNormal =
-            invalidNormalTriangle ||
-            SmokeSurfaceClassPrefersGeometricNormal(surfaceClassId, particleAlphaClassId);
+        // Doom's vertex normals already encode the model's authored smoothing
+        // groups.  Do not replace them merely because a surface was routed as
+        // ParticleAlpha: that route also contains alpha-tested grates, cables,
+        // foliage, and other ordinary meshes whose shading must remain smooth.
+        // A face-normal fallback is valid only when the captured vertex-normal
+        // contract is actually unusable.
+        const bool preferGeometricNormal = invalidNormalTriangle;
 
         if (invalidNormalTriangle)
         {

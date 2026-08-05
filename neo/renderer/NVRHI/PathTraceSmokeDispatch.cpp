@@ -1098,7 +1098,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanRtxdiDiRrGuideDebugView ||
             (cleanRtxdiDiSpatialEnabled &&
                 (cleanRtxdiDiView == 12 ||
-                    (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
+                    (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 17, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
     const bool staticBucketMaterialFeatureRuntimeRequested =
         staticBucketSecondaryIsolationActive &&
         (staticBucketSecondaryIsolation.materialFeatureRuntimeBindings ||
@@ -1476,7 +1476,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger(),
             r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger(),
             cleanDumpCandidateOverride,
-            cleanRtxdiDiRrInputMosaicView ? cleanRtxdiDiView18Tile : idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()),
+            cleanRtxdiDiRrInputMosaicView ? cleanRtxdiDiView18Tile : idMath::ClampInt(-1, 17, r_pathTracingCleanRtxdiDiView8Band.GetInteger()),
             idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiResolveVisibilityReuse.GetInteger()),
             r_pathTracingCleanRtxdiDiResolveSolidAnglePdf.GetInteger() != 0 ? 1 : 0,
             r_pathTracingCleanRtxdiDiInitialVisibility.GetInteger() != 0 ? 1 : 0,
@@ -2086,9 +2086,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             1, 14, r_pathTracingUnifiedPtShaderProof.GetInteger());
         const int requestedUnifiedPtReceiverMode = idMath::ClampInt(
             0, 2, r_pathTracingUnifiedPtCompactReceiver.GetInteger());
+        const bool unifiedPtReuseRequested =
+            r_pathTracingUnifiedPtTemporal.GetBool() ||
+            r_pathTracingUnifiedPtSpatial.GetBool();
         const bool allowUptCompactPrimaryReceiver =
             uptOnlyPrimaryRequested &&
             requestedUnifiedPtReceiverMode != 0 &&
+            (!unifiedPtReuseRequested ||
+                requestedUnifiedPtReceiverMode == 2) &&
             r_pathTracingUnifiedPtDiagnostics.GetInteger() == 0 &&
             requestedUnifiedPtShaderProof <= 6 &&
             deviceManager &&
@@ -2102,6 +2107,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_frameResources.unifiedPtPrimaryReceiverBuffer) ||
              (unifiedPtReceiverMode == 2 &&
                 m_frameResources.unifiedPtPrimaryReceiver32Buffer));
+        const bool useUptCompactPrimaryHistory =
+            useUptCompactPrimaryReceiver &&
+            unifiedPtReceiverMode == 2 &&
+            unifiedPtReuseRequested &&
+            m_frameResources.unifiedPtPrimaryReceiver32PreviousBuffer &&
+            m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer &&
+            m_frameResources.unifiedPtPrimaryHistorySidecarPreviousBuffer;
         const nvrhi::BufferHandle unifiedPtPrimaryReceiverBuffer =
             unifiedPtReceiverMode == 2
                 ? m_frameResources.unifiedPtPrimaryReceiver32Buffer
@@ -2184,7 +2196,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_frameResources.rrGuideAlbedoTexture && m_frameResources.rrGuideSpecularAlbedoTexture &&
                 m_frameResources.rrGuideNormalRoughnessTexture && m_frameResources.rrGuideDepthTexture &&
                 m_frameResources.rrGuideHitDistanceTexture && m_frameResources.rrGuideResetMaskTexture &&
-                m_frameResources.rrGuidePositionTexture;
+                m_frameResources.rrGuidePositionTexture &&
+                (!useUptCompactPrimaryHistory ||
+                    (m_frameResources.unifiedPtPrimaryReceiver32PreviousBuffer &&
+                     m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer &&
+                     m_frameResources.unifiedPtPrimaryHistorySidecarPreviousBuffer));
             if (!primarySurfaceAdapterResourcesValid)
             {
                 if (cleanRtxdiDiDumpRequested)
@@ -2311,7 +2327,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.motionVectorInfo[1] =
                 primarySchedule.requestedByCleanDi ? 1.0f : 0.0f;
             primarySurfaceConstants.motionVectorInfo[2] =
-                useUptCompactPrimaryReceiver
+                useUptCompactPrimaryHistory
+                    ? 3.0f
+                    : useUptCompactPrimaryReceiver
                     ? static_cast<float>(unifiedPtReceiverMode)
                     : 0.0f;
             primarySurfaceConstants.motionVectorInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
@@ -2407,6 +2425,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 commandList->setBufferState(
                     unifiedPtPrimaryReceiverBuffer,
                     nvrhi::ResourceStates::UnorderedAccess);
+                if (useUptCompactPrimaryHistory)
+                {
+                    commandList->setBufferState(
+                        m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer,
+                        nvrhi::ResourceStates::UnorderedAccess);
+                }
             }
             else
             {
@@ -2479,6 +2503,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 useUptCompactPrimaryReceiver
                     ? unifiedPtPrimaryReceiverBuffer
                     : m_frameResources.primarySurfaceHistoryBuffers.current);
+            if (useUptCompactPrimaryHistory)
+            {
+                nvrhi::utils::BufferUavBarrier(
+                    commandList,
+                    m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer);
+            }
 
             if (primarySchedule.requestedByCleanDi)
             {
@@ -2626,6 +2656,22 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 useUptCompactPrimaryReceiver
                     ? unifiedPtPrimaryReceiverBuffer
                     : m_frameResources.primarySurfaceHistoryBuffers.current;
+            unifiedPtInputs.primarySurfaceCurrentBuffer =
+                useUptCompactPrimaryHistory
+                    ? m_frameResources.unifiedPtPrimaryReceiver32Buffer
+                    : m_frameResources.primarySurfaceHistoryBuffers.current;
+            unifiedPtInputs.primarySurfacePreviousBuffer =
+                useUptCompactPrimaryHistory
+                    ? m_frameResources.unifiedPtPrimaryReceiver32PreviousBuffer
+                    : m_frameResources.primarySurfaceHistoryBuffers.previous;
+            unifiedPtInputs.primaryHistorySidecarCurrentBuffer =
+                useUptCompactPrimaryHistory
+                    ? m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer
+                    : nullptr;
+            unifiedPtInputs.primaryHistorySidecarPreviousBuffer =
+                useUptCompactPrimaryHistory
+                    ? m_frameResources.unifiedPtPrimaryHistorySidecarPreviousBuffer
+                    : nullptr;
             unifiedPtInputs.width = static_cast<uint32_t>(m_frameResources.width);
             unifiedPtInputs.height = static_cast<uint32_t>(m_frameResources.height);
             const int unifiedPtFixedSampleIndex =
@@ -2671,6 +2717,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.primaryReceiverMode = useUptCompactPrimaryReceiver
                 ? static_cast<uint32_t>(unifiedPtReceiverMode)
                 : 0u;
+            unifiedPtInputs.compactPrimaryHistory = useUptCompactPrimaryHistory;
             unifiedPtInputs.compactGeometry =
                 r_pathTracingUnifiedPtCompactGeometry.GetBool() &&
                 unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
@@ -2703,6 +2750,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtInputs.compactLights &&
                 !unifiedPtInputs.diagnostics &&
                 unifiedPtInputs.shaderProofMode == 6u;
+            unifiedPtInputs.directProposalParity =
+                r_pathTracingUnifiedPtDirectProposalParity.GetBool();
+            unifiedPtInputs.temporal =
+                r_pathTracingUnifiedPtTemporal.GetBool();
+            unifiedPtInputs.duplication =
+                r_pathTracingUnifiedPtDuplication.GetBool() &&
+                unifiedPtInputs.temporal;
+            unifiedPtInputs.spatial =
+                r_pathTracingUnifiedPtSpatial.GetBool() &&
+                unifiedPtInputs.family == PathTraceUnifiedPtFamily::DirectOnly;
             unifiedPtInputs.historyEpoch = m_frameResources.historyEpoch;
             unifiedPtInputs.historyResetReasonFlags =
                 m_frameResources.settings.resetReasonFlags;
@@ -2712,8 +2769,54 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 viewDef->renderView.vieworg.y;
             unifiedPtInputs.primaryCameraOrigin[2] =
                 viewDef->renderView.vieworg.z;
+            unifiedPtInputs.primarySurfaceHistoryValid =
+                m_frameResources.primarySurfaceHistoryState.previousValid &&
+                m_frameResources.primarySurfaceHistoryView.valid &&
+                m_frameResources.primarySurfaceHistoryView.width == m_frameResources.width &&
+                m_frameResources.primarySurfaceHistoryView.height == m_frameResources.height &&
+                !m_frameResources.primarySurfaceHistoryNeedsClear;
+            unifiedPtInputs.previousCameraOrigin[0] =
+                m_frameResources.primarySurfaceHistoryView.origin.x;
+            unifiedPtInputs.previousCameraOrigin[1] =
+                m_frameResources.primarySurfaceHistoryView.origin.y;
+            unifiedPtInputs.previousCameraOrigin[2] =
+                m_frameResources.primarySurfaceHistoryView.origin.z;
+            unifiedPtInputs.previousCameraForward[0] =
+                m_frameResources.primarySurfaceHistoryView.forward.x;
+            unifiedPtInputs.previousCameraForward[1] =
+                m_frameResources.primarySurfaceHistoryView.forward.y;
+            unifiedPtInputs.previousCameraForward[2] =
+                m_frameResources.primarySurfaceHistoryView.forward.z;
+            unifiedPtInputs.previousCameraLeft[0] =
+                m_frameResources.primarySurfaceHistoryView.left.x;
+            unifiedPtInputs.previousCameraLeft[1] =
+                m_frameResources.primarySurfaceHistoryView.left.y;
+            unifiedPtInputs.previousCameraLeft[2] =
+                m_frameResources.primarySurfaceHistoryView.left.z;
+            unifiedPtInputs.previousCameraUp[0] =
+                m_frameResources.primarySurfaceHistoryView.up.x;
+            unifiedPtInputs.previousCameraUp[1] =
+                m_frameResources.primarySurfaceHistoryView.up.y;
+            unifiedPtInputs.previousCameraUp[2] =
+                m_frameResources.primarySurfaceHistoryView.up.z;
+            unifiedPtInputs.previousCameraTanX =
+                m_frameResources.primarySurfaceHistoryView.tanX;
+            unifiedPtInputs.previousCameraTanY =
+                m_frameResources.primarySurfaceHistoryView.tanY;
             const bool unifiedPtInitialExecuted =
                 m_unifiedPtState.ExecuteInitial(unifiedPtInputs);
+            if (unifiedPtInitialExecuted && unifiedPtInputs.temporal)
+            {
+                m_unifiedPtState.ExecuteTemporal(unifiedPtInputs);
+            }
+            if (unifiedPtInitialExecuted && unifiedPtInputs.spatial)
+            {
+                m_unifiedPtState.ExecuteSpatial(unifiedPtInputs);
+            }
+            if (unifiedPtInitialExecuted && unifiedPtInputs.duplication)
+            {
+                m_unifiedPtState.ExecuteDuplication(unifiedPtInputs);
+            }
             if (unifiedPtInputs.diagnostics)
             {
                 r_pathTracingUnifiedPtDiagnostics.SetInteger(0);
@@ -2728,7 +2831,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         unifiedPtInputs,
                         static_cast<uint32_t>(idMath::ClampInt(
                             0,
-                            4,
+                            5,
                             r_pathTracingUnifiedPtResolveView.GetInteger()))))
                 {
                     m_smokeTestDispatched = true;
@@ -2741,9 +2844,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_unifiedPtState.ReleaseResolve();
             }
 
+            m_unifiedPtState.CompleteFrame();
+
             // Publish the shared primary history once after the UPT consumer,
             // then stop before every legacy execution branch.
             publishPrimarySurfaceHistory("UPT.P0 PrimarySurfaceHistory Copy");
+            // The shared legacy increment lives below this early-returning
+            // route. Advance the same live index here so FixedSampleIndex -1
+            // actually produces a new UPT random stream every rendered frame.
+            ++m_frameResources.restirPTFrameIndex;
             return;
         }
 
@@ -3554,7 +3663,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (cleanRtxdiDiSpatialEnabled &&
                     cleanRtxdiDiTemporalEnabled &&
                     (cleanRtxdiDiView == 12 ||
-                        (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16)))) &&
+                        (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 17, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16)))) &&
             cleanPromoteSubviewReservoir &&
             m_smokeCleanRtxdiDiSpatialShaderTable != nullptr;
         const bool cleanProductionInitialOnly =
@@ -3688,7 +3797,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.historyResetCount = m_smokeCleanRtxdiDiHistoryResetCount;
         cleanConstants.view8Band = static_cast<uint32_t>(cleanRtxdiDiRrInputMosaicView
             ? cleanRtxdiDiView18Tile
-            : idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()));
+            : idMath::ClampInt(-1, 17, r_pathTracingCleanRtxdiDiView8Band.GetInteger()));
         cleanConstants.resolveVisibilityReuse = static_cast<uint32_t>(idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiResolveVisibilityReuse.GetInteger()));
         cleanConstants.resolveBrdfTarget = PackCleanRtxdiDiResolveBrdfTarget();
         cleanConstants.referenceRab = static_cast<uint32_t>(idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiReferenceRab.GetInteger()));
@@ -3924,8 +4033,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 staticBucketSecondaryIsolation.spatialNeighborReuse
             ? 1.0f
             : 0.0f;
-        commandList->setRayTracingState(cleanState);
-
         if (cleanRtxdiDiDumpRequested)
         {
             printCleanRtxdiDiDump("route-ready", "none", cleanSpatialRoute ? 2 : 1);
@@ -4436,10 +4543,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanSpatialState.shaderTable = cleanRtxdiDiProductionView
                 ? m_smokeCleanRtxdiDiSpatialProductionShaderTable
                 : m_smokeCleanRtxdiDiSpatialShaderTable;
-            commandList->setRayTracingState(cleanSpatialState);
             PathTraceCleanRtxdiDiSentinelConstants cleanSpatialConstants = cleanConstants;
             cleanSpatialConstants.emissiveDistributionInfo[3] = static_cast<float>(cleanMaterialOverlayRecordCount);
             commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanSpatialConstants, sizeof(cleanSpatialConstants));
+            commandList->setRayTracingState(cleanSpatialState);
             {
                 PathTraceGpuMarkerScope nsightMarker(
                     commandList,
@@ -4958,10 +5065,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
             nvrhi::rt::State cleanMosaicState = cleanState;
             cleanMosaicState.shaderTable = m_smokeCleanRtxdiDiSentinelShaderTable;
-            commandList->setRayTracingState(cleanMosaicState);
             PathTraceCleanRtxdiDiSentinelConstants mosaicConstants = cleanConstants;
             mosaicConstants.view = static_cast<uint32_t>(cleanRtxdiDiView);
             commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &mosaicConstants, sizeof(mosaicConstants));
+            commandList->setRayTracingState(cleanMosaicState);
             {
                 PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.3 RrGuideMosaic DispatchRays", nsightGpuMarkers);
                 commandList->dispatchRays(cleanArgs);
@@ -6275,15 +6382,54 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint64 historyCopyStartUs = Sys_Microseconds();
     if (!standaloneDebugRouteRequested && !disablePrimarySurfaceHistory)
     {
-        commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::CopySource);
-        commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::CopyDest);
-        commandList->commitBarriers();
-        commandList->copyBuffer(
-            m_frameResources.primarySurfaceHistoryBuffers.previous,
-            0,
-            m_frameResources.primarySurfaceHistoryBuffers.current,
-            0,
-            m_frameResources.primarySurfaceHistoryBuffers.surfaceBytes);
+        const bool publishUptCompactHistory =
+            unifiedPtRouteRequested &&
+            !cleanRtxdiDiRouteRequested &&
+            r_pathTracingUnifiedPtCompactReceiver.GetInteger() == 2 &&
+            r_pathTracingUnifiedPtTemporal.GetBool() &&
+            r_pathTracingUnifiedPtDiagnostics.GetInteger() == 0 &&
+            r_pathTracingUnifiedPtShaderProof.GetInteger() <= 6 &&
+            m_frameResources.unifiedPtPrimaryReceiver32Buffer &&
+            m_frameResources.unifiedPtPrimaryReceiver32PreviousBuffer &&
+            m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer &&
+            m_frameResources.unifiedPtPrimaryHistorySidecarPreviousBuffer;
+
+        if (publishUptCompactHistory)
+        {
+            // Keep both halves of the compact history publication synchronized.  T0 reconstructs
+            // one logical surface from the hot 32-byte receiver and cold 32-byte sidecar; publishing
+            // only one half would make an apparently valid N-1 surface contain mixed-frame identity
+            // and motion data.  Do not replace this with the legacy 176-byte history copy.
+            commandList->setBufferState(m_frameResources.unifiedPtPrimaryReceiver32Buffer, nvrhi::ResourceStates::CopySource);
+            commandList->setBufferState(m_frameResources.unifiedPtPrimaryReceiver32PreviousBuffer, nvrhi::ResourceStates::CopyDest);
+            commandList->setBufferState(m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer, nvrhi::ResourceStates::CopySource);
+            commandList->setBufferState(m_frameResources.unifiedPtPrimaryHistorySidecarPreviousBuffer, nvrhi::ResourceStates::CopyDest);
+            commandList->commitBarriers();
+            commandList->copyBuffer(
+                m_frameResources.unifiedPtPrimaryReceiver32PreviousBuffer,
+                0,
+                m_frameResources.unifiedPtPrimaryReceiver32Buffer,
+                0,
+                m_frameResources.unifiedPtPrimaryReceiver32Buffer->getDesc().byteSize);
+            commandList->copyBuffer(
+                m_frameResources.unifiedPtPrimaryHistorySidecarPreviousBuffer,
+                0,
+                m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer,
+                0,
+                m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer->getDesc().byteSize);
+        }
+        else
+        {
+            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::CopySource);
+            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::CopyDest);
+            commandList->commitBarriers();
+            commandList->copyBuffer(
+                m_frameResources.primarySurfaceHistoryBuffers.previous,
+                0,
+                m_frameResources.primarySurfaceHistoryBuffers.current,
+                0,
+                m_frameResources.primarySurfaceHistoryBuffers.surfaceBytes);
+        }
     }
     const uint64 historyCopyCompleteUs = Sys_Microseconds();
     if (!standaloneDebugRouteRequested && !disablePrimarySurfaceHistory)

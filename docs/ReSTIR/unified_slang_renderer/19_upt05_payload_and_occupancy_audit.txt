@@ -843,3 +843,34 @@ discarded, and includes cameraProjection. UPT-06 must not silently promote it to
 a history key. The authoritative page-metadata and no-clear contract is in
 03_unified_reservoir_contract.txt; UPT-06/07 acceptance gates are updated in
 05_tasks_and_validation.txt.
+
+Compact D0 receiver with reuse history (2026-08-06)
+----------------------------------------------------
+
+Temporal and spatial reuse no longer force D0 back onto the legacy 176-byte
+primary-surface record. Compact receiver mode 2 is now the production route
+and publishes one logical reuse surface as two independently addressable
+32-byte records:
+
+    hot receiver (32 bytes)
+        distance, encoded directions, roughness, base color, F0, and compact
+        material/event classification needed by D0 and surface matching;
+
+    cold history sidecar (32 bytes)
+        previous position, motion validity, stable material identity, full
+        material flags, surface class, and alpha cutoff needed by T0/S0.
+
+D0 reads only the hot receiver. T0 reconstructs current and previous logical
+surfaces from the matching hot/cold pair; S0 reconstructs the current surface
+the same way. End-of-frame history publication copies both 32-byte pages under
+one barrier/commit point. Do not publish only one half: mixed-frame receiver
+and identity/motion data can pass the ordinary surface-validity gate and poison
+reprojection. This changes the reusable primary-surface traffic from
+176 bytes/pixel to 64 bytes/pixel without weakening material or motion identity.
+
+The primary producer still interpolates Doom's authored idDrawVert normals.
+Captured ParticleAlpha/alpha-tested geometry must not be forced to a triangle
+face normal merely because of its material class: that destroys authored
+smoothing on grates, cables, foliage, and dynamic cards. Geometric-normal
+fallback is reserved for malformed or missing vertex normals only; there is no
+UPT-owned fixed smoothing angle.

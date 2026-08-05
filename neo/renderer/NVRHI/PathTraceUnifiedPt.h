@@ -3,16 +3,17 @@
 // Isolated runtime owner for the clean Slang unified ReSTIR PT lane.
 //
 // UPT-06 admits exactly two 64-byte reservoir pages plus host-owned page
-// metadata. Initial sampling still writes page 0 and UPT-05 resolve still reads
-// page 0; page 1 is invalid until an admitted reuse producer fully covers it.
-// There is no temporal/spatial dispatch yet, no third page, and no per-frame
-// full-page clear. A separate one-shot diagnostic specialization owns one fixed
-// counter/readback pair.
+// metadata. UPT-07 temporal overwrites the current role in place; the default-
+// off UPT-09 spatial baseline fully writes the history role and makes it the
+// next frame's history. There is no third page or per-frame full-page clear. A
+// separate one-shot diagnostic specialization owns one fixed counter/readback
+// pair.
 
 #include "PathTraceSceneInputs.h"
 
 #include <nvrhi/nvrhi.h>
 
+#include <array>
 #include <cstdint>
 
 enum class PathTraceUnifiedPtBackend : uint32_t
@@ -40,6 +41,10 @@ struct PathTraceUnifiedPtDispatchInputs
     nvrhi::ICommandList* commandList = nullptr;
     const RtPathTraceSceneInputs* sceneInputs = nullptr;
     nvrhi::BufferHandle primarySurfaceBuffer;
+    nvrhi::BufferHandle primarySurfaceCurrentBuffer;
+    nvrhi::BufferHandle primarySurfacePreviousBuffer;
+    nvrhi::BufferHandle primaryHistorySidecarCurrentBuffer;
+    nvrhi::BufferHandle primaryHistorySidecarPreviousBuffer;
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t frameSampleIndex = 0;
@@ -51,14 +56,26 @@ struct PathTraceUnifiedPtDispatchInputs
     bool nsightMarkers = false;
     bool diagnostics = false;
     uint32_t primaryReceiverMode = 0;
+    bool compactPrimaryHistory = false;
     bool compactGeometry = false;
     bool compactLights = false;
     bool compactMaterials = false;
     bool splitInitial = false;
     bool splitContinuation = false;
+    bool directProposalParity = false;
+    bool temporal = false;
+    bool duplication = false;
+    bool spatial = false;
+    bool primarySurfaceHistoryValid = false;
     uint64_t historyEpoch = 0;
     uint32_t historyResetReasonFlags = 0;
     float primaryCameraOrigin[3] = {};
+    float previousCameraOrigin[3] = {};
+    float previousCameraForward[3] = {};
+    float previousCameraLeft[3] = {};
+    float previousCameraUp[3] = {};
+    float previousCameraTanX = 1.0f;
+    float previousCameraTanY = 1.0f;
 };
 
 struct PathTraceUnifiedPtPageMetadata
@@ -68,6 +85,7 @@ struct PathTraceUnifiedPtPageMetadata
     uint32_t height = 0;
     uint64_t contentGeneration = 0;
     uint64_t historyEpoch = 0;
+    uint64_t frameSerial = 0;
 
     void Invalidate()
     {
@@ -76,6 +94,7 @@ struct PathTraceUnifiedPtPageMetadata
         height = 0;
         contentGeneration = 0;
         historyEpoch = 0;
+        frameSerial = 0;
     }
 };
 
@@ -83,9 +102,13 @@ class PathTraceUnifiedPtState
 {
 public:
     bool ExecuteInitial(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool ExecuteTemporal(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool ExecuteSpatial(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool ExecuteDuplication(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool ExecuteResolve(
         const PathTraceUnifiedPtDispatchInputs& inputs,
         uint32_t view);
+    void CompleteFrame();
     nvrhi::TextureHandle GetOutputTexture() const
     {
         return m_resolveReady ? m_resolveOutput : nullptr;
@@ -117,6 +140,13 @@ private:
     bool EnsureResolveResources(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolvePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolveBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureTemporalPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureTemporalBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureDuplicationResources(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureDuplicationPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureDuplicationBindingSets(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureSpatialPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureSpatialBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     void DrainDiagnosticReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
     void ReportProofStage(
         uint32_t stage,
@@ -128,6 +158,15 @@ private:
     void ReleaseCompactLights();
     void ReleaseCompactMaterials();
     void ReleaseContinuation();
+    void ReleaseTemporal();
+    void ReleaseDuplication();
+    void ReleaseSpatial();
+    nvrhi::BufferHandle CurrentPage() const;
+    nvrhi::BufferHandle HistoryPage() const;
+    PathTraceUnifiedPtPageMetadata& CurrentPageMetadata();
+    const PathTraceUnifiedPtPageMetadata& CurrentPageMetadata() const;
+    PathTraceUnifiedPtPageMetadata& HistoryPageMetadata();
+    const PathTraceUnifiedPtPageMetadata& HistoryPageMetadata() const;
 
     PathTraceUnifiedPtBackend m_backend = PathTraceUnifiedPtBackend::RayQuery;
     PathTraceUnifiedPtFamily m_family = PathTraceUnifiedPtFamily::DirectOnly;
@@ -140,6 +179,12 @@ private:
     bool m_compactMaterials = false;
     bool m_splitInitial = false;
     bool m_splitContinuation = false;
+    bool m_temporalModeActive = false;
+    bool m_initialPublishedThisFrame = false;
+    bool m_spatialModeActive = false;
+    bool m_spatialExecutedThisFrame = false;
+    int32_t m_reportedTemporalHistoryAvailable = -1;
+    int32_t m_reportedTemporalSkipReason = -1;
     bool m_pipelineAttempted = false;
     bool m_resourceFailureLogged = false;
     bool m_page0NeedsAllocationClear = false;
@@ -152,7 +197,10 @@ private:
     nvrhi::BufferHandle m_page1;
     PathTraceUnifiedPtPageMetadata m_page0Metadata;
     PathTraceUnifiedPtPageMetadata m_page1Metadata;
+    uint32_t m_currentPageIndex = 0;
+    uint32_t m_historyPageIndex = 1;
     uint64_t m_observedHistoryEpoch = 0;
+    uint64_t m_lastPublishedFrameSerial = 0;
     nvrhi::BufferHandle m_diagnosticCounters;
     nvrhi::BufferHandle m_diagnosticReadback;
     bool m_diagnosticReadbackPending = false;
@@ -164,9 +212,9 @@ private:
         PathTraceUnifiedPtFamily::DirectOnly;
 
     nvrhi::BindingLayoutHandle m_bindingLayout;
-    nvrhi::BindingSetHandle m_bindingSet;
-    nvrhi::BindingSetDesc m_bindingSetDesc;
-    bool m_bindingSetDescValid = false;
+    std::array<nvrhi::BindingSetHandle, 2> m_bindingSets;
+    std::array<nvrhi::BindingSetDesc, 2> m_bindingSetDescs;
+    std::array<bool, 2> m_bindingSetDescValid = { false, false };
 
     nvrhi::ShaderHandle m_computeShader;
     nvrhi::ComputePipelineHandle m_computePipeline;
@@ -225,6 +273,40 @@ private:
     nvrhi::rt::PipelineHandle m_rayPipeline;
     nvrhi::rt::ShaderTableHandle m_shaderTable;
 
+    bool m_temporalCompactLights = false;
+    bool m_temporalDuplication = false;
+    bool m_temporalPipelineAttempted = false;
+    nvrhi::BindingLayoutHandle m_temporalBindingLayout;
+    std::array<nvrhi::BindingSetHandle, 2> m_temporalBindingSets;
+    std::array<nvrhi::BindingSetDesc, 2> m_temporalBindingSetDescs;
+    std::array<bool, 2> m_temporalBindingSetDescValid = { false, false };
+    nvrhi::ShaderHandle m_temporalShader;
+    nvrhi::ComputePipelineHandle m_temporalPipeline;
+
+    uint32_t m_duplicationWidth = 0;
+    uint32_t m_duplicationHeight = 0;
+    uint32_t m_duplicationPackedRowPitch = 0;
+    nvrhi::BufferHandle m_duplicationSampleIds;
+    std::array<nvrhi::BufferHandle, 2> m_duplicationScores;
+    std::array<PathTraceUnifiedPtPageMetadata, 2> m_duplicationMetadata;
+    nvrhi::BindingLayoutHandle m_duplicationBindingLayout;
+    std::array<nvrhi::BindingSetHandle, 2> m_duplicationFillBindingSets;
+    std::array<nvrhi::BindingSetHandle, 2> m_duplicationComputeBindingSets;
+    nvrhi::ShaderHandle m_duplicationFillShader;
+    nvrhi::ShaderHandle m_duplicationComputeShader;
+    nvrhi::ComputePipelineHandle m_duplicationFillPipeline;
+    nvrhi::ComputePipelineHandle m_duplicationComputePipeline;
+    bool m_duplicationPipelineAttempted = false;
+
+    bool m_spatialCompactLights = false;
+    bool m_spatialPipelineAttempted = false;
+    nvrhi::BindingLayoutHandle m_spatialBindingLayout;
+    std::array<nvrhi::BindingSetHandle, 2> m_spatialBindingSets;
+    std::array<nvrhi::BindingSetDesc, 2> m_spatialBindingSetDescs;
+    std::array<bool, 2> m_spatialBindingSetDescValid = { false, false };
+    nvrhi::ShaderHandle m_spatialShader;
+    nvrhi::ComputePipelineHandle m_spatialPipeline;
+
     uint32_t m_resolveWidth = 0;
     uint32_t m_resolveHeight = 0;
     bool m_resolvePipelineAttempted = false;
@@ -232,9 +314,9 @@ private:
     bool m_resolveReady = false;
     nvrhi::TextureHandle m_resolveOutput;
     nvrhi::BindingLayoutHandle m_resolveBindingLayout;
-    nvrhi::BindingSetHandle m_resolveBindingSet;
-    nvrhi::BindingSetDesc m_resolveBindingSetDesc;
-    bool m_resolveBindingSetDescValid = false;
+    std::array<nvrhi::BindingSetHandle, 2> m_resolveBindingSets;
+    std::array<nvrhi::BindingSetDesc, 2> m_resolveBindingSetDescs;
+    std::array<bool, 2> m_resolveBindingSetDescValid = { false, false };
     nvrhi::ShaderHandle m_resolveShader;
     nvrhi::ComputePipelineHandle m_resolvePipeline;
 };

@@ -659,6 +659,8 @@ RWStructuredBuffer<PathTraceUnifiedPtPrimaryReceiver>
     PathTraceUnifiedPtPrimaryReceivers : register(u88);
 RWStructuredBuffer<PathTraceUnifiedPtPrimaryReceiver32>
     PathTraceUnifiedPtPrimaryReceivers32 : register(u89);
+RWStructuredBuffer<PathTraceUnifiedPtPrimaryHistorySidecar>
+    PathTraceUnifiedPtPrimaryHistorySidecars : register(u90);
 
 float GetRoughness(RAB_Material material)
 {
@@ -1211,6 +1213,16 @@ void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
             {
                 PathTraceUnifiedPtPrimaryReceivers32[index] =
                     PackPathTraceUnifiedPtPrimaryReceiver32(surface);
+                if (MotionVectorInfo.z >= 2.5)
+                {
+                    // Pack motion/material identity into a cold sidecar. D0
+                    // never loads it; temporal/spatial reuse does.
+                    const PathTracePrimarySurfaceRecord historyRecord =
+                        PackPathTracePrimarySurfaceRecord(surface);
+                    PathTraceUnifiedPtPrimaryHistorySidecars[index] =
+                        PackPathTraceUnifiedPtPrimaryHistorySidecar(
+                            historyRecord);
+                }
             }
             else
             {

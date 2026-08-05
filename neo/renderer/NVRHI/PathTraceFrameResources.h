@@ -112,6 +112,9 @@ struct RtPathTraceFrameResources
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
     nvrhi::BufferHandle unifiedPtPrimaryReceiverBuffer;
     nvrhi::BufferHandle unifiedPtPrimaryReceiver32Buffer;
+    nvrhi::BufferHandle unifiedPtPrimaryReceiver32PreviousBuffer;
+    nvrhi::BufferHandle unifiedPtPrimaryHistorySidecarCurrentBuffer;
+    nvrhi::BufferHandle unifiedPtPrimaryHistorySidecarPreviousBuffer;
     uint32_t restirPTFrameIndex = 0;
     // Full-width host token shared by temporal consumers. It advances only on
     // explicit history invalidation, never from the live projection hash.

@@ -12769,12 +12769,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         if (routeSet == nullptr)
         {
-            const size_t routeSetLimit =
-                static_cast<size_t>(idMath::ClampInt(
-                    1,
-                    8,
-                    r_pathTracingGeometrySkinnedCaptureRouteSetLimit.
-                        GetInteger()));
+                const size_t routeSetLimit =
+                    static_cast<size_t>(idMath::ClampInt(
+                        1,
+                        8,
+                        r_pathTracingGeometrySkinnedCaptureRouteSetLimit.
+                            GetInteger()));
             if (m_smokeSkinnedCaptureRouteSets.size() >=
                 routeSetLimit)
             {
@@ -14184,6 +14184,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_frameResources.unifiedPtPrimaryReceiverBuffer;
     bindingBuildDesc.unifiedPtPrimaryReceiver32Buffer =
         m_frameResources.unifiedPtPrimaryReceiver32Buffer;
+    bindingBuildDesc.unifiedPtPrimaryHistorySidecarCurrentBuffer =
+        m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer;
     bindingBuildDesc.bindingLayout = m_smokeBindingLayout;
     bindingBuildDesc.textureBindlessLayout = m_smokeTextureBindlessLayout;
     const int sceneRetireFrames = idMath::ClampInt(0, 32, r_pathTracingSceneRetireFrames.GetInteger());
@@ -14616,6 +14618,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.unifiedLightRemapBuffer = smokeUnifiedLightRemapBuffer;
     sceneInputs.lights.restirLightManagerCurrentPayloadBuffer = smokeRestirLightManagerCurrentPayloadBuffer;
     sceneInputs.lights.restirLightManagerPreviousPayloadBuffer = smokeRestirLightManagerPreviousPayloadBuffer;
+    sceneInputs.lights.restirLightManagerPreviousToCurrentBuffer = smokeRestirLightManagerPreviousToCurrentBuffer;
     sceneInputs.lights.unifiedPtEmissiveLookupBuffer = smokeUnifiedPtEmissiveLookupBuffer;
     sceneInputs.lights.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
     sceneInputs.lights.emissiveDistributionCount = static_cast<int>(emissiveDistribution.entries.size());
@@ -14637,6 +14640,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.unifiedLightRemapCount = static_cast<int>(unifiedLights.currentToPreviousRemap.size());
     sceneInputs.lights.restirLightManagerCurrentPayloadCount = static_cast<int>(restirLightManagerCurrentPayloadRecords.size());
     sceneInputs.lights.restirLightManagerPreviousPayloadCount = static_cast<int>(restirLightManagerPreviousPayloadRecords.size());
+    sceneInputs.lights.restirLightManagerPreviousToCurrentCount = static_cast<int>(restirLightManagerPreviousToCurrentRemap.size());
     sceneInputs.lights.unifiedPtEmissiveLookupCount = static_cast<int>(unifiedPtEmissiveLookup.entries.size());
     sceneInputs.lights.restirLightManagerEmissiveRangeOffset = remixLightManagerSignatureStats.emissiveRangeOffset;
     sceneInputs.lights.restirLightManagerEmissiveRangeCount = remixLightManagerSignatureStats.emissiveRangeCount;

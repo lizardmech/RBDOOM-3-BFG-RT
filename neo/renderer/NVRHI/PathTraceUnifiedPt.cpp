@@ -1,6 +1,7 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceCVars.h"
 #include "PathTraceUnifiedPt.h"
 #include "PathTraceUnifiedPtPrimaryReceiver.h"
 
@@ -25,14 +26,30 @@ static constexpr uint32_t UPT04_ROUTE_STATIC_BUCKETS = 1u << 1u;
 static constexpr uint32_t UPT04_EMISSIVE_LOOKUP_EXACT = 1u << 3u;
 static constexpr uint32_t UPT04_MATERIAL_USE_SPECULAR_MAPS = 1u << 4u;
 static constexpr uint32_t UPT04_MATERIAL_LEGACY_SPECMAP_TO_PBR = 1u << 5u;
+static constexpr uint32_t UPT04_DIRECT_TARGET_PDF_PARITY = 1u << 29u;
+static constexpr uint32_t UPT04_DIRECT_PROPOSAL_PARITY = 1u << 30u;
+static constexpr uint32_t UPT04_ANALYTIC_PORTAL_DOMAIN = 1u << 28u;
 static constexpr uint32_t UPT04_TRANSPORT_K_MAX = 2u;
 static constexpr uint32_t UPT04_TRANSPORT_POLICY_ID = 1u;
-static constexpr uint32_t UPT04_NEE_RIS_CANDIDATE_COUNT = 1u;
+static constexpr uint32_t UPT04_NEE_RIS_BASELINE_CANDIDATE_COUNT = 8u;
+static constexpr uint32_t UPT04_NEE_RIS_PARITY_MAX_CANDIDATE_COUNT = 33u;
 static constexpr uint32_t UPT04_ABI_VERSION = 7u;
-static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 20u;
+static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 27u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
 static constexpr uint32_t UPT05_PUSH_CONSTANT_BYTES = 16u;
+static constexpr uint32_t UPT07_PUSH_CONSTANT_BYTES = 144u;
+static constexpr uint32_t UPT07_MAXIMUM_HISTORY_AGE = 63u;
+static constexpr uint32_t UPT07_MAXIMUM_HISTORY_CONTRIBUTION_RATIO = 32u;
+static constexpr uint32_t UPT07_GEOMETRY_FLAG_PREVIOUS_BEST_SEED = 1u << 31u;
+static constexpr uint32_t UPT07_GEOMETRY_FLAG_PAIRWISE_MIS = 1u << 27u;
+static constexpr uint32_t UPT07_GEOMETRY_FLAG_DUPLICATION_MAP = 1u << 26u;
+static constexpr uint32_t UPT08_PUSH_CONSTANT_BYTES = 16u;
+static constexpr uint32_t UPT09_PUSH_CONSTANT_BYTES = 80u;
+static constexpr uint32_t UPT09_MAXIMUM_INPUT_M = 32u;
+static constexpr uint32_t UPT09_REGULAR_NEIGHBOR_COUNT = 3u;
+static constexpr uint32_t UPT09_RESCUE_NEIGHBOR_COUNT = 12u;
+static constexpr float UPT09_NEIGHBOR_RADIUS = 30.0f;
 
 static const char* Upt04BackendName(PathTraceUnifiedPtBackend backend)
 {
@@ -290,15 +307,14 @@ static uint64_t Upt04HashValue(uint64_t hash, uint64_t value)
 static uint64_t Upt06BuildContentGeneration(
     const PathTraceUnifiedPtDispatchInputs& dispatch,
     uint32_t enabledFamilyMask,
-    uint32_t specializationIdentity,
-    uint32_t availabilityFlags)
+    uint32_t specializationIdentity)
 {
-    // Full-width page content/proposal fingerprint. Camera projection and the
-    // per-frame CPU upload serial are deliberately excluded: ordinary camera
-    // motion must preserve history, and both physical pages carry a separate
-    // monotonic host-owned history epoch. Do not duplicate this state into
-    // every 64-byte pixel record.
-    const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
+    // Full-width temporal compatibility fingerprint. It describes the stored
+    // proposal/estimator ABI, not live scene contents. Moving geometry and
+    // changing light payloads are handled by reprojection plus per-sample
+    // identity replay; hashing those live signatures invalidated alternating
+    // pages almost every frame and made temporal admission nondeterministic.
+    // Camera cuts and resource resets are owned by the separate historyEpoch.
     uint64_t hash = 1469598103934665603ull;
     hash = Upt04HashValue(hash, UPT04_ABI_VERSION);
     // These words define the proposal mixture and stored-PDF interpretation.
@@ -306,25 +322,18 @@ static uint64_t Upt06BuildContentGeneration(
     // not change.
     hash = Upt04HashValue(hash, enabledFamilyMask);
     hash = Upt04HashValue(hash, specializationIdentity);
-    hash = Upt04HashValue(hash, availabilityFlags);
     hash = Upt04HashValue(hash, UPT04_TRANSPORT_K_MAX);
     hash = Upt04HashValue(hash, UPT04_TRANSPORT_POLICY_ID);
-    hash = Upt04HashValue(hash, UPT04_NEE_RIS_CANDIDATE_COUNT);
-    hash = Upt04HashValue(hash, inputs.lights.restirLightManagerEmissiveRangeOffset);
-    hash = Upt04HashValue(hash, inputs.lights.restirLightManagerEmissiveRangeCount);
-    hash = Upt04HashValue(hash, inputs.lights.restirLightManagerDoomAnalyticRangeOffset);
-    hash = Upt04HashValue(hash, inputs.lights.restirLightManagerDoomAnalyticSampleableCount);
-    hash = Upt04HashValue(hash, inputs.signatures.geometryMembership);
-    hash = Upt04HashValue(hash, inputs.signatures.materialTable);
-    hash = Upt04HashValue(hash, inputs.signatures.lightMembership);
-    hash = Upt04HashValue(hash, inputs.signatures.outputResolution);
-    hash = Upt04HashValue(hash, inputs.signatures.reservoirScene);
-    hash = Upt04HashValue(hash, inputs.materials.textureDescriptorGeneration);
-    hash = Upt04HashValue(hash, inputs.lights.restirLightManagerStructuralSignature);
-    hash = Upt04HashValue(hash, inputs.lights.restirLightManagerMappingSignature);
-    hash = Upt04HashValue(hash, inputs.lights.restirLightManagerPayloadSignature);
-    hash = Upt04HashValue(hash, inputs.lights.unifiedPtEmissiveLookupSignature);
-    hash = Upt04HashValue(hash, inputs.geometry.staticBucketRouteGeneration);
+    hash = Upt04HashValue(hash, dispatch.directProposalParity
+        ? UPT04_NEE_RIS_PARITY_MAX_CANDIDATE_COUNT
+        : UPT04_NEE_RIS_BASELINE_CANDIDATE_COUNT);
+    hash = Upt04HashValue(hash,
+        r_pathTracingUnifiedPtDirectTargetPdfParity.GetBool() ? 1u : 0u);
+    hash = Upt04HashValue(hash,
+        r_pathTracingUnifiedPtAnalyticPortalDomain.GetBool() ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.width);
+    hash = Upt04HashValue(hash, dispatch.height);
+    hash = Upt04HashValue(hash, dispatch.materialPolicyFlags);
     return hash;
 }
 
@@ -375,6 +384,72 @@ struct Upt05ResolveControl
 };
 static_assert(sizeof(Upt05ResolveControl) == UPT05_PUSH_CONSTANT_BYTES,
     "UPT-05 host push constants must match Slang reflection");
+
+struct Upt07TemporalDirectControl
+{
+    uint32_t renderWidth;
+    uint32_t renderHeight;
+    uint32_t surfaceCount;
+    uint32_t historyAvailable;
+    uint32_t emissiveRangeStart;
+    uint32_t emissiveRangeCount;
+    uint32_t analyticRangeStart;
+    uint32_t analyticRangeCount;
+    uint32_t currentLightCount;
+    uint32_t frameSampleIndex;
+    uint32_t maximumHistoryM;
+    uint32_t maximumHistoryAge;
+    float previousCameraOrigin[3];
+    uint32_t previousCameraValid;
+    float previousCameraForward[3];
+    float previousCameraTanX;
+    float previousCameraLeft[3];
+    float previousCameraTanY;
+    float previousCameraUp[3];
+    uint32_t previousCameraHistorySearchMode;
+    uint32_t geometryAvailabilityFlags;
+    uint32_t emissiveReplayCount;
+    uint32_t previousToCurrentLightCount;
+    uint32_t maximumHistoryContributionRatio;
+    float primaryCameraOrigin[3];
+    uint32_t compactPrimaryHistory;
+};
+static_assert(sizeof(Upt07TemporalDirectControl) == UPT07_PUSH_CONSTANT_BYTES,
+    "UPT-07 host push constants must match Slang reflection");
+
+struct Upt08Control
+{
+    uint32_t renderWidth;
+    uint32_t renderHeight;
+    uint32_t surfaceCount;
+    uint32_t packedRowPitch;
+};
+static_assert(sizeof(Upt08Control) == UPT08_PUSH_CONSTANT_BYTES,
+    "UPT-08 host push constants must match Slang reflection");
+
+struct Upt09SpatialDirectControl
+{
+    uint32_t renderWidth;
+    uint32_t renderHeight;
+    uint32_t surfaceCount;
+    uint32_t frameSampleIndex;
+    uint32_t emissiveRangeStart;
+    uint32_t emissiveRangeCount;
+    uint32_t analyticRangeStart;
+    uint32_t analyticRangeCount;
+    uint32_t currentLightCount;
+    uint32_t maximumInputM;
+    uint32_t regularNeighborCount;
+    uint32_t rescueNeighborCount;
+    float neighborRadius;
+    uint32_t geometryAvailabilityFlags;
+    uint32_t emissiveReplayCount;
+    uint32_t proofMode;
+    float primaryCameraOrigin[3];
+    uint32_t compactPrimaryHistory;
+};
+static_assert(sizeof(Upt09SpatialDirectControl) == UPT09_PUSH_CONSTANT_BYTES,
+    "UPT-09 host push constants must match Slang reflection");
 
 struct Upt04CompactGeometryPackControl
 {
@@ -731,6 +806,15 @@ static Upt04InitialControl Upt04BuildControl(const PathTraceUnifiedPtDispatchInp
         ((dispatch.materialPolicyFlags
                 & PATH_TRACE_UPT_MATERIAL_LEGACY_SPECMAP_TO_PBR) != 0u
             ? UPT04_MATERIAL_LEGACY_SPECMAP_TO_PBR
+            : 0u) |
+        (dispatch.directProposalParity
+            ? UPT04_DIRECT_PROPOSAL_PARITY
+            : 0u) |
+        (r_pathTracingUnifiedPtDirectTargetPdfParity.GetBool()
+            ? UPT04_DIRECT_TARGET_PDF_PARITY
+            : 0u) |
+        (r_pathTracingUnifiedPtAnalyticPortalDomain.GetBool()
+            ? UPT04_ANALYTIC_PORTAL_DOMAIN
             : 0u);
     const uint64_t surfaceCount64 = uint64_t(dispatch.width) * uint64_t(dispatch.height);
 
@@ -774,9 +858,12 @@ static Upt04InitialControl Upt04BuildControl(const PathTraceUnifiedPtDispatchInp
 
 void PathTraceUnifiedPtState::ReleasePipeline()
 {
-    m_bindingSet = nullptr;
-    m_bindingSetDesc = nvrhi::BindingSetDesc();
-    m_bindingSetDescValid = false;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_bindingSets[page] = nullptr;
+        m_bindingSetDescs[page] = nvrhi::BindingSetDesc();
+        m_bindingSetDescValid[page] = false;
+    }
     m_shaderTable = nullptr;
     m_rayPipeline = nullptr;
     m_rayGenerationLibrary = nullptr;
@@ -820,6 +907,13 @@ void PathTraceUnifiedPtState::ReleaseCompactLights()
     m_compactLightPipelineAttempted = false;
     m_compactLightsBuffer = nullptr;
     m_compactLightCapacity = 0;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_temporalBindingSets[page] = nullptr;
+        m_temporalBindingSetDescValid[page] = false;
+        m_spatialBindingSets[page] = nullptr;
+        m_spatialBindingSetDescValid[page] = false;
+    }
 }
 
 void PathTraceUnifiedPtState::ReleaseCompactMaterials()
@@ -848,8 +942,65 @@ void PathTraceUnifiedPtState::ReleaseContinuation()
     m_continuationCapacity = 0;
     // The final D0 binding set owns the same sidecar as an SRV at slot 24.
     // Never retain a descriptor set that points at a released/replaced buffer.
-    m_bindingSet = nullptr;
-    m_bindingSetDescValid = false;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_bindingSets[page] = nullptr;
+        m_bindingSetDescValid[page] = false;
+    }
+}
+
+void PathTraceUnifiedPtState::ReleaseTemporal()
+{
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_temporalBindingSets[page] = nullptr;
+        m_temporalBindingSetDescs[page] = nvrhi::BindingSetDesc();
+        m_temporalBindingSetDescValid[page] = false;
+    }
+    m_temporalPipeline = nullptr;
+    m_temporalShader = nullptr;
+    m_temporalBindingLayout = nullptr;
+    m_temporalPipelineAttempted = false;
+    m_reportedTemporalHistoryAvailable = -1;
+    m_reportedTemporalSkipReason = -1;
+}
+
+void PathTraceUnifiedPtState::ReleaseDuplication()
+{
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_duplicationFillBindingSets[page] = nullptr;
+        m_duplicationComputeBindingSets[page] = nullptr;
+        m_duplicationScores[page] = nullptr;
+        m_duplicationMetadata[page].Invalidate();
+        m_temporalBindingSets[page] = nullptr;
+        m_temporalBindingSetDescValid[page] = false;
+    }
+    m_duplicationSampleIds = nullptr;
+    m_duplicationFillPipeline = nullptr;
+    m_duplicationComputePipeline = nullptr;
+    m_duplicationFillShader = nullptr;
+    m_duplicationComputeShader = nullptr;
+    m_duplicationBindingLayout = nullptr;
+    m_duplicationPipelineAttempted = false;
+    m_duplicationWidth = 0u;
+    m_duplicationHeight = 0u;
+    m_duplicationPackedRowPitch = 0u;
+}
+
+void PathTraceUnifiedPtState::ReleaseSpatial()
+{
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_spatialBindingSets[page] = nullptr;
+        m_spatialBindingSetDescs[page] = nvrhi::BindingSetDesc();
+        m_spatialBindingSetDescValid[page] = false;
+    }
+    m_spatialPipeline = nullptr;
+    m_spatialShader = nullptr;
+    m_spatialBindingLayout = nullptr;
+    m_spatialPipelineAttempted = false;
+    m_spatialExecutedThisFrame = false;
 }
 
 void PathTraceUnifiedPtState::Release()
@@ -859,12 +1010,18 @@ void PathTraceUnifiedPtState::Release()
     ReleaseCompactLights();
     ReleaseCompactMaterials();
     ReleaseContinuation();
+    ReleaseTemporal();
+    ReleaseDuplication();
+    ReleaseSpatial();
     ReleaseResolve();
     m_page0 = nullptr;
     m_page1 = nullptr;
     m_page0Metadata.Invalidate();
     m_page1Metadata.Invalidate();
+    m_currentPageIndex = 0u;
+    m_historyPageIndex = 1u;
     m_observedHistoryEpoch = 0;
+    m_lastPublishedFrameSerial = 0;
     m_pageWidth = 0;
     m_pageHeight = 0;
     m_pageBytes = 0;
@@ -886,15 +1043,24 @@ void PathTraceUnifiedPtState::Release()
     m_compactMaterials = false;
     m_splitInitial = false;
     m_splitContinuation = false;
+    m_temporalModeActive = false;
+    m_initialPublishedThisFrame = false;
+    m_spatialModeActive = false;
+    m_temporalCompactLights = false;
+    m_temporalDuplication = false;
+    m_spatialCompactLights = false;
     m_resourceFailureLogged = false;
     m_reportedProofStage = UINT32_MAX;
 }
 
 void PathTraceUnifiedPtState::ReleaseResolve()
 {
-    m_resolveBindingSet = nullptr;
-    m_resolveBindingSetDesc = nvrhi::BindingSetDesc();
-    m_resolveBindingSetDescValid = false;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_resolveBindingSets[page] = nullptr;
+        m_resolveBindingSetDescs[page] = nvrhi::BindingSetDesc();
+        m_resolveBindingSetDescValid[page] = false;
+    }
     m_resolvePipeline = nullptr;
     m_resolveShader = nullptr;
     m_resolveBindingLayout = nullptr;
@@ -904,6 +1070,36 @@ void PathTraceUnifiedPtState::ReleaseResolve()
     m_resolvePipelineAttempted = false;
     m_resolveFailureLogged = false;
     m_resolveReady = false;
+}
+
+nvrhi::BufferHandle PathTraceUnifiedPtState::CurrentPage() const
+{
+    return m_currentPageIndex == 0u ? m_page0 : m_page1;
+}
+
+nvrhi::BufferHandle PathTraceUnifiedPtState::HistoryPage() const
+{
+    return m_historyPageIndex == 0u ? m_page0 : m_page1;
+}
+
+PathTraceUnifiedPtPageMetadata& PathTraceUnifiedPtState::CurrentPageMetadata()
+{
+    return m_currentPageIndex == 0u ? m_page0Metadata : m_page1Metadata;
+}
+
+const PathTraceUnifiedPtPageMetadata& PathTraceUnifiedPtState::CurrentPageMetadata() const
+{
+    return m_currentPageIndex == 0u ? m_page0Metadata : m_page1Metadata;
+}
+
+PathTraceUnifiedPtPageMetadata& PathTraceUnifiedPtState::HistoryPageMetadata()
+{
+    return m_historyPageIndex == 0u ? m_page0Metadata : m_page1Metadata;
+}
+
+const PathTraceUnifiedPtPageMetadata& PathTraceUnifiedPtState::HistoryPageMetadata() const
+{
+    return m_historyPageIndex == 0u ? m_page0Metadata : m_page1Metadata;
 }
 
 void PathTraceUnifiedPtState::ReportProofStage(
@@ -943,6 +1139,11 @@ bool PathTraceUnifiedPtState::EnsurePages(const PathTraceUnifiedPtDispatchInputs
         return true;
     }
 
+    // UPT-08 resources are extent-coupled and their per-page metadata follows
+    // the physical reservoir roles. Reallocate them lazily only if the proof
+    // cvar remains active; disabled means no retained correlation resources.
+    ReleaseDuplication();
+
     nvrhi::BufferDesc desc;
     desc.debugName = "PathTraceUnifiedPtReservoirPage0";
     desc.byteSize = bytes;
@@ -967,6 +1168,8 @@ bool PathTraceUnifiedPtState::EnsurePages(const PathTraceUnifiedPtDispatchInputs
     m_page1 = page1;
     m_page0Metadata.Invalidate();
     m_page1Metadata.Invalidate();
+    m_currentPageIndex = 0u;
+    m_historyPageIndex = 1u;
     m_pageWidth = inputs.width;
     m_pageHeight = inputs.height;
     m_pageBytes = bytes;
@@ -975,10 +1178,17 @@ bool PathTraceUnifiedPtState::EnsurePages(const PathTraceUnifiedPtDispatchInputs
     // empty records. Never set this for camera cuts or history invalidation;
     // future reuse invalidates small per-page metadata instead.
     m_page0NeedsAllocationClear = true;
-    m_bindingSet = nullptr;
-    m_bindingSetDescValid = false;
-    m_resolveBindingSet = nullptr;
-    m_resolveBindingSetDescValid = false;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_bindingSets[page] = nullptr;
+        m_bindingSetDescValid[page] = false;
+        m_temporalBindingSets[page] = nullptr;
+        m_temporalBindingSetDescValid[page] = false;
+        m_spatialBindingSets[page] = nullptr;
+        m_spatialBindingSetDescValid[page] = false;
+        m_resolveBindingSets[page] = nullptr;
+        m_resolveBindingSetDescValid[page] = false;
+    }
     common->Printf(
         "PathTraceUnifiedPt: allocated pages 0+1 %ux%u records/page=%llu bytes/page=%llu totalBytes=%llu stride=%u page1Clear=never\n",
         inputs.width,
@@ -1376,6 +1586,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
 
 bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs)
 {
+    const uint32_t pageIndex = m_currentPageIndex;
+    const nvrhi::BufferHandle currentPage = CurrentPage();
     const bool compactLiveTlasProbe =
         Upt04UsesCompactProbeLayout(Upt04PipelineVariant(inputs));
     const bool minimalProductionSlotLayout =
@@ -1391,7 +1603,7 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
     {
         desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(
             0, inputs.sceneInputs->geometry.tlas));
-        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(1, m_page0));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(1, currentPage));
     }
     else if (traversalIsolationLayout)
     {
@@ -1399,7 +1611,7 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             0, inputs.sceneInputs->geometry.tlas));
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
             1, inputs.primarySurfaceBuffer));
-        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, m_page0));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, currentPage));
         desc.addItem(nvrhi::BindingSetItem::PushConstants(
             0, UPT04_PUSH_CONSTANT_BYTES));
     }
@@ -1407,7 +1619,7 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
     {
         desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(
             0, inputs.sceneInputs->geometry.tlas));
-        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, m_page0));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(4, currentPage));
         if (usesPushConstants)
         {
             desc.addItem(nvrhi::BindingSetItem::PushConstants(
@@ -1418,7 +1630,7 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
     {
         desc = Upt04BuildDirectBindingSetDesc(
             inputs,
-            m_page0,
+            currentPage,
             m_compactStaticVertices,
             m_compactDynamicVertices,
             m_compactRigidVertices,
@@ -1429,7 +1641,7 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
     {
         desc = Upt04BuildBindingSetDesc(
             inputs,
-            m_page0,
+            currentPage,
             m_diagnosticCounters,
             m_compactStaticVertices,
             m_compactDynamicVertices,
@@ -1439,12 +1651,13 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             m_compactMaterialsBuffer,
             m_continuationHits);
     }
-    if (m_bindingSet && m_bindingSetDescValid && m_bindingSetDesc == desc)
+    if (m_bindingSets[pageIndex] && m_bindingSetDescValid[pageIndex] &&
+        m_bindingSetDescs[pageIndex] == desc)
     {
         return true;
     }
-    m_bindingSet = inputs.device->createBindingSet(desc, m_bindingLayout);
-    if (!m_bindingSet)
+    m_bindingSets[pageIndex] = inputs.device->createBindingSet(desc, m_bindingLayout);
+    if (!m_bindingSets[pageIndex])
     {
         common->Printf(
             "PathTraceUnifiedPt: failed to create %s set-0 binding set\n",
@@ -1459,8 +1672,8 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
                         : "UPT-04"))));
         return false;
     }
-    m_bindingSetDesc = desc;
-    m_bindingSetDescValid = true;
+    m_bindingSetDescs[pageIndex] = desc;
+    m_bindingSetDescValid[pageIndex] = true;
     return true;
 }
 
@@ -1591,8 +1804,11 @@ bool PathTraceUnifiedPtState::EnsureCompactGeometryResources(
     {
         m_compactGeometryBindingSet = nullptr;
         m_compactGeometryBindingSetDescValid = false;
-        m_bindingSet = nullptr;
-        m_bindingSetDescValid = false;
+        for (uint32_t page = 0; page < 2u; ++page)
+        {
+            m_bindingSets[page] = nullptr;
+            m_bindingSetDescValid[page] = false;
+        }
         common->Printf(
             "PathTraceUnifiedPt: compact geometry sidecars stride=%u capacities=%u/%u/%u/%u bytes=%llu\n",
             UPT04_COMPACT_VERTEX_STRIDE,
@@ -1846,8 +2062,15 @@ bool PathTraceUnifiedPtState::EnsureCompactLightResources(
     m_compactLightCapacity = capacity;
     m_compactLightBindingSet = nullptr;
     m_compactLightBindingSetDescValid = false;
-    m_bindingSet = nullptr;
-    m_bindingSetDescValid = false;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_bindingSets[page] = nullptr;
+        m_bindingSetDescValid[page] = false;
+        m_temporalBindingSets[page] = nullptr;
+        m_temporalBindingSetDescValid[page] = false;
+        m_spatialBindingSets[page] = nullptr;
+        m_spatialBindingSetDescValid[page] = false;
+    }
     common->Printf(
         "PathTraceUnifiedPt: compact light sidecar stride=%u capacity=%u bytes=%llu\n",
         UPT04_COMPACT_LIGHT_STRIDE,
@@ -2049,8 +2272,11 @@ bool PathTraceUnifiedPtState::EnsureCompactMaterialResources(
     m_compactMaterialCapacity = capacity;
     m_compactMaterialBindingSet = nullptr;
     m_compactMaterialBindingSetDescValid = false;
-    m_bindingSet = nullptr;
-    m_bindingSetDescValid = false;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_bindingSets[page] = nullptr;
+        m_bindingSetDescValid[page] = false;
+    }
     common->Printf(
         "PathTraceUnifiedPt: compact material sidecar stride=%u capacity=%u bytes=%llu\n",
         UPT04_COMPACT_MATERIAL_STRIDE,
@@ -2258,8 +2484,11 @@ bool PathTraceUnifiedPtState::EnsureContinuationResources(
     m_continuationCapacity = capacity;
     m_continuationBindingSet = nullptr;
     m_continuationBindingSetDescValid = false;
-    m_bindingSet = nullptr;
-    m_bindingSetDescValid = false;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_bindingSets[page] = nullptr;
+        m_bindingSetDescValid[page] = false;
+    }
     common->Printf(
         "PathTraceUnifiedPt: continuation-hit sidecar stride=%u capacity=%u bytes=%llu\n",
         UPT04_CONTINUATION_HIT_STRIDE,
@@ -2463,11 +2692,13 @@ void PathTraceUnifiedPtState::DrainDiagnosticReadback(
         return;
     }
     common->Printf(
-        "PathTraceUnifiedPt: diagnostic receivers(valid/invalid)=%u/%u candidates(direct invalid/zero/positive)=%u/%u/%u candidates(indirect invalid/zero/positive)=%u/%u/%u selected(primaryNee/bsdfEndpoint/secondaryNee)=%u/%u/%u rays(continuation/visibility)=%u/%u canonicalEmpty=%u candidateInputs=%u rayCeilingViolations=%u reservoirSignature=%08x:%08x:%08x:%08x sampleIndex=%u family=%s size=%ux%u\n",
+        "PathTraceUnifiedPt: diagnostic receivers(valid/invalid)=%u/%u candidates(direct invalid/zero/positive)=%u/%u/%u candidates(indirect invalid/zero/positive)=%u/%u/%u selected(primaryNee/bsdfEndpoint/secondaryNee)=%u/%u/%u rays(continuation/visibility)=%u/%u canonicalEmpty=%u candidateInputs=%u rayCeilingViolations=%u reservoirSignature=%08x:%08x:%08x:%08x directReject(selection/record/emissiveReplay/analyticSample/material/pdf/other)=%u/%u/%u/%u/%u/%u/%u sampleIndex=%u family=%s size=%ux%u\n",
         counters[0], counters[1], counters[2], counters[3], counters[4],
         counters[5], counters[6], counters[7], counters[8], counters[9],
         counters[10], counters[11], counters[12], counters[13], counters[14],
         counters[15], counters[16], counters[17], counters[18], counters[19],
+        counters[20], counters[21], counters[22], counters[23], counters[24],
+        counters[25], counters[26],
         m_diagnosticReadbackSampleIndex,
         Upt04FamilyName(m_diagnosticReadbackFamily),
         m_diagnosticReadbackWidth,
@@ -2481,7 +2712,13 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     // Presentation is admitted per frame only after the matching UPT-05
     // resolve completes; never expose a previous frame after an early return.
     m_resolveReady = false;
+    m_initialPublishedThisFrame = false;
+    m_spatialExecutedThisFrame = false;
     DrainDiagnosticReadback(inputs);
+    if (!inputs.duplication && m_duplicationSampleIds)
+    {
+        ReleaseDuplication();
+    }
     if (!Upt04InputsValid(inputs))
     {
         if (!m_resourceFailureLogged)
@@ -2511,11 +2748,33 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     {
         m_page0Metadata.Invalidate();
         m_page1Metadata.Invalidate();
+        m_duplicationMetadata[0].Invalidate();
+        m_duplicationMetadata[1].Invalidate();
+        m_reportedTemporalHistoryAvailable = -1;
+        m_currentPageIndex = 0u;
+        m_historyPageIndex = 1u;
         m_observedHistoryEpoch = inputs.historyEpoch;
         common->Printf(
             "PathTraceUnifiedPt: history metadata invalidated epoch=%llu reasons=0x%08x pageClear=none\n",
             static_cast<unsigned long long>(inputs.historyEpoch),
             inputs.historyResetReasonFlags);
+    }
+    if (m_temporalModeActive != inputs.temporal ||
+        m_spatialModeActive != inputs.spatial)
+    {
+        m_temporalModeActive = inputs.temporal;
+        m_spatialModeActive = inputs.spatial;
+        m_currentPageIndex = 0u;
+        m_historyPageIndex = 1u;
+        m_page0Metadata.Invalidate();
+        m_page1Metadata.Invalidate();
+        m_duplicationMetadata[0].Invalidate();
+        m_duplicationMetadata[1].Invalidate();
+        m_reportedTemporalHistoryAvailable = -1;
+        common->Printf(
+            "PathTraceUnifiedPt: reuse mode temporal=%d spatial=%d pageRoles=current0/history1 historyInvalidated=1 pageClear=none\n",
+            inputs.temporal ? 1 : 0,
+            inputs.spatial ? 1 : 0);
     }
     if (!EnsurePages(inputs))
     {
@@ -2649,7 +2908,8 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 m_continuationHits,
                 nvrhi::ResourceStates::ShaderResource);
         }
-        inputs.commandList->setBufferState(m_page0, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setBufferState(
+            CurrentPage(), nvrhi::ResourceStates::UnorderedAccess);
         if (inputs.diagnostics)
         {
             inputs.commandList->setBufferState(
@@ -2659,8 +2919,8 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         if (m_page0NeedsAllocationClear)
         {
             // One-shot allocation clear, not a per-frame reservoir operation.
-            inputs.commandList->clearBufferUInt(m_page0, 0u);
-            nvrhi::utils::BufferUavBarrier(inputs.commandList, m_page0);
+            inputs.commandList->clearBufferUInt(CurrentPage(), 0u);
+            nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
             m_page0NeedsAllocationClear = false;
         }
         if (inputs.diagnostics)
@@ -2680,7 +2940,7 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         {
             nvrhi::ComputeState state;
             state.pipeline = m_computePipeline;
-            state.bindings = { m_bindingSet };
+            state.bindings = { m_bindingSets[m_currentPageIndex] };
             if (usesBindlessSet)
             {
                 state.bindings.push_back(
@@ -2692,7 +2952,7 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         {
             nvrhi::rt::State state;
             state.shaderTable = m_shaderTable;
-            state.bindings = { m_bindingSet };
+            state.bindings = { m_bindingSets[m_currentPageIndex] };
             if (usesBindlessSet)
             {
                 state.bindings.push_back(
@@ -2789,11 +3049,11 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 inputs.commandList,
                 "UPT.D0 Split Intermediate Reservoir Barrier",
                 inputs.nsightMarkers);
-            nvrhi::utils::BufferUavBarrier(inputs.commandList, m_page0);
+            nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
             inputs.commandList->commitBarriers();
             nvrhi::ComputeState state;
             state.pipeline = m_splitIndirectComputePipeline;
-            state.bindings = { m_bindingSet };
+            state.bindings = { m_bindingSets[m_currentPageIndex] };
             state.bindings.push_back(
                 inputs.sceneInputs->materials.textureDescriptorTable);
             inputs.commandList->setComputeState(state);
@@ -2821,7 +3081,7 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
             inputs.commandList,
             "UPT.D0 Initial OutputBarrier",
             inputs.nsightMarkers);
-        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_page0);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
         if (inputs.diagnostics)
         {
             nvrhi::utils::BufferUavBarrier(
@@ -2856,23 +3116,34 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         const uint64_t contentGeneration = Upt06BuildContentGeneration(
             inputs,
             enabledFamilyMask,
-            specializationIdentity,
-            control.availabilityFlags);
-        const bool firstPublicationForEpoch = !m_page0Metadata.fullyWritten ||
-            m_page0Metadata.historyEpoch != inputs.historyEpoch;
-        m_page0Metadata.fullyWritten = true;
-        m_page0Metadata.width = inputs.width;
-        m_page0Metadata.height = inputs.height;
-        m_page0Metadata.contentGeneration = contentGeneration;
-        m_page0Metadata.historyEpoch = inputs.historyEpoch;
+            specializationIdentity);
+        PathTraceUnifiedPtPageMetadata& currentMetadata = CurrentPageMetadata();
+        const bool firstPublicationForEpoch = !currentMetadata.fullyWritten ||
+            currentMetadata.historyEpoch != inputs.historyEpoch;
+        currentMetadata.fullyWritten = true;
+        currentMetadata.width = inputs.width;
+        currentMetadata.height = inputs.height;
+        currentMetadata.contentGeneration = contentGeneration;
+        currentMetadata.historyEpoch = inputs.historyEpoch;
+        currentMetadata.frameSerial = ++m_lastPublishedFrameSerial;
+        // D0 is a complete current-frame publication even when a later reuse
+        // pass cannot run. CompleteFrame must still promote it alongside the
+        // primary-surface history or the next T0 dispatch would pair an N-2
+        // reservoir with the N-1 surface published by SmokeDispatch.
+        m_initialPublishedThisFrame = true;
         if (firstPublicationForEpoch)
         {
             common->Printf(
-                "PathTraceUnifiedPt: page metadata page0(full/generation/epoch)=%d/%016llx/%llu page1Full=%d clears(allocation/invalidation)=1/0 pages=2\n",
-                m_page0Metadata.fullyWritten ? 1 : 0,
+                "PathTraceUnifiedPt: page metadata current=%u(full/generation/epoch/serial)=%d/%016llx/%llu/%llu history=%u(full/serial)=%d/%llu clears(allocation/invalidation)=1/0 pages=2\n",
+                m_currentPageIndex,
+                currentMetadata.fullyWritten ? 1 : 0,
                 static_cast<unsigned long long>(contentGeneration),
                 static_cast<unsigned long long>(inputs.historyEpoch),
-                m_page1Metadata.fullyWritten ? 1 : 0);
+                static_cast<unsigned long long>(currentMetadata.frameSerial),
+                m_historyPageIndex,
+                HistoryPageMetadata().fullyWritten ? 1 : 0,
+                static_cast<unsigned long long>(
+                    HistoryPageMetadata().frameSerial));
         }
     }
     if (inputs.proofStage == 7u)
@@ -2894,6 +3165,1027 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         ReportProofStage(9u, "full-frame-dispatch", inputs.backend, inputs.family);
     }
     return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureDuplicationResources(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.duplication)
+        return false;
+    const uint64_t surfaceCount = uint64_t(inputs.width) * uint64_t(inputs.height);
+    const uint32_t packedPitch = (inputs.width + 3u) / 4u;
+    const uint64_t packedCount = uint64_t(packedPitch) * uint64_t(inputs.height);
+    if (surfaceCount == 0u || surfaceCount > std::numeric_limits<uint32_t>::max()
+        || packedCount > std::numeric_limits<uint32_t>::max())
+        return false;
+    if (m_duplicationSampleIds && m_duplicationScores[0]
+        && m_duplicationScores[1] && m_duplicationWidth == inputs.width
+        && m_duplicationHeight == inputs.height
+        && m_duplicationPackedRowPitch == packedPitch)
+        return true;
+
+    ReleaseDuplication();
+    nvrhi::BufferDesc desc;
+    desc.debugName = "PathTraceUnifiedPtSampleIds";
+    desc.byteSize = surfaceCount * sizeof(uint32_t);
+    desc.structStride = sizeof(uint32_t);
+    desc.canHaveUAVs = true;
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+    m_duplicationSampleIds = inputs.device->createBuffer(desc);
+    desc.byteSize = packedCount * sizeof(uint32_t);
+    desc.debugName = "PathTraceUnifiedPtDuplicationPage0";
+    m_duplicationScores[0] = inputs.device->createBuffer(desc);
+    desc.debugName = "PathTraceUnifiedPtDuplicationPage1";
+    m_duplicationScores[1] = inputs.device->createBuffer(desc);
+    if (!m_duplicationSampleIds || !m_duplicationScores[0]
+        || !m_duplicationScores[1])
+    {
+        common->Printf("PathTraceUnifiedPt: failed to allocate UPT-08 correlation resources\n");
+        ReleaseDuplication();
+        return false;
+    }
+    m_duplicationWidth = inputs.width;
+    m_duplicationHeight = inputs.height;
+    m_duplicationPackedRowPitch = packedPitch;
+    common->Printf(
+        "PathTraceUnifiedPt: allocated UPT-08 sampleIds=%llu duplicationPages=%llu totalBytes=%llu format=R32+packedUNORM8 clear=never\n",
+        static_cast<unsigned long long>(surfaceCount * 4ull),
+        static_cast<unsigned long long>(packedCount * 8ull),
+        static_cast<unsigned long long>(surfaceCount * 4ull + packedCount * 8ull));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureDuplicationPipeline(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (m_duplicationFillPipeline && m_duplicationComputePipeline)
+        return true;
+    if (m_duplicationPipelineAttempted)
+        return false;
+    m_duplicationPipelineAttempted = true;
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT08_PUSH_CONSTANT_BYTES));
+    m_duplicationBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!m_duplicationBindingLayout)
+        return false;
+
+    const char* paths[2] = {
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt08/upt08_fill_sample_id.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt08/upt08_compute_duplication.bin"
+    };
+    for (uint32_t pass = 0; pass < 2u; ++pass)
+    {
+        void* data = nullptr;
+        int size = 0;
+        ID_TIME_T timestamp = 0;
+        uint64_t hash = 0;
+        if (!Upt04ReadShader(paths[pass], data, size, timestamp, hash))
+            return false;
+        nvrhi::ShaderDesc shaderDesc;
+        shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+        shaderDesc.entryName = "main";
+        shaderDesc.debugName = pass == 0u
+            ? "PathTraceUnifiedPtFillSampleId"
+            : "PathTraceUnifiedPtComputeDuplication";
+        nvrhi::ShaderHandle shader = inputs.device->createShader(
+            shaderDesc, data, size);
+        Mem_Free(data);
+        if (!shader)
+            return false;
+        nvrhi::ComputePipelineDesc pipelineDesc;
+        pipelineDesc.CS = shader;
+        pipelineDesc.bindingLayouts = { m_duplicationBindingLayout };
+        nvrhi::ComputePipelineHandle pipeline =
+            inputs.device->createComputePipeline(pipelineDesc);
+        if (!pipeline)
+            return false;
+        if (pass == 0u)
+        {
+            m_duplicationFillShader = shader;
+            m_duplicationFillPipeline = pipeline;
+        }
+        else
+        {
+            m_duplicationComputeShader = shader;
+            m_duplicationComputePipeline = pipeline;
+        }
+    }
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureDuplicationBindingSets(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_duplicationSampleIds || !m_duplicationScores[0]
+        || !m_duplicationScores[1] || !m_page0 || !m_page1)
+        return false;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        if (!m_duplicationFillBindingSets[page])
+        {
+            nvrhi::BindingSetDesc desc;
+            desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+                0, page == 0u ? m_page0 : m_page1));
+            desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                1, m_duplicationSampleIds));
+            desc.addItem(nvrhi::BindingSetItem::PushConstants(
+                0, UPT08_PUSH_CONSTANT_BYTES));
+            m_duplicationFillBindingSets[page] = inputs.device->createBindingSet(
+                desc, m_duplicationBindingLayout);
+        }
+        if (!m_duplicationComputeBindingSets[page])
+        {
+            nvrhi::BindingSetDesc desc;
+            desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+                0, m_duplicationSampleIds));
+            desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                1, m_duplicationScores[page]));
+            desc.addItem(nvrhi::BindingSetItem::PushConstants(
+                0, UPT08_PUSH_CONSTANT_BYTES));
+            m_duplicationComputeBindingSets[page] = inputs.device->createBindingSet(
+                desc, m_duplicationBindingLayout);
+        }
+        if (!m_duplicationFillBindingSets[page]
+            || !m_duplicationComputeBindingSets[page])
+            return false;
+    }
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (m_temporalPipeline && m_temporalCompactLights == inputs.compactLights
+        && m_temporalDuplication == inputs.duplication)
+    {
+        return true;
+    }
+    if (m_temporalCompactLights != inputs.compactLights
+        || m_temporalDuplication != inputs.duplication)
+    {
+        ReleaseTemporal();
+        m_temporalCompactLights = inputs.compactLights;
+        m_temporalDuplication = inputs.duplication;
+    }
+    if (m_temporalPipelineAttempted)
+    {
+        return false;
+    }
+    m_temporalPipelineAttempted = true;
+
+    if (!inputs.device->queryFeatureSupport(nvrhi::Feature::RayQuery))
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: UPT-07 temporal requires RayQuery support; skipped\n");
+        return false;
+    }
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(3));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
+    for (const uint32_t slot : { 6u, 7u, 8u, 10u, 11u, 12u, 14u,
+            15u, 16u, 17u, 18u, 19u, 20u, 21u, 23u, 25u, 26u })
+    {
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
+    }
+    if (inputs.duplication)
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT07_PUSH_CONSTANT_BYTES));
+    m_temporalBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!m_temporalBindingLayout)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create UPT-07 temporal binding layout\n");
+        return false;
+    }
+
+    const char* path = inputs.duplication
+        ? (inputs.compactLights
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery_light64_duplication.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery_duplication.bin")
+        : (inputs.compactLights
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery_light64.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery.bin");
+    void* data = nullptr;
+    int size = 0;
+    ID_TIME_T timestamp = 0;
+    uint64_t hash = 0;
+    if (!Upt04ReadShader(path, data, size, timestamp, hash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtTemporalDirect";
+    m_temporalShader = inputs.device->createShader(shaderDesc, data, size);
+    Mem_Free(data);
+    if (!m_temporalShader)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create UPT-07 temporal shader\n");
+        return false;
+    }
+
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_temporalShader;
+    pipelineDesc.bindingLayouts = { m_temporalBindingLayout };
+    const uint64_t pipelineStartUs = Sys_Microseconds();
+    m_temporalPipeline = inputs.device->createComputePipeline(pipelineDesc);
+    const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
+    if (!m_temporalPipeline)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create UPT-07 temporal pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u visibilityRaysMax=1 visibility=winner-only family=direct-basic createUs=%llu\n",
+        size,
+        static_cast<unsigned long long>(hash),
+        static_cast<long long>(timestamp),
+        inputs.compactLights ? UPT04_COMPACT_LIGHT_STRIDE : 112u,
+        inputs.duplication ? 1u : 0u,
+        static_cast<unsigned long long>(pipelineUs));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactPrimaryHistory ||
+        !inputs.primarySurfaceCurrentBuffer ||
+        !inputs.primarySurfacePreviousBuffer ||
+        !inputs.primaryHistorySidecarCurrentBuffer ||
+        !inputs.primaryHistorySidecarPreviousBuffer ||
+        inputs.primarySurfaceCurrentBuffer->getDesc().structStride !=
+            PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE ||
+        inputs.primarySurfacePreviousBuffer->getDesc().structStride !=
+            PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE ||
+        inputs.primaryHistorySidecarCurrentBuffer->getDesc().structStride !=
+            PATH_TRACE_UNIFIED_PT_PRIMARY_HISTORY_SIDECAR_STRIDE ||
+        inputs.primaryHistorySidecarPreviousBuffer->getDesc().structStride !=
+            PATH_TRACE_UNIFIED_PT_PRIMARY_HISTORY_SIDECAR_STRIDE)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: UPT-07 temporal requires compact current/previous 32-byte receivers plus 32-byte history sidecars\n");
+        return false;
+    }
+    const nvrhi::BufferHandle lightBuffer = inputs.compactLights
+        ? m_compactLightsBuffer
+        : inputs.sceneInputs->lights.restirLightManagerCurrentPayloadBuffer;
+    const RtPathTraceSceneInputGeometry& geometry = inputs.sceneInputs->geometry;
+    const RtPathTraceSceneInputLights& lights = inputs.sceneInputs->lights;
+    if (!lightBuffer || !CurrentPage() || !HistoryPage() || !geometry.tlas
+        || (inputs.duplication && !m_duplicationScores[m_historyPageIndex])
+        || !lights.restirLightManagerPreviousToCurrentBuffer
+        || !lights.emissiveTriangleBuffer
+        || !geometry.staticVertexBuffer || !geometry.staticIndexBuffer
+        || !geometry.staticTriangleMaterialIndexBuffer
+        || !geometry.dynamicVertexBuffer || !geometry.dynamicIndexBuffer
+        || !geometry.dynamicTriangleMaterialIndexBuffer
+        || !geometry.rigidRouteVertexBuffer || !geometry.rigidRouteIndexBuffer
+        || !geometry.rigidRouteInstanceBuffer
+        || !Upt04SkinnedVertexBuffer(*inputs.sceneInputs)
+        || !Upt04SkinnedIndexBuffer(*inputs.sceneInputs)
+        || !geometry.skinnedHitRouteRecordBuffer
+        || !geometry.skinnedHitRouteTriangleBuffer)
+    {
+        return false;
+    }
+
+    const uint32_t pageIndex = m_currentPageIndex;
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(
+        0, geometry.tlas));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        1, inputs.primarySurfaceCurrentBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        2, inputs.primarySurfacePreviousBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(3, CurrentPage()));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, HistoryPage()));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(5, lightBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, lights.emissiveTriangleBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, geometry.staticVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, geometry.staticIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, geometry.staticTriangleMaterialIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, geometry.dynamicVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, geometry.dynamicIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(14, geometry.dynamicTriangleMaterialIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(15, geometry.rigidRouteVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, geometry.rigidRouteIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(17, geometry.rigidRouteInstanceBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, Upt04SkinnedVertexBuffer(*inputs.sceneInputs)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, Upt04SkinnedIndexBuffer(*inputs.sceneInputs)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(20, geometry.skinnedHitRouteRecordBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(21, geometry.skinnedHitRouteTriangleBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        23, lights.restirLightManagerPreviousToCurrentBuffer));
+    if (inputs.duplication)
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            24, m_duplicationScores[m_historyPageIndex]));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        25, inputs.primaryHistorySidecarCurrentBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        26, inputs.primaryHistorySidecarPreviousBuffer));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT07_PUSH_CONSTANT_BYTES));
+    if (m_temporalBindingSets[pageIndex] &&
+        m_temporalBindingSetDescValid[pageIndex] &&
+        m_temporalBindingSetDescs[pageIndex] == desc)
+    {
+        return true;
+    }
+    m_temporalBindingSets[pageIndex] = inputs.device->createBindingSet(
+        desc, m_temporalBindingLayout);
+    if (!m_temporalBindingSets[pageIndex])
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create UPT-07 temporal binding set\n");
+        return false;
+    }
+    m_temporalBindingSetDescs[pageIndex] = desc;
+    m_temporalBindingSetDescValid[pageIndex] = true;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecuteTemporal(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.temporal)
+    {
+        m_reportedTemporalSkipReason = -1;
+        return false;
+    }
+    const auto reportSkip = [&](int32_t reason, const char* label) -> bool
+    {
+        if (m_reportedTemporalSkipReason != reason)
+        {
+            const PathTraceUnifiedPtPageMetadata& current =
+                CurrentPageMetadata();
+            const PathTraceUnifiedPtPageMetadata& history =
+                HistoryPageMetadata();
+            common->Printf(
+                "PathTraceUnifiedPt: temporal skipped reason=%s sampleIndex=%u currentPage=%u serial=%llu historyPage=%u serial=%llu\n",
+                label,
+                inputs.frameSampleIndex,
+                m_currentPageIndex,
+                static_cast<unsigned long long>(current.frameSerial),
+                m_historyPageIndex,
+                static_cast<unsigned long long>(history.frameSerial));
+            m_reportedTemporalSkipReason = reason;
+        }
+        return false;
+    };
+    const bool productionFullFrame = inputs.proofStage >= 9u &&
+        Upt04PipelineVariant(inputs) == 0u;
+    const PathTraceUnifiedPtPageMetadata& currentMetadata = CurrentPageMetadata();
+    if (!productionFullFrame)
+        return reportSkip(1, "not-production-full-frame");
+    if (!currentMetadata.fullyWritten)
+        return reportSkip(2, "current-page-not-published");
+    if (currentMetadata.width != inputs.width ||
+        currentMetadata.height != inputs.height)
+        return reportSkip(3, "current-page-extent-mismatch");
+    if (currentMetadata.historyEpoch != inputs.historyEpoch)
+        return reportSkip(4, "current-page-epoch-mismatch");
+    if (inputs.duplication && !EnsureDuplicationResources(inputs))
+        return reportSkip(8, "duplication-resources-unavailable");
+    if (!EnsureTemporalPipeline(inputs))
+        return reportSkip(5, "pipeline-unavailable");
+    if (!EnsureTemporalBindingSet(inputs))
+        return reportSkip(6, "binding-set-unavailable");
+
+    const PathTraceUnifiedPtPageMetadata& historyMetadata = HistoryPageMetadata();
+    const bool historyAvailable = inputs.primarySurfaceHistoryValid &&
+        historyMetadata.fullyWritten &&
+        historyMetadata.width == currentMetadata.width &&
+        historyMetadata.height == currentMetadata.height &&
+        historyMetadata.contentGeneration == currentMetadata.contentGeneration &&
+        historyMetadata.historyEpoch == currentMetadata.historyEpoch &&
+        currentMetadata.frameSerial > 1u &&
+        historyMetadata.frameSerial == currentMetadata.frameSerial - 1u;
+    const PathTraceUnifiedPtPageMetadata& duplicationMetadata =
+        m_duplicationMetadata[m_historyPageIndex];
+    const bool duplicationAvailable = inputs.duplication && historyAvailable
+        && duplicationMetadata.fullyWritten
+        && duplicationMetadata.width == historyMetadata.width
+        && duplicationMetadata.height == historyMetadata.height
+        && duplicationMetadata.contentGeneration == historyMetadata.contentGeneration
+        && duplicationMetadata.historyEpoch == historyMetadata.historyEpoch
+        && duplicationMetadata.frameSerial == historyMetadata.frameSerial;
+    if (m_reportedTemporalHistoryAvailable != (historyAvailable ? 1 : 0))
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: temporal historyAvailable=%d currentPage=%u historyPage=%u pageGeneration=%016llx epoch=%llu serial(current/history)=%llu/%llu\n",
+            historyAvailable ? 1 : 0,
+            m_currentPageIndex,
+            m_historyPageIndex,
+            static_cast<unsigned long long>(currentMetadata.contentGeneration),
+            static_cast<unsigned long long>(currentMetadata.historyEpoch),
+            static_cast<unsigned long long>(currentMetadata.frameSerial),
+            static_cast<unsigned long long>(historyMetadata.frameSerial));
+        m_reportedTemporalHistoryAvailable = historyAvailable ? 1 : 0;
+    }
+    const RtPathTraceSceneInputLights& lights = inputs.sceneInputs->lights;
+    const RtPathTraceSceneInputGeometry& geometry = inputs.sceneInputs->geometry;
+    const uint64_t surfaceCount64 = uint64_t(inputs.width) * uint64_t(inputs.height);
+    if (surfaceCount64 > std::numeric_limits<uint32_t>::max())
+    {
+        return reportSkip(7, "surface-count-overflow");
+    }
+
+    Upt07TemporalDirectControl control = {};
+    control.renderWidth = inputs.width;
+    control.renderHeight = inputs.height;
+    control.surfaceCount = static_cast<uint32_t>(surfaceCount64);
+    control.historyAvailable = historyAvailable ? 1u : 0u;
+    control.emissiveRangeStart = lights.restirLightManagerEmissiveRangeOffset;
+    control.emissiveRangeCount = lights.restirLightManagerEmissiveRangeCount;
+    control.analyticRangeStart = lights.restirLightManagerDoomAnalyticRangeOffset;
+    control.analyticRangeCount = lights.restirLightManagerDoomAnalyticSampleableCount;
+    control.currentLightCount = static_cast<uint32_t>(Max(
+        0, lights.restirLightManagerCurrentPayloadCount));
+    control.frameSampleIndex = inputs.frameSampleIndex;
+    control.maximumHistoryM = static_cast<uint32_t>(idMath::ClampInt(
+        1,
+        1024,
+        r_pathTracingUnifiedPtTemporalMaxHistoryM.GetInteger()));
+    control.maximumHistoryAge = static_cast<uint32_t>(idMath::ClampInt(
+        1,
+        static_cast<int>(UPT07_MAXIMUM_HISTORY_AGE),
+        r_pathTracingUnifiedPtTemporalMaxAge.GetInteger()));
+    for (uint32_t axis = 0; axis < 3u; ++axis)
+    {
+        control.previousCameraOrigin[axis] = inputs.previousCameraOrigin[axis];
+        control.previousCameraForward[axis] = inputs.previousCameraForward[axis];
+        control.previousCameraLeft[axis] = inputs.previousCameraLeft[axis];
+        control.previousCameraUp[axis] = inputs.previousCameraUp[axis];
+    }
+    control.previousCameraValid = historyAvailable ? 1u : 0u;
+    control.previousCameraTanX = inputs.previousCameraTanX;
+    control.previousCameraTanY = inputs.previousCameraTanY;
+    control.previousCameraHistorySearchMode = static_cast<uint32_t>(
+        idMath::ClampInt(
+            0, 2, r_pathTracingUnifiedPtTemporalSearch.GetInteger()));
+    control.geometryAvailabilityFlags =
+        (geometry.staticBucketRoutePublicationValid
+            ? UPT04_ROUTE_STATIC_BUCKETS : 0u)
+        | (r_pathTracingUnifiedPtTemporalPreviousBest.GetBool()
+            ? UPT07_GEOMETRY_FLAG_PREVIOUS_BEST_SEED : 0u)
+        | (r_pathTracingUnifiedPtTemporalPairwise.GetBool()
+            ? UPT07_GEOMETRY_FLAG_PAIRWISE_MIS : 0u)
+        | (duplicationAvailable
+            ? UPT07_GEOMETRY_FLAG_DUPLICATION_MAP : 0u)
+        | (r_pathTracingUnifiedPtDirectTargetPdfParity.GetBool()
+            ? UPT04_DIRECT_TARGET_PDF_PARITY : 0u)
+        | (r_pathTracingUnifiedPtAnalyticPortalDomain.GetBool()
+            ? UPT04_ANALYTIC_PORTAL_DOMAIN : 0u);
+    control.emissiveReplayCount = static_cast<uint32_t>(Max(
+        0, lights.emissiveTriangleCount));
+    control.previousToCurrentLightCount = static_cast<uint32_t>(Max(
+        0, lights.restirLightManagerPreviousToCurrentCount));
+    control.maximumHistoryContributionRatio =
+        UPT07_MAXIMUM_HISTORY_CONTRIBUTION_RATIO;
+    for (uint32_t axis = 0; axis < 3u; ++axis)
+        control.primaryCameraOrigin[axis] = inputs.primaryCameraOrigin[axis];
+    control.compactPrimaryHistory = inputs.compactPrimaryHistory ? 1u : 0u;
+
+    const nvrhi::BufferHandle lightBuffer = inputs.compactLights
+        ? m_compactLightsBuffer
+        : lights.restirLightManagerCurrentPayloadBuffer;
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            historyAvailable
+                ? (duplicationAvailable
+                    ? "UPT.T0 Temporal Direct Shift AdaptiveDupCap"
+                    : "UPT.T0 Temporal Direct Shift History")
+                : "UPT.T0 Temporal Direct Shift NoHistory",
+            inputs.nsightMarkers);
+        inputs.commandList->setAccelStructState(
+            inputs.sceneInputs->geometry.tlas,
+            nvrhi::ResourceStates::AccelStructRead);
+        inputs.commandList->setBufferState(
+            inputs.primarySurfaceCurrentBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            inputs.primarySurfacePreviousBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            inputs.primaryHistorySidecarCurrentBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            inputs.primaryHistorySidecarPreviousBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            CurrentPage(), nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setBufferState(
+            HistoryPage(), nvrhi::ResourceStates::ShaderResource);
+        if (inputs.duplication)
+            inputs.commandList->setBufferState(
+                m_duplicationScores[m_historyPageIndex],
+                nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            lightBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            lights.restirLightManagerPreviousToCurrentBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            lights.emissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.staticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.staticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.staticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.dynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.dynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.dynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.rigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.rigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.rigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            Upt04SkinnedVertexBuffer(*inputs.sceneInputs), nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            Upt04SkinnedIndexBuffer(*inputs.sceneInputs), nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.skinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.skinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->commitBarriers();
+
+        nvrhi::ComputeState state;
+        state.pipeline = m_temporalPipeline;
+        state.bindings = { m_temporalBindingSets[m_currentPageIndex] };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(&control, sizeof(control));
+        inputs.commandList->dispatch(
+            (inputs.width + 7u) / 8u,
+            (inputs.height + 7u) / 8u,
+            1u);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
+    }
+    m_reportedTemporalSkipReason = -1;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (m_spatialPipeline && m_spatialCompactLights == inputs.compactLights)
+    {
+        return true;
+    }
+    if (m_spatialCompactLights != inputs.compactLights)
+    {
+        ReleaseSpatial();
+        m_spatialCompactLights = inputs.compactLights;
+    }
+    if (m_spatialPipelineAttempted)
+    {
+        return false;
+    }
+    m_spatialPipelineAttempted = true;
+
+    if (!inputs.device->queryFeatureSupport(nvrhi::Feature::RayQuery))
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: UPT-09 spatial requires RayQuery support; skipped\n");
+        return false;
+    }
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(3));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+    for (const uint32_t slot : { 6u, 7u, 8u, 10u, 11u, 12u, 14u,
+            15u, 16u, 17u, 18u, 19u, 20u, 21u })
+    {
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
+    }
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT09_PUSH_CONSTANT_BYTES));
+    m_spatialBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!m_spatialBindingLayout)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create UPT-09 spatial binding layout\n");
+        return false;
+    }
+
+    const char* path = inputs.compactLights
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery_light64.bin"
+        : "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery.bin";
+    void* data = nullptr;
+    int size = 0;
+    ID_TIME_T timestamp = 0;
+    uint64_t hash = 0;
+    if (!Upt04ReadShader(path, data, size, timestamp, hash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtSpatialDirect";
+    m_spatialShader = inputs.device->createShader(shaderDesc, data, size);
+    Mem_Free(data);
+    if (!m_spatialShader)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create UPT-09 spatial shader\n");
+        return false;
+    }
+
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_spatialShader;
+    pipelineDesc.bindingLayouts = { m_spatialBindingLayout };
+    const uint64_t pipelineStartUs = Sys_Microseconds();
+    m_spatialPipeline = inputs.device->createComputePipeline(pipelineDesc);
+    const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
+    if (!m_spatialPipeline)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create UPT-09 spatial pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=1 createUs=%llu\n",
+        size,
+        static_cast<unsigned long long>(hash),
+        static_cast<long long>(timestamp),
+        inputs.compactLights ? UPT04_COMPACT_LIGHT_STRIDE : 112u,
+        UPT09_REGULAR_NEIGHBOR_COUNT,
+        UPT09_RESCUE_NEIGHBOR_COUNT,
+        UPT09_NEIGHBOR_RADIUS,
+        static_cast<unsigned long long>(pipelineUs));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.compactPrimaryHistory ||
+        !inputs.primarySurfaceCurrentBuffer ||
+        !inputs.primaryHistorySidecarCurrentBuffer ||
+        inputs.primarySurfaceCurrentBuffer->getDesc().structStride !=
+            PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE ||
+        inputs.primaryHistorySidecarCurrentBuffer->getDesc().structStride !=
+            PATH_TRACE_UNIFIED_PT_PRIMARY_HISTORY_SIDECAR_STRIDE)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: UPT-09 spatial requires a compact 32-byte current receiver plus 32-byte history sidecar\n");
+        return false;
+    }
+    const nvrhi::BufferHandle lightBuffer = inputs.compactLights
+        ? m_compactLightsBuffer
+        : inputs.sceneInputs->lights.restirLightManagerCurrentPayloadBuffer;
+    const RtPathTraceSceneInputGeometry& geometry = inputs.sceneInputs->geometry;
+    const RtPathTraceSceneInputLights& lights = inputs.sceneInputs->lights;
+    if (!lightBuffer || !CurrentPage() || !HistoryPage()
+        || !lights.emissiveTriangleBuffer
+        || !geometry.staticVertexBuffer || !geometry.staticIndexBuffer
+        || !geometry.staticTriangleMaterialIndexBuffer
+        || !geometry.dynamicVertexBuffer || !geometry.dynamicIndexBuffer
+        || !geometry.dynamicTriangleMaterialIndexBuffer
+        || !geometry.rigidRouteVertexBuffer || !geometry.rigidRouteIndexBuffer
+        || !geometry.rigidRouteInstanceBuffer
+        || !Upt04SkinnedVertexBuffer(*inputs.sceneInputs)
+        || !Upt04SkinnedIndexBuffer(*inputs.sceneInputs)
+        || !geometry.skinnedHitRouteRecordBuffer
+        || !geometry.skinnedHitRouteTriangleBuffer)
+    {
+        return false;
+    }
+
+    const uint32_t pageIndex = m_currentPageIndex;
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(
+        0, inputs.sceneInputs->geometry.tlas));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        1, inputs.primarySurfaceCurrentBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, CurrentPage()));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(3, HistoryPage()));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, lightBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        5, inputs.primaryHistorySidecarCurrentBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, lights.emissiveTriangleBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, geometry.staticVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, geometry.staticIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, geometry.staticTriangleMaterialIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, geometry.dynamicVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, geometry.dynamicIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(14, geometry.dynamicTriangleMaterialIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(15, geometry.rigidRouteVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, geometry.rigidRouteIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(17, geometry.rigidRouteInstanceBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, Upt04SkinnedVertexBuffer(*inputs.sceneInputs)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, Upt04SkinnedIndexBuffer(*inputs.sceneInputs)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(20, geometry.skinnedHitRouteRecordBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(21, geometry.skinnedHitRouteTriangleBuffer));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT09_PUSH_CONSTANT_BYTES));
+    if (m_spatialBindingSets[pageIndex] &&
+        m_spatialBindingSetDescValid[pageIndex] &&
+        m_spatialBindingSetDescs[pageIndex] == desc)
+    {
+        return true;
+    }
+    m_spatialBindingSets[pageIndex] = inputs.device->createBindingSet(
+        desc, m_spatialBindingLayout);
+    if (!m_spatialBindingSets[pageIndex])
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create UPT-09 spatial binding set\n");
+        return false;
+    }
+    m_spatialBindingSetDescs[pageIndex] = desc;
+    m_spatialBindingSetDescValid[pageIndex] = true;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecuteSpatial(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    m_spatialExecutedThisFrame = false;
+    if (!inputs.spatial)
+    {
+        return false;
+    }
+    if (inputs.family != PathTraceUnifiedPtFamily::DirectOnly)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: UPT-09 spatial baseline is direct-only; dispatch skipped for family=%s\n",
+            Upt04FamilyName(inputs.family));
+        return false;
+    }
+    const bool productionFullFrame = inputs.proofStage >= 9u &&
+        Upt04PipelineVariant(inputs) == 0u;
+    const PathTraceUnifiedPtPageMetadata& currentMetadata = CurrentPageMetadata();
+    if (!productionFullFrame || !currentMetadata.fullyWritten ||
+        currentMetadata.width != inputs.width ||
+        currentMetadata.height != inputs.height ||
+        currentMetadata.historyEpoch != inputs.historyEpoch ||
+        !EnsureSpatialPipeline(inputs) || !EnsureSpatialBindingSet(inputs))
+    {
+        return false;
+    }
+
+    const RtPathTraceSceneInputLights& lights = inputs.sceneInputs->lights;
+    const RtPathTraceSceneInputGeometry& geometry = inputs.sceneInputs->geometry;
+    const uint64_t surfaceCount64 = uint64_t(inputs.width) * uint64_t(inputs.height);
+    if (surfaceCount64 > std::numeric_limits<uint32_t>::max())
+    {
+        return false;
+    }
+    Upt09SpatialDirectControl control = {};
+    control.renderWidth = inputs.width;
+    control.renderHeight = inputs.height;
+    control.surfaceCount = static_cast<uint32_t>(surfaceCount64);
+    control.frameSampleIndex = inputs.frameSampleIndex;
+    control.emissiveRangeStart = lights.restirLightManagerEmissiveRangeOffset;
+    control.emissiveRangeCount = lights.restirLightManagerEmissiveRangeCount;
+    control.analyticRangeStart = lights.restirLightManagerDoomAnalyticRangeOffset;
+    control.analyticRangeCount = lights.restirLightManagerDoomAnalyticSampleableCount;
+    control.currentLightCount = static_cast<uint32_t>(Max(
+        0, lights.restirLightManagerCurrentPayloadCount));
+    control.maximumInputM = UPT09_MAXIMUM_INPUT_M;
+    control.regularNeighborCount = UPT09_REGULAR_NEIGHBOR_COUNT;
+    control.rescueNeighborCount = UPT09_RESCUE_NEIGHBOR_COUNT;
+    control.neighborRadius = UPT09_NEIGHBOR_RADIUS;
+    control.geometryAvailabilityFlags =
+        (geometry.staticBucketRoutePublicationValid
+            ? UPT04_ROUTE_STATIC_BUCKETS : 0u)
+        | (r_pathTracingUnifiedPtDirectTargetPdfParity.GetBool()
+            ? UPT04_DIRECT_TARGET_PDF_PARITY : 0u)
+        | (r_pathTracingUnifiedPtAnalyticPortalDomain.GetBool()
+            ? UPT04_ANALYTIC_PORTAL_DOMAIN : 0u);
+    control.emissiveReplayCount = static_cast<uint32_t>(Max(
+        0, lights.emissiveTriangleCount));
+    control.proofMode = static_cast<uint32_t>(idMath::ClampInt(
+        0, 6, r_pathTracingUnifiedPtSpatialProofMode.GetInteger()));
+    for (uint32_t axis = 0; axis < 3u; ++axis)
+        control.primaryCameraOrigin[axis] = inputs.primaryCameraOrigin[axis];
+    control.compactPrimaryHistory = inputs.compactPrimaryHistory ? 1u : 0u;
+
+    const nvrhi::BufferHandle lightBuffer = inputs.compactLights
+        ? m_compactLightsBuffer
+        : lights.restirLightManagerCurrentPayloadBuffer;
+    {
+        const char* spatialMarker = "UPT.S0 Spatial Unique BasicCorrection";
+        if (control.proofMode == 1u)
+            spatialMarker = "UPT.S0 Proof PassThrough";
+        else if (control.proofMode == 2u)
+            spatialMarker = "UPT.S0 Proof WithReplacement";
+        else if (control.proofMode == 3u)
+            spatialMarker = "UPT.S0 Proof Unique Standard1OverM";
+        else if (control.proofMode == 4u)
+            spatialMarker = "UPT.S0 Proof Legacy SelectedOnly";
+        else if (control.proofMode == 5u)
+            spatialMarker = "UPT.S0 Proof Fresh SourceTarget";
+        else if (control.proofMode == 6u)
+            spatialMarker = "UPT.S0 Proof PairwiseMIS";
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            spatialMarker,
+            inputs.nsightMarkers);
+        inputs.commandList->setAccelStructState(
+            inputs.sceneInputs->geometry.tlas,
+            nvrhi::ResourceStates::AccelStructRead);
+        inputs.commandList->setBufferState(
+            inputs.primarySurfaceCurrentBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            inputs.primaryHistorySidecarCurrentBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            CurrentPage(), nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            HistoryPage(), nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setBufferState(
+            lightBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            lights.emissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.staticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.staticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.staticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.dynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.dynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.dynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.rigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.rigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.rigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            Upt04SkinnedVertexBuffer(*inputs.sceneInputs), nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            Upt04SkinnedIndexBuffer(*inputs.sceneInputs), nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.skinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            geometry.skinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->commitBarriers();
+
+        nvrhi::ComputeState state;
+        state.pipeline = m_spatialPipeline;
+        state.bindings = { m_spatialBindingSets[m_currentPageIndex] };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(&control, sizeof(control));
+        inputs.commandList->dispatch(
+            (inputs.width + 7u) / 8u,
+            (inputs.height + 7u) / 8u,
+            1u);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, HistoryPage());
+    }
+    HistoryPageMetadata() = currentMetadata;
+    HistoryPageMetadata().fullyWritten = true;
+    m_spatialExecutedThisFrame = true;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecuteDuplication(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.duplication || inputs.proofStage < 9u
+        || Upt04PipelineVariant(inputs) != 0u
+        || !EnsureDuplicationResources(inputs)
+        || !EnsureDuplicationPipeline(inputs)
+        || !EnsureDuplicationBindingSets(inputs))
+        return false;
+
+    // S0 publishes into the physical history page. Without S0, D0/T0 leaves
+    // the final current-frame reservoir in the physical current page. Publish
+    // the correlation map against that exact physical page so CompleteFrame's
+    // role transition keeps reservoir and duplication histories aligned.
+    const uint32_t finalPageIndex = m_spatialExecutedThisFrame
+        ? m_historyPageIndex : m_currentPageIndex;
+    const nvrhi::BufferHandle finalPage = finalPageIndex == 0u
+        ? m_page0 : m_page1;
+    const PathTraceUnifiedPtPageMetadata& finalMetadata = finalPageIndex == 0u
+        ? m_page0Metadata : m_page1Metadata;
+    if (!finalMetadata.fullyWritten || finalMetadata.width != inputs.width
+        || finalMetadata.height != inputs.height
+        || finalMetadata.historyEpoch != inputs.historyEpoch)
+        return false;
+
+    const uint64_t surfaceCount64 = uint64_t(inputs.width) * uint64_t(inputs.height);
+    if (surfaceCount64 > std::numeric_limits<uint32_t>::max())
+        return false;
+    Upt08Control control = {};
+    control.renderWidth = inputs.width;
+    control.renderHeight = inputs.height;
+    control.surfaceCount = static_cast<uint32_t>(surfaceCount64);
+    control.packedRowPitch = m_duplicationPackedRowPitch;
+
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList, "UPT.U0 Fill SampleID", inputs.nsightMarkers);
+        inputs.commandList->setBufferState(
+            finalPage, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_duplicationSampleIds, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+        nvrhi::ComputeState state;
+        state.pipeline = m_duplicationFillPipeline;
+        state.bindings = { m_duplicationFillBindingSets[finalPageIndex] };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(&control, sizeof(control));
+        inputs.commandList->dispatch(
+            (inputs.width + 7u) / 8u, (inputs.height + 7u) / 8u, 1u);
+        nvrhi::utils::BufferUavBarrier(
+            inputs.commandList, m_duplicationSampleIds);
+    }
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList, "UPT.U1 Compute Duplication17x17", inputs.nsightMarkers);
+        inputs.commandList->setBufferState(
+            m_duplicationSampleIds, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_duplicationScores[finalPageIndex],
+            nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+        nvrhi::ComputeState state;
+        state.pipeline = m_duplicationComputePipeline;
+        state.bindings = { m_duplicationComputeBindingSets[finalPageIndex] };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(&control, sizeof(control));
+        inputs.commandList->dispatch(
+            (inputs.width + 7u) / 8u, (inputs.height + 7u) / 8u, 1u);
+        nvrhi::utils::BufferUavBarrier(
+            inputs.commandList, m_duplicationScores[finalPageIndex]);
+    }
+    m_duplicationMetadata[finalPageIndex] = finalMetadata;
+    m_duplicationMetadata[finalPageIndex].fullyWritten = true;
+    return true;
+}
+
+void PathTraceUnifiedPtState::CompleteFrame()
+{
+    // Spatial writes the final current-frame result directly into the physical
+    // history page, so its roles already describe the next frame. Without a
+    // spatial publication, the physical current page contains either T0's
+    // result or the fresh D0 fallback and must be promoted whenever temporal
+    // mode is active. Basing this on T0 success left a stale reservoir page in
+    // place when portal/resource churn made T0 skip, while the canonical
+    // primary surface was still advanced unconditionally by the caller.
+    if (m_temporalModeActive && m_initialPublishedThisFrame &&
+        !m_spatialExecutedThisFrame)
+    {
+        const uint32_t oldCurrent = m_currentPageIndex;
+        m_currentPageIndex = m_historyPageIndex;
+        m_historyPageIndex = oldCurrent;
+    }
+    m_initialPublishedThisFrame = false;
+    m_spatialExecutedThisFrame = false;
 }
 
 bool PathTraceUnifiedPtState::EnsureResolveResources(
@@ -2928,8 +4220,11 @@ bool PathTraceUnifiedPtState::EnsureResolveResources(
     m_resolveOutput = output;
     m_resolveWidth = inputs.width;
     m_resolveHeight = inputs.height;
-    m_resolveBindingSet = nullptr;
-    m_resolveBindingSetDescValid = false;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_resolveBindingSets[page] = nullptr;
+        m_resolveBindingSetDescValid[page] = false;
+    }
     common->Printf(
         "PathTraceUnifiedPt: allocated UPT-05 output %ux%u format=RGBA16_FLOAT bytes=%llu\n",
         inputs.width,
@@ -3016,25 +4311,30 @@ bool PathTraceUnifiedPtState::EnsureResolvePipeline(
 bool PathTraceUnifiedPtState::EnsureResolveBindingSet(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
+    const uint32_t pageIndex = m_spatialExecutedThisFrame
+        ? m_historyPageIndex : m_currentPageIndex;
+    const nvrhi::BufferHandle resolvePage = m_spatialExecutedThisFrame
+        ? HistoryPage() : CurrentPage();
     nvrhi::BindingSetDesc desc;
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, m_page0));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, resolvePage));
     desc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_resolveOutput));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT05_PUSH_CONSTANT_BYTES));
-    if (m_resolveBindingSet && m_resolveBindingSetDescValid &&
-        m_resolveBindingSetDesc == desc)
+    if (m_resolveBindingSets[pageIndex] &&
+        m_resolveBindingSetDescValid[pageIndex] &&
+        m_resolveBindingSetDescs[pageIndex] == desc)
     {
         return true;
     }
-    m_resolveBindingSet = inputs.device->createBindingSet(
+    m_resolveBindingSets[pageIndex] = inputs.device->createBindingSet(
         desc, m_resolveBindingLayout);
-    if (!m_resolveBindingSet)
+    if (!m_resolveBindingSets[pageIndex])
     {
         common->Printf("PathTraceUnifiedPt: failed to create UPT-05 resolve binding set\n");
         return false;
     }
-    m_resolveBindingSetDesc = desc;
-    m_resolveBindingSetDescValid = true;
+    m_resolveBindingSetDescs[pageIndex] = desc;
+    m_resolveBindingSetDescValid[pageIndex] = true;
     return true;
 }
 
@@ -3045,11 +4345,17 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
     m_resolveReady = false;
     const bool productionFullFrame = inputs.proofStage >= 9u &&
         Upt04PipelineVariant(inputs) == 0u;
-    if (!productionFullFrame || !m_page0 || m_pageWidth != inputs.width ||
-        m_pageHeight != inputs.height || !m_page0Metadata.fullyWritten ||
-        m_page0Metadata.width != inputs.width ||
-        m_page0Metadata.height != inputs.height ||
-        m_page0Metadata.historyEpoch != inputs.historyEpoch)
+    const nvrhi::BufferHandle resolvePage = m_spatialExecutedThisFrame
+        ? HistoryPage() : CurrentPage();
+    const PathTraceUnifiedPtPageMetadata& resolveMetadata = m_spatialExecutedThisFrame
+        ? HistoryPageMetadata() : CurrentPageMetadata();
+    const uint32_t resolvePageIndex = m_spatialExecutedThisFrame
+        ? m_historyPageIndex : m_currentPageIndex;
+    if (!productionFullFrame || !resolvePage || m_pageWidth != inputs.width ||
+        m_pageHeight != inputs.height || !resolveMetadata.fullyWritten ||
+        resolveMetadata.width != inputs.width ||
+        resolveMetadata.height != inputs.height ||
+        resolveMetadata.historyEpoch != inputs.historyEpoch)
     {
         if (!m_resolveFailureLogged)
         {
@@ -3083,7 +4389,7 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
             "UPT.R0 Resolve Bind+Barriers",
             inputs.nsightMarkers);
         inputs.commandList->setBufferState(
-            m_page0, nvrhi::ResourceStates::ShaderResource);
+            resolvePage, nvrhi::ResourceStates::ShaderResource);
         inputs.commandList->setTextureState(
             m_resolveOutput,
             nvrhi::AllSubresources,
@@ -3092,7 +4398,7 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
 
         nvrhi::ComputeState state;
         state.pipeline = m_resolvePipeline;
-        state.bindings = { m_resolveBindingSet };
+        state.bindings = { m_resolveBindingSets[resolvePageIndex] };
         inputs.commandList->setComputeState(state);
         inputs.commandList->setPushConstants(&control, sizeof(control));
     }

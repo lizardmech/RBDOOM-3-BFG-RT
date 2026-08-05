@@ -23,6 +23,16 @@ struct PathTraceUnifiedPtPrimaryReceiver32
     uint4 material; // fp16 baseColor.rgb, roughness, specularF0.rgb, header
 };
 
+// Motion and stable material identity are cold for D0 but required by T0/S0.
+// Keeping them in this separate 32-byte stream lets D0 retain its 32-byte hot
+// receiver without falling back to the shared 176-byte history record.
+static const uint RT_UPT_PRIMARY_HISTORY_SIDECAR_VERSION = 1u;
+struct PathTraceUnifiedPtPrimaryHistorySidecar
+{
+    uint4 metadata; // version|surfaceClass, valid flags, material id, material flags
+    float4 previousPositionAndAlphaCutoff;
+};
+
 float2 PathTraceUptEncodeOctahedral(float3 value)
 {
     value = SafeNormalize(value, float3(0.0, 0.0, 1.0));
@@ -125,6 +135,24 @@ PathTraceUnifiedPtPrimaryReceiver32 PackPathTraceUnifiedPtPrimaryReceiver32(
         (f32tof16(specularF0.z) & 0xffffu) |
             ((RT_UPT_PRIMARY_RECEIVER_VERSION | 0x8000u) << 16u));
     return receiver;
+}
+
+PathTraceUnifiedPtPrimaryHistorySidecar
+PackPathTraceUnifiedPtPrimaryHistorySidecar(
+    PathTracePrimarySurfaceRecord record)
+{
+    PathTraceUnifiedPtPrimaryHistorySidecar sidecar =
+        (PathTraceUnifiedPtPrimaryHistorySidecar)0;
+    sidecar.metadata = uint4(
+        RT_UPT_PRIMARY_HISTORY_SIDECAR_VERSION |
+            ((record.materialAndSurface.w & 0xffffu) << 16u),
+        record.header.y,
+        record.materialAndSurface.x,
+        record.materialAndSurface.z);
+    sidecar.previousPositionAndAlphaCutoff = float4(
+        record.previousPositionOrMotion.xyz,
+        record.albedoAndAlphaCutoff.w);
+    return sidecar;
 }
 
 #endif

@@ -165,6 +165,7 @@ struct RtSmokeBindingBuildDesc
     nvrhi::BufferHandle liquidPoolStatusBuffer;
     nvrhi::BufferHandle unifiedPtPrimaryReceiverBuffer;
     nvrhi::BufferHandle unifiedPtPrimaryReceiver32Buffer;
+    nvrhi::BufferHandle unifiedPtPrimaryHistorySidecarCurrentBuffer;
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::BindingLayoutHandle textureBindlessLayout;
     nvrhi::DescriptorTableHandle existingTextureDescriptorTable;
