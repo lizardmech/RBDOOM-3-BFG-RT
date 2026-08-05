@@ -1747,9 +1747,40 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
     }
 
-    auto publishPrimarySurfaceHistory = [&](const char* copyMarker)
+    auto publishPrimarySurfaceHistory = [&](const char* copyMarker, bool publishUptCompactHistory = false)
     {
-        if (r_pathTracingCleanRtxdiDiPrimarySurfaceHistorySwap.GetBool())
+        if (publishUptCompactHistory)
+        {
+            // UPT returns before the shared end-of-frame publisher below. Keep the hot receiver
+            // and cold sidecar on the same N-1 frame here; advancing only the legacy 176-byte
+            // surface leaves T0 with valid reservoir metadata paired with stale compact surfaces.
+            commandList->setBufferState(
+                m_frameResources.unifiedPtPrimaryReceiver32Buffer,
+                nvrhi::ResourceStates::CopySource);
+            commandList->setBufferState(
+                m_frameResources.unifiedPtPrimaryReceiver32PreviousBuffer,
+                nvrhi::ResourceStates::CopyDest);
+            commandList->setBufferState(
+                m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer,
+                nvrhi::ResourceStates::CopySource);
+            commandList->setBufferState(
+                m_frameResources.unifiedPtPrimaryHistorySidecarPreviousBuffer,
+                nvrhi::ResourceStates::CopyDest);
+            commandList->commitBarriers();
+            commandList->copyBuffer(
+                m_frameResources.unifiedPtPrimaryReceiver32PreviousBuffer,
+                0,
+                m_frameResources.unifiedPtPrimaryReceiver32Buffer,
+                0,
+                m_frameResources.unifiedPtPrimaryReceiver32Buffer->getDesc().byteSize);
+            commandList->copyBuffer(
+                m_frameResources.unifiedPtPrimaryHistorySidecarPreviousBuffer,
+                0,
+                m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer,
+                0,
+                m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer->getDesc().byteSize);
+        }
+        else if (r_pathTracingCleanRtxdiDiPrimarySurfaceHistorySwap.GetBool())
         {
             std::swap(
                 m_frameResources.primarySurfaceHistoryBuffers.current,
@@ -2848,7 +2879,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
             // Publish the shared primary history once after the UPT consumer,
             // then stop before every legacy execution branch.
-            publishPrimarySurfaceHistory("UPT.P0 PrimarySurfaceHistory Copy");
+            publishPrimarySurfaceHistory(
+                "UPT.P0 PrimarySurfaceHistory Copy",
+                useUptCompactPrimaryHistory);
             // The shared legacy increment lives below this early-returning
             // route. Advance the same live index here so FixedSampleIndex -1
             // actually produces a new UPT random stream every rendered frame.

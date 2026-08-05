@@ -3367,12 +3367,14 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
     for (const uint32_t slot : { 6u, 7u, 8u, 10u, 11u, 12u, 14u,
-            15u, 16u, 17u, 18u, 19u, 20u, 21u, 23u, 25u, 26u })
+            15u, 16u, 17u, 18u, 19u, 20u, 21u, 23u })
     {
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
     }
     if (inputs.duplication)
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT07_PUSH_CONSTANT_BYTES));
     m_temporalBindingLayout = inputs.device->createBindingLayout(layoutDesc);
