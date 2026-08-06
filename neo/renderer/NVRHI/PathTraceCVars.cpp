@@ -1415,9 +1415,9 @@ idCVar r_pathTracingUnifiedPtSplitContinuation(
 
 idCVar r_pathTracingUnifiedPtDirectProposalParity(
     "r_pathTracingUnifiedPtDirectProposalParity",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT D0 direct-proposal A/B: 1 uses one uniform emissive trial plus up to 32 range-stratified analytic trials while retaining one selected visibility ray; 0 keeps the fixed 8-trial split baseline" );
+    "UPT D0 direct proposal: 1 uses one uniform emissive trial plus up to 32 range-stratified analytic trials while retaining one selected visibility ray; 0 selects the fixed 8-trial split fallback" );
 
 idCVar r_pathTracingUnifiedPtTemporal(
     "r_pathTracingUnifiedPtTemporal",
@@ -1457,9 +1457,9 @@ idCVar r_pathTracingUnifiedPtTemporalPairwise(
 
 idCVar r_pathTracingUnifiedPtDuplication(
     "r_pathTracingUnifiedPtDuplication",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT-08 correlation proof: publish a 31-bit random-sample identity, count matching copies in a 17x17 neighborhood, and adapt the next temporal M cap from default to 1; allocates no resources and dispatches no work when disabled" );
+    "UPT-08 correlation control: publish a 31-bit random-sample identity, count matching copies in a 17x17 neighborhood, and adapt the next temporal M cap from default to 1; allocates no resources and dispatches no work when disabled" );
 
 idCVar r_pathTracingUnifiedPtSpatial(
     "r_pathTracingUnifiedPtSpatial",
@@ -1469,9 +1469,9 @@ idCVar r_pathTracingUnifiedPtSpatial(
 
 idCVar r_pathTracingUnifiedPtSpatialProofMode(
     "r_pathTracingUnifiedPtSpatialProofMode",
-    "3",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "UPT-09 deterministic fault isolation: 0 unique-neighbor basic correction with non-recursive rescue, 1 exact reservoir pass-through, 2 reproduce old recursive with-replacement rescue, 3 temporary safe default using non-recursive unique neighbors with standard 1/M normalization, 4 strict selected-center/selected-neighbor legacy admission, 5 mode 0 with every source-side target freshly replayed at its actual source surface, 6 selected-center pairwise MIS with fresh cross-domain targets and no empty-center rescue; clamps to 0..6" );
+    "UPT-09 spatial estimator: 0 production unique-neighbor basic correction with non-recursive rescue, 1 exact reservoir pass-through, 2 reproduce old recursive with-replacement rescue, 3 non-recursive unique neighbors with standard 1/M normalization, 4 strict selected-center/selected-neighbor legacy admission, 5 mode 0 with every source-side target freshly replayed at its actual source surface, 6 selected-center pairwise MIS with fresh cross-domain targets and no empty-center rescue; clamps to 0..6" );
 
 idCVar r_pathTracingUnifiedPtDirectTargetPdfParity(
     "r_pathTracingUnifiedPtDirectTargetPdfParity",
