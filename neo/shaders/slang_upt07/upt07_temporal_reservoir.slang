@@ -8,6 +8,13 @@ public static const uint kUpt07RejectShiftedValidZero = 5u;
 public static const uint kUpt07RejectMergeMath = 6u;
 public static const uint kUpt07RejectMissingObjectMotion = 7u;
 public static const uint kUpt07RejectHistoryOutlier = 8u;
+public static const uint kUpt07RejectIndirectIdentity = 9u;
+public static const uint kUpt07RejectIndirectContinuation = 10u;
+public static const uint kUpt07RejectIndirectGeometry = 11u;
+public static const uint kUpt07RejectIndirectEndpoint = 12u;
+public static const uint kUpt07RejectIndirectInnerRis = 13u;
+public static const uint kUpt07RejectIndirectVisibility = 14u;
+public static const uint kUpt07RejectIndirectStructure = 15u;
 
 public struct Upt07DecodedReservoir
 {

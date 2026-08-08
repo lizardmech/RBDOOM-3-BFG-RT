@@ -5,6 +5,7 @@ import upt04_light_contract;
 import upt04_local_light_proposal;
 import upt04_random_contract;
 import upt04_random_white_hash;
+import upt04_replay_random;
 
 // Shared current-frame emissive identity selector. The publication's logical
 // count is authoritative because the structured allocation retains a stale
@@ -79,10 +80,10 @@ public Upt04LocalLightSelection Upt04SelectInitialWeightedEmissive(
 // but keep the path vertex and candidate ordinal in their separate random-key
 // fields. Secondary NEE streams this complete schedule through an inner RIS
 // and traces visibility only for its winner.
-public Upt04LocalLightSelection Upt04SelectInitialLightAtVertex(
-    uint2 pixel,
-    uint pathVertex,
-    uint candidateOrdinal)
+public Upt04LocalLightSelection Upt04SelectInitialLightFromRandoms(
+    uint candidateOrdinal,
+    float identityRandom,
+    float2 surfaceRandom)
 {
     Upt04LocalLightSelection result = (Upt04LocalLightSelection)0;
     Upt04LocalLightRanges ranges;
@@ -117,13 +118,6 @@ public Upt04LocalLightSelection Upt04SelectInitialLightAtVertex(
         typedRanges.analyticStart = ranges.analyticStart;
         typedRanges.analyticCount = ranges.analyticCount;
     }
-    float identityRandom = Upt04WhiteHash(
-        Upt04InitialRandomKeyAtVertexSample(
-            pixel,
-            pathVertex,
-            candidateOrdinal,
-            kUpt04StreamInitialLocalLightIdentity,
-            kUpt04DimensionInitialLocalLightIdentity));
     if (proposalParity != 0u && !selectEmissive)
     {
         const uint analyticOrdinal = candidateOrdinal - emissiveTrials;
@@ -138,19 +132,10 @@ public Upt04LocalLightSelection Upt04SelectInitialLightAtVertex(
         identityRandom = (lightIndexInRange + 0.5f)
             / float(max(ranges.analyticCount, 1u));
     }
-    const float2 surfaceRandom = float2(
-        Upt04WhiteHash(Upt04InitialRandomKeyAtVertexSample(
-            pixel,
-            pathVertex,
-            candidateOrdinal,
-            kUpt04StreamInitialLocalLightSurfaceU,
-            kUpt04DimensionInitialLocalLightSurfaceU)),
-        Upt04WhiteHash(Upt04InitialRandomKeyAtVertexSample(
-            pixel,
-            pathVertex,
-            candidateOrdinal,
-            kUpt04StreamInitialLocalLightSurfaceV,
-            kUpt04DimensionInitialLocalLightSurfaceV)));
+    if (!isfinite(identityRandom) || identityRandom < 0.0f
+        || identityRandom >= 1.0f || !all(isfinite(surfaceRandom))
+        || any(surfaceRandom < 0.0f) || any(surfaceRandom >= 1.0f))
+        return result;
 
     if (proposalParity != 0u && selectEmissive)
     {
@@ -169,4 +154,66 @@ public Upt04LocalLightSelection Upt04SelectInitialLightAtVertex(
     result.selectionPdf = Upt04DirectRisIdentityPdf(
         ranges, selectedType, proposalParity, configuredEmissiveTrials);
     return result;
+}
+
+public Upt04LocalLightSelection Upt04SelectInitialLightAtVertex(
+    uint2 pixel,
+    uint pathVertex,
+    uint candidateOrdinal)
+{
+    float identityRandom = Upt04WhiteHash(
+        Upt04InitialRandomKeyAtVertexSample(
+            pixel,
+            pathVertex,
+            candidateOrdinal,
+            kUpt04StreamInitialLocalLightIdentity,
+            kUpt04DimensionInitialLocalLightIdentity));
+    const float2 surfaceRandom = float2(
+        Upt04WhiteHash(Upt04InitialRandomKeyAtVertexSample(
+            pixel,
+            pathVertex,
+            candidateOrdinal,
+            kUpt04StreamInitialLocalLightSurfaceU,
+            kUpt04DimensionInitialLocalLightSurfaceU)),
+        Upt04WhiteHash(Upt04InitialRandomKeyAtVertexSample(
+            pixel,
+            pathVertex,
+            candidateOrdinal,
+            kUpt04StreamInitialLocalLightSurfaceV,
+            kUpt04DimensionInitialLocalLightSurfaceV)));
+    return Upt04SelectInitialLightFromRandoms(
+        candidateOrdinal, identityRandom, surfaceRandom);
+}
+
+public Upt04LocalLightSelection Upt04SelectInitialLightFromReplay(
+    uint replayKey,
+    uint replayIndex,
+    uint pathVertex,
+    uint candidateOrdinal)
+{
+    const float identityRandom = Upt04WhiteHash(
+        Upt04PersistedReplayRandomKey(
+            replayKey,
+            replayIndex,
+            pathVertex,
+            candidateOrdinal,
+            kUpt04StreamInitialLocalLightIdentity,
+            kUpt04DimensionInitialLocalLightIdentity));
+    const float2 surfaceRandom = float2(
+        Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+            replayKey,
+            replayIndex,
+            pathVertex,
+            candidateOrdinal,
+            kUpt04StreamInitialLocalLightSurfaceU,
+            kUpt04DimensionInitialLocalLightSurfaceU)),
+        Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+            replayKey,
+            replayIndex,
+            pathVertex,
+            candidateOrdinal,
+            kUpt04StreamInitialLocalLightSurfaceV,
+            kUpt04DimensionInitialLocalLightSurfaceV)));
+    return Upt04SelectInitialLightFromRandoms(
+        candidateOrdinal, identityRandom, surfaceRandom);
 }

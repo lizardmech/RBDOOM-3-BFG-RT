@@ -15,6 +15,12 @@ import upt07_temporal_direct_bindings;
 import upt07_temporal_reservoir;
 import upt07_temporal_surface_contract;
 import upt07_emissive_material;
+#ifndef UPT07_INDIRECT_REPLAY
+#define UPT07_INDIRECT_REPLAY 0
+#endif
+#if UPT07_INDIRECT_REPLAY
+import upt07_temporal_indirect;
+#endif
 
 #ifndef UPT07_DUPLICATION_MAP
 #define UPT07_DUPLICATION_MAP 0
@@ -436,7 +442,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // Only a dynamic emissive selection bypasses temporal merge.  Analytic
     // lights remain replayable when their current payload changes; identity
     // remapping, not the persistent-cache flag, owns one-frame continuity.
-    if (current.valid != 0u && current.logical.hasSelectedSample != 0u)
+    if (Upt07DirectHistoryEligible(current))
     {
         uint currentEmissive;
         uint currentDenseIndex;
@@ -528,7 +534,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // deferred until after the final winner is known so a current D0 winner
     // does not pay a duplicate ray. Future indirect/reconnection events require
     // a separate traced provider and an explicit drift-accounting contract.
-    if (Upt07DirectHistoryEligible(history))
+    const bool directHistoryEligible = Upt07DirectHistoryEligible(history);
+#if UPT07_INDIRECT_REPLAY
+    const bool indirectHistoryEligible = Upt07IndirectHistoryEligible(history);
+#else
+    const bool indirectHistoryEligible = false;
+#endif
+    if (directHistoryEligible)
     {
         historyFailureReason = kUpt07RejectShiftInvalid;
         shiftedValid = Upt07ShiftPrimaryDirect<Upt07OpenPbrMaterialSet>(
@@ -539,6 +551,24 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             historyFailureReason = shifted.status == kUpt04SampleValidPositive
                 ? 0u : kUpt07RejectShiftedValidZero;
     }
+    else if (indirectHistoryEligible)
+    {
+#if UPT07_INDIRECT_REPLAY
+        historyFailureReason = kUpt07RejectShiftInvalid;
+        uint indirectFailureReason = kUpt07RejectIndirectStructure;
+        shiftedValid = Upt07ReplayIndirectSample(
+            history.logical.selected,
+            receiver,
+            1u,
+            indirectFailureReason,
+            shifted);
+        if (shiftedValid == 0u)
+            historyFailureReason = indirectFailureReason;
+        if (shiftedValid != 0u)
+            historyFailureReason = shifted.status == kUpt04SampleValidPositive
+                ? 0u : kUpt07RejectShiftedValidZero;
+#endif
+    }
 
     const uint historyIdentity = shiftedValid != 0u ? shifted.identity0 : 0u;
     Upt07DecodedReservoir seededCurrent = current;
@@ -546,6 +576,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if ((gUpt07Control.geometryAvailabilityFlags
             & kUpt07PreviousBestSeedFlag) != 0u
         && shiftedValid != 0u
+        && directHistoryEligible
         && shifted.status == kUpt04SampleValidPositive)
     {
         // Replayed history is a new current-domain proposal. A visibility bit
@@ -575,20 +606,51 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         confidenceShiftedValid = 0u;
     }
 
-    const float currentTargetAtHistory = confidenceShiftedValid != 0u
-            && seededCurrent.valid != 0u
-            && seededCurrent.logical.hasSelectedSample != 0u
-            && Upt04PrimarySurfaceRecordValid(historyReceiver)
-        ? Upt07PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
-            seededCurrent.logical.selected,
-            historyReceiver)
-        : 0.0f;
-    const float currentTargetAtCurrent = seededCurrent.valid != 0u
-            && seededCurrent.logical.hasSelectedSample != 0u
-        ? Upt07PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
-            seededCurrent.logical.selected,
-            receiver)
-        : 0.0f;
+    float currentTargetAtHistory = 0.0f;
+    float currentTargetAtCurrent = 0.0f;
+    if (seededCurrent.valid != 0u
+        && seededCurrent.logical.hasSelectedSample != 0u)
+    {
+        const Upt03Candidate currentCandidate = seededCurrent.logical.selected;
+        if ((currentCandidate.flags & kUpt04CandidateFlagGlobal) == 0u)
+        {
+            currentTargetAtCurrent =
+                Upt07PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
+                    currentCandidate, receiver);
+            if (confidenceShiftedValid != 0u
+                && Upt04PrimarySurfaceRecordValid(historyReceiver))
+                currentTargetAtHistory =
+                    Upt07PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
+                        currentCandidate, historyReceiver);
+        }
+        else
+        {
+#if UPT07_INDIRECT_REPLAY
+            if (!Upt07IndirectHistoryEligible(seededCurrent))
+                currentTargetAtCurrent = 0.0f;
+            else
+            {
+            currentTargetAtCurrent = isfinite(currentCandidate.target)
+                    && currentCandidate.target > 0.0f
+                ? currentCandidate.target : 0.0f;
+            if (confidenceShiftedValid != 0u
+                && Upt04PrimarySurfaceRecordValid(historyReceiver))
+            {
+                Upt03Candidate currentAtHistory;
+                uint currentShiftFailure;
+                if (Upt07ReplayIndirectSample(
+                        currentCandidate,
+                        historyReceiver,
+                        0u,
+                        currentShiftFailure,
+                        currentAtHistory) != 0u
+                    && currentAtHistory.status == kUpt04SampleValidPositive)
+                    currentTargetAtHistory = currentAtHistory.target;
+            }
+            }
+#endif
+        }
+    }
     // The history winner still carries a previous-frame dense light index.
     // Never replay that index through the current light buffer here: light
     // ordering churn can alias it to an unrelated current payload (the
@@ -658,8 +720,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // frame. selectedHistory must therefore force a new query even when that
     // stale bit is still present. The flag-only test is retained for any
     // current candidate route that reaches T0 without D0 visibility proof.
+    const bool mergedIndirect = merged.logical.hasSelectedSample != 0u
+        && (merged.logical.selected.flags & kUpt04CandidateFlagGlobal) != 0u;
     if (merged.logical.hasSelectedSample != 0u
-        && (merged.selectedHistory != 0u
+        && ((merged.selectedHistory != 0u && !mergedIndirect)
             || (merged.logical.selected.flags & visibilityProof) != visibilityProof))
     {
         Upt04TraceRequest visibility;

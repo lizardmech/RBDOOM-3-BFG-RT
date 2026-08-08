@@ -31,6 +31,8 @@ set(UPT07_DIRECT_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_material_provider_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_material_openpbr.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_emissive_material.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt07_indirect_material.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_binary16.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_hit_contract.slang"
@@ -53,6 +55,7 @@ set(UPT07_DIRECT_MODULES
       "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_packed_primary_surface32.slang"
       "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_primary_history_sidecar.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_random_white_hash.slang"
+    "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_replay_random.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_transport_initial_bounded.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt05_material_openpbr.slang")
 
@@ -116,6 +119,66 @@ path_tracing_declare_slang_spirv_module(
     DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_DUPLICATION_MAP=1
     OUT_VAR temporal_direct_compact_duplication_outputs)
 
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_INDIRECT_REPLAY=1
+    OUT_VAR temporal_unified_outputs)
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_INDIRECT_REPLAY=1
+    OUT_VAR temporal_unified_compact_outputs)
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_duplication
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
+    OUT_VAR temporal_unified_duplication_outputs)
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64_duplication
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
+    OUT_VAR temporal_unified_compact_duplication_outputs)
+
 set(UPT07_VERIFY_STAMP "${UPT07_OUTPUT_DIR}/upt07_temporal_ownership_verified.txt")
 add_custom_command(
     OUTPUT "${UPT07_VERIFY_STAMP}"
@@ -137,9 +200,14 @@ add_custom_command(
         -DUPT07_FULL_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_direct_rayquery.slang.spvasm
         -DUPT07_COMPACT_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_direct_rayquery_light64.slang.spirv-reflection.json
         -DUPT07_COMPACT_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_direct_rayquery_light64.slang.spvasm
+        -DUPT07_UNIFIED_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery.slang.spirv-reflection.json
+        -DUPT07_UNIFIED_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery.slang.spvasm
+        -DUPT07_UNIFIED_COMPACT_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64.slang.spirv-reflection.json
+        -DUPT07_UNIFIED_COMPACT_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64.slang.spvasm
         -DUPT07_STAMP=${UPT07_DIRECT_VERIFY_STAMP}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt07TemporalDirect.cmake"
     DEPENDS ${temporal_direct_outputs} ${temporal_direct_compact_outputs}
+        ${temporal_unified_outputs} ${temporal_unified_compact_outputs}
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt07TemporalDirect.cmake"
     COMMENT "UPT-07 verifying complete primary-direct temporal shift provider"
     VERBATIM)
@@ -154,10 +222,22 @@ set(UPT07_DIRECT_DUPLICATION_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_direct_rayquery_duplication.bin")
 set(UPT07_DIRECT_COMPACT_DUPLICATION_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_direct_rayquery_light64_duplication.bin")
+set(UPT07_UNIFIED_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery.bin")
+set(UPT07_UNIFIED_COMPACT_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64.bin")
+set(UPT07_UNIFIED_DUPLICATION_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_duplication.bin")
+set(UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication.bin")
 add_custom_command(
     OUTPUT "${UPT07_DIRECT_RUNTIME_OUTPUT}" "${UPT07_DIRECT_COMPACT_RUNTIME_OUTPUT}"
         "${UPT07_DIRECT_DUPLICATION_RUNTIME_OUTPUT}"
         "${UPT07_DIRECT_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_COMPACT_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_DUPLICATION_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT07_RUNTIME_DIR}"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${UPT07_OUTPUT_DIR}/upt07_temporal_direct_rayquery.slang.spv"
@@ -171,9 +251,24 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${UPT07_OUTPUT_DIR}/upt07_temporal_direct_rayquery_light64_duplication.slang.spv"
         "${UPT07_DIRECT_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery.slang.spv"
+        "${UPT07_UNIFIED_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64.slang.spv"
+        "${UPT07_UNIFIED_COMPACT_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_duplication.slang.spv"
+        "${UPT07_UNIFIED_DUPLICATION_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication.slang.spv"
+        "${UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
     DEPENDS ${temporal_direct_outputs} ${temporal_direct_compact_outputs}
         ${temporal_direct_duplication_outputs}
         ${temporal_direct_compact_duplication_outputs}
+        ${temporal_unified_outputs} ${temporal_unified_compact_outputs}
+        ${temporal_unified_duplication_outputs}
+        ${temporal_unified_compact_duplication_outputs}
         "${UPT07_DIRECT_VERIFY_STAMP}"
     COMMENT "UPT-07 verified Vulkan runtime artifacts: primary-direct temporal shift"
     VERBATIM)
@@ -185,7 +280,11 @@ add_custom_target(PathTraceSlangUpt07TemporalOwnership
         "${UPT07_DIRECT_RUNTIME_OUTPUT}"
         "${UPT07_DIRECT_COMPACT_RUNTIME_OUTPUT}"
         "${UPT07_DIRECT_DUPLICATION_RUNTIME_OUTPUT}"
-        "${UPT07_DIRECT_COMPACT_DUPLICATION_RUNTIME_OUTPUT}")
+        "${UPT07_DIRECT_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_COMPACT_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_DUPLICATION_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
     FOLDER "Shaders/UPT-07")
 if(TARGET RBDoom3BFG)

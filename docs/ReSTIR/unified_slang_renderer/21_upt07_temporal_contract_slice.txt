@@ -637,3 +637,61 @@ or reconstruction failure. No rejected history mass is retained. Indirect and
 reconnection history remains rejected until its separately budgeted traced
 provider exists. Reciprocal current-at-history evaluation is still skipped
 unless compatible, shiftable history was admitted.
+
+Opt-in unified indirect temporal provider, 2026-08-09
+----------------------------------------------------
+
+The first one-continuation provider is now implemented behind:
+
+    r_pathTracingUnifiedPtTemporalIndirect 0/1
+
+Default remains zero for the temporal-only runtime acceptance pass. The
+existing direct T0 is still a separate production blob with its established
+28 bindings and exactly one winner-only RayQuery site. Enabling the new cvar
+selects a separate unified blob; direct-only shader size and runtime work do
+not silently grow.
+
+Eligible global history must carry Replayable|NeedsShift, nonzero persisted
+replay state, reconnection length one, and one of the admitted shapes:
+
+    emissive endpoint: eventKind 4, pathLength 1;
+    secondary NEE: eventKind 1/2, pathLength 2.
+
+Secondary NEE first validates the stored previous dense light through the
+stable previous-to-current map and current fingerprint, rejecting dynamic
+emissive history. The provider then regenerates the primary continuation from
+the stored PSS seed, traces closest current geometry with the accepted alpha-
+clip candidate rule, and decodes the same routed material surface as D0.
+Endpoint events re-evaluate texture emission and exact reverse NEE MIS.
+Secondary-NEE events replay the complete typed proposal schedule and inner RIS
+from the persisted seed, then trace only its selected light with emissive-self
+ignore and alpha clipping. Invalid, missing, incompatible, zero-target, or
+occluded replay never becomes a positive candidate.
+
+Global D0 candidates also persist the proposal-parity bit already reserved in
+the candidate flags. T0 derives its typed candidate count, power-CDF mixture,
+reverse endpoint NEE density, and shifted candidate flag from that stored bit,
+not from a live cvar that may have changed after the source page was published.
+
+The reciprocal current-at-history target uses the same traced provider when
+the current selected sample is global. The statically verified unified shader
+has five RayQuery call sites after inlining: one established direct winner
+site plus two bounded indirect segments for history-at-current and two for
+current-at-history. Dynamic execution is at most four indirect rays per pixel;
+there is no TraceRay site, queue, sidecar, clear, or third reservoir page.
+
+Resolve view 5 retains the original reasons 1..8 and adds:
+
+     9 violet      stable light identity/remap failure
+    10 blue        persisted continuation replay failure
+    11 sky blue    continuation trace/geometry decode failure
+    12 orange      endpoint emission/reverse evaluation failure
+    13 brown       secondary inner-RIS replay failure
+    14 green       indirect visibility construction failure
+    15 gray        unsupported/malformed indirect structure
+
+An occluded but otherwise defined shifted sample continues to use reason 5
+(white valid-zero). The direct and unified full/compact/duplication Vulkan
+variants pass the dedicated reflection/disassembly gate. Live temporal-only
+visual, energy, and performance acceptance remains pending; spatial indirect
+reuse must not begin until this cvar is accepted or corrected.

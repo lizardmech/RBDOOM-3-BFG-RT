@@ -179,6 +179,20 @@ public float3 Upt05PackedStateView(Upt03PackedReservoir packed)
         return float3(1.0f, 0.35f, 0.0f);
     if (reason == 8u)
         return float3(1.0f, 0.25f, 0.75f);
+    if (reason == 9u)
+        return float3(0.45f, 0.0f, 0.85f);
+    if (reason == 10u)
+        return float3(0.15f, 0.2f, 1.0f);
+    if (reason == 11u)
+        return float3(0.0f, 0.55f, 1.0f);
+    if (reason == 12u)
+        return float3(1.0f, 0.35f, 0.1f);
+    if (reason == 13u)
+        return float3(0.75f, 0.15f, 0.0f);
+    if (reason == 14u)
+        return float3(0.2f, 0.9f, 0.45f);
+    if (reason == 15u)
+        return float3(0.65f, 0.65f, 0.65f);
     if (tag == kUpt03PackedCountOnlyTag)
         return float3(1.0f, 0.0f, 0.0f);
     if (tag == kUpt03PackedNeedsRescueBit)

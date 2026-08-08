@@ -18,6 +18,114 @@ void Check(bool condition, const char* message)
     }
 }
 
+uint32_t HashWord(uint32_t value)
+{
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    value *= 0x846ca68bu;
+    return value ^ (value >> 16u);
+}
+
+uint32_t MakeReplayKey(uint32_t pixelX, uint32_t pixelY, uint32_t frameSampleIndex)
+{
+    uint32_t value = HashWord(pixelX ^ (pixelY * 0x9e3779b9u));
+    value = HashWord(value ^ frameSampleIndex);
+    value = HashWord(value ^ kRandomSlotReplayPathEvent.streamNamespace
+        ^ kRandomSlotReplayPathEvent.dimension);
+    return (value & 0x7fffffffu) | 1u;
+}
+
+uint32_t ReplayRandomBits(
+    uint32_t replayKey,
+    uint32_t replayIndex,
+    uint32_t pathVertex,
+    uint32_t sampleOrdinal,
+    uint32_t streamNamespace,
+    uint32_t dimension)
+{
+    uint32_t value = 0x9e3779b9u;
+    value = HashWord(value ^ (replayKey & 0x7fffffffu));
+    value = HashWord(value ^ replayIndex);
+    value = HashWord(value ^ 0u); // frameSampleIndex
+    value = HashWord(value ^ 0x0001u); // kUpt04PassInitial
+    value = HashWord(value ^ pathVertex);
+    value = HashWord(value ^ streamNamespace);
+    value = HashWord(value ^ dimension);
+    value = HashWord(value ^ sampleOrdinal);
+    value = HashWord(value ^ 0u); // replayEpoch
+    return value >> 8u;
+}
+
+void TestPersistedContinuationReplay()
+{
+    constexpr uint32_t sourceX = 1919u;
+    constexpr uint32_t sourceY = 1079u;
+    constexpr uint32_t frameSample = 0x12345678u;
+    const uint32_t replayKey = MakeReplayKey(sourceX, sourceY, frameSample);
+    const uint32_t lobe = ReplayRandomBits(
+        replayKey, frameSample, 0u, 0u,
+        kRandomSlotMaterialLobeSelection.streamNamespace,
+        kRandomSlotMaterialLobeSelection.dimension);
+    const uint32_t directionU = ReplayRandomBits(
+        replayKey, frameSample, 0u, 0u,
+        kRandomSlotIndirectContinuationU.streamNamespace,
+        kRandomSlotIndirectContinuationU.dimension);
+    const uint32_t directionV = ReplayRandomBits(
+        replayKey, frameSample, 0u, 0u,
+        kRandomSlotIndirectContinuationV.streamNamespace,
+        kRandomSlotIndirectContinuationV.dimension);
+    const uint32_t secondaryIdentity = ReplayRandomBits(
+        replayKey, frameSample, 1u, 3u,
+        kRandomSlotInitialLocalLightIdentity.streamNamespace,
+        kRandomSlotInitialLocalLightIdentity.dimension);
+    const uint32_t secondarySurfaceU = ReplayRandomBits(
+        replayKey, frameSample, 1u, 3u,
+        kRandomSlotInitialLocalLightSurfaceU.streamNamespace,
+        kRandomSlotInitialLocalLightSurfaceU.dimension);
+    const uint32_t secondarySelection = ReplayRandomBits(
+        replayKey, frameSample, 1u, 3u,
+        kRandomSlotInitialReservoirSelection.streamNamespace,
+        kRandomSlotInitialReservoirSelection.dimension);
+
+    Check(replayKey != 0u && (replayKey & 0x80000000u) == 0u,
+        "base replay identity must preserve zero-invalid and the rescue bit");
+    Check(lobe == ReplayRandomBits(replayKey, frameSample, 0u, 0u,
+            kRandomSlotMaterialLobeSelection.streamNamespace,
+            kRandomSlotMaterialLobeSelection.dimension)
+        && directionU == ReplayRandomBits(replayKey, frameSample, 0u, 0u,
+            kRandomSlotIndirectContinuationU.streamNamespace,
+            kRandomSlotIndirectContinuationU.dimension)
+        && directionV == ReplayRandomBits(replayKey, frameSample, 0u, 0u,
+            kRandomSlotIndirectContinuationV.streamNamespace,
+            kRandomSlotIndirectContinuationV.dimension),
+        "persisted replayKey/replayIndex must reproduce the continuation exactly");
+    Check(lobe == ReplayRandomBits(replayKey | 0x80000000u, frameSample, 0u, 0u,
+            kRandomSlotMaterialLobeSelection.streamNamespace,
+            kRandomSlotMaterialLobeSelection.dimension),
+        "UPT-09 rescue stamping must not perturb persisted continuation replay");
+    Check(secondaryIdentity == ReplayRandomBits(
+            replayKey, frameSample, 1u, 3u,
+            kRandomSlotInitialLocalLightIdentity.streamNamespace,
+            kRandomSlotInitialLocalLightIdentity.dimension)
+        && secondarySurfaceU == ReplayRandomBits(
+            replayKey, frameSample, 1u, 3u,
+            kRandomSlotInitialLocalLightSurfaceU.streamNamespace,
+            kRandomSlotInitialLocalLightSurfaceU.dimension)
+        && secondarySelection == ReplayRandomBits(
+            replayKey, frameSample, 1u, 3u,
+            kRandomSlotInitialReservoirSelection.streamNamespace,
+            kRandomSlotInitialReservoirSelection.dimension),
+        "persisted replay must reproduce secondary identity, coordinates, and inner-RIS selection");
+    Check(secondaryIdentity != ReplayRandomBits(
+            replayKey, frameSample, 1u, 4u,
+            kRandomSlotInitialLocalLightIdentity.streamNamespace,
+            kRandomSlotInitialLocalLightIdentity.dimension),
+        "secondary candidate ordinals must remain distinct in persisted PSS replay");
+    Check(MakeReplayKey(sourceX + 1u, sourceY, frameSample) != replayKey,
+        "adjacent source pixels must retain distinct replay identities");
+}
+
 PrimaryProducerSchedule ReadySchedule(bool upt, bool clean, int view)
 {
     PrimaryProducerScheduleInput input;
@@ -33,6 +141,7 @@ PrimaryProducerSchedule ReadySchedule(bool upt, bool clean, int view)
 
 int main()
 {
+    TestPersistedContinuationReplay();
     Check(RandomSlotsAreUnique(),
         "shared C++/Slang random-slot ledger must be collision-free");
     Check(kRandomSlotInitialReservoirSelection.streamNamespace !=

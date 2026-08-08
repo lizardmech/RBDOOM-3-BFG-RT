@@ -1435,7 +1435,7 @@ idCVar r_pathTracingUnifiedPtTemporal(
     "r_pathTracingUnifiedPtTemporal",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT-07 bounded temporal reuse over two fully written 64-byte reservoir pages with at most one winner-only visibility RayQuery; default off" );
+    "UPT-07 bounded temporal reuse over two fully written 64-byte reservoir pages; direct mode retains one winner-only visibility RayQuery and opt-in indirect replay has its separately verified four-ray ceiling; default off" );
 
 idCVar r_pathTracingUnifiedPtTemporalSearch(
     "r_pathTracingUnifiedPtTemporalSearch",
@@ -1466,6 +1466,12 @@ idCVar r_pathTracingUnifiedPtTemporalPairwise(
     "0",
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-07 estimator A/B: 1 replaces the cross-frame global basic-correction denominator with two-domain pairwise MIS using fresh targets at both receivers; 0 retains the existing temporal merge" );
+
+idCVar r_pathTracingUnifiedPtTemporalIndirect(
+    "r_pathTracingUnifiedPtTemporalIndirect",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-07 bounded one-continuation temporal replay: reconstructs global endpoint/secondary-NEE samples from persisted PSS metadata and rejects any source replay mismatch; default off during temporal-only validation" );
 
 idCVar r_pathTracingUnifiedPtDuplication(
     "r_pathTracingUnifiedPtDuplication",

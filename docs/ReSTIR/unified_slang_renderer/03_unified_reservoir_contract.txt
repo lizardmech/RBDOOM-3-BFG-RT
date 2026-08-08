@@ -466,3 +466,24 @@ Do not:
     normalize by requested neighbor count instead of admitted technique/sample
         counts required by the estimator;
     or use temporal/spatial reuse to conceal a broken initial estimator.
+
+Persisted one-continuation replay seed, 2026-08-09
+--------------------------------------------------
+
+The accepted one-continuation sample now satisfies the replay-state gate. D0
+constructs replayKey from source pixel plus frame sample, stores frame sample
+as replayIndex, and derives every global-path random dimension from only those
+two persisted words. The original pixel is deliberately absent from the
+replay RNG. The replayKey high bit remains exclusively UPT-09's rescue stamp
+and is masked before RNG evaluation.
+
+The persisted seed owns primary lobe selection, continuation U/V, every
+secondary NEE identity and surface-coordinate draw, and every inner-RIS
+selection draw. A reuse pass can therefore rebuild the complete bounded PSS
+estimator, including its inner UCW, rather than treating the stored selected
+light as if it contained normalization state that was never packed. Direct D0
+random dimensions and the frozen 64-byte reservoir layout are unchanged.
+
+Any future continuation/roulette dimension must be added to this same
+persisted-key namespace before the event may carry Replayable|NeedsShift.
+Reconstructing a new random value from the destination pixel is invalid.

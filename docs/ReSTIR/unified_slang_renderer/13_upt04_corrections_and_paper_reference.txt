@@ -1045,6 +1045,21 @@ B4. Observability
     survive. Add the fixed counter block and a readback before resuming the
     stage ladder.
 
+One-continuation PSS replay correction, 2026-08-09
+--------------------------------------------------
+
+The first unified indirect implementation initially stored a replayKey but
+continued to sample its BSDF direction and secondary inner RIS from the source
+screen pixel. The key was a one-way identity hash, so a reprojected receiver
+could not reproduce the path. Marking those candidates Replayable was false.
+
+D0 now samples the complete global path from replayKey/replayIndex alone:
+primary lobe, continuation U/V, secondary light identity/coordinates, and
+inner-RIS winner selection. The accepted no-history estimator and its UCW
+conversion are otherwise unchanged. This is the minimum replay representation
+needed by the one-continuation temporal provider and remains within the same
+64-byte candidate ABI and D0 ray/work ceiling.
+
     IMPLEMENTED: the RayQuery-only upt04_initial_diagnostics entry owns set-0
     u23, a fixed 16-word counter tuple, and three trace sites matching unified
     production. UPT-05 later appended four repeatability-signature words. The

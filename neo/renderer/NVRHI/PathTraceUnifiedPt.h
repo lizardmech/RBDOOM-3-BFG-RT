@@ -290,6 +290,7 @@ private:
 
     bool m_temporalCompactLights = false;
     bool m_temporalDuplication = false;
+    bool m_temporalIndirect = false;
     bool m_temporalPipelineAttempted = false;
     nvrhi::BindingLayoutHandle m_temporalBindingLayout;
     std::array<nvrhi::BindingSetHandle, 2> m_temporalBindingSets;

@@ -35,6 +35,8 @@ public struct Upt07TemporalDirectControl
     public uint compactPrimaryHistory;
     public uint materialCount;
     public uint logicalTextureCount;
+    public uint emissiveDistributionCountAndValid;
+    public uint emissiveLookupCapacityAndValid;
 };
 
 public [[vk::binding(0, 0)]] RaytracingAccelerationStructure gUpt07Scene;
@@ -53,6 +55,7 @@ public [[vk::binding(24, 0)]] StructuredBuffer<uint> gUpt07HistoryDuplication;
 #endif
 public [[vk::binding(25, 0)]] StructuredBuffer<Upt04PrimaryHistorySidecar> gUpt07CurrentSurfaceSidecars;
 public [[vk::binding(26, 0)]] StructuredBuffer<Upt04PrimaryHistorySidecar> gUpt07PreviousSurfaceSidecars;
+public [[vk::binding(29, 0)]] StructuredBuffer<Upt04EmissiveDistributionEntry> gUpt07EmissiveDistribution;
 public [[vk::push_constant]] ConstantBuffer<Upt07TemporalDirectControl> gUpt07Control;
 
 public Upt04UnifiedLightRecord Upt07LoadLight(uint index)

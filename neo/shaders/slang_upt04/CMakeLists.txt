@@ -23,6 +23,7 @@ set(UPT04_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_set_deterministic_probe.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_random_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_random_white_hash.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_replay_random.slang"
     "${UPT04_RANDOM_SLOT_LEDGER}"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang")
 
@@ -62,6 +63,7 @@ set(UPT04_UNIFIED_BACKEND_MODULES
     ${UPT04_BACKEND_MODULES}
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_work_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_random.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_replay_random.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_previous_best.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect.slang"

@@ -671,3 +671,22 @@ Documentation ownership
 When a runtime result changes an accepted default or invalidates a hypothesis,
 update the owning numbered document in the same change. Do not let this handover
 become a second authority that silently diverges from those contracts.
+
+Temporal-indirect implementation checkpoint, 2026-08-09
+-------------------------------------------------------
+
+Work has started on the next authorized task. The false replayable label was
+corrected first: all one-continuation and secondary inner-RIS random dimensions
+now regenerate from persisted replayKey/replayIndex without a source-pixel
+dependency. The 64-byte reservoir ABI, compact32 path, proposal parity,
+duplication identity, and D0 work/ray bounds are unchanged.
+
+UPT-07 now has separate direct and opt-in unified Vulkan variants. The latter
+is selected only by r_pathTracingUnifiedPtTemporalIndirect 1 and implements
+stable-light validation, continuation retrace, routed closest-hit/material
+decode, exact endpoint replay, complete secondary inner-RIS reconstruction,
+alpha-clipped winner visibility, reciprocal target evaluation, and stage-
+specific resolve-view-5 rejection reasons. It adds no page, queue, sidecar,
+clear, or dispatch. Static closure and CPU contract harnesses pass. Runtime
+visual/energy/performance validation is the current gate; keep spatial reuse
+disabled until that gate is accepted.

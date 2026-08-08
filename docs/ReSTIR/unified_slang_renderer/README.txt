@@ -353,7 +353,8 @@ Packet index
     21_upt07_temporal_contract_slice.txt
         Nine-probe surface-only reprojection, finalized-weight oracle, stable
         light identity, frame-serial/page-role repair, one winner-only
-        visibility ray, and the live two-page T0 composition with no clears.
+        direct visibility ray, the opt-in traced one-continuation/secondary-NEE
+        replay provider, and the live two-page T0 composition with no clears.
 
     22_upt09_spatial_rescue_slice.txt
         Bounded direct spatial reuse, non-recursive empty-center rescue,

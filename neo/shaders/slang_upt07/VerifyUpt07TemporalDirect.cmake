@@ -1,5 +1,8 @@
 foreach(required UPT07_FULL_REFLECTION UPT07_FULL_DISASSEMBLY
-        UPT07_COMPACT_REFLECTION UPT07_COMPACT_DISASSEMBLY UPT07_STAMP)
+        UPT07_COMPACT_REFLECTION UPT07_COMPACT_DISASSEMBLY
+        UPT07_UNIFIED_REFLECTION UPT07_UNIFIED_DISASSEMBLY
+        UPT07_UNIFIED_COMPACT_REFLECTION UPT07_UNIFIED_COMPACT_DISASSEMBLY
+        UPT07_STAMP)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "UPT-07 direct temporal verification missing ${required}")
     endif()
@@ -9,6 +12,10 @@ file(READ "${UPT07_FULL_REFLECTION}" full_reflection)
 file(READ "${UPT07_FULL_DISASSEMBLY}" full_disassembly)
 file(READ "${UPT07_COMPACT_REFLECTION}" compact_reflection)
 file(READ "${UPT07_COMPACT_DISASSEMBLY}" compact_disassembly)
+file(READ "${UPT07_UNIFIED_REFLECTION}" unified_reflection)
+file(READ "${UPT07_UNIFIED_DISASSEMBLY}" unified_disassembly)
+file(READ "${UPT07_UNIFIED_COMPACT_REFLECTION}" unified_compact_reflection)
+file(READ "${UPT07_UNIFIED_COMPACT_DISASSEMBLY}" unified_compact_disassembly)
 
 foreach(kind full compact)
     foreach(binding 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 23 25 26 27 28)
@@ -19,7 +26,7 @@ foreach(kind full compact)
     string(REGEX MATCHALL "\"binding\"[ \t]*:" bindings "${${kind}_reflection}")
     list(LENGTH bindings binding_count)
     if(NOT binding_count EQUAL 28)
-        message(FATAL_ERROR "UPT-07 ${kind} direct temporal must expose exactly twenty-eight replay bindings including triangle classes and emitter material lookup")
+        message(FATAL_ERROR "UPT-07 ${kind} direct temporal must retain exactly twenty-eight bindings")
     endif()
     if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*1,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*0")
         message(FATAL_ERROR "UPT-07 ${kind} direct temporal lacks the bindless emitter texture set")
@@ -40,7 +47,7 @@ foreach(kind full compact)
     string(REGEX MATCHALL "OpRayQueryInitializeKHR" rayquery_initializers "${${kind}_disassembly}")
     list(LENGTH rayquery_initializers rayquery_initializer_count)
     if(NOT rayquery_initializer_count EQUAL 1 OR ${kind}_disassembly MATCHES "OpTraceRayKHR")
-        message(FATAL_ERROR "UPT-07 ${kind} direct temporal must expose exactly one winner-only RayQuery and no TraceRay site")
+        message(FATAL_ERROR "UPT-07 ${kind} direct temporal must retain exactly one winner-only RayQuery and no TraceRay site")
     endif()
     if(NOT ${kind}_disassembly MATCHES "OpImageSample" OR ${kind}_disassembly MATCHES "OpImageFetch")
         message(FATAL_ERROR "UPT-07 ${kind} direct temporal lost exact sampled emissive endpoint replay")
@@ -51,10 +58,37 @@ foreach(kind full compact)
     endif()
 endforeach()
 
+foreach(kind unified unified_compact)
+    foreach(binding 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 25 26 27 28 29)
+        if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*${binding}")
+            message(FATAL_ERROR "UPT-07 ${kind} unified temporal lacks set 0 binding ${binding}")
+        endif()
+    endforeach()
+    string(REGEX MATCHALL "\"binding\"[ \t]*:" bindings "${${kind}_reflection}")
+    list(LENGTH bindings binding_count)
+    if(NOT binding_count EQUAL 30)
+        message(FATAL_ERROR "UPT-07 ${kind} unified temporal must expose exactly thirty replay bindings")
+    endif()
+    string(REGEX MATCHALL "OpRayQueryInitializeKHR" rayquery_initializers "${${kind}_disassembly}")
+    list(LENGTH rayquery_initializers rayquery_initializer_count)
+    if(NOT rayquery_initializer_count EQUAL 5 OR ${kind}_disassembly MATCHES "OpTraceRayKHR")
+        message(FATAL_ERROR "UPT-07 ${kind} unified temporal must expose exactly five statically bounded RayQuery call sites and no TraceRay site")
+    endif()
+    if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*1,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*0" OR
+       NOT ${kind}_reflection MATCHES "\"array_stride\"[ \t]*:[ \t]*32" OR
+       NOT ${kind}_reflection MATCHES "\"workgroup_size\"[ \t\r\n]*:[ \t\r\n]*\[[ \t\r\n]*8[ \t]*,[ \t\r\n]*8" OR
+       NOT ${kind}_disassembly MATCHES "OpImageSample" OR
+       ${kind}_disassembly MATCHES "OpImageFetch" OR
+       ${kind}_disassembly MATCHES "OpCapability (Int16|Float16)" OR
+       ${kind}_disassembly MATCHES "OpType(Int|Float) 16")
+        message(FATAL_ERROR "UPT-07 ${kind} unified temporal lost its compact receiver, texture, workgroup, or scalar-width contract")
+    endif()
+endforeach()
+
 if(NOT full_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt07CurrentLights\"" OR
    NOT compact_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt07CurrentLights\"")
     message(FATAL_ERROR "UPT-07 direct temporal lacks its selected full/compact light stream")
 endif()
 
 file(WRITE "${UPT07_STAMP}"
-    "UPT-07 direct temporal verified: twenty-eight bindings including TLAS, light remap, 2x32-byte receivers and 2x32-byte cold history sidecars, exact emissive geometry and texture replay, full/compact light variants, bounded randomized surface-only reprojection, exactly one winner-only RayQuery, no native16\n")
+    "UPT-07 temporal verified: direct variants retain 28 bindings and one winner RayQuery; opt-in unified variants expose 30 bindings, exact PSS/CDF/lookup replay, and five statically bounded RayQuery call sites; no TraceRay or native16\n")

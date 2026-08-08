@@ -14,6 +14,7 @@ import upt04_path_event_contract;
 import upt04_primary_surface_live_contract;
 import upt04_random_contract;
 import upt04_random_white_hash;
+import upt04_replay_random;
 import upt04_transport_initial_bounded;
 import upt04_emissive_lookup;
 import upt04_initial_light_selection;
@@ -64,7 +65,11 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
 {
     Upt04SecondaryNeeProposal proposal = (Upt04SecondaryNeeProposal)0;
     const Upt04LocalLightSelection selection =
-        Upt04SelectInitialLightAtVertex(pixel, 1u, candidateOrdinal);
+        Upt04SelectInitialLightFromReplay(
+            work.replayKey,
+            work.replayIndex,
+            1u,
+            candidateOrdinal);
     if (selection.valid == 0u
         || selection.denseIndex >= gUpt04Control.currentLightCount)
         return proposal;
@@ -172,19 +177,33 @@ public Upt04InitialTraceWork Upt04PrepareIndirectTrial<
     uint2 pixel,
     Upt04BoundedTransportState transport)
 {
+    // Persist the complete continuation RNG seed before sampling. Temporal
+    // and spatial providers can reproduce the same lobe and direction without
+    // retaining or guessing the source pixel.
+    work.replayKey = Upt04InitialReplayKey(pixel);
+    work.replayIndex = gUpt04Control.frameSampleIndex;
     const Upt04PathEvent continuation = TMaterialSet.SamplePrimaryContinuation(
         surface,
-        Upt04WhiteHash(Upt04InitialRandomKey(
-            pixel,
+        Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+            work.replayKey,
+            work.replayIndex,
+            0u,
+            0u,
             kUpt04StreamMaterialLobeSelection,
             kUpt04DimensionMaterialLobeSelection)),
         float2(
-            Upt04WhiteHash(Upt04InitialRandomKey(
-                pixel,
+            Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+                work.replayKey,
+                work.replayIndex,
+                0u,
+                0u,
                 kUpt04StreamIndirectContinuationU,
                 kUpt04DimensionIndirectContinuationU)),
-            Upt04WhiteHash(Upt04InitialRandomKey(
-                pixel,
+            Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+                work.replayKey,
+                work.replayIndex,
+                0u,
+                0u,
                 kUpt04StreamIndirectContinuationV,
                 kUpt04DimensionIndirectContinuationV))));
     if (continuation.valid == 0u || !Upt04FinitePositive(continuation.pdf))
@@ -195,9 +214,9 @@ public Upt04InitialTraceWork Upt04PrepareIndirectTrial<
     work.lobeMask = continuation.lobeMask;
     work.candidateFlags = kUpt04CandidateFlagGlobal
         | kUpt04CandidateFlagReplayable
-        | kUpt04CandidateFlagNeedsShift;
-    work.replayKey = Upt04InitialReplayKey(pixel);
-    work.replayIndex = gUpt04Control.frameSampleIndex;
+        | kUpt04CandidateFlagNeedsShift
+        | ((gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
+            ? kUpt04CandidateFlagDirectProposalParity : 0u);
     work.proposalPdf = continuation.pdf;
     work.pathPdf = continuation.pdf;
     work.partialJacobian = 1.0f;
@@ -359,8 +378,9 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
             || !Upt04FinitePositive(newWeightSum))
             continue;
         const float selectionRandom = Upt04WhiteHash(
-            Upt04InitialRandomKeyAtVertexSample(
-                pixel,
+            Upt04PersistedReplayRandomKey(
+                work.replayKey,
+                work.replayIndex,
                 1u,
                 candidateOrdinal,
                 kUpt04StreamInitialReservoirSelection,
