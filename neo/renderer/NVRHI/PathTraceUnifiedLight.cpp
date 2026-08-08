@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 
 namespace {
@@ -385,6 +386,7 @@ PathTraceUnifiedLightBuild BuildPathTraceUnifiedLights(
 
 PathTraceUnifiedEmissiveLookupBuild BuildPathTraceUnifiedEmissiveLookup(
     const std::vector<PathTraceUnifiedLightRecord>& currentLights,
+    const std::vector<PathTraceEmissiveDistributionEntry>& emissiveDistribution,
     uint32_t emissiveRangeStart,
     uint32_t emissiveRangeCount)
 {
@@ -413,7 +415,36 @@ PathTraceUnifiedEmissiveLookupBuild BuildPathTraceUnifiedEmissiveLookup(
         }
 
         std::vector<PathTraceUnifiedEmissiveLookupEntry> entries(capacity);
+        std::vector<float> conditionalIdentityPdfs(emissiveRangeCount, 0.0f);
         bool exact = true;
+        float previousCdf = 0.0f;
+        for (const PathTraceEmissiveDistributionEntry& distributionEntry :
+             emissiveDistribution)
+        {
+            if (distributionEntry.denseLightIndex < emissiveRangeStart ||
+                distributionEntry.denseLightIndex - emissiveRangeStart >=
+                    emissiveRangeCount ||
+                !std::isfinite(distributionEntry.cumulativePdf) ||
+                distributionEntry.cumulativePdf < previousCdf)
+            {
+                exact = false;
+                break;
+            }
+            const uint32_t localIndex =
+                distributionEntry.denseLightIndex - emissiveRangeStart;
+            if (conditionalIdentityPdfs[localIndex] != 0.0f)
+            {
+                exact = false;
+                break;
+            }
+            conditionalIdentityPdfs[localIndex] =
+                distributionEntry.cumulativePdf - previousCdf;
+            previousCdf = distributionEntry.cumulativePdf;
+        }
+        if (!exact)
+        {
+            continue;
+        }
         const uint32_t mask = capacity - 1u;
         for (uint32_t localIndex = 0u; localIndex < emissiveRangeCount; ++localIndex)
         {
@@ -440,6 +471,8 @@ PathTraceUnifiedEmissiveLookupBuild BuildPathTraceUnifiedEmissiveLookup(
                     entry.primitiveIndex = light.primitiveIndex;
                     entry.denseLightIndex = denseIndex;
                     entry.occupied = 1u;
+                    entry.conditionalIdentityPdf =
+                        conditionalIdentityPdfs[localIndex];
                     inserted = true;
                     break;
                 }
@@ -473,6 +506,12 @@ PathTraceUnifiedEmissiveLookupBuild BuildPathTraceUnifiedEmissiveLookup(
             signature = EmissiveLookupHashValue(signature, entry.primitiveIndex);
             signature = EmissiveLookupHashValue(signature, entry.denseLightIndex);
             signature = EmissiveLookupHashValue(signature, entry.occupied);
+            uint32_t conditionalIdentityPdfBits = 0u;
+            std::memcpy(&conditionalIdentityPdfBits,
+                &entry.conditionalIdentityPdf,
+                sizeof(conditionalIdentityPdfBits));
+            signature = EmissiveLookupHashValue(
+                signature, conditionalIdentityPdfBits);
         }
         build.entries.swap(entries);
         build.signature = signature;

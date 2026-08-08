@@ -8,6 +8,7 @@
 
 struct PathTraceSmokeEmissiveTriangle;
 struct PathTraceEmissiveLightRemap;
+struct PathTraceEmissiveDistributionEntry;
 struct PathTraceDoomAnalyticLightCandidate;
 struct PathTraceDoomAnalyticLightCandidateIdentity;
 struct PathTraceDoomAnalyticLightRemap;
@@ -88,8 +89,11 @@ struct PathTraceUnifiedEmissiveLookupEntry
     uint32_t primitiveIndex = 0;
     uint32_t denseLightIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
     uint32_t occupied = 0;
+    // Exact conditional identity probability from the current emissive CDF.
+    // The shader applies the typed-domain trial fraction separately.
+    float conditionalIdentityPdf = 0.0f;
 };
-static_assert(sizeof(PathTraceUnifiedEmissiveLookupEntry) == 16,
+static_assert(sizeof(PathTraceUnifiedEmissiveLookupEntry) == 20,
     "PathTraceUnifiedEmissiveLookupEntry must match Slang scalar layout");
 
 struct PathTraceUnifiedEmissiveLookupBuild
@@ -112,5 +116,6 @@ PathTraceUnifiedLightBuild BuildPathTraceUnifiedLights(
 
 PathTraceUnifiedEmissiveLookupBuild BuildPathTraceUnifiedEmissiveLookup(
     const std::vector<PathTraceUnifiedLightRecord>& currentLights,
+    const std::vector<PathTraceEmissiveDistributionEntry>& emissiveDistribution,
     uint32_t emissiveRangeStart,
     uint32_t emissiveRangeCount);

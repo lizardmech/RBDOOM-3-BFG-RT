@@ -22,16 +22,20 @@ per-frame clear. UPT-09 is a live, opt-in direct spatial pass over the same two
 direct proposal parity, RTXDI target-PDF parity, duplication control, and
 history M/age 32. Temporal and spatial themselves remain default off.
 
-The remaining direct blocker is UPT-only portal/player-position emissive
-acquisition loss. Legacy clean DI consumes the same light-manager payload,
-typed ranges, and host-built emissive CDF without the disappearance. The key
-downstream difference is legacy D0's default-on previous-best reseed; UPT D0
-currently relies on fresh proposals while its rejected previous-best experiment
-lives in T0. The next narrow task is to port that D0 reseed with stable-ID
-translation and duplicate exclusion, prove the exact acquisition stage where a
-missing emitter is lost, and only then admit unified indirect continuation and
-secondary NEE paths. See 23_handover_2026_08_08.txt for current controls,
-non-regression fixes, evidence, and sequencing.
+The UPT-only portal/player-position emissive acquisition loss is closed. D0 now
+uses the exact current emissive-CDF publication and an accepted legacy-shaped
+previous-best reseed. Runtime testing reports legacy-equivalent behavior: the
+one-frame portal-border hitch remains, but emitters no longer suffer persistent
+or large-scale loss.
+
+The first bounded one-continuation unified indirect/secondary-NEE estimator is
+now implemented and Vulkan-build verified. It keeps one shared initial
+reservoir, performs no temporal or spatial indirect reuse, adds no buffer/page
+or per-frame clear, and remains behind the existing opt-in unified family.
+Direct-only remains the accepted baseline and previous-best must remain off for
+the first estimator proof. Runtime image, energy, and cost acceptance are still
+pending. See 13_upt04_corrections_and_paper_reference.txt and
+23_handover_2026_08_08.txt for the exact checkpoint and test boundary.
 
 Purpose
 -------

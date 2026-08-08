@@ -31,17 +31,17 @@ foreach(kind compact_production compact_geometry_pack compact_light_pack)
 endforeach()
 
 foreach(kind rayquery raygen)
-    foreach(stride 4 16 36 64 80 112 144 176)
+    foreach(stride 4 16 20 36 64 80 112 144 176)
         string(REGEX MATCHALL "\"array_stride\"[ \t]*:[ \t]*${stride}" stride_matches "${${kind}_reflection}")
         list(LENGTH stride_matches stride_count)
         if(stride EQUAL 112)
             set(expected_count 3)
         elseif(stride EQUAL 144 OR stride EQUAL 64)
             set(expected_count 2)
-        elseif(stride EQUAL 16)
-            # The unified production closure retains both the legacy emissive
-            # replay lookup and the manager-owned power/area CDF.
-            set(expected_count 2)
+        elseif(stride EQUAL 16 OR stride EQUAL 20)
+            # The manager CDF stays 16 bytes; the reverse lookup adds its exact
+            # conditional identity density in a 20-byte entry.
+            set(expected_count 1)
         else()
             set(expected_count 1)
         endif()
@@ -71,8 +71,8 @@ foreach(kind rayquery raygen)
     if(NOT descriptor_binding_count EQUAL 28)
         message(FATAL_ERROR "UPT-04 ${kind} must expose exactly 28 descriptor bindings")
     endif()
-    if(NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"emissiveDistributionCountAndValid\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*188")
-        message(FATAL_ERROR "UPT-04 ${kind} push constants are not the 192-byte D0 history layout")
+    if(NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*204")
+        message(FATAL_ERROR "UPT-04 ${kind} push constants are not the 208-byte D0/indirect layout")
     endif()
 endforeach()
 
@@ -127,4 +127,4 @@ if(NOT closest_hit_disassembly MATCHES "Upt04HitFacts = OpTypeStruct %uint %uint
 endif()
 
 file(WRITE "${UPT04_STAMP}"
-    "UPT-04 backend closure verified: production set0[0..22,25,26,28,29]+set1[0], diagnostic set0[0..23,25,26,28,29]+set1[0], live strides=4/16x2/36/64x2/80/112x3/144x2/176, push=192, hit facts=32, bounded trace sites=3, RayQuery/raygen adapters isolated, compact binary16 storage uses no native Int16/Float16 capability\n")
+    "UPT-04 backend closure verified: production set0[0..22,25,26,28,29]+set1[0], diagnostic set0[0..23,25,26,28,29]+set1[0], live strides=4/16/20/36/64x2/80/112x3/144x2/176, push=208, hit facts=32, bounded trace sites=3, RayQuery/raygen adapters isolated, compact binary16 storage uses no native Int16/Float16 capability\n")

@@ -267,8 +267,19 @@ public Upt04DirectRisProposal Upt04EvaluateDirectRisProposal<
         || !Upt04FinitePositive(material.target))
         return proposal;
 
+    const Upt04LocalLightRanges ranges = Upt04InitialDirectLightRanges();
+    const uint proposalParity =
+        (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
+            ? 1u : 0u;
+    const uint candidateCount = Upt04DirectRisCandidateCount(
+        ranges,
+        proposalParity,
+        Upt04ConfiguredEmissiveTrialCount(
+            gUpt04Control.availabilityFlags));
+    const float multiSampleNeePdf = float(candidateCount)
+        * physicalProposalPdf;
     const float techniqueMis = Upt04DirectTechniqueMis(
-        selection.type, physicalProposalPdf, material.directionalPdf);
+        selection.type, multiSampleNeePdf, material.directionalPdf);
     proposal.contribution = Upt04DirectReservoirContribution(
         material.weightedContribution,
         evaluated.sample.solidAnglePdf,
@@ -463,8 +474,15 @@ public Upt04DirectRisProposal Upt04EvaluatePreviousBestProposal<
         Upt04ConfiguredEmissiveTrialCount(
             gUpt04Control.availabilityFlags));
     const float physicalProposalPdf = identityPdf * sample.solidAnglePdf;
+    const uint sourceCandidateCount = Upt04DirectRisCandidateCount(
+        ranges,
+        sourceProposalParity,
+        Upt04ConfiguredEmissiveTrialCount(
+            gUpt04Control.availabilityFlags));
     const float techniqueMis = Upt04DirectTechniqueMis(
-        expectedType, physicalProposalPdf, material.directionalPdf);
+        expectedType,
+        float(sourceCandidateCount) * physicalProposalPdf,
+        material.directionalPdf);
     proposal.contribution = Upt04DirectReservoirContribution(
         material.weightedContribution,
         sample.solidAnglePdf,

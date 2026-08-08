@@ -338,6 +338,127 @@ Getting this wrong produces a plausible image with wrong energy. Implement the
 sanity check as a test: with RIS candidate count 1, the unified path must
 produce bit-identical output to plain single-sample NEE.
 
+UPT indirect implementation note, 2026-08-08
+---------------------------------------------
+
+Only the following conclusions are requirements for the first unified
+one-continuation implementation:
+
+    * For M NEE RIS trials, the NEE side of the balance heuristic uses the
+      multi-sample source density. UPT's typed trial schedule may express this
+      as M times the normalized per-draw mixture density because each domain
+      PDF already includes its trial fraction. Preserve the analytic/emissive
+      stratification rather than replacing it with homogeneous random draws.
+
+    * Keep the bare physical NEE source density separate from UPT's existing
+      proposal-parity source PDF. The latter may contain the technique MIS
+      transform and is not automatically the p_1 used by the paper's
+      W_PSS = W_RIS * p_1 conversion.
+
+    * Forward light sampling and reverse emissive-hit evaluation must describe
+      the same density. For emissives this includes the current power-CDF
+      identity probability, typed-domain trial fraction, triangle-region
+      density, and area/solid-angle conversion. The present reverse uniform
+      1/lightCount approximation is not sufficient.
+
+    * The emissive reverse hash must use the host builder's logical power-of-two
+      capacity, not StructuredBuffer.GetDimensions(). The physical dimension
+      remains only an OOB guard. Unified/indirect execution must remain
+      fail-closed when the host marks the lookup inexact.
+
+    * Continuation and secondary visibility rays use the accepted Doom direct
+      ray-offset, t-range, and selected-emissive self-ignore conventions. Do
+      not invent a second offset policy in the indirect module.
+
+    * The initial slice remains opaque, one continuation, one shared reservoir,
+      and within the existing D0 ray/work ceiling. Environment misses remain an
+      explicit zero-contribution unavailable domain. Transmission/glass,
+      environment reconnection, multiple bounces, and indirect temporal or
+      spatial reuse remain later work.
+
+    * New diagnostics must expand the counter layout and shift the existing
+      probe bases/readback offsets coherently. In the implemented layout words
+      0 through 86 are counters, words 87 through 102 are the initial reservoir
+      probe, and the D0 probe begins at word 103. Distinguish continuation
+      miss/hit, geometry/material rejection, endpoint emission, reverse lookup
+      miss versus zero reverse PDF, secondary-light rejection, secondary
+      visibility/self-hit, and final selected event family.
+
+The following are deliberately test-resolved gates rather than frozen design
+claims:
+
+    * Derive or experimentally validate the exact UCW conversion through UPT's
+      proposal-parity target/source transform. Candidate count one, previous-
+      best off, must be output-bit-identical to plain NEE; do not require an
+      unproven intermediate scalar to equal one.
+
+    * Compare NEE-only, BSDF-endpoint-only, and combined modes by converged mean
+      energy, not sample equality. Use these modes to expose wrong reverse PDFs
+      or double counting.
+
+    * Establish the no-history estimator with D0 previous-best disabled first.
+      Re-enable previous-best only after the base estimator is correct, then
+      validate its mass/count and duplicate-rejection interaction empirically.
+
+    * Do not widen the compact reservoir for a lobe-index sequence until replay
+      reconstruction has been audited. A stored/reconstructible lobe sequence
+      is a hard gate before indirect temporal/spatial shifting, not necessarily
+      before the no-reuse one-continuation slice.
+
+Initial one-continuation implementation checkpoint, 2026-08-08
+---------------------------------------------------------------
+
+The first no-reuse unified D0/R0 slice is implemented. This is a build-verified
+checkpoint, not runtime image or energy acceptance.
+
+    * The host reverse-emissive table is 20 bytes per entry and publishes the
+      exact current conditional identity probability derived from the current
+      power CDF. Its hash mask uses the logical power-of-two capacity; physical
+      GetDimensions is only a stride/OOB guard. Buffer reuse now also requires
+      an exact structured stride, preventing a live 16-byte allocation from
+      being reused for the widened table. ABI version 8 fails closed when the
+      lookup is missing, stale, inexact, malformed, or zero-density.
+
+    * Forward and reverse emissive densities use the same typed-domain trial
+      fraction, current identity probability, replayed triangle-region density,
+      and area-to-solid-angle conversion. Multi-sample direct/secondary NEE MIS
+      uses the generalized sum n_j p_j, not the density of one CDF draw.
+
+    * Endpoint and secondary-NEE candidates enter the outer path-tree stream as
+      complete PSS estimators. The sampled continuation throughput already
+      contains 1 / p_bsdf; therefore the outer proposal value is one while the
+      physical p_bsdf (and p_nee for secondary NEE) remains available for MIS
+      and diagnostics. This prevents applying the primary inverse BSDF density
+      twice.
+
+    * The path-tree reservoir mass is additive across available event families
+      and publishes confidence c = 1. It is not divided by the number of event
+      families. Direct-only retains its accepted effective M = 1 behavior.
+
+    * Continuation and secondary visibility use the accepted Doom ray offset,
+      finite t range, material/lobe mask, and emissive self-ignore convention.
+      The implementation adds no extra dispatch, reservoir page, per-frame
+      clear, or ray beyond the existing bounded one-continuation plus selected
+      secondary-visibility ceiling. RayQuery remains the default backend.
+
+    * Diagnostics are expanded from 69 to 87 counters. They identify
+      continuation miss/hit, geometry failure, endpoint emission zero/positive,
+      reverse lookup failure/zero/positive, secondary selection/material/PDF-
+      ray failure, endpoint/secondary positive candidates, visibility pass,
+      occlusion/self-hit, and final indirect selection. Probe bases moved to
+      words 87 and 103 coherently in shader and host readback.
+
+Verification passed with cmake --build --preset win64-pt-dev-release from
+neo/. Vulkan Slang reflection, backend closure, geometry/material closure,
+compact32, proposal-parity, direct/indirect/unified specialization,
+repeatability, and UPT-07/08/09 checks all passed. No DX12 shader compilation
+or deployment was performed.
+
+Runtime acceptance must start with D0 previous-best, temporal, and spatial all
+disabled. Compare direct-only and unified first; use indirect-only plus the new
+stage counters to localize a dark, bright, missing, or self-hit result. Do not
+enable indirect history until this no-history estimator is accepted.
+
 2.8 Russian roulette (paper Section 6.2.4, supplemental Section 6) - VERIFIED
 ------------------------------------------------------------------------------
 

@@ -23,7 +23,7 @@ static constexpr uint32_t UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES = 4u;
 static constexpr uint32_t UPT04_COMPACT_MATERIAL_STRIDE = 48u;
 static constexpr uint32_t UPT04_COMPACT_MATERIAL_PUSH_CONSTANT_BYTES = 4u;
 static constexpr uint32_t UPT04_CONTINUATION_HIT_STRIDE = 32u;
-static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 192u;
+static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 208u;
 static constexpr uint32_t UPT04_FAMILY_LOCAL_LIGHT = 1u << 0u;
 static constexpr uint32_t UPT04_FAMILY_INDIRECT = 1u << 1u;
 static constexpr uint32_t UPT04_ROUTE_STATIC_BUCKETS = 1u << 1u;
@@ -44,8 +44,8 @@ static constexpr uint32_t UPT04_TRANSPORT_POLICY_ID = 1u;
 static constexpr uint32_t UPT04_NEE_RIS_BASELINE_CANDIDATE_COUNT = 8u;
 static constexpr uint32_t UPT04_NEE_RIS_PARITY_ANALYTIC_CANDIDATE_COUNT = 32u;
 static constexpr uint32_t UPT04_NEE_RIS_MAX_EMISSIVE_CANDIDATE_COUNT = 16u;
-static constexpr uint32_t UPT04_ABI_VERSION = 7u;
-static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 69u;
+static constexpr uint32_t UPT04_ABI_VERSION = 8u;
+static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 87u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
 static constexpr uint32_t UPT04_DIAGNOSTIC_RESERVOIR_PROBE_WORD_COUNT = 16u;
@@ -421,6 +421,10 @@ struct Upt04InitialControl
     float previousCameraTanY;
     float previousCameraUp[3];
     uint32_t emissiveDistributionCountAndValid;
+    uint32_t emissiveLookupCapacityAndValid;
+    uint32_t indirectPolicyFlags;
+    uint32_t reservedControl0;
+    uint32_t reservedControl1;
 };
 static_assert(sizeof(Upt04InitialControl) == UPT04_PUSH_CONSTANT_BYTES,
     "UPT-04 host push constants must match Slang reflection");
@@ -994,6 +998,12 @@ static Upt04InitialControl Upt04BuildControl(
     control.emissiveDistributionCountAndValid =
         (distributionCount & UPT04_CONTROL_METADATA_COUNT_MASK)
         | (lights.emissiveDistributionValid && distributionCount != 0u
+            ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
+    const uint32_t emissiveLookupCapacity = static_cast<uint32_t>(Max(
+        0, lights.unifiedPtEmissiveLookupCount));
+    control.emissiveLookupCapacityAndValid =
+        (emissiveLookupCapacity & UPT04_CONTROL_METADATA_COUNT_MASK)
+        | (lights.unifiedPtEmissiveLookupExact && emissiveLookupCapacity >= 2u
             ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
     return control;
 }
@@ -2868,6 +2878,19 @@ void PathTraceUnifiedPtState::DrainDiagnosticReadback(
         Upt04FamilyName(m_diagnosticReadbackFamily),
         m_diagnosticReadbackWidth,
         m_diagnosticReadbackHeight);
+    common->Printf(
+        "PathTraceUnifiedPt: diagnostic indirect continuation(miss/hit)=%u/%u geometryFailure=%u endpointEmission(failure/zero/positive)=%u/%u/%u reverseNee(lookupFailure/zeroPdf/positivePdf)=%u/%u/%u secondary(rejectSelection/rejectMaterial/rejectPdfRay/candidatePositive)=%u/%u/%u/%u visibility(passed/occluded/selfHit)=%u/%u/%u endpointCandidatePositive=%u finalIndirectSelected=%u lookup(logical/physical/exact)=%d/%llu/%d\n",
+        counters[69], counters[70], counters[71], counters[72], counters[73],
+        counters[74], counters[75], counters[76], counters[77], counters[78],
+        counters[79], counters[80], counters[82], counters[83], counters[84],
+        counters[85], counters[81], counters[86],
+        inputs.sceneInputs->lights.unifiedPtEmissiveLookupCount,
+        static_cast<unsigned long long>(
+            inputs.sceneInputs->lights.unifiedPtEmissiveLookupBuffer
+                ? inputs.sceneInputs->lights.unifiedPtEmissiveLookupBuffer->getDesc().byteSize /
+                    sizeof(PathTraceUnifiedEmissiveLookupEntry)
+                : 0ull),
+        inputs.sceneInputs->lights.unifiedPtEmissiveLookupExact ? 1 : 0);
 
     const uint32_t* probe = counters + UPT04_DIAGNOSTIC_COUNTER_COUNT;
     const uint32_t eventKind = (probe[0] >> 4u) & 0x7u;

@@ -2,6 +2,7 @@ public static const uint kUpt04FamilyLocalLight = 0x00000001u;
 public static const uint kUpt04FamilyIndirect = 0x00000002u;
 public static const uint kUpt04RouteStaticBuckets = 0x00000002u;
 public static const uint kUpt04EnvironmentAvailable = 0x00000004u;
+public static const uint kUpt04EmissiveLookupExact = 0x00000008u;
 public static const uint kUpt04MaterialUseSpecularMaps = 0x00000010u;
 public static const uint kUpt04MaterialLegacySpecmapToPbr = 0x00000020u;
 public static const uint kUpt04TwoSidedEmissives = 0x00000040u;
@@ -22,7 +23,7 @@ public uint Upt04ConfiguredEmissiveTrialCount(uint availabilityFlags)
         16u);
 }
 
-// Forty-eight scalar words / 192 bytes. The first 128 bytes retain the
+// Fifty-two scalar words / 208 bytes. The first 128 bytes retain the
 // accepted current-frame D0 ABI. The final four words groups add the exact
 // previous-camera/remap metadata needed by the D0 previous-best lookup and the
 // current valid CDF count. Both count words reserve their high bit for the
@@ -80,6 +81,10 @@ public struct Upt04InitialControl
     public float previousCameraUpY;
     public float previousCameraUpZ;
     public uint emissiveDistributionCountAndValid;
+    public uint emissiveLookupCapacityAndValid;
+    public uint indirectPolicyFlags;
+    public uint reservedControl0;
+    public uint reservedControl1;
 };
 
 public bool Upt04D0PreviousBestHistoryAvailable(
@@ -110,4 +115,17 @@ public uint Upt04EmissiveDistributionCount(
 {
     return emissiveDistributionCountAndValid
         & kUpt04ControlMetadataCountMask;
+}
+
+public bool Upt04EmissiveLookupValid(
+    uint availabilityFlags,
+    uint capacityAndValid)
+{
+    return (availabilityFlags & kUpt04EmissiveLookupExact) != 0u
+        && (capacityAndValid & kUpt04ControlMetadataValidBit) != 0u;
+}
+
+public uint Upt04EmissiveLookupCapacity(uint capacityAndValid)
+{
+    return capacityAndValid & kUpt04ControlMetadataCountMask;
 }

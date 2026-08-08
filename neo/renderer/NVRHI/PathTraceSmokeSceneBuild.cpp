@@ -10637,13 +10637,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_remixLightManager.GetCurrentLightPayloads();
     const std::vector<PathTraceUnifiedLightRecord>& restirLightManagerPreviousPayloadRecords =
         m_remixLightManager.GetPreviousLightPayloads();
-    const PathTraceUnifiedEmissiveLookupBuild unifiedPtEmissiveLookup =
-        unifiedPtScenePublicationRequested
-        ? BuildPathTraceUnifiedEmissiveLookup(
-            restirLightManagerCurrentPayloadRecords,
-            m_remixLightManager.GetStats().emissiveRangeOffset,
-            m_remixLightManager.GetStats().emissiveRangeCount)
-        : PathTraceUnifiedEmissiveLookupBuild();
     const auto findEmissiveLightRecord =
         [](const std::vector<PathTraceUnifiedLightRecord>& records,
            uint32_t sourceIndex) -> uint32_t
@@ -10675,6 +10668,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         return build;
     }();
+    const PathTraceUnifiedEmissiveLookupBuild unifiedPtEmissiveLookup =
+        unifiedPtScenePublicationRequested
+        ? BuildPathTraceUnifiedEmissiveLookup(
+            restirLightManagerCurrentPayloadRecords,
+            emissiveDistribution.entries,
+            m_remixLightManager.GetStats().emissiveRangeOffset,
+            m_remixLightManager.GetStats().emissiveRangeCount)
+        : PathTraceUnifiedEmissiveLookupBuild();
     const PathTraceUnifiedLightBuild unifiedLights = [&]() {
         OPTICK_EVENT("PT Unified Light Build");
         return BuildPathTraceUnifiedLights(

@@ -3,6 +3,14 @@ import upt04_initial_control;
 import upt04_geometry_bindings;
 import upt04_light_contract;
 import upt04_local_light_proposal;
+import upt04_local_light_evaluation;
+import upt04_material_provider_contract;
+import upt04_geometry_contract;
+import upt04_emissive_replay;
+
+public static const uint kUpt04ReverseNeeLookupFailure = 1u;
+public static const uint kUpt04ReverseNeeZeroPdf = 2u;
+public static const uint kUpt04ReverseNeePositivePdf = 3u;
 
 public uint Upt04EmissiveLookupHash(uint instanceId, uint primitiveIndex)
 {
@@ -19,17 +27,27 @@ public uint Upt04EmissiveLookupHash(uint instanceId, uint primitiveIndex)
 public bool Upt04FindEmissiveDenseLight(
     uint instanceId,
     uint primitiveIndex,
-    out uint denseLightIndex)
+    out uint denseLightIndex,
+    out float conditionalIdentityPdf)
 {
     denseLightIndex = kUpt04InvalidLightIndex;
-    uint entryCount = 0u;
+    conditionalIdentityPdf = 0.0f;
+    uint physicalEntryCount = 0u;
     uint entryStride = 0u;
-    gUpt04EmissiveLookup.GetDimensions(entryCount, entryStride);
-    if (entryCount < 2u || (entryCount & (entryCount - 1u)) != 0u
-        || entryStride != 16u)
+    gUpt04EmissiveLookup.GetDimensions(physicalEntryCount, entryStride);
+    if (!Upt04EmissiveLookupValid(
+            gUpt04Control.availabilityFlags,
+            gUpt04Control.emissiveLookupCapacityAndValid))
+        return false;
+    const uint logicalCapacity = Upt04EmissiveLookupCapacity(
+        gUpt04Control.emissiveLookupCapacityAndValid);
+    if (logicalCapacity < 2u
+        || (logicalCapacity & (logicalCapacity - 1u)) != 0u
+        || logicalCapacity > physicalEntryCount
+        || entryStride != 20u)
         return false;
 
-    const uint mask = entryCount - 1u;
+    const uint mask = logicalCapacity - 1u;
     const uint firstSlot = Upt04EmissiveLookupHash(instanceId, primitiveIndex) & mask;
     [unroll]
     for (uint probe = 0u; probe < kUpt04EmissiveLookupMaxProbes; ++probe)
@@ -50,49 +68,102 @@ public bool Upt04FindEmissiveDenseLight(
                 || light.primitiveIndex != primitiveIndex)
                 return false;
             denseLightIndex = entry.denseLightIndex;
+            conditionalIdentityPdf =
+                max(entry.conditionalIdentityPdf, 0.0f);
             return true;
         }
     }
     return false;
 }
 
-public float Upt04ExactNeePdfForEmissiveHit(
+public float Upt04ExactNeePdfForEmissiveHit<
+    TMaterialSet : IUpt04MaterialSet>(
     uint instanceId,
     uint primitiveIndex,
     float3 receiverPosition,
-    float3 hitPosition)
+    float2 hitBarycentrics,
+    out uint reverseStatus)
 {
+    reverseStatus = kUpt04ReverseNeeLookupFailure;
     uint denseLightIndex = kUpt04InvalidLightIndex;
+    float conditionalIdentityPdf = 0.0f;
     if (!Upt04FindEmissiveDenseLight(
-            instanceId, primitiveIndex, denseLightIndex))
+            instanceId,
+            primitiveIndex,
+            denseLightIndex,
+            conditionalIdentityPdf))
         return 0.0f;
+    reverseStatus = kUpt04ReverseNeeZeroPdf;
 
     Upt04LocalLightRanges ranges;
     ranges.emissiveStart = gUpt04Control.emissiveRangeStart;
     ranges.emissiveCount = gUpt04Control.emissiveRangeCount;
     ranges.analyticStart = gUpt04Control.analyticRangeStart;
     ranges.analyticCount = gUpt04Control.analyticRangeCount;
-    const uint lightCount = Upt04LocalLightRangeCount(ranges);
-    if (lightCount == 0u)
+    if (!Upt04LocalLightRangesStructurallyValid(
+            ranges, gUpt04Control.currentLightCount))
         return 0.0f;
 
-    const Upt04UnifiedLightRecord light = Upt04LoadCurrentLightRecord(denseLightIndex);
-    const float area = light.normalAndArea.w;
-    const float3 toLight = hitPosition - receiverPosition;
-    const float distanceSquared = dot(toLight, toLight);
-    if (!Upt04FinitePositive(area) || !Upt04FinitePositive(distanceSquared))
+    const uint proposalParity =
+        (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
+            ? 1u : 0u;
+    const uint configuredEmissiveTrials = Upt04ConfiguredEmissiveTrialCount(
+        gUpt04Control.availabilityFlags);
+    float selectionPdf = 0.0f;
+    if (proposalParity != 0u && Upt04EmissiveDistributionValid(
+            gUpt04Control.emissiveDistributionCountAndValid))
+    {
+        const uint candidateCount = Upt04DirectRisCandidateCount(
+            ranges, proposalParity, configuredEmissiveTrials);
+        const uint emissiveTrials = Upt04DirectRisDomainTrialCount(
+            ranges,
+            kUpt04LightEmissiveTriangle,
+            proposalParity,
+            configuredEmissiveTrials);
+        selectionPdf = candidateCount != 0u
+            ? conditionalIdentityPdf * float(emissiveTrials)
+                / float(candidateCount)
+            : 0.0f;
+    }
+    else
+    {
+        selectionPdf = Upt04DirectRisIdentityPdf(
+            ranges,
+            kUpt04LightEmissiveTriangle,
+            proposalParity,
+            configuredEmissiveTrials);
+    }
+    if (!Upt04FinitePositive(selectionPdf))
         return 0.0f;
-    const float3 direction = toLight * rsqrt(distanceSquared);
-    const float3 normal = normalize(light.normalAndArea.xyz);
-    const float lightFacingRaw = dot(normal, -direction);
-    const float lightFacing =
-        (gUpt04Control.availabilityFlags & kUpt04TwoSidedEmissives) != 0u
-        ? abs(lightFacingRaw)
-        : lightFacingRaw;
-    if (!Upt04FinitePositive(lightFacing))
+
+    const Upt04UnifiedLightRecord light =
+        Upt04LoadCurrentLightRecord(denseLightIndex);
+    const Upt04EmissiveGeometrySample replay =
+        Upt04ReplayEmissiveTriangleBarycentrics(
+            light,
+            receiverPosition,
+            hitBarycentrics,
+            (gUpt04Control.availabilityFlags
+                & kUpt04EmissiveReplayTwoSided) != 0u);
+    if (replay.status == kUpt04SampleInvalid
+        || !Upt04FinitePositive(replay.solidAnglePdf))
         return 0.0f;
-    const float solidAnglePdf = distanceSquared / (area * lightFacing);
-    const float selectionPdf = 1.0f / float(lightCount);
-    const float neePdf = selectionPdf * solidAnglePdf;
-    return Upt04FinitePositive(neePdf) ? neePdf : 0.0f;
+    const float4 regionWeights =
+        Upt04EmissiveRegionWeights<TMaterialSet>(replay);
+    const uint region = Upt04EmissiveRegionFromBarycentrics(
+        replay.barycentrics);
+    const float solidAnglePdf = replay.solidAnglePdf
+        * (4.0f * Upt04EmissiveRegionSelectionPdf(
+            regionWeights, region));
+    // Multi-sample balance heuristic density: selectionPdf is the normalized
+    // per-draw typed mixture, so multiplying by the complete RIS trial count
+    // yields sum_j n_j p_j for the heterogeneous NEE schedule.
+    const uint candidateCount = Upt04DirectRisCandidateCount(
+        ranges, proposalParity, configuredEmissiveTrials);
+    const float neePdf = float(candidateCount)
+        * selectionPdf * solidAnglePdf;
+    if (!Upt04FinitePositive(neePdf))
+        return 0.0f;
+    reverseStatus = kUpt04ReverseNeePositivePdf;
+    return neePdf;
 }

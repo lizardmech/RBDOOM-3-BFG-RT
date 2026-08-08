@@ -181,6 +181,7 @@ public struct Upt04EmissiveLookupEntry
     public uint primitiveIndex;
     public uint denseLightIndex;
     public uint occupied;
+    public float conditionalIdentityPdf;
 };
 
 // Exact scalar layout of PathTraceEmissiveDistributionEntry.  This is the

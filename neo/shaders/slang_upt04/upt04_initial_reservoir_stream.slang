@@ -55,11 +55,13 @@ public Upt03PackedReservoir Upt04FinalizeInitialReservoir(
 {
     if (reservoir.effectiveM != 0u)
     {
-        if (reservoir.hasSelectedSample != 0u)
-            reservoir.weightSum /= float(reservoir.effectiveM);
-        // The complete initial proposal set is one current-frame reservoir
-        // candidate for reuse. Preserve that one defined trial even when every
-        // streamed proposal was VALID_ZERO and no selectable identity exists.
+        // These are additive path-tree estimator terms, not homogeneous draws
+        // from a top-level technique mixture. Primary NEE has already folded
+        // its inner RIS trial count into its UCW; endpoint emission and
+        // secondary NEE estimate different path-length terms. Keep their summed
+        // mass and publish the complete current path tree with confidence c=1.
+        // Dividing by the number of streamed event families darkens unified
+        // output whenever another valid path term is admitted.
         reservoir.effectiveM = 1u;
     }
     return Upt03PackReservoir(reservoir);

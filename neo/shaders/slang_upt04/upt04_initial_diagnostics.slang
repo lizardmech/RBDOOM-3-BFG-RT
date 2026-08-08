@@ -96,7 +96,25 @@ public static const uint kUpt04DiagPreviousAdmitted = 65u;
 public static const uint kUpt04DiagFreshAnalyticSelected = 66u;
 public static const uint kUpt04DiagFreshEmissiveSelected = 67u;
 public static const uint kUpt04DiagWeightedCdfUnavailable = 68u;
-public static const uint kUpt04DiagD0ProbeBase = 85u;
+public static const uint kUpt04DiagContinuationMiss = 69u;
+public static const uint kUpt04DiagContinuationHit = 70u;
+public static const uint kUpt04DiagIndirectGeometryFailure = 71u;
+public static const uint kUpt04DiagEndpointEmissionFailure = 72u;
+public static const uint kUpt04DiagEndpointEmissionZero = 73u;
+public static const uint kUpt04DiagEndpointEmissionPositive = 74u;
+public static const uint kUpt04DiagReverseLookupFailure = 75u;
+public static const uint kUpt04DiagReversePdfZero = 76u;
+public static const uint kUpt04DiagReversePdfPositive = 77u;
+public static const uint kUpt04DiagSecondarySelectionFailure = 78u;
+public static const uint kUpt04DiagSecondaryMaterialFailure = 79u;
+public static const uint kUpt04DiagSecondaryPdfRayFailure = 80u;
+public static const uint kUpt04DiagEndpointCandidatePositive = 81u;
+public static const uint kUpt04DiagSecondaryCandidatePositive = 82u;
+public static const uint kUpt04DiagSecondaryVisibilityPassed = 83u;
+public static const uint kUpt04DiagSecondaryVisibilityOccluded = 84u;
+public static const uint kUpt04DiagSecondaryVisibilitySelfHit = 85u;
+public static const uint kUpt04DiagFinalIndirectSelected = 86u;
+public static const uint kUpt04DiagD0ProbeBase = 103u;
 public static const uint kUpt04DiagD0ProbeMagic = 0x44305052u;
 
 groupshared uint gUpt04GroupReservoirHash0;
@@ -135,6 +153,39 @@ public void Upt04DiagD0AcquisitionStages(Upt04InitialTraceWork work)
         Upt04DiagIncrement(kUpt04DiagFreshEmissiveSelected);
     if ((bits & kUpt04D0DiagWeightedCdfUnavailable) != 0u)
         Upt04DiagIncrement(kUpt04DiagWeightedCdfUnavailable);
+}
+
+public void Upt04DiagIndirectStages(Upt04IndirectHitTrialResult result)
+{
+    const uint bits = result.diagnostics;
+    if ((bits & kUpt04IndirectDiagContinuationMiss) != 0u)
+        Upt04DiagIncrement(kUpt04DiagContinuationMiss);
+    if ((bits & kUpt04IndirectDiagContinuationHit) != 0u)
+        Upt04DiagIncrement(kUpt04DiagContinuationHit);
+    if ((bits & kUpt04IndirectDiagGeometryFailure) != 0u)
+        Upt04DiagIncrement(kUpt04DiagIndirectGeometryFailure);
+    if ((bits & kUpt04IndirectDiagEndpointEmissionFailure) != 0u)
+        Upt04DiagIncrement(kUpt04DiagEndpointEmissionFailure);
+    if ((bits & kUpt04IndirectDiagEndpointEmissionZero) != 0u)
+        Upt04DiagIncrement(kUpt04DiagEndpointEmissionZero);
+    if ((bits & kUpt04IndirectDiagEndpointEmissionPositive) != 0u)
+        Upt04DiagIncrement(kUpt04DiagEndpointEmissionPositive);
+    if ((bits & kUpt04IndirectDiagReverseLookupFailure) != 0u)
+        Upt04DiagIncrement(kUpt04DiagReverseLookupFailure);
+    if ((bits & kUpt04IndirectDiagReversePdfZero) != 0u)
+        Upt04DiagIncrement(kUpt04DiagReversePdfZero);
+    if ((bits & kUpt04IndirectDiagReversePdfPositive) != 0u)
+        Upt04DiagIncrement(kUpt04DiagReversePdfPositive);
+    if ((bits & kUpt04IndirectDiagSecondarySelectionFailure) != 0u)
+        Upt04DiagIncrement(kUpt04DiagSecondarySelectionFailure);
+    if ((bits & kUpt04IndirectDiagSecondaryMaterialFailure) != 0u)
+        Upt04DiagIncrement(kUpt04DiagSecondaryMaterialFailure);
+    if ((bits & kUpt04IndirectDiagSecondaryPdfRayFailure) != 0u)
+        Upt04DiagIncrement(kUpt04DiagSecondaryPdfRayFailure);
+    if (result.endpointCandidate.valid != 0u
+        && result.endpointCandidate.candidateReady != 0u
+        && result.endpointCandidate.candidateStatus == kUpt04SampleValidPositive)
+        Upt04DiagIncrement(kUpt04DiagEndpointCandidatePositive);
 }
 
 // Diagnostic-only classification of the first committed blocker for an
@@ -445,8 +496,12 @@ public void Upt04DiagEmissiveTrials(
 
         const float physicalProposalPdf = selection.selectionPdf
             * evaluated.sample.solidAnglePdf;
+        const uint candidateCount = Upt04DirectRisCandidateCount(
+            ranges, proposalParity, configuredEmissiveTrials);
         const float techniqueMis = Upt04DirectTechniqueMis(
-            selection.type, physicalProposalPdf, material.directionalPdf);
+            selection.type,
+            float(candidateCount) * physicalProposalPdf,
+            material.directionalPdf);
         const float3 contribution = Upt04DirectReservoirContribution(
             material.weightedContribution,
             evaluated.sample.solidAnglePdf,
@@ -493,8 +548,7 @@ public void Upt04DiagSelection(Upt03LogicalReservoir reservoir)
             ? kUpt04DiagFinalEmissive
             : kUpt04DiagFinalAnalytic);
         const float meanWeight = reservoir.effectiveM != 0u
-            ? reservoir.weightSum / float(reservoir.effectiveM)
-            : 0.0f;
+            ? reservoir.weightSum : 0.0f;
         const float normalization = reservoir.selected.target > 0.0f
             ? meanWeight / reservoir.selected.target
             : 0.0f;
@@ -511,9 +565,15 @@ public void Upt04DiagSelection(Upt03LogicalReservoir reservoir)
             : kUpt04DiagFinalAnalyticBelow1e4) + binOffset);
     }
     else if (reservoir.selected.eventKind == 4u)
+    {
         Upt04DiagIncrement(kUpt04DiagSelectedBsdfEndpoint);
+        Upt04DiagIncrement(kUpt04DiagFinalIndirectSelected);
+    }
     else
+    {
         Upt04DiagIncrement(kUpt04DiagSelectedSecondaryNee);
+        Upt04DiagIncrement(kUpt04DiagFinalIndirectSelected);
+    }
 }
 
 public uint Upt04DiagMixReservoirWord(uint hash, uint word, uint salt)
@@ -640,6 +700,8 @@ public Upt03PackedReservoir Upt04BuildDiagnosticReservoir(
         Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
             continuation, hit, pixel);
     if (indirectEnabled)
+        Upt04DiagIndirectStages(indirect);
+    if (indirectEnabled)
         Upt04DiagCandidate(indirect.endpointCandidate, false);
     Upt04StreamInitialTraceWork(
         reservoir, indirect.endpointCandidate, pixel, 1u);
@@ -647,11 +709,34 @@ public Upt03PackedReservoir Upt04BuildDiagnosticReservoir(
     Upt04InitialTraceWork secondaryNee = indirect.neeWork;
     hit = Upt04MissFacts(secondaryNee.ray.tMax);
     Upt04DiagRay(secondaryNee, false);
+    const Upt04VisibilityIgnore secondaryIgnore =
+        Upt04IndirectNeeVisibilityIgnore(secondaryNee);
     if (secondaryNee.valid != 0u && secondaryNee.traceRequired != 0u)
-        hit = Upt04TraceRayQuery(secondaryNee.ray);
+        hit = Upt04TraceVisibilityRayQuery(
+            secondaryNee.ray,
+            secondaryIgnore);
+    if (indirectEnabled && secondaryNee.valid != 0u
+        && secondaryNee.traceRequired != 0u)
+    {
+        if (hit.status == kUpt04HitMiss)
+            Upt04DiagIncrement(kUpt04DiagSecondaryVisibilityPassed);
+        else
+        {
+            Upt04DiagIncrement(kUpt04DiagSecondaryVisibilityOccluded);
+            if (Upt04VisibilityIgnoresCandidate(
+                    secondaryIgnore, hit.instanceId, hit.primitiveId))
+                Upt04DiagIncrement(kUpt04DiagSecondaryVisibilitySelfHit);
+        }
+    }
     secondaryNee = Upt04AdvanceInitialTraceWork(secondaryNee, hit);
     if (indirectEnabled)
+    {
         Upt04DiagCandidate(secondaryNee, false);
+        if (secondaryNee.valid != 0u
+            && secondaryNee.candidateReady != 0u
+            && secondaryNee.candidateStatus == kUpt04SampleValidPositive)
+            Upt04DiagIncrement(kUpt04DiagSecondaryCandidatePositive);
+    }
     Upt04StreamInitialTraceWork(reservoir, secondaryNee, pixel, 2u);
     Upt04DiagSelection(reservoir);
     return Upt04FinalizeInitialReservoir(reservoir);

@@ -114,6 +114,8 @@ public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
     }
     else
     {
+        if (!Upt04AnalyticLightCurrentPortalEligible(light, policyFlags))
+            return result;
         result.sample = Upt04SampleAnalyticSphere(
             light,
             receiverPosition,

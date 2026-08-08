@@ -1519,13 +1519,13 @@ idCVar r_pathTracingUnifiedPtShaderProof(
     "r_pathTracingUnifiedPtShaderProof",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "UPT-04 RayQuery execution ladder: 1 UAV write, 2 primary read, 3 proposal/material without tracing, 4 fixed valid RayQuery with status only, 5 proposed visibility RayQuery with status only, 6 full committed-hit metadata and reservoir completion, 7 compact one-invocation live-TLAS Slang probe, 8 byte-equivalent DXC-to-SPIR-V probe, 9 production reservoir/push shader ABI through the full host layout, 10 pure b0/b4 fixed query with status only, 11 same pure query with complete set 0 but bindless set 1 omitted, 12 only production TLAS b0 plus uint UAV b4, 13 mode 12 plus the 192-byte production push range, 14 full-frame one-ray traversal isolation using only TLAS, receiver position/normal, and one uint output" );
+    "UPT-04 RayQuery execution ladder: 1 UAV write, 2 primary read, 3 proposal/material without tracing, 4 fixed valid RayQuery with status only, 5 proposed visibility RayQuery with status only, 6 full committed-hit metadata and reservoir completion, 7 compact one-invocation live-TLAS Slang probe, 8 byte-equivalent DXC-to-SPIR-V probe, 9 production reservoir/push shader ABI through the full host layout, 10 pure b0/b4 fixed query with status only, 11 same pure query with complete set 0 but bindless set 1 omitted, 12 only production TLAS b0 plus uint UAV b4, 13 mode 12 plus the 208-byte production push range, 14 full-frame one-ray traversal isolation using only TLAS, receiver position/normal, and one uint output" );
 
 idCVar r_pathTracingUnifiedPtDiagnostics(
     "r_pathTracingUnifiedPtDiagnostics",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "One-shot UPT-04 RayQuery diagnostic specialization; clears and reads back the fixed 16-counter acceptance tuple plus a 128-bit order-independent reservoir signature, then returns to the selected production specialization" );
+    "One-shot UPT-04 RayQuery diagnostic specialization; clears and reads back the fixed 87-counter direct/indirect acceptance tuple plus a 128-bit order-independent reservoir signature, then returns to the selected production specialization" );
 
 idCVar r_pathTracingUnifiedPtFixedSampleIndex(
     "r_pathTracingUnifiedPtFixedSampleIndex",

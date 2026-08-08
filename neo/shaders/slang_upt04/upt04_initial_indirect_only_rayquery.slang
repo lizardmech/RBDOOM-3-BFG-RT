@@ -61,7 +61,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     Upt04InitialTraceWork secondaryNee = indirect.neeWork;
     hit = Upt04MissFacts(secondaryNee.ray.tMax);
     if (secondaryNee.valid != 0u && secondaryNee.traceRequired != 0u)
-        hit = Upt04TraceRayQuery(secondaryNee.ray);
+        hit = Upt04TraceVisibilityRayQuery(
+            secondaryNee.ray,
+            Upt04IndirectNeeVisibilityIgnore(secondaryNee));
     secondaryNee = Upt04AdvanceInitialTraceWork(secondaryNee, hit);
     Upt04StreamInitialTraceWork(
         reservoir,

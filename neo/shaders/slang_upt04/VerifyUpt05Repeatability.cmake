@@ -49,7 +49,7 @@ endif()
 
 if(NOT cvar_source MATCHES "r_pathTracingUnifiedPtFixedSampleIndex"
         OR NOT dispatch_source MATCHES "unifiedPtInputs.frameSampleIndex = unifiedPtFixedSampleIndex >= 0"
-        OR NOT host_source MATCHES "UPT04_DIAGNOSTIC_COUNTER_COUNT = 69u"
+        OR NOT host_source MATCHES "UPT04_DIAGNOSTIC_COUNTER_COUNT = 87u"
         OR NOT host_source MATCHES "m_diagnosticReadbackSampleIndex = inputs.frameSampleIndex"
         OR NOT host_source MATCHES "reservoirSignature=%08x:%08x:%08x:%08x directReject"
         OR NOT host_source MATCHES "sampleIndex=%u family=%s size=%ux%u")
@@ -58,6 +58,6 @@ if(NOT cvar_source MATCHES "r_pathTracingUnifiedPtFixedSampleIndex"
 endif()
 
 file(WRITE "${UPT05_STAMP}"
-    "UPT-05 repeatability verified: 16 packed words, 128-bit group-reduced XOR signature, fixed sample index, 808-byte optional diagnostic pair\n")
+    "UPT-05 repeatability verified: 16 packed words, 128-bit group-reduced XOR signature, fixed sample index, 952-byte optional diagnostic pair\n")
 message(STATUS
     "UPT-05 verified fixed-input reservoir repeatability signature")

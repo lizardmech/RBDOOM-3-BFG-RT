@@ -109,6 +109,38 @@ public bool Upt04BuildPrimaryVisibilityRequest(
     return Upt04TraceRequestValid(request);
 }
 
+// Use the accepted Doom-unit origin separation for the unbounded BSDF
+// continuation as well. Unlike a shadow request there is no finite endpoint,
+// but both geometric and shading horizons must still admit the sampled ray.
+public bool Upt04BuildContinuationRequest(
+    float3 surfacePosition,
+    float3 geometricNormalInput,
+    float3 shadingNormalInput,
+    float3 continuationDirectionInput,
+    out Upt04TraceRequest request)
+{
+    request = (Upt04TraceRequest)0;
+    const float3 shadingNormal = Upt04VisibilitySafeNormalize(
+        shadingNormalInput, geometricNormalInput);
+    const float3 geometricNormal = Upt04VisibilitySafeNormalize(
+        geometricNormalInput, shadingNormal);
+    const float3 direction = Upt04VisibilitySafeNormalize(
+        continuationDirectionInput, geometricNormal);
+    if (!all(isfinite(surfacePosition))
+        || dot(shadingNormal, direction) <= 0.0f
+        || dot(geometricNormal, direction) <= 0.0f)
+        return false;
+    const float normalSign = dot(geometricNormal, shadingNormal) >= 0.0f
+        ? 1.0f : -1.0f;
+    request.origin = surfacePosition
+        + geometricNormal * (normalSign * 0.75f)
+        + direction * 0.25f;
+    request.tMin = 0.01f;
+    request.direction = direction;
+    request.tMax = 1.0e30f;
+    return Upt04TraceRequestValid(request);
+}
+
 public Upt04HitFacts Upt04MissFacts(float tMax)
 {
     Upt04HitFacts result = (Upt04HitFacts)0;

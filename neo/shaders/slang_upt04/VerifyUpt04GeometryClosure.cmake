@@ -46,9 +46,9 @@ foreach(stride 4 36 64 80 112 144 176)
             "UPT-04 geometry reflection has ${stride_count} declarations at stride ${stride}; expected ${expected_count}")
     endif()
 endforeach()
-if(NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"emissiveDistributionCountAndValid\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*188")
-    message(FATAL_ERROR "UPT-04 geometry push constants are not the 192-byte D0 history layout")
+if(NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*204")
+    message(FATAL_ERROR "UPT-04 geometry push constants are not the 208-byte D0/indirect layout")
 endif()
 
 file(WRITE "${UPT04_STAMP}"
-    "UPT-04 geometry closure verified: trace-free, bindings=set0[1..21]+set1[0], strides=4/36/64/80/112/144x2/176, push=192\n")
+    "UPT-04 geometry closure verified: trace-free, bindings=set0[1..21]+set1[0], strides=4/36/64/80/112/144x2/176, push=208\n")

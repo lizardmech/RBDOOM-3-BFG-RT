@@ -20,7 +20,21 @@ public struct Upt04IndirectHitTrialResult
 {
     public Upt04InitialTraceWork endpointCandidate;
     public Upt04InitialTraceWork neeWork;
+    public uint diagnostics;
 };
+
+public static const uint kUpt04IndirectDiagContinuationMiss = 1u << 0u;
+public static const uint kUpt04IndirectDiagContinuationHit = 1u << 1u;
+public static const uint kUpt04IndirectDiagGeometryFailure = 1u << 2u;
+public static const uint kUpt04IndirectDiagEndpointEmissionFailure = 1u << 3u;
+public static const uint kUpt04IndirectDiagEndpointEmissionZero = 1u << 4u;
+public static const uint kUpt04IndirectDiagEndpointEmissionPositive = 1u << 5u;
+public static const uint kUpt04IndirectDiagReverseLookupFailure = 1u << 6u;
+public static const uint kUpt04IndirectDiagReversePdfZero = 1u << 7u;
+public static const uint kUpt04IndirectDiagReversePdfPositive = 1u << 8u;
+public static const uint kUpt04IndirectDiagSecondarySelectionFailure = 1u << 9u;
+public static const uint kUpt04IndirectDiagSecondaryMaterialFailure = 1u << 10u;
+public static const uint kUpt04IndirectDiagSecondaryPdfRayFailure = 1u << 11u;
 
 public Upt04InitialTraceWork Upt04MakeIndirectZero(
     Upt04InitialTraceWork work,
@@ -94,11 +108,12 @@ public Upt04InitialTraceWork Upt04PrepareIndirectTrial<
     if (!Upt04AdmitIndirectContinuation(work.transport)
         || !Upt04RayBudgetWithinD0Ceiling(work.transport))
         return Upt04InvalidateInitialWork(work);
-    work.ray.origin = surface.worldPositionAndViewDepth.xyz;
-    work.ray.tMin = 0.01f;
-    work.ray.direction = continuation.direction;
-    work.ray.tMax = 1.0e30f;
-    if (!Upt04TraceRequestValid(work.ray))
+    if (!Upt04BuildContinuationRequest(
+            surface.worldPositionAndViewDepth.xyz,
+            surface.geometricNormalAndRoughness.xyz,
+            surface.shadingNormalAndOpacity.xyz,
+            continuation.direction,
+            work.ray))
         return Upt04InvalidateInitialWork(work);
     work.traceRequired = 1u;
     work.valid = 1u;
@@ -119,13 +134,18 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     work.traceRequired = 0u;
     if (hit.status == kUpt04HitMiss)
     {
+        result.diagnostics |= kUpt04IndirectDiagContinuationMiss;
         result.endpointCandidate = Upt04MakeIndirectZero(work, hit);
         return result;
     }
+    result.diagnostics |= kUpt04IndirectDiagContinuationHit;
 
     const Upt04GeometryHitSurface hitSurface = Upt04DecodeGeometryHit(hit);
     if (hitSurface.valid == 0u || hit.instanceId == 0xffffffffu)
+    {
+        result.diagnostics |= kUpt04IndirectDiagGeometryFailure;
         return result;
+    }
 
     Upt04InitialTraceWork endpoint = work;
     endpoint.identity0 = hit.instanceId + 1u;
@@ -143,17 +163,42 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
             float2(0.0f),
             float2(0.0f));
     if (endpointEmission.valid == 0u)
+    {
+        result.diagnostics |= kUpt04IndirectDiagEndpointEmissionFailure;
         return result;
+    }
+    result.diagnostics |= any(endpointEmission.radiance > 0.0f)
+        ? kUpt04IndirectDiagEndpointEmissionPositive
+        : kUpt04IndirectDiagEndpointEmissionZero;
 
     float3 endpointContribution = endpoint.pathThroughput
         * endpointEmission.radiance;
-    const float endpointNeePdf = Upt04ExactNeePdfForEmissiveHit(
-        hit.instanceId,
-        hit.primitiveId,
-        work.ray.origin,
-        hitSurface.position);
+    const Upt04PrimarySurfaceRecord primaryReceiver =
+        Upt04LoadPrimarySurfaceRecord(work.surfaceIndex);
+    if (!Upt04PrimarySurfaceRecordValid(primaryReceiver))
+    {
+        result.diagnostics |= kUpt04IndirectDiagGeometryFailure;
+        return result;
+    }
+    uint reverseStatus = 0u;
+    const float endpointNeePdf = any(endpointEmission.radiance > 0.0f)
+        ? Upt04ExactNeePdfForEmissiveHit<TMaterialSet>(
+            hit.instanceId,
+            hit.primitiveId,
+            primaryReceiver.worldPositionAndViewDepth.xyz,
+            hit.barycentrics,
+            reverseStatus)
+        : 0.0f;
+    if (reverseStatus != 0u)
+    {
+        result.diagnostics |= reverseStatus == kUpt04ReverseNeeLookupFailure
+            ? kUpt04IndirectDiagReverseLookupFailure
+            : (reverseStatus == kUpt04ReverseNeePositivePdf
+                ? kUpt04IndirectDiagReversePdfPositive
+                : kUpt04IndirectDiagReversePdfZero);
+    }
     const float endpointMis = Upt04BalanceHeuristic(
-        endpoint.proposalPdf,
+        work.pathPdf,
         endpointNeePdf);
     endpointContribution *= endpointMis;
     const float endpointTarget = max(endpointContribution.x,
@@ -162,6 +207,12 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     endpoint.contribution = endpointContribution;
     endpoint.target = endpointTarget;
+    // Primary continuation throughput already contains 1 / p_bsdf. Fold that
+    // inner sampling UCW into the PSS candidate and retain the physical PDF
+    // only in pathPdf for replay; streaming it again as proposalPdf would
+    // apply the inverse BSDF density twice.
+    endpoint.proposalPdf = 1.0f;
+    endpoint.pathPdf = work.pathPdf;
     endpoint.candidateStatus = endpointTarget > 0.0f
         ? kUpt04SampleValidPositive
         : kUpt04SampleValidZero;
@@ -176,7 +227,10 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     if (!Upt04LocalLightRangesStructurallyValid(
             ranges, gUpt04Control.currentLightCount)
         || Upt04LocalLightRangeCount(ranges) == 0u)
+    {
+        result.diagnostics |= kUpt04IndirectDiagSecondarySelectionFailure;
         return result;
+    }
 
     const Upt04LocalLightSelection selection = Upt04SelectUniformLocalLight(
         ranges,
@@ -198,7 +252,10 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
                 kUpt04DimensionInitialLocalLightSurfaceV))));
     if (selection.valid == 0u
         || selection.denseIndex >= gUpt04Control.currentLightCount)
+    {
+        result.diagnostics |= kUpt04IndirectDiagSecondarySelectionFailure;
         return result;
+    }
     const Upt04UnifiedLightRecord light = Upt04LoadCurrentLightRecord(selection.denseIndex);
     const Upt04EvaluatedLocalLight evaluated =
         Upt04EvaluateSelectedLocalLight<TMaterialSet>(
@@ -208,19 +265,28 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
             gUpt04Control.availabilityFlags,
             gUpt04Control.emissiveScale);
     if (evaluated.valid == 0u)
+    {
+        result.diagnostics |= kUpt04IndirectDiagSecondarySelectionFailure;
         return result;
+    }
     const Upt04MaterialEvaluation material = TMaterialSet.EvaluateSecondaryDirect(
         hitSurface,
         -work.ray.direction,
         evaluated.sample.direction,
         evaluated.sample.radiance);
     if (material.valid == 0u)
+    {
+        result.diagnostics |= kUpt04IndirectDiagSecondaryMaterialFailure;
         return result;
+    }
 
     const float neePdf = selection.selectionPdf * evaluated.sample.solidAnglePdf;
-    const float proposalPdf = work.proposalPdf * neePdf;
-    if (!Upt04FinitePositive(proposalPdf))
+    const float pathPdf = work.pathPdf * neePdf;
+    if (!Upt04FinitePositive(neePdf) || !Upt04FinitePositive(pathPdf))
+    {
+        result.diagnostics |= kUpt04IndirectDiagSecondaryPdfRayFailure;
         return result;
+    }
 
     Upt04InitialTraceWork nee = work;
     nee.eventKind = selection.type == kUpt04LightEmissiveTriangle ? 2u : 1u;
@@ -233,9 +299,14 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     nee.sampleCoordinates = evaluated.storedSampleCoordinates;
     nee.pathLength = 2u;
     nee.reconnectionVertexLength = 1u;
-    nee.proposalPdf = proposalPdf;
-    nee.pathPdf = proposalPdf;
-    nee.contribution = nee.pathThroughput * material.weightedContribution;
+    nee.proposalPdf = 1.0f;
+    nee.pathPdf = pathPdf;
+    nee.lobeMask = work.lobeMask | material.lobeMask;
+    // pathThroughput already carries the primary BSDF sampling inverse. The
+    // secondary light sample is a one-sample NEE estimator in this bounded
+    // slice, so fold its inverse density here before the outer path reservoir.
+    nee.contribution = nee.pathThroughput
+        * material.weightedContribution / neePdf;
     nee.target = max(nee.contribution.x,
         max(nee.contribution.y, nee.contribution.z));
     if (!all(isfinite(nee.contribution)) || !isfinite(nee.target))
@@ -256,18 +327,40 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
 
     if (!Upt04AdmitIndirectNeeVisibility(nee.transport)
         || !Upt04RayBudgetWithinD0Ceiling(nee.transport))
+    {
+        result.diagnostics |= kUpt04IndirectDiagSecondaryPdfRayFailure;
         return result;
-    nee.ray.origin = hitSurface.position;
-    nee.ray.tMin = 0.01f;
-    nee.ray.direction = evaluated.sample.direction;
-    nee.ray.tMax = max(evaluated.sample.distance - 0.02f,
-        nee.ray.tMin + 1.0e-4f);
-    if (!Upt04TraceRequestValid(nee.ray))
+    }
+    if (!Upt04BuildPrimaryVisibilityRequest(
+            hitSurface.position,
+            hitSurface.geometricNormal,
+            hitSurface.shadingNormal,
+            evaluated.sample.direction,
+            evaluated.sample.distance,
+            nee.ray))
+    {
+        result.diagnostics |= kUpt04IndirectDiagSecondaryPdfRayFailure;
         return result;
+    }
     nee.traceRequired = 1u;
     nee.candidateReady = 0u;
     result.neeWork = nee;
     return result;
+}
+
+public Upt04VisibilityIgnore Upt04IndirectNeeVisibilityIgnore(
+    Upt04InitialTraceWork work)
+{
+    if (work.valid == 0u || work.familyKind != kUpt04InitialFamilyIndirect
+        || work.transport.stage != kUpt04TransportIndirectNeeVisibility
+        || work.lightType != kUpt04LightEmissiveTriangle
+        || work.lightIndex >= gUpt04Control.currentLightCount)
+        return Upt04NoVisibilityIgnore();
+    const Upt04UnifiedLightRecord light =
+        Upt04LoadCurrentLightRecord(work.lightIndex);
+    return light.type == kUpt04LightEmissiveTriangle
+        ? Upt04MakeVisibilityIgnore(light.instanceId, light.primitiveIndex)
+        : Upt04NoVisibilityIgnore();
 }
 
 public Upt04InitialTraceWork Upt04CompleteIndirectNeeVisibility(

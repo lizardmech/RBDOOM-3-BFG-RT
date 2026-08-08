@@ -208,6 +208,7 @@ static size_t SmokeBufferRequiredBytes(size_t byteSize, uint32_t structStride)
 static bool SmokeBufferHasCapacity(nvrhi::BufferHandle buffer, size_t byteSize, uint32_t structStride, bool unorderedAccess)
 {
     return buffer &&
+        buffer->getDesc().structStride == structStride &&
         buffer->getDesc().byteSize >= SmokeBufferRequiredBytes(byteSize, structStride) &&
         (!unorderedAccess || buffer->getDesc().canHaveUAVs);
 }

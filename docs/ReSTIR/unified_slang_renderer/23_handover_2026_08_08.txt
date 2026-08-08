@@ -350,8 +350,42 @@ Runtime gate accepted, 2026-08-08: user testing at the previously failing portal
 borders reports the same behavior as legacy clean DI. The transient
 border-crossing hitch remains, but the large-scale/persistent emissive failures
 do not. This accepts D0 acquisition without claiming that the upstream
-one-frame portal publication hitch was removed. Unified indirect/GI work was
-not started.
+one-frame portal publication hitch was removed.
+
+Unified indirect first build checkpoint, 2026-08-08
+---------------------------------------------------
+
+The separately authorized first no-reuse unified indirect slice is now
+implemented and Vulkan-build verified. It is not yet runtime image, energy, or
+performance accepted.
+
+The implemented contract is:
+
+    one opaque primary continuation;
+    endpoint emissive evaluation plus one secondary NEE proposal;
+    one shared direct/indirect initial reservoir and trace-free resolve;
+    exact current-CDF reverse emissive density in a widened 20-byte lookup;
+    logical hash capacity with physical stride/OOB guarding;
+    generalized multi-sample n_j p_j NEE density for MIS;
+    complete PSS estimators at the outer stream boundary, avoiding a second
+        inverse-primary-BSDF factor;
+    additive path-tree mass with confidence c = 1;
+    accepted Doom offsets, finite visibility range, masks, and emissive
+        self-ignore;
+    no temporal/spatial indirect reuse, extra page, per-frame clear, or extra
+        dispatch.
+
+The control ABI is version 8 and 208 bytes. Diagnostics now own 87 counters;
+the reservoir probes begin at words 87 and 103. They distinguish continuation,
+endpoint emission, reverse lookup/PDF, secondary selection/material/PDF-ray,
+visibility/self-hit, and final indirect-selection stages.
+
+The full win64-pt-dev-release build passed Vulkan reflection and all UPT-04
+backend, geometry, material, compact32, proposal-parity, specialization and
+repeatability checks, followed by UPT-07/08/09 verification. No DX12 shader was
+compiled. Runtime proof must keep D0 previous-best, temporal, and spatial off;
+direct-only family 1 is the baseline, unified family 0 is the target, and
+indirect-only family 2 plus one-shot diagnostics is the localization view.
 
 Latest external evidence
 ------------------------
@@ -372,10 +406,26 @@ Next implementation sequence
    exact current CDF count contract, previous-best rejection rules, one-ray
    ceiling, and stage diagnostics as regression coverage.
 
-2. In a separately authorized lane, enable the existing unified family and
-   add/repair the first indirect continuation and secondary NEE path-tree work.
-   Preserve one shared selected path; do not create separate DI and GI
-   reservoirs or tag-specific Lambert kernels.
+2. The separately authorized first indirect continuation and secondary NEE
+   path-tree slice is implemented and build verified. Preserve one shared
+   selected path; do not create separate DI and GI reservoirs or tag-specific
+   Lambert kernels. The following required corrections are now present:
+
+       keep bare physical NEE density distinct from proposal-parity source PDF;
+       use the multi-sample typed-mixture density for NEE MIS;
+       make reverse emissive-hit density match forward power-CDF and triangle-
+           region sampling;
+       publish/use logical reverse-hash capacity with physical OOB guarding;
+       retain fail-closed inexact-lookup handling;
+       use accepted direct ray offsets and emissive self-ignore;
+       expand diagnostics without occupying reservoir-probe words 69..84.
+
+   Candidate-count-one UCW/parity behavior, previous-best composition, and the
+   need for a new lobe-sequence ABI remain focused runtime/test questions rather
+   than guessed design changes. First prove the no-history estimator with
+   previous-best off. Require candidate-count-one output bit identity to plain
+   NEE and converged mean-energy agreement among NEE-only, endpoint-only, and
+   combined modes. Re-enable previous-best only after those tests pass.
 
 3. Validate the unified image before adding more reuse policy. Compare direct-
    only versus unified D0/R0 with T0/S0 disabled first, then admit temporal and
