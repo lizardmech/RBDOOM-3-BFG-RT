@@ -315,8 +315,8 @@ Packet index
     23_handover_2026_08_08.txt
         Current branch/worktree state, known-good runtime controls, fixes that
         must not regress, the audited UPT-only emissive CDF-capacity failure,
-        D0 previous-best implementation/build state, remaining live portal A/B,
-        evidence locations, and the next implementation sequence.
+        runtime-accepted D0 previous-best/CDF repair, the remaining legacy-like
+        portal hitch, evidence locations, and the next implementation sequence.
 
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,

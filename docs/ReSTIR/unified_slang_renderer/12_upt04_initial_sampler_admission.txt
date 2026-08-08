@@ -1087,6 +1087,13 @@ Offline verification:
         UPT-09 verification all passed;
     git diff --check passed.
 
-Portal-position image acceptance remains a live Vulkan A/B after deployment;
-do not call this runtime-accepted until that test records the new counters with
-temporal and spatial disabled.
+Runtime acceptance, 2026-08-08:
+
+    user verification at the previously failing portal borders reports that
+        UPT now behaves like legacy clean DI;
+    the large-scale/persistent emissive acquisition failures are gone;
+    the remaining border-crossing hitch is the same transient hitch seen in
+        the old path, not persistent reservoir loss.
+
+This accepts the D0 acquisition repair. It does not claim to repair the
+upstream one-frame portal publication hitch.

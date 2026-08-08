@@ -378,9 +378,11 @@ UPT-D0 emissive acquisition checkpoint, 2026-08-08
     retained compact32, proposal-parity, duplication, T0, and S0 closures;
     added stage-specific rejection/admission and fresh-type diagnostics;
     Vulkan release build and all offline closure checks pass;
-    live temporal-off/spatial-off portal A/B remains the acceptance gate.
+    user portal-border A/B reports legacy-equivalent behavior: transient hitch
+        remains, persistent/large-scale emissive loss is fixed.
 
-Do not begin UPT-10A unified indirect/GI work until that live D0 gate passes.
+The D0 gate is accepted. Unified indirect/GI remains a separately authorized
+next lane and was not begun in this checkpoint.
 
 UPT-10A: Three-bounce transport and aggressive roulette
 -------------------------------------------------------

@@ -346,10 +346,12 @@ Verification completed:
     no DX12 shader build was run;
     no per-frame clear or third reservoir page was added.
 
-Remaining gate: run the deployed Vulkan build at the same working/broken portal
-positions with T0/S0 disabled, record the focused counters, then re-enable T0
-and S0 to check for poisoning/energy regression. Do not start unified indirect
-or GI implementation before that gate is accepted.
+Runtime gate accepted, 2026-08-08: user testing at the previously failing portal
+borders reports the same behavior as legacy clean DI. The transient
+border-crossing hitch remains, but the large-scale/persistent emissive failures
+do not. This accepts D0 acquisition without claiming that the upstream
+one-frame portal publication hitch was removed. Unified indirect/GI work was
+not started.
 
 Latest external evidence
 ------------------------
@@ -366,25 +368,21 @@ portal-dependent disappearance. These are external evidence, not repo inputs.
 Next implementation sequence
 ----------------------------
 
-1. Add a narrow D0 previous-best emissive/direct reseed matching the accepted
-   legacy ordering and identity translation. Keep it independently switchable
-   for a portal-position A/B. Do not alter temporal math in the same change.
+1. D0 emissive acquisition is complete and runtime-accepted. Preserve the
+   exact current CDF count contract, previous-best rejection rules, one-ray
+   ceiling, and stage diagnostics as regression coverage.
 
-2. Prove the emitter survives the seven acquisition stages above in one broken
-   and one working portal position. Record counts/identity, not screenshots
-   alone. Remove temporary readback/log volume after the proof.
-
-3. Once direct emissives are stable, enable the existing unified family and
+2. In a separately authorized lane, enable the existing unified family and
    add/repair the first indirect continuation and secondary NEE path-tree work.
    Preserve one shared selected path; do not create separate DI and GI
    reservoirs or tag-specific Lambert kernels.
 
-4. Validate the unified image before adding more reuse policy. Compare direct-
+3. Validate the unified image before adding more reuse policy. Compare direct-
    only versus unified D0/R0 with T0/S0 disabled first, then admit temporal and
    spatial shift providers for indirect paths explicitly. A partial provider
    must reject an unsupported history event without changing current M/age.
 
-5. Only after the one-continuation unified path is correct, extend toward the
+4. Only after the one-continuation unified path is correct, extend toward the
    user-validated three-bounce/Russian-roulette target in UPT-10A. No current
    ABI choice should prevent it, but no extra queue/buffer/dispatch is admitted
    without measured justification.
