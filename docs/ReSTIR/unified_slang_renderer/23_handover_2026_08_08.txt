@@ -690,3 +690,12 @@ specific resolve-view-5 rejection reasons. It adds no page, queue, sidecar,
 clear, or dispatch. Static closure and CPU contract harnesses pass. Runtime
 visual/energy/performance validation is the current gate; keep spatial reuse
 disabled until that gate is accepted.
+
+First runtime integration correction, 2026-08-09: the unified temporal layout
+initially appended SRV register 23 before optional indirect SRV register 22,
+while the binding set supplied ascending 22 then 23. NVRHI rejected binding-set
+items 20/21 before dispatch. The layout now inserts optional register 22 before
+register 23 for the unified variant; the direct variant retains register 23 in
+the same item position it had before indirect replay was added. The full Vulkan
+release build passes after this host-only correction. Runtime image validation
+remains pending.
