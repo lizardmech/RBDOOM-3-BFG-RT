@@ -49,7 +49,7 @@ endif()
 
 if(NOT cvar_source MATCHES "r_pathTracingUnifiedPtFixedSampleIndex"
         OR NOT dispatch_source MATCHES "unifiedPtInputs.frameSampleIndex = unifiedPtFixedSampleIndex >= 0"
-        OR NOT host_source MATCHES "UPT04_DIAGNOSTIC_COUNTER_COUNT = 87u"
+        OR NOT host_source MATCHES "UPT04_DIAGNOSTIC_COUNTER_COUNT = 107u"
         OR NOT host_source MATCHES "m_diagnosticReadbackSampleIndex = inputs.frameSampleIndex"
         OR NOT host_source MATCHES "reservoirSignature=%08x:%08x:%08x:%08x directReject"
         OR NOT host_source MATCHES "sampleIndex=%u family=%s size=%ux%u")

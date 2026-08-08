@@ -33,8 +33,52 @@ now implemented and Vulkan-build verified. It keeps one shared initial
 reservoir, performs no temporal or spatial indirect reuse, adds no buffer/page
 or per-frame clear, and remains behind the existing opt-in unified family.
 Direct-only remains the accepted baseline and previous-best must remain off for
-the first estimator proof. Runtime image, energy, and cost acceptance are still
-pending. See 13_upt04_corrections_and_paper_reference.txt and
+the first estimator proof. The first runtime image exposed a secondary-NEE
+identity regression: it sampled the full manager emissive range rather than
+the exact current power CDF, reproducing disappearing and phantom emitters.
+That bypass is corrected and Vulkan-build verified. The first post-correction
+diagnostic capture then proved the one-draw secondary estimator itself was far
+too sparse. A bounded inner RIS over the existing D0 candidate schedule is now
+deployed and still traces visibility only for one selected winner. The gi2.txt
+retest proved that loop is live but produced no visible improvement: visibility
+attempts rose from 4,846 to 106,334 while PDF/ray rejection became the dominant
+3,217,063-sample bucket. A direct legacy comparison then found that UPT decoded
+the committed front-face bit but left secondary geometric and shading normals
+in raw mesh-winding orientation. Secondary-hit normals are now oriented to the
+incoming continuation, matching the legacy surface adapter. The focused and
+full Vulkan builds pass. The final shared-module rebuild produced and deployed
+33 UPT-04, four UPT-07, and two UPT-09 Vulkan blobs. Runtime testing showed no
+visible improvement, so normal orientation was valid but not the dominant
+failure.
+
+A mirror-material experiment then exposed false-color/placeholder textures on
+secondary hits. The source mismatch was exact: UPT multiplied every diffuse
+texture by material-ID debugAlbedo, skipped Doom YCoCg decoding, and multiplied
+all surfaces by vertex color. Legacy uses debugAlbedo only as fallback/forced
+debug color, decodes flagged YCoCg textures when r_pathTracingTextureDecode is
+enabled, and applies vertex color only to GUI-screen translucent surfaces. UPT
+now follows that convention. Focused and full Vulkan builds pass; the rebuilt
+executable, exactly 23 affected production Vulkan UPT blobs, and final rebuilt
+diagnostic blob are deployed. Runtime confirmed that the reflected textures
+are fixed, but the mirror experiment also exposed missing world chunks, doors,
+and rigid props. gi4.txt through gi7.txt prove that every committed
+continuation hit decodes successfully. A portal-residency widening was rejected
+by gi8 after it switched all static hits to bucket traversal, worsened holes,
+duplicated reflected emissives, and caused a transient all-geometry loss; it is
+rolled back. The direct legacy comparison found the UPT-only fault instead:
+continuation rays used accept-first traversal rather than closest-hit traversal.
+That flag is now removed only for surface continuations and retained for
+visibility. The full Vulkan build passes; exactly 31 rebuilt UPT blobs and the
+executable are deployed with hash parity. Runtime then accepted the geometry
+fix, leaving only alpha-tested meshes blocking indirect light panels. The
+production Vulkan RayQuery path now performs route-exact UV/material alpha
+testing for continuation and secondary visibility candidates while preserving
+the 48-byte compact material ABI and fail-closed geometry behavior. Focused and
+full Vulkan builds pass and 26 rebuilt Vulkan UPT blobs are deployed with hash
+parity. Runtime accepted the alpha-cutout result and reports all identified
+basic indirect-lighting defects fixed. Multi-bounce, indirect reuse, and final
+cost acceptance remain later work. See
+13_upt04_corrections_and_paper_reference.txt and
 23_handover_2026_08_08.txt for the exact checkpoint and test boundary.
 
 Purpose

@@ -1,6 +1,7 @@
 import upt04_initial_work_contract;
 import upt04_initial_random;
 import upt04_initial_bindings;
+import upt04_initial_control;
 import upt04_hit_contract;
 import upt04_geometry_decode;
 import upt04_geometry_contract;
@@ -15,6 +16,7 @@ import upt04_random_contract;
 import upt04_random_white_hash;
 import upt04_transport_initial_bounded;
 import upt04_emissive_lookup;
+import upt04_initial_light_selection;
 
 public struct Upt04IndirectHitTrialResult
 {
@@ -35,6 +37,103 @@ public static const uint kUpt04IndirectDiagReversePdfPositive = 1u << 8u;
 public static const uint kUpt04IndirectDiagSecondarySelectionFailure = 1u << 9u;
 public static const uint kUpt04IndirectDiagSecondaryMaterialFailure = 1u << 10u;
 public static const uint kUpt04IndirectDiagSecondaryPdfRayFailure = 1u << 11u;
+
+public struct Upt04SecondaryNeeProposal
+{
+    public uint valid;
+    public uint stage;
+    public uint eventKind;
+    public uint lightIndex;
+    public uint lightType;
+    public uint lobeMask;
+    public uint identityFingerprint;
+    public float2 sampleCoordinates;
+    public float3 rawContribution;
+    public float target;
+    public float sourcePdf;
+    public float pathPdf;
+    public Upt04TraceRequest visibilityRay;
+};
+
+public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
+    TMaterialSet : IUpt04MaterialSet>(
+    Upt04InitialTraceWork work,
+    Upt04GeometryHitSurface hitSurface,
+    uint2 pixel,
+    uint candidateOrdinal)
+{
+    Upt04SecondaryNeeProposal proposal = (Upt04SecondaryNeeProposal)0;
+    const Upt04LocalLightSelection selection =
+        Upt04SelectInitialLightAtVertex(pixel, 1u, candidateOrdinal);
+    if (selection.valid == 0u
+        || selection.denseIndex >= gUpt04Control.currentLightCount)
+        return proposal;
+    proposal.stage = 1u;
+
+    const Upt04UnifiedLightRecord light =
+        Upt04LoadCurrentLightRecord(selection.denseIndex);
+    if (selection.type == kUpt04LightEmissiveTriangle
+        && selection.reserved != 0u
+        && light.sourceIndex != selection.reserved - 1u)
+        return proposal;
+    const Upt04EvaluatedLocalLight evaluated =
+        Upt04EvaluateSelectedLocalLight<TMaterialSet>(
+            selection,
+            light,
+            hitSurface.position,
+            gUpt04Control.availabilityFlags,
+            gUpt04Control.emissiveScale);
+    if (evaluated.valid == 0u
+        || evaluated.sample.status != kUpt04SampleValidPositive)
+        return proposal;
+    proposal.stage = 2u;
+
+    const Upt04MaterialEvaluation material = TMaterialSet.EvaluateSecondaryDirect(
+        hitSurface,
+        -work.ray.direction,
+        evaluated.sample.direction,
+        evaluated.sample.radiance);
+    if (material.valid == 0u)
+        return proposal;
+    proposal.stage = 3u;
+
+    const float sourcePdf = selection.selectionPdf
+        * evaluated.sample.solidAnglePdf;
+    const float pathPdf = work.pathPdf * sourcePdf;
+    const float3 rawContribution = work.pathThroughput
+        * material.weightedContribution;
+    const float target = max(rawContribution.x,
+        max(rawContribution.y, rawContribution.z));
+    Upt04TraceRequest visibilityRay;
+    if (!Upt04FinitePositive(sourcePdf)
+        || !Upt04FinitePositive(pathPdf)
+        || !all(isfinite(rawContribution))
+        || !Upt04FinitePositive(target)
+        || !Upt04BuildPrimaryVisibilityRequest(
+            hitSurface.position,
+            hitSurface.geometricNormal,
+            hitSurface.shadingNormal,
+            evaluated.sample.direction,
+            evaluated.sample.distance,
+            visibilityRay))
+        return proposal;
+
+    proposal.valid = 1u;
+    proposal.stage = 4u;
+    proposal.eventKind = selection.type == kUpt04LightEmissiveTriangle
+        ? 2u : 1u;
+    proposal.lightIndex = selection.denseIndex;
+    proposal.lightType = selection.type;
+    proposal.lobeMask = material.lobeMask;
+    proposal.identityFingerprint = Upt04StableLightIdentityFingerprint(light);
+    proposal.sampleCoordinates = evaluated.storedSampleCoordinates;
+    proposal.rawContribution = rawContribution;
+    proposal.target = target;
+    proposal.sourcePdf = sourcePdf;
+    proposal.pathPdf = pathPdf;
+    proposal.visibilityRay = visibilityRay;
+    return proposal;
+}
 
 public Upt04InitialTraceWork Upt04MakeIndirectZero(
     Upt04InitialTraceWork work,
@@ -232,98 +331,89 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     }
 
-    const Upt04LocalLightSelection selection = Upt04SelectUniformLocalLight(
+    const uint proposalParity =
+        (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
+            ? 1u : 0u;
+    const uint candidateCount = Upt04DirectRisCandidateCount(
         ranges,
-        Upt04WhiteHash(Upt04InitialRandomKeyAtVertex(
-            pixel,
-            1u,
-            kUpt04StreamInitialLocalLightIdentity,
-            kUpt04DimensionInitialLocalLightIdentity)),
-        float2(
-            Upt04WhiteHash(Upt04InitialRandomKeyAtVertex(
+        proposalParity,
+        Upt04ConfiguredEmissiveTrialCount(
+            gUpt04Control.availabilityFlags));
+    Upt04SecondaryNeeProposal selected = (Upt04SecondaryNeeProposal)0;
+    float weightSum = 0.0f;
+    uint deepestStage = 0u;
+    [loop]
+    for (uint candidateOrdinal = 0u;
+         candidateOrdinal < candidateCount;
+         ++candidateOrdinal)
+    {
+        const Upt04SecondaryNeeProposal proposal =
+            Upt04EvaluateSecondaryNeeProposal<TMaterialSet>(
+                work, hitSurface, pixel, candidateOrdinal);
+        deepestStage = max(deepestStage, proposal.stage);
+        if (proposal.valid == 0u)
+            continue;
+        const float candidateWeight = proposal.target / proposal.sourcePdf;
+        const float newWeightSum = weightSum + candidateWeight;
+        if (!Upt04FinitePositive(candidateWeight)
+            || !Upt04FinitePositive(newWeightSum))
+            continue;
+        const float selectionRandom = Upt04WhiteHash(
+            Upt04InitialRandomKeyAtVertexSample(
                 pixel,
                 1u,
-                kUpt04StreamInitialLocalLightSurfaceU,
-                kUpt04DimensionInitialLocalLightSurfaceU)),
-            Upt04WhiteHash(Upt04InitialRandomKeyAtVertex(
-                pixel,
-                1u,
-                kUpt04StreamInitialLocalLightSurfaceV,
-                kUpt04DimensionInitialLocalLightSurfaceV))));
-    if (selection.valid == 0u
-        || selection.denseIndex >= gUpt04Control.currentLightCount)
+                candidateOrdinal,
+                kUpt04StreamInitialReservoirSelection,
+                kUpt04DimensionInitialReservoirSelection));
+        if (selected.valid == 0u
+            || selectionRandom * newWeightSum < candidateWeight)
+            selected = proposal;
+        weightSum = newWeightSum;
+    }
+    if (selected.valid == 0u || candidateCount == 0u)
     {
-        result.diagnostics |= kUpt04IndirectDiagSecondarySelectionFailure;
+        result.diagnostics |= deepestStage <= 1u
+            ? kUpt04IndirectDiagSecondarySelectionFailure
+            : (deepestStage == 2u
+                ? kUpt04IndirectDiagSecondaryMaterialFailure
+                : kUpt04IndirectDiagSecondaryPdfRayFailure);
         return result;
     }
-    const Upt04UnifiedLightRecord light = Upt04LoadCurrentLightRecord(selection.denseIndex);
-    const Upt04EvaluatedLocalLight evaluated =
-        Upt04EvaluateSelectedLocalLight<TMaterialSet>(
-            selection,
-            light,
-            hitSurface.position,
-            gUpt04Control.availabilityFlags,
-            gUpt04Control.emissiveScale);
-    if (evaluated.valid == 0u)
-    {
-        result.diagnostics |= kUpt04IndirectDiagSecondarySelectionFailure;
-        return result;
-    }
-    const Upt04MaterialEvaluation material = TMaterialSet.EvaluateSecondaryDirect(
-        hitSurface,
-        -work.ray.direction,
-        evaluated.sample.direction,
-        evaluated.sample.radiance);
-    if (material.valid == 0u)
-    {
-        result.diagnostics |= kUpt04IndirectDiagSecondaryMaterialFailure;
-        return result;
-    }
-
-    const float neePdf = selection.selectionPdf * evaluated.sample.solidAnglePdf;
-    const float pathPdf = work.pathPdf * neePdf;
-    if (!Upt04FinitePositive(neePdf) || !Upt04FinitePositive(pathPdf))
+    const float finalizedMass = weightSum / float(candidateCount);
+    const float selectedUcw = finalizedMass / selected.target;
+    if (!Upt04FinitePositive(finalizedMass)
+        || !Upt04FinitePositive(selectedUcw))
     {
         result.diagnostics |= kUpt04IndirectDiagSecondaryPdfRayFailure;
         return result;
     }
 
     Upt04InitialTraceWork nee = work;
-    nee.eventKind = selection.type == kUpt04LightEmissiveTriangle ? 2u : 1u;
-    nee.lightIndex = selection.denseIndex;
-    nee.lightType = selection.type;
-    nee.identity0 = selection.denseIndex + 1u;
+    nee.eventKind = selected.eventKind;
+    nee.lightIndex = selected.lightIndex;
+    nee.lightType = selected.lightType;
+    nee.identity0 = selected.lightIndex + 1u;
     if (nee.identity0 == 0u)
         return result;
-    nee.identity1 = Upt04StableLightIdentityFingerprint(light);
-    nee.sampleCoordinates = evaluated.storedSampleCoordinates;
+    nee.identity1 = selected.identityFingerprint;
+    nee.sampleCoordinates = selected.sampleCoordinates;
     nee.pathLength = 2u;
     nee.reconnectionVertexLength = 1u;
     nee.proposalPdf = 1.0f;
-    nee.pathPdf = pathPdf;
-    nee.lobeMask = work.lobeMask | material.lobeMask;
-    // pathThroughput already carries the primary BSDF sampling inverse. The
-    // secondary light sample is a one-sample NEE estimator in this bounded
-    // slice, so fold its inverse density here before the outer path reservoir.
-    nee.contribution = nee.pathThroughput
-        * material.weightedContribution / neePdf;
+    nee.pathPdf = selected.pathPdf;
+    nee.lobeMask = work.lobeMask | selected.lobeMask;
+    // Convert the inner NEE RIS UCW into one complete PSS estimator before it
+    // enters the outer path-tree stream. Zero/malformed trials remain in the
+    // fixed candidateCount denominator but are never selectable.
+    nee.contribution = selected.rawContribution * selectedUcw;
     nee.target = max(nee.contribution.x,
         max(nee.contribution.y, nee.contribution.z));
-    if (!all(isfinite(nee.contribution)) || !isfinite(nee.target))
-        return result;
-    nee.candidateStatus = evaluated.sample.status == kUpt04SampleValidPositive
-            && nee.target > 0.0f
-        ? kUpt04SampleValidPositive
-        : kUpt04SampleValidZero;
-    if (nee.candidateStatus == kUpt04SampleValidZero)
+    if (!all(isfinite(nee.contribution)) || !Upt04FinitePositive(nee.target))
     {
-        nee.candidateReady = 1u;
-        nee.traceRequired = 0u;
-        nee.contribution = float3(0.0f);
-        nee.target = 0.0f;
-        result.neeWork = nee;
+        result.diagnostics |= kUpt04IndirectDiagSecondaryPdfRayFailure;
         return result;
     }
+    nee.candidateStatus = kUpt04SampleValidPositive;
 
     if (!Upt04AdmitIndirectNeeVisibility(nee.transport)
         || !Upt04RayBudgetWithinD0Ceiling(nee.transport))
@@ -331,17 +421,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         result.diagnostics |= kUpt04IndirectDiagSecondaryPdfRayFailure;
         return result;
     }
-    if (!Upt04BuildPrimaryVisibilityRequest(
-            hitSurface.position,
-            hitSurface.geometricNormal,
-            hitSurface.shadingNormal,
-            evaluated.sample.direction,
-            evaluated.sample.distance,
-            nee.ray))
-    {
-        result.diagnostics |= kUpt04IndirectDiagSecondaryPdfRayFailure;
-        return result;
-    }
+    nee.ray = selected.visibilityRay;
     nee.traceRequired = 1u;
     nee.candidateReady = 0u;
     result.neeWork = nee;

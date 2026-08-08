@@ -31,6 +31,7 @@ static constexpr uint32_t UPT04_EMISSIVE_LOOKUP_EXACT = 1u << 3u;
 static constexpr uint32_t UPT04_MATERIAL_USE_SPECULAR_MAPS = 1u << 4u;
 static constexpr uint32_t UPT04_MATERIAL_LEGACY_SPECMAP_TO_PBR = 1u << 5u;
 static constexpr uint32_t UPT04_TWO_SIDED_EMISSIVES = 1u << 6u;
+static constexpr uint32_t UPT04_MATERIAL_DECODE_TEXTURES = 1u << 7u;
 static constexpr uint32_t UPT04_EMISSIVE_TRIAL_COUNT_SHIFT = 8u;
 static constexpr uint32_t UPT04_EMISSIVE_TRIAL_COUNT_MASK = 0x1fu << UPT04_EMISSIVE_TRIAL_COUNT_SHIFT;
 static constexpr uint32_t UPT04_DIRECT_TARGET_PDF_PARITY = 1u << 29u;
@@ -45,14 +46,16 @@ static constexpr uint32_t UPT04_NEE_RIS_BASELINE_CANDIDATE_COUNT = 8u;
 static constexpr uint32_t UPT04_NEE_RIS_PARITY_ANALYTIC_CANDIDATE_COUNT = 32u;
 static constexpr uint32_t UPT04_NEE_RIS_MAX_EMISSIVE_CANDIDATE_COUNT = 16u;
 static constexpr uint32_t UPT04_ABI_VERSION = 8u;
-static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 87u;
+static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 107u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
 static constexpr uint32_t UPT04_DIAGNOSTIC_RESERVOIR_PROBE_WORD_COUNT = 16u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_D0_PROBE_WORD_COUNT = 16u;
+static constexpr uint32_t UPT04_DIAGNOSTIC_C0_PROBE_WORD_COUNT = 20u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_PROBE_WORD_COUNT =
     UPT04_DIAGNOSTIC_RESERVOIR_PROBE_WORD_COUNT +
-    UPT04_DIAGNOSTIC_D0_PROBE_WORD_COUNT;
+    UPT04_DIAGNOSTIC_D0_PROBE_WORD_COUNT +
+    UPT04_DIAGNOSTIC_C0_PROBE_WORD_COUNT;
 static constexpr uint32_t UPT04_DIAGNOSTIC_PROBE_BYTES =
     UPT04_DIAGNOSTIC_PROBE_WORD_COUNT * sizeof(uint32_t);
 static constexpr uint32_t UPT04_DIAGNOSTIC_BYTES =
@@ -925,6 +928,10 @@ static Upt04InitialControl Upt04BuildControl(
                 & PATH_TRACE_UPT_MATERIAL_LEGACY_SPECMAP_TO_PBR) != 0u
             ? UPT04_MATERIAL_LEGACY_SPECMAP_TO_PBR
             : 0u) |
+        ((dispatch.materialPolicyFlags
+                & PATH_TRACE_UPT_MATERIAL_DECODE_TEXTURES) != 0u
+            ? UPT04_MATERIAL_DECODE_TEXTURES
+            : 0u) |
         (r_pathTracingReservoirTwoSidedEmissives.GetBool()
             ? UPT04_TWO_SIDED_EMISSIVES
             : 0u) |
@@ -1187,6 +1194,7 @@ void PathTraceUnifiedPtState::Release()
     m_diagnosticReadbackSampleIndex = 0;
     m_diagnosticReadbackWidth = 0;
     m_diagnosticReadbackHeight = 0;
+    m_diagnosticReadbackMaterialPolicyFlags = 0;
     m_diagnosticProbeFromHistory = false;
     m_diagnosticProbeFrameSerial = 0;
     m_diagnosticReadbackFamily = PathTraceUnifiedPtFamily::DirectOnly;
@@ -2891,6 +2899,17 @@ void PathTraceUnifiedPtState::DrainDiagnosticReadback(
                     sizeof(PathTraceUnifiedEmissiveLookupEntry)
                 : 0ull),
         inputs.sceneInputs->lights.unifiedPtEmissiveLookupExact ? 1 : 0);
+    common->Printf(
+        "PathTraceUnifiedPt: diagnostic secondaryMaterial(indexValid/indexInvalid)=%u/%u diffuse(forceDebug/missingFallback/texturedRgb/texturedYCoCg/descriptorOob)=%u/%u/%u/%u/%u textureDecode=%d\n",
+        counters[87], counters[88], counters[89], counters[90], counters[91],
+        counters[92], counters[93],
+        (m_diagnosticReadbackMaterialPolicyFlags &
+            PATH_TRACE_UPT_MATERIAL_DECODE_TEXTURES) != 0u ? 1 : 0);
+    common->Printf(
+        "PathTraceUnifiedPt: diagnostic continuationRoute hit(static/staticBucket/dynamic/rigid/skinned/unknown)=%u/%u/%u/%u/%u/%u decode(success/failStatic/failStaticBucket/failDynamic/failRigid/failSkinned/failUnknown)=%u/%u/%u/%u/%u/%u/%u\n",
+        counters[94], counters[95], counters[96], counters[97], counters[98],
+        counters[99], counters[100], counters[101], counters[102],
+        counters[103], counters[104], counters[105], counters[106]);
 
     const uint32_t* probe = counters + UPT04_DIAGNOSTIC_COUNTER_COUNT;
     const uint32_t eventKind = (probe[0] >> 4u) & 0x7u;
@@ -2967,6 +2986,41 @@ void PathTraceUnifiedPtState::DrainDiagnosticReadback(
             d0Probe[15],
             d0Probe[1] >> 16u,
             d0Probe[14] >> 16u);
+    }
+    const uint32_t* c0Probe =
+        d0Probe + UPT04_DIAGNOSTIC_D0_PROBE_WORD_COUNT;
+    if (c0Probe[0] == 0x43305052u)
+    {
+        float hitT = 0.0f;
+        float rayOrigin[3] = {};
+        float rayDirection[3] = {};
+        float rayTMin = 0.0f;
+        float rayTMax = 0.0f;
+        std::memcpy(&hitT, &c0Probe[9], sizeof(hitT));
+        std::memcpy(rayOrigin, &c0Probe[12], sizeof(rayOrigin));
+        std::memcpy(rayDirection, &c0Probe[15], sizeof(rayDirection));
+        std::memcpy(&rayTMin, &c0Probe[18], sizeof(rayTMin));
+        std::memcpy(&rayTMax, &c0Probe[19], sizeof(rayTMax));
+        common->Printf(
+            "PathTraceUnifiedPt: diagnostic crosshair C0 receiver(valid/material/surface)=%u/%u/%08x continuation(valid/traceRequired)=%u/%u route=%u decoded=%u hit(status/instance/geometry/primitive/frontFace/t/material/flags)=%u/%u/%u/%u/%u/%.6f/%u/%08x ray(origin=%.3f,%.3f,%.3f direction=%.6f,%.6f,%.6f t=%.6f..%.3e)\n",
+            c0Probe[1] & 1u,
+            c0Probe[2],
+            c0Probe[3],
+            (c0Probe[1] >> 1u) & 1u,
+            (c0Probe[1] >> 2u) & 1u,
+            (c0Probe[1] >> 8u) & 0xffu,
+            (c0Probe[1] >> 16u) & 1u,
+            c0Probe[4],
+            c0Probe[5],
+            c0Probe[6],
+            c0Probe[7],
+            c0Probe[8],
+            hitT,
+            c0Probe[10],
+            c0Probe[11],
+            rayOrigin[0], rayOrigin[1], rayOrigin[2],
+            rayDirection[0], rayDirection[1], rayDirection[2],
+            rayTMin, rayTMax);
     }
     if (identifiedRecord)
     {
@@ -3432,6 +3486,8 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
             m_diagnosticReadbackSampleIndex = inputs.frameSampleIndex;
             m_diagnosticReadbackWidth = inputs.width;
             m_diagnosticReadbackHeight = inputs.height;
+            m_diagnosticReadbackMaterialPolicyFlags =
+                inputs.materialPolicyFlags;
             m_diagnosticReadbackFamily = inputs.family;
         }
     }

@@ -11,6 +11,14 @@ import upt04_geometry_contract;
 import upt04_material_primary_live;
 import upt05_material_openpbr;
 
+public static const uint kUpt04MaterialDiffuseYCoCg = 0x00000002u;
+public static const uint kUpt04MaterialForceDebugAlbedo = 0x00000080u;
+public static const uint kUpt04SurfaceClassMask = 0x000000ffu;
+public static const uint kUpt04SurfaceClassTranslucent = 3u;
+public static const uint kUpt04TranslucentSubtypeShift = 24u;
+public static const uint kUpt04TranslucentSubtypeMask = 0x0f000000u;
+public static const uint kUpt04TranslucentSubtypeGuiScreen = 5u;
+
 public float Upt04MaterialSrgbToLinear(float encoded)
 {
     return encoded <= 0.04045f
@@ -26,10 +34,20 @@ public float3 Upt04MaterialSrgbToLinear3(float3 encoded)
         Upt04MaterialSrgbToLinear(encoded.z));
 }
 
-// Binding-closure probe for the future secondary-hit MaterialSet.  Primary
-// shading uses the already evaluated 176-byte surface values.  The optional
-// texture path exists only to prove the shared set-1 table/sampler ABI; it is
-// disabled in the admitted production specialization until hit UV decoding exists.
+public float3 Upt04MaterialYCoCgToRgb(float4 ycocg)
+{
+    ycocg.z = ycocg.z * 31.875f + 1.0f;
+    ycocg.z = 1.0f / ycocg.z;
+    ycocg.xy *= ycocg.z;
+    return saturate(float3(
+        dot(ycocg, float4(1.0f, -1.0f, 0.0f, 1.0f)),
+        dot(ycocg, float4(0.0f, 1.0f, -0.50196078f, 1.0f)),
+        dot(ycocg, float4(-1.0f, -1.0f, 1.00392156f, 1.0f))));
+}
+
+// Binding-closure probe retained for static verification. Primary shading uses
+// the already evaluated receiver values; the production secondary-hit path
+// below consumes the same set-1 material texture table through decoded hit UVs.
 public float3 Upt04MaterialBindingProbe(uint materialIndex, float2 uv)
 {
     if ((gUpt04Control.shaderProofMode & 0x80000000u) == 0u
@@ -96,16 +114,38 @@ public Upt04MaterialEvaluation Upt04EvaluateSecondaryDirectProbe(
         return result;
 
     const Upt04SmokeMaterialRecord material = Upt04LoadMaterialRecord(surface.materialIndex);
-    float3 baseColor = max(material.debugAlbedo.xyz, float3(0.0f));
-    if (material.diffuseTextureIndex != kUpt04InvalidIdentity)
+    const bool forceDebugAlbedo =
+        (material.flags & kUpt04MaterialForceDebugAlbedo) != 0u;
+    const bool hasDiffuseTexture =
+        material.diffuseTextureIndex != kUpt04InvalidIdentity;
+    float4 diffuse = saturate(material.debugAlbedo);
+    if (!forceDebugAlbedo && hasDiffuseTexture)
     {
         if (material.diffuseTextureIndex >= gUpt04Control.logicalTextureCount)
             return result;
-        baseColor *= saturate(
+        diffuse = saturate(
             gUpt04MaterialTextures[NonUniformResourceIndex(material.diffuseTextureIndex)]
-                .SampleLevel(gUpt04MaterialSampler, frac(surface.texCoord), 0.0f).xyz);
+                .SampleLevel(gUpt04MaterialSampler, frac(surface.texCoord), 0.0f));
+        if ((gUpt04Control.availabilityFlags
+                & kUpt04MaterialDecodeTextures) != 0u
+            && (material.flags & kUpt04MaterialDiffuseYCoCg) != 0u)
+        {
+            diffuse.xyz = Upt04MaterialYCoCgToRgb(diffuse);
+        }
     }
-    baseColor *= max(surface.vertexColor.xyz, float3(0.0f));
+    float3 baseColor = diffuse.xyz;
+    const uint surfaceClass =
+        surface.triangleClassAndFlags & kUpt04SurfaceClassMask;
+    const uint translucentSubtype =
+        (surface.triangleClassAndFlags & kUpt04TranslucentSubtypeMask)
+            >> kUpt04TranslucentSubtypeShift;
+    if (surfaceClass == kUpt04SurfaceClassTranslucent
+        && translucentSubtype == kUpt04TranslucentSubtypeGuiScreen)
+    {
+        baseColor = hasDiffuseTexture && !forceDebugAlbedo
+            ? diffuse.xyz * surface.vertexColor.xyz
+            : surface.vertexColor.xyz;
+    }
 
     float3 specularF0 = float3(0.0f);
     float roughness = 1.0f;

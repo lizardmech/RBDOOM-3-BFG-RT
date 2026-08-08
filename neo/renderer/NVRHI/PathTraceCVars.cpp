@@ -1525,7 +1525,7 @@ idCVar r_pathTracingUnifiedPtDiagnostics(
     "r_pathTracingUnifiedPtDiagnostics",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "One-shot UPT-04 RayQuery diagnostic specialization; clears and reads back the fixed 87-counter direct/indirect acceptance tuple plus a 128-bit order-independent reservoir signature, then returns to the selected production specialization" );
+    "One-shot UPT-04 RayQuery diagnostic specialization; clears and reads back the fixed 107-counter direct/indirect/material/continuation-route tuple plus crosshair D0/C0 probes and a 128-bit order-independent reservoir signature, then returns to the selected production specialization" );
 
 idCVar r_pathTracingUnifiedPtFixedSampleIndex(
     "r_pathTracingUnifiedPtFixedSampleIndex",

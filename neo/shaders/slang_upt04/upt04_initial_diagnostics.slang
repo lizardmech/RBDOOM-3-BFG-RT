@@ -21,6 +21,8 @@ import upt04_geometry_contract;
 import upt04_geometry_bindings;
 import upt04_geometry_decode;
 import upt04_material_contract;
+import upt04_material_live_contract;
+import upt04_material_set_live_probe;
 
 // This entry point is intentionally separate from every production entry.
 // The first 16 words are the bring-up counters.  Words 16..19 are a
@@ -114,8 +116,37 @@ public static const uint kUpt04DiagSecondaryVisibilityPassed = 83u;
 public static const uint kUpt04DiagSecondaryVisibilityOccluded = 84u;
 public static const uint kUpt04DiagSecondaryVisibilitySelfHit = 85u;
 public static const uint kUpt04DiagFinalIndirectSelected = 86u;
-public static const uint kUpt04DiagD0ProbeBase = 103u;
+public static const uint kUpt04DiagSecondaryMaterialIndexValid = 87u;
+public static const uint kUpt04DiagSecondaryMaterialIndexInvalid = 88u;
+public static const uint kUpt04DiagSecondaryMaterialForceDebug = 89u;
+public static const uint kUpt04DiagSecondaryMaterialMissingFallback = 90u;
+public static const uint kUpt04DiagSecondaryMaterialTexturedRgb = 91u;
+public static const uint kUpt04DiagSecondaryMaterialTexturedYCoCg = 92u;
+public static const uint kUpt04DiagSecondaryMaterialDescriptorOob = 93u;
+public static const uint kUpt04DiagContinuationHitStatic = 94u;
+public static const uint kUpt04DiagContinuationHitStaticBucket = 95u;
+public static const uint kUpt04DiagContinuationHitDynamic = 96u;
+public static const uint kUpt04DiagContinuationHitRigid = 97u;
+public static const uint kUpt04DiagContinuationHitSkinned = 98u;
+public static const uint kUpt04DiagContinuationHitUnknown = 99u;
+public static const uint kUpt04DiagContinuationDecodeSuccess = 100u;
+public static const uint kUpt04DiagContinuationDecodeFailureStatic = 101u;
+public static const uint kUpt04DiagContinuationDecodeFailureStaticBucket = 102u;
+public static const uint kUpt04DiagContinuationDecodeFailureDynamic = 103u;
+public static const uint kUpt04DiagContinuationDecodeFailureRigid = 104u;
+public static const uint kUpt04DiagContinuationDecodeFailureSkinned = 105u;
+public static const uint kUpt04DiagContinuationDecodeFailureUnknown = 106u;
+public static const uint kUpt04DiagD0ProbeBase = 123u;
 public static const uint kUpt04DiagD0ProbeMagic = 0x44305052u;
+public static const uint kUpt04DiagC0ProbeBase = 139u;
+public static const uint kUpt04DiagC0ProbeMagic = 0x43305052u;
+
+public static const uint kUpt04DiagRouteStatic = 0u;
+public static const uint kUpt04DiagRouteStaticBucket = 1u;
+public static const uint kUpt04DiagRouteDynamic = 2u;
+public static const uint kUpt04DiagRouteRigid = 3u;
+public static const uint kUpt04DiagRouteSkinned = 4u;
+public static const uint kUpt04DiagRouteUnknown = 5u;
 
 groupshared uint gUpt04GroupReservoirHash0;
 groupshared uint gUpt04GroupReservoirHash1;
@@ -188,6 +219,69 @@ public void Upt04DiagIndirectStages(Upt04IndirectHitTrialResult result)
         Upt04DiagIncrement(kUpt04DiagEndpointCandidatePositive);
 }
 
+public uint Upt04DiagContinuationRoute(Upt04HitFacts hit)
+{
+    if (hit.instanceId == 0u)
+        return kUpt04DiagRouteStatic;
+    if (Upt04StaticBucketRouteAvailable()
+        && (hit.instanceId & ~kUpt04ShaderInstanceMask) == 0u
+        && (hit.instanceId & kUpt04StaticBucketInstanceBit) != 0u)
+        return kUpt04DiagRouteStaticBucket;
+    if (hit.instanceId == 1u)
+        return kUpt04DiagRouteDynamic;
+    uint skinnedRouteIndex;
+    if (Upt04SkinnedInstanceInRange(hit.instanceId, skinnedRouteIndex))
+        return kUpt04DiagRouteSkinned;
+    if (hit.instanceId >= 2u
+        && hit.instanceId - 2u < Upt04RigidInstanceCount())
+        return kUpt04DiagRouteRigid;
+    return kUpt04DiagRouteUnknown;
+}
+
+public void Upt04DiagSecondaryMaterialRoute(Upt04HitFacts hit)
+{
+    if (hit.status != kUpt04HitTriangle)
+        return;
+    const uint route = Upt04DiagContinuationRoute(hit);
+    Upt04DiagIncrement(kUpt04DiagContinuationHitStatic + route);
+    const Upt04GeometryHitSurface surface = Upt04DecodeGeometryHit(hit);
+    if (surface.valid == 0u)
+    {
+        Upt04DiagIncrement(kUpt04DiagContinuationDecodeFailureStatic + route);
+        Upt04DiagIncrement(kUpt04DiagSecondaryMaterialIndexInvalid);
+        return;
+    }
+    Upt04DiagIncrement(kUpt04DiagContinuationDecodeSuccess);
+    if (surface.materialIndex >= gUpt04Control.materialCount)
+    {
+        Upt04DiagIncrement(kUpt04DiagSecondaryMaterialIndexInvalid);
+        return;
+    }
+
+    Upt04DiagIncrement(kUpt04DiagSecondaryMaterialIndexValid);
+    const Upt04SmokeMaterialRecord material =
+        Upt04LoadMaterialRecord(surface.materialIndex);
+    if ((material.flags & kUpt04MaterialForceDebugAlbedo) != 0u)
+    {
+        Upt04DiagIncrement(kUpt04DiagSecondaryMaterialForceDebug);
+        return;
+    }
+    if (material.diffuseTextureIndex == kUpt04InvalidIdentity)
+    {
+        Upt04DiagIncrement(kUpt04DiagSecondaryMaterialMissingFallback);
+        return;
+    }
+    if (material.diffuseTextureIndex >= gUpt04Control.logicalTextureCount)
+    {
+        Upt04DiagIncrement(kUpt04DiagSecondaryMaterialDescriptorOob);
+        return;
+    }
+    Upt04DiagIncrement(
+        (material.flags & kUpt04MaterialDiffuseYCoCg) != 0u
+            ? kUpt04DiagSecondaryMaterialTexturedYCoCg
+            : kUpt04DiagSecondaryMaterialTexturedRgb);
+}
+
 // Diagnostic-only classification of the first committed blocker for an
 // emissive shadow ray. The production visibility contract is deliberately not
 // changed here: this distinguishes an endpoint self-hit, a duplicated TLAS
@@ -230,9 +324,8 @@ public bool Upt04DiagIsCrosshair(uint2 pixel)
 }
 
 // Preserve one receiver-local D0 decision next to the full-frame counters.
-// The 69 stage counters occupy words 0..68 and the copied reservoir occupies
-// words 69..84, so this record begins at 85 without either overwriting the
-// other.
+// The copied reservoir and this record are placed after the complete counter
+// range so neither can overwrite the other as diagnostics grow.
 public void Upt04DiagWriteD0Probe(
     uint2 pixel,
     bool receiverValid,
@@ -287,6 +380,60 @@ public void Upt04DiagWriteD0Probe(
         | ((completed.candidateStatus & 0xffu) << 8u)
         | (ranges.analyticCount << 16u);
     gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 15u] = completed.candidateFlags;
+}
+
+// Crosshair continuation proof. A triangle miss means traversal never saw the
+// reflected geometry; a triangle hit plus decode failure localizes the loss to
+// the static/dynamic/rigid/skinned route rather than TLAS residency.
+public void Upt04DiagWriteC0Probe(
+    uint2 pixel,
+    Upt04PrimarySurfaceRecord receiver,
+    Upt04InitialTraceWork continuation,
+    Upt04HitFacts hit)
+{
+    if (!Upt04DiagIsCrosshair(pixel))
+        return;
+
+    const uint route = hit.status == kUpt04HitTriangle
+        ? Upt04DiagContinuationRoute(hit)
+        : kUpt04DiagRouteUnknown;
+    const Upt04GeometryHitSurface decoded = Upt04DecodeGeometryHit(hit);
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 0u] = kUpt04DiagC0ProbeMagic;
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 1u] =
+        (Upt04PrimarySurfaceRecordValid(receiver) ? 1u : 0u)
+        | ((continuation.valid != 0u ? 1u : 0u) << 1u)
+        | ((continuation.traceRequired != 0u ? 1u : 0u) << 2u)
+        | ((route & 0xffu) << 8u)
+        | ((decoded.valid != 0u ? 1u : 0u) << 16u);
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 2u] =
+        receiver.materialAndSurface.x;
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 3u] =
+        receiver.materialAndSurface.y;
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 4u] = hit.status;
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 5u] = hit.instanceId;
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 6u] = hit.geometryId;
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 7u] = hit.primitiveId;
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 8u] = hit.frontFace;
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 9u] = asuint(hit.hitT);
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 10u] = decoded.materialIndex;
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 11u] =
+        decoded.triangleClassAndFlags;
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 12u] =
+        asuint(continuation.ray.origin.x);
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 13u] =
+        asuint(continuation.ray.origin.y);
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 14u] =
+        asuint(continuation.ray.origin.z);
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 15u] =
+        asuint(continuation.ray.direction.x);
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 16u] =
+        asuint(continuation.ray.direction.y);
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 17u] =
+        asuint(continuation.ray.direction.z);
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 18u] =
+        asuint(continuation.ray.tMin);
+    gUpt04Diagnostics[kUpt04DiagC0ProbeBase + 19u] =
+        asuint(continuation.ray.tMax);
 }
 
 public void Upt04DiagCandidate(Upt04InitialTraceWork work, bool direct)
@@ -631,6 +778,11 @@ public Upt03PackedReservoir Upt04BuildDiagnosticReservoir(
             (Upt04InitialTraceWork)0,
             Upt04MissFacts(0.0f),
             (Upt04InitialTraceWork)0);
+        Upt04DiagWriteC0Probe(
+            pixel,
+            receiverSurface,
+            (Upt04InitialTraceWork)0,
+            Upt04MissFacts(0.0f));
         Upt04DiagIncrement(kUpt04DiagReceiverInvalid);
         Upt04DiagIncrement(kUpt04DiagCanonicalEmptyWrites);
         return packedEmpty;
@@ -696,6 +848,9 @@ public Upt03PackedReservoir Upt04BuildDiagnosticReservoir(
     Upt04DiagRay(continuation, true);
     if (continuation.valid != 0u && continuation.traceRequired != 0u)
         hit = Upt04TraceRayQuery(continuation.ray);
+    Upt04DiagWriteC0Probe(pixel, receiverSurface, continuation, hit);
+    if (indirectEnabled)
+        Upt04DiagSecondaryMaterialRoute(hit);
     const Upt04IndirectHitTrialResult indirect =
         Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
             continuation, hit, pixel);
@@ -712,7 +867,7 @@ public Upt03PackedReservoir Upt04BuildDiagnosticReservoir(
     const Upt04VisibilityIgnore secondaryIgnore =
         Upt04IndirectNeeVisibilityIgnore(secondaryNee);
     if (secondaryNee.valid != 0u && secondaryNee.traceRequired != 0u)
-        hit = Upt04TraceVisibilityRayQuery(
+        hit = Upt04TraceIndirectVisibilityRayQuery(
             secondaryNee.ray,
             secondaryIgnore);
     if (indirectEnabled && secondaryNee.valid != 0u

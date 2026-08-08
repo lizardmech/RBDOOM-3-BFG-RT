@@ -71,7 +71,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             !fixedRayProof,
             fixedRayProof
                 ? Upt04NoVisibilityIgnore()
-                : Upt04DirectVisibilityIgnore(work));
+                : Upt04DirectVisibilityIgnore(work),
+            false);
     if (fixedRayProof)
     {
         Upt03PackedReservoir proof = (Upt03PackedReservoir)0;

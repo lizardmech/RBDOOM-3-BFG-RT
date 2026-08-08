@@ -39,8 +39,15 @@ public Upt04CompactMaterialRecord Upt04PackCompactMaterial(
     Upt04SmokeMaterialRecord material)
 {
     Upt04CompactMaterialRecord packed = (Upt04CompactMaterialRecord)0;
-    packed.debugAlbedo = asuint(material.debugAlbedo);
-    packed.emissiveColor = asuint(material.emissiveColor);
+    // UPT shading consumes only the RGB components of these two colors. Keep
+    // the accepted 48-byte record and use the otherwise-dead alpha lanes for
+    // the alpha-test data required while traversing continuation candidates.
+    packed.debugAlbedo = uint4(
+        asuint(material.debugAlbedo.xyz),
+        material.alphaTextureIndex);
+    packed.emissiveColor = uint4(
+        asuint(material.emissiveColor.xyz),
+        asuint(material.alphaCutoff));
     packed.textureIndicesAndFlags = uint4(
         material.diffuseTextureIndex,
         material.specularTextureIndex,
@@ -53,13 +60,14 @@ public Upt04SmokeMaterialRecord Upt04UnpackCompactMaterial(
     Upt04CompactMaterialRecord packed)
 {
     Upt04SmokeMaterialRecord material = (Upt04SmokeMaterialRecord)0;
-    material.debugAlbedo = asfloat(packed.debugAlbedo);
-    material.emissiveColor = asfloat(packed.emissiveColor);
+    material.debugAlbedo = float4(asfloat(packed.debugAlbedo.xyz), 1.0f);
+    material.emissiveColor = float4(asfloat(packed.emissiveColor.xyz), 1.0f);
     material.diffuseTextureIndex = packed.textureIndicesAndFlags.x;
     material.specularTextureIndex = packed.textureIndicesAndFlags.y;
     material.emissiveTextureIndex = packed.textureIndicesAndFlags.z;
     material.flags = packed.textureIndicesAndFlags.w;
-    material.alphaTextureIndex = 0xffffffffu;
+    material.alphaTextureIndex = packed.debugAlbedo.w;
+    material.alphaCutoff = asfloat(packed.emissiveColor.w);
     material.normalTextureIndex = 0xffffffffu;
     return material;
 }

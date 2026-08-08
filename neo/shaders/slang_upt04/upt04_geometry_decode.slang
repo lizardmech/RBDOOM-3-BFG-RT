@@ -15,6 +15,33 @@ public float3 Upt04GeometrySafeNormalize(float3 value, float3 fallback)
         : fallback;
 }
 
+public float3 Upt04GeometryConstrainShadingNormal(
+    float3 shadingNormal,
+    float3 geometricNormal)
+{
+    const float minGeometryDot = 0.02f;
+    geometricNormal = Upt04GeometrySafeNormalize(
+        geometricNormal, float3(0.0f, 0.0f, 1.0f));
+    shadingNormal = Upt04GeometrySafeNormalize(shadingNormal, geometricNormal);
+    const float geometryDot = dot(shadingNormal, geometricNormal);
+    if (geometryDot >= minGeometryDot)
+        return shadingNormal;
+
+    const float3 tangentComponent =
+        shadingNormal - geometricNormal * geometryDot;
+    const float tangentLengthSquared = dot(tangentComponent, tangentComponent);
+    if (tangentLengthSquared <= 1.0e-8f)
+        return geometricNormal;
+
+    const float tangentScale = sqrt(max(
+        1.0f - minGeometryDot * minGeometryDot, 0.0f)
+        / tangentLengthSquared);
+    return Upt04GeometrySafeNormalize(
+        tangentComponent * tangentScale
+            + geometricNormal * minGeometryDot,
+        geometricNormal);
+}
+
 public bool Upt04TriangleIndexOffset(uint primitiveIndex, uint indexCount, out uint indexOffset)
 {
     indexOffset = 0u;
@@ -309,14 +336,24 @@ public Upt04GeometryHitSurface Upt04BuildGeometryHitSurface(
     const float3 position0 = triangle.vertex0.position.xyz;
     const float3 position1 = triangle.vertex1.position.xyz;
     const float3 position2 = triangle.vertex2.position.xyz;
-    const float3 geometricNormal = Upt04GeometrySafeNormalize(
+    float3 geometricNormal = Upt04GeometrySafeNormalize(
         cross(position1 - position0, position2 - position0),
         float3(0.0f, 0.0f, 1.0f));
-    const float3 shadingNormal = Upt04GeometrySafeNormalize(
+    // RayQuery/TraceRay already publishes the committed triangle side. Match
+    // the accepted legacy secondary-surface adapter: material evaluation and
+    // the shadow-ray offset both consume normals oriented toward the incoming
+    // continuation, never raw mesh-winding normals.
+    if (frontFace == 0u)
+        geometricNormal = -geometricNormal;
+    float3 shadingNormal = Upt04GeometrySafeNormalize(
         triangle.vertex0.normal.xyz * barycentrics.x
             + triangle.vertex1.normal.xyz * barycentrics.y
             + triangle.vertex2.normal.xyz * barycentrics.z,
         geometricNormal);
+    if (dot(shadingNormal, geometricNormal) < 0.0f)
+        shadingNormal = -shadingNormal;
+    shadingNormal = Upt04GeometryConstrainShadingNormal(
+        shadingNormal, geometricNormal);
     const float3 rawTangent = triangle.vertex0.tangent.xyz * barycentrics.x
         + triangle.vertex1.tangent.xyz * barycentrics.y
         + triangle.vertex2.tangent.xyz * barycentrics.z;

@@ -1,11 +1,13 @@
 import upt04_hit_contract;
 import upt04_initial_bindings;
+import upt04_material_alpha_clip;
 
 public Upt04HitFacts Upt04TraceRayQueryProof(
     Upt04TraceRequest request,
     bool readCommittedMetadata,
     bool visibilityTraversal,
-    Upt04VisibilityIgnore ignore)
+    Upt04VisibilityIgnore ignore,
+    bool alphaClipTraversal)
 {
     Upt04HitFacts result = Upt04MissFacts(request.tMax);
     RayDesc ray;
@@ -20,8 +22,7 @@ public Upt04HitFacts Upt04TraceRayQueryProof(
     const uint rayFlags = visibilityTraversal
         ? (RAY_FLAG_FORCE_NON_OPAQUE
             | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH)
-        : (RAY_FLAG_FORCE_OPAQUE
-            | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH);
+        : RAY_FLAG_FORCE_NON_OPAQUE;
     query.TraceRayInline(
         gUpt04Scene,
         rayFlags,
@@ -29,14 +30,26 @@ public Upt04HitFacts Upt04TraceRayQueryProof(
         ray);
     while (query.Proceed())
     {
-        if (!visibilityTraversal
-            || query.CandidateType() != CANDIDATE_NON_OPAQUE_TRIANGLE)
+        if (query.CandidateType() != CANDIDATE_NON_OPAQUE_TRIANGLE)
             continue;
-        if (Upt04VisibilityIgnoresCandidate(
+        if (visibilityTraversal && Upt04VisibilityIgnoresCandidate(
                 ignore,
                 query.CandidateInstanceID(),
                 query.CandidatePrimitiveIndex()))
             continue;
+        if (alphaClipTraversal)
+        {
+            Upt04HitFacts candidate = (Upt04HitFacts)0;
+            candidate.status = kUpt04HitTriangle;
+            candidate.instanceId = query.CandidateInstanceID();
+            candidate.geometryId = query.CandidateGeometryIndex();
+            candidate.primitiveId = query.CandidatePrimitiveIndex();
+            candidate.barycentrics = query.CandidateTriangleBarycentrics();
+            candidate.hitT = query.CandidateTriangleRayT();
+            candidate.frontFace = 1u;
+            if (Upt04MaterialRejectsAlphaClipCandidate(candidate))
+                continue;
+        }
         query.CommitNonOpaqueTriangleHit();
     }
     if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
@@ -63,12 +76,14 @@ public Upt04HitFacts Upt04TraceRayQueryProof(
         request,
         readCommittedMetadata,
         false,
-        Upt04NoVisibilityIgnore());
+        Upt04NoVisibilityIgnore(),
+        false);
 }
 
 public Upt04HitFacts Upt04TraceRayQuery(Upt04TraceRequest request)
 {
-    return Upt04TraceRayQueryProof(request, true);
+    return Upt04TraceRayQueryProof(
+        request, true, false, Upt04NoVisibilityIgnore(), true);
 }
 
 // Visibility traversal needs candidate control so that the selected emissive
@@ -80,5 +95,12 @@ public Upt04HitFacts Upt04TraceVisibilityRayQuery(
     Upt04TraceRequest request,
     Upt04VisibilityIgnore ignore)
 {
-    return Upt04TraceRayQueryProof(request, true, true, ignore);
+    return Upt04TraceRayQueryProof(request, true, true, ignore, false);
+}
+
+public Upt04HitFacts Upt04TraceIndirectVisibilityRayQuery(
+    Upt04TraceRequest request,
+    Upt04VisibilityIgnore ignore)
+{
+    return Upt04TraceRayQueryProof(request, true, true, ignore, true);
 }

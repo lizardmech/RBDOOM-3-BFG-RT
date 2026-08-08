@@ -15,6 +15,7 @@ import upt04_primary_surface_live_contract;
 import upt04_random_contract;
 import upt04_random_white_hash;
 import upt04_transport_initial_bounded;
+import upt04_initial_light_selection;
 
 public Upt04LocalLightRanges Upt04InitialDirectLightRanges()
 {
@@ -29,77 +30,6 @@ public Upt04LocalLightRanges Upt04InitialDirectLightRanges()
 public Upt04LocalLightSelection Upt04SelectInitialDirectLight(uint2 pixel)
 {
     return Upt04SelectInitialDirectLight(pixel, 0u);
-}
-
-public Upt04LocalLightSelection Upt04SelectInitialWeightedEmissive(
-    Upt04LocalLightRanges ranges,
-    float identityRandom,
-    float2 surfaceRandom,
-    uint emissiveTrials,
-    uint totalTrials)
-{
-    Upt04LocalLightSelection result = (Upt04LocalLightSelection)0;
-    if (ranges.emissiveCount == 0u || emissiveTrials == 0u
-        || totalTrials == 0u || !isfinite(identityRandom)
-        || identityRandom < 0.0f || identityRandom >= 1.0f)
-        return result;
-
-    // The buffer is capacity-reused and can retain a stale high-water tail.
-    // The scene publication's current count/valid bit is authoritative; the
-    // physical dimension is only an OOB guard.
-    if (!Upt04EmissiveDistributionValid(
-            gUpt04Control.emissiveDistributionCountAndValid))
-        return result;
-    const uint distributionCount = Upt04EmissiveDistributionCount(
-        gUpt04Control.emissiveDistributionCountAndValid);
-    uint distributionCapacity = 0u;
-    uint distributionStride = 0u;
-    gUpt04EmissiveDistribution.GetDimensions(
-        distributionCapacity, distributionStride);
-    if (distributionCount == 0u || distributionCount > distributionCapacity)
-        return result;
-    uint low = 0u;
-    uint high = distributionCount;
-    [loop]
-    while (low < high)
-    {
-        const uint mid = low + ((high - low) >> 1u);
-        const Upt04EmissiveDistributionEntry entry =
-            gUpt04EmissiveDistribution[mid];
-        if (identityRandom <= saturate(entry.cumulativePdf))
-            high = mid;
-        else
-            low = mid + 1u;
-    }
-    if (low >= distributionCount)
-        return result;
-
-    const Upt04EmissiveDistributionEntry entry =
-        gUpt04EmissiveDistribution[low];
-    const float previousCdf = low != 0u
-        ? saturate(gUpt04EmissiveDistribution[low - 1u].cumulativePdf)
-        : 0.0f;
-    const float currentCdf = saturate(entry.cumulativePdf);
-    const float conditionalPdf = currentCdf - previousCdf;
-    const float domainMixture = float(emissiveTrials) / float(totalTrials);
-    if (entry.emissiveTriangleIndex == kUpt04InvalidLightIndex
-        || entry.denseLightIndex == kUpt04InvalidLightIndex
-        || entry.denseLightIndex < ranges.emissiveStart
-        || entry.denseLightIndex - ranges.emissiveStart >= ranges.emissiveCount
-        || !Upt04FinitePositive(conditionalPdf)
-        || !Upt04FinitePositive(domainMixture))
-        return result;
-
-    result.valid = 1u;
-    result.denseIndex = entry.denseLightIndex;
-    result.type = kUpt04LightEmissiveTriangle;
-    result.requiresTriangleReplay = 1u;
-    result.selectionPdf = conditionalPdf * domainMixture;
-    result.sampleCoordinates = surfaceRandom;
-    // Zero is reserved for the uniform route. Source index + 1 is safe because
-    // the inventory count is bounded far below UINT_MAX.
-    result.reserved = entry.emissiveTriangleIndex + 1u;
-    return result;
 }
 
 public Upt04LocalLightSelection Upt04SelectInitialDirectLight(

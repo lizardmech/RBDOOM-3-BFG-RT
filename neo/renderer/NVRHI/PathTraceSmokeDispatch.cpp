@@ -2741,6 +2741,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     : 0u) |
                 (r_pathTracingToyFakePBRSpecular.GetInteger() != 0
                     ? PATH_TRACE_UPT_MATERIAL_LEGACY_SPECMAP_TO_PBR
+                    : 0u) |
+                (r_pathTracingTextureDecode.GetInteger() != 0
+                    ? PATH_TRACE_UPT_MATERIAL_DECODE_TEXTURES
                     : 0u);
             unifiedPtInputs.proofStage = static_cast<uint32_t>(idMath::ClampInt(
                 1,

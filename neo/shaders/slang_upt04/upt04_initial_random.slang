@@ -19,6 +19,19 @@ public Upt04RandomKey Upt04InitialRandomKeyAtVertex(
     return key;
 }
 
+public Upt04RandomKey Upt04InitialRandomKeyAtVertexSample(
+    uint2 pixel,
+    uint pathVertex,
+    uint sampleOrdinal,
+    uint streamNamespace,
+    uint dimension)
+{
+    Upt04RandomKey key = Upt04InitialRandomKeyAtVertex(
+        pixel, pathVertex, streamNamespace, dimension);
+    key.sampleOrdinal = sampleOrdinal;
+    return key;
+}
+
 public Upt04RandomKey Upt04InitialRandomKey(
     uint2 pixel,
     uint streamNamespace,

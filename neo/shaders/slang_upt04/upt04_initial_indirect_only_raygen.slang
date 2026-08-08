@@ -19,8 +19,11 @@ public void Upt04TraceIndirectRaygen(
     ray.TMin = work.ray.tMin;
     ray.Direction = work.ray.direction;
     ray.TMax = work.ray.tMax;
+    const uint rayFlags = work.transport.stage == kUpt04TransportIndirectContinuation
+        ? RAY_FLAG_FORCE_OPAQUE
+        : (RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH);
     TraceRay(gUpt04Scene,
-        RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+        rayFlags,
         0xffu, 0u, 0u, 0u, ray, hit);
 }
 

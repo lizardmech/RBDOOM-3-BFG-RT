@@ -6,6 +6,7 @@ public static const uint kUpt04EmissiveLookupExact = 0x00000008u;
 public static const uint kUpt04MaterialUseSpecularMaps = 0x00000010u;
 public static const uint kUpt04MaterialLegacySpecmapToPbr = 0x00000020u;
 public static const uint kUpt04TwoSidedEmissives = 0x00000040u;
+public static const uint kUpt04MaterialDecodeTextures = 0x00000080u;
 public static const uint kUpt04EmissiveTrialCountShift = 8u;
 public static const uint kUpt04EmissiveTrialCountMask = 0x00001f00u;
 public static const uint kUpt04DirectProposalParity = 0x40000000u;

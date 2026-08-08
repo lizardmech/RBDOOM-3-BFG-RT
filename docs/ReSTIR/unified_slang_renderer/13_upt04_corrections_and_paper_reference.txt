@@ -378,8 +378,9 @@ one-continuation implementation:
 
     * New diagnostics must expand the counter layout and shift the existing
       probe bases/readback offsets coherently. In the implemented layout words
-      0 through 86 are counters, words 87 through 102 are the initial reservoir
-      probe, and the D0 probe begins at word 103. Distinguish continuation
+      0 through 106 are counters, words 107 through 122 are the initial
+      reservoir probe, the D0 probe begins at word 123, and the C0 continuation
+      probe begins at word 139. Distinguish continuation
       miss/hit, geometry/material rejection, endpoint emission, reverse lookup
       miss versus zero reverse PDF, secondary-light rejection, secondary
       visibility/self-hit, and final selected event family.
@@ -441,12 +442,14 @@ checkpoint, not runtime image or energy acceptance.
       clear, or ray beyond the existing bounded one-continuation plus selected
       secondary-visibility ceiling. RayQuery remains the default backend.
 
-    * Diagnostics are expanded from 69 to 87 counters. They identify
+    * Diagnostics are expanded from 69 to 107 counters. They identify
       continuation miss/hit, geometry failure, endpoint emission zero/positive,
       reverse lookup failure/zero/positive, secondary selection/material/PDF-
       ray failure, endpoint/secondary positive candidates, visibility pass,
-      occlusion/self-hit, and final indirect selection. Probe bases moved to
-      words 87 and 103 coherently in shader and host readback.
+      occlusion/self-hit, final indirect selection, secondary material
+      interpretation, and per-route continuation hit/decode results. Probe
+      bases moved to words 107, 123, and 139 coherently in shader and host
+      readback.
 
 Verification passed with cmake --build --preset win64-pt-dev-release from
 neo/. Vulkan Slang reflection, backend closure, geometry/material closure,
@@ -458,6 +461,279 @@ Runtime acceptance must start with D0 previous-best, temporal, and spatial all
 disabled. Compare direct-only and unified first; use indirect-only plus the new
 stage counters to localize a dark, bright, missing, or self-hit result. Do not
 enable indirect history until this no-history estimator is accepted.
+
+First runtime correction, 2026-08-08
+------------------------------------
+
+The first unified image produced basic indirect lighting but visibly recreated
+the recently fixed disappearing-emissive and phantom-emissive symptoms. Direct
+D0 still used the accepted exact current power-CDF publication. The new
+secondary-NEE path did not: it called Upt04SelectUniformLocalLight over the
+complete emissive manager range. That bypass diluted currently sampleable
+emitters and could select portal-ineligible records deliberately absent from
+the current weighted publication.
+
+The correction keeps one secondary proposal but draws its type according to
+the accepted D0 typed trial schedule and draws an emissive identity from the
+same logical-count current power CDF. It adds no candidate, ray, dispatch,
+history dependency, or fallback admission. The selector lives in a minimal
+shared module so direct and indirect cannot diverge on logical CDF count or
+identity validation.
+
+Indirect-only now legitimately exposes CDF binding 25 and exactly 25
+descriptors, up from 24. Its trace ceiling remains two sites and it exposes no
+previous/history binding. The focused UPT-04 artifact target and the complete
+win64-pt-dev-release preset both pass. Twenty-three rebuilt Vulkan UPT-04 blobs
+were deployed; the executable was unchanged. Runtime retest is pending, so this
+is a verified source/build correction rather than visual acceptance.
+
+Second runtime finding: secondary NEE required inner RIS
+--------------------------------------------------------
+
+The post-CDF-correction capture gi.txt was recorded in indirect-only family 2
+at 2560 x 1440 with previous-best, temporal, spatial, and duplication disabled.
+It proved that the remaining visual disappearance was not primarily reverse
+remapping or replay:
+
+    valid receivers                                  3,686,400
+    continuation geometry hits                       3,530,606
+    endpoint-emission positive samples                   7,913
+    reverse lookup failure / positive PDF             1,911 / 6,002
+    secondary selection/material/PDF-ray rejection  2,074,722 / 396,523 /
+                                                     1,015,645
+    secondary visibility attempts / passed             4,846 / 390
+    canonical empty reservoirs                       3,678,098
+
+The one-draw secondary sampler interpreted D0's 32 analytic plus configured
+emissive trial counts as a random domain mixture. With one configured emissive
+trial, only about one draw in 33 attempted the emissive domain; after material
+and visibility rejection only 390 secondary samples survived the full frame.
+This explains why a small set of dominant/easy emitters appeared stable while
+most sources appeared ignored. Changing uniform versus power-CDF identity could
+not materially change that candidate-rate defect.
+
+The secondary vertex now evaluates the same fixed, bounded D0 typed candidate
+schedule through an inner RIS. Each proposal uses its bare light-selection
+times solid-angle source PDF; the winner uses weightSum / candidateCount and is
+converted through winner target into one complete PSS estimator before entering
+the outer path-tree reservoir. Invalid and zero-target trials remain in the
+fixed denominator but are never selectable. Visibility is traced only for the
+winner.
+
+Random keys now keep path vertex 1 and candidate ordinal in separate fields.
+The implementation adds no buffer, page, clear, dispatch, ABI field, or trace
+site. Candidate evaluation is bounded by the existing 48-proposal D0 per-vertex
+ceiling, but runtime cost must be measured because the secondary vertex now
+evaluates the schedule rather than one proposal. Focused UPT-04 closure and the
+full win64-pt-dev-release build passed; 23 rebuilt Vulkan blobs were deployed.
+Runtime visual/energy/performance acceptance is pending.
+
+Third runtime finding: secondary-hit normal orientation
+--------------------------------------------------------
+
+The indirect-only gi2.txt retest showed no visible change, but its counters
+prove that the bounded inner RIS is executing and that proposal scarcity is no
+longer the dominant failure:
+
+    valid receivers                                  3,685,241
+    continuation miss / geometry hit                 1,002 / 3,479,829
+    endpoint-emission zero / positive                3,445,148 / 16,864
+    reverse lookup failure / positive PDF            2,317 / 14,547
+    secondary selection/material/PDF-ray rejection  0 / 138,615 / 3,217,063
+    secondary visibility attempts / passed          106,334 / 8,189
+    canonical empty reservoirs                       3,661,420
+
+Relative to gi.txt, secondary visibility attempts rose from 4,846 to 106,334
+and passes rose from 390 to 8,189. The unchanged image therefore cannot be
+attributed to the inner loop not running. The dominant rejection moved to the
+PDF/ray bucket at 3,217,063 secondary hits.
+
+A direct comparison with the accepted legacy secondary-hit surface adapter
+found a concrete downstream mismatch. Legacy orients the geometric normal to
+the incoming ray, orients the shading normal to the same visible hemisphere,
+and then constrains the shading normal. Upt04BuildGeometryHitSurface decoded
+the RayQuery/TraceRay frontFace value but did not use it: both normals retained
+raw mesh-winding orientation. On back-side committed triangles this can zero
+the OpenPBR NdotV/NdotL terms and make the visibility builder reject the light
+at its horizon test before any shadow ray is emitted.
+
+The decoder now flips the geometric normal when frontFace is false and flips
+the interpolated shading normal when it opposes that oriented geometric normal.
+It then applies the legacy minimum 0.02 geometric-normal dot constraint.
+This changes only traced-hit receiver construction; emissive light replay and
+the accepted direct D0 light universe remain unchanged. It adds no proposal,
+ray, descriptor, ABI field, resource, clear, or dispatch. The focused UPT-04
+artifact target and full win64-pt-dev-release build pass. The final
+shared-module rebuild produced and deployed exactly 33 UPT-04, four UPT-07,
+and two UPT-09 Vulkan blobs; the executable remained unchanged. Runtime visual
+and counter acceptance is pending.
+
+Fourth runtime finding: secondary diffuse material contract
+-----------------------------------------------------------
+
+The normal-orientation build remained visually broken. The user's mirror
+experiment provided a stronger localization signal: geometry reached by the
+continuation ray showed false-color/placeholder-looking texture data, and
+emitters missing from indirect illumination corresponded to those corrupted
+secondary receivers. The screenshots are:
+
+    E:/prog/rbdoom-3-BFG-prebuilt/base/screenshots/
+        rbdoom-3-bfg-20260808-235808-001.png
+        rbdoom-3-bfg-20260809-000031-003.png
+
+The geometry route audit found the same static, dynamic, rigid, and skinned
+material-index sources used by legacy. The first proven divergence was instead
+inside Upt04EvaluateSecondaryDirectProbe:
+
+1. PathTraceMaterialUniverse initializes debugAlbedo from
+   SmokeMaterialIdToDebugColor when no authored fallback is available.
+2. UPT initialized baseColor from that debug/fallback value and multiplied the
+   sampled diffuse texture by it for every textured hit.
+3. UPT sampled RT_SMOKE_MATERIAL_DIFFUSE_YCOCG textures as raw RGB and did not
+   mirror r_pathTracingTextureDecode.
+4. UPT multiplied every surface by vertexColor, while legacy does this only
+   for GUI-screen translucent surfaces.
+
+This is sufficient to explain the mirror image without invoking a failed TLAS
+identity: the correct texture can be addressed yet appear material-ID tinted
+and raw-YCoCg false-colored. The same multiplication can drive selected color
+channels or the scalar secondary target toward zero, explaining why a stable
+subset of emitters appeared to illuminate secondary receivers while others did
+not.
+
+The secondary MaterialSet now uses legacy-shaped diffuse evaluation:
+
+    forced debug or missing diffuse texture -> saturated debugAlbedo fallback;
+    valid diffuse texture -> sampled texel, not debugAlbedo times texel;
+    flagged YCoCg texture -> exact legacy decode when the existing decode cvar
+        is enabled;
+    GUI-screen translucent -> legacy vertex-color modulation/fallback only;
+    invalid descriptor index -> reject, never substitute density.
+
+The existing r_pathTracingTextureDecode cvar is carried through a new material
+policy bit into the otherwise unchanged 208-byte UPT control word. The
+specialization/history hash already includes materialPolicyFlags, so changing
+the cvar cannot reuse a reservoir written under the other interpretation. No
+ray, descriptor, reservoir field, buffer, clear, or dispatch was added.
+
+The diagnostic-only entry adds a secondary material census distinguishing
+valid/invalid material index, forced-debug fallback, missing-texture fallback,
+ordinary textured input, YCoCg textured input, and descriptor OOB. This first
+material-census version used words 0 through 93 with probe bases 94 and 110;
+the later continuation-geometry diagnostic below supersedes that layout.
+Production shaders contain none of these atomics.
+
+The focused UPT-04 runtime-artifact target and full win64-pt-dev-release preset
+pass. The rebuilt executable and exactly 23 affected production Vulkan UPT
+blobs were deployed, followed by the final rebuilt diagnostic blob. Runtime
+acceptance must first show correct mirror texture colors and then restored
+family-2/family-0 indirect acquisition with reuse disabled.
+
+Fifth runtime finding: secondary geometry localization
+------------------------------------------------------
+
+Runtime confirmed that the secondary diffuse correction fixes reflected
+textures. The same mirror experiment then exposed a separate geometry symptom:
+doors can disappear, static level brushes have missing chunks, and rigid props
+are absent at some reflected locations. Those holes explain at least part of
+the remaining ghost illumination because continuation rays shade through an
+occluder that the reflected scene does not retain or decode.
+
+The first audit found two distinct mechanisms that must not be conflated. UPT
+continuations traverse the shared live TLAS and use the same 0xff instance mask,
+but a committed hit can still fail one of the static, static-bucket, dynamic,
+rigid, or skinned decode routes. Separately, the scene builder expands its
+static-bucket portal halo for the established glass/opaque-mirror/refracted
+secondary optical paths, but does not yet include an active UPT indirect family
+in that signal. The latter is a plausible residency omission, not proof that a
+broader portal policy is the correct fix, so production selection was left
+unchanged pending localized evidence.
+
+The diagnostic-only UPT entry now owns 107 counters. It reports continuation
+hits by static/static-bucket/dynamic/rigid/skinned/unknown route, total decode
+success, and decode failure by the same route. The 16-word reservoir probe now
+begins at word 107, the 16-word D0 probe at 123, and a new 20-word crosshair C0
+probe at 139. C0 records receiver material/surface, continuation validity, ray
+origin/direction/range, hardware hit status/identity and route facts,
+and resolved material/class. A crosshair C0 miss localizes the selected mirror
+ray before geometry decode (normally TLAS membership/residency); a triangle hit
+with decoded=0 localizes it to the named route contract. These atomics and
+probe writes do not exist in production shaders and add no production ray,
+candidate, buffer, clear, or dispatch.
+
+The focused UPT-04 artifact target and complete win64-pt-dev-release preset
+pass. The rebuilt 16,294,400-byte executable and only the rebuilt Vulkan
+upt04_initial_diagnostics.bin (908,528 bytes) were deployed.
+
+The four follow-up captures gi4.txt through gi7.txt resolve the decode branch.
+Every one of 3,544,567; 3,530,750; 3,538,764; and 3,361,864 committed
+continuation hits decoded successfully. Static, dynamic, and rigid per-route
+failure counts were all zero; static-bucket, skinned, and unknown failures were
+also zero. Each crosshair C0 record was a valid decoded hit. This rules out the
+UPT hit-address and material-index decoders, but does not prove that a committed
+background hit is the closest intended surface.
+
+An attempted scene-residency widening registered UPT indirect as a route-1
+static-bucket consumer and let its rigid entity feed cross PS_BLOCK_VIEW. gi8
+rejects that change: visual quality was only marginally better in isolated
+spots, worse elsewhere, duplicated emissives appeared in reflections, and GI
+lost all geometry at one point. The route census changed from overwhelmingly
+monolithic static hits to 0 static / 3,277,568 static-bucket hits. The attempt
+had switched UPT's entire static traversal provider and exposed bucket-order/
+publication instability. Both host changes and their diagnostics were removed.
+
+The direct legacy continuation comparison found the actual UPT-specific
+difference. Legacy Clean GI traces a material-surface continuation with
+RAY_FLAG_FORCE_OPAQUE (or its material-aware non-opaque alternative) and lets
+traversal resolve the closest committed triangle. UPT added
+RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH to its opaque continuation. BVH
+candidate order is not closest-hit order, so UPT could accept a wall behind a
+door, an emitter/base triangle in the wrong depth order, or a distant world
+chunk. Repartitioning the same geometry into bucket BLAS changed that order and
+made the bug much more visible, matching gi8 without requiring a corrupt
+decoder or duplicate source geometry.
+
+UPT RayQuery and ray-generation continuations now use FORCE_OPAQUE without
+accept-first. Direct and secondary visibility retain accept-first because any
+non-ignored occluder is sufficient. This changes no scene membership, ray
+count, candidate count, reservoir field, buffer, clear, dispatch, or reuse
+rule. C0 already records committed hit distance and identity for runtime proof.
+The focused UPT artifact gate and full win64-pt-dev-release preset pass. Exactly
+31 rebuilt Vulkan UPT blobs and the rebuilt executable were deployed with
+source/deployment hash parity; no DX12 shader was compiled. SPIR-V disassembly
+of the selected indirect-only compact production blob shows continuation
+OpRayQueryInitializeKHR flags=1 (FORCE_OPAQUE) and visibility flags=6
+(FORCE_NON_OPAQUE | ACCEPT_FIRST), proving the split survived compilation.
+Runtime mirror acceptance remains required.
+
+The mirror retest accepted the closest-hit correction: missing doors, rigid
+props, world-brush chunks, duplicated emissives, and the transient all-black
+GI failure are no longer reproducible. The remaining visible defect was
+material coverage: indirect continuation and secondary-NEE visibility treated
+alpha-tested triangles as fully opaque, so authored cutout meshes in front of
+light panels blocked the emitter.
+
+The production Vulkan RayQuery path now matches the deterministic alpha-test
+part of the legacy material any-hit contract. Continuation and indirect
+visibility traversal expose non-opaque candidates, resolve the exact route and
+triangle UV, load the current material, sample alpha/diffuse coverage including
+the established dark-key, luma, magenta-key, and YCoCg rules, and reject only a
+finite coverage value below the authored alpha cutoff. A missing route,
+material, or texture remains solid; it cannot manufacture a geometry hole.
+Primary direct visibility is unchanged.
+
+Compact material48 remains exactly 48 bytes. UPT consumes only RGB from packed
+debugAlbedo and emissiveColor, so their unused W lanes now carry
+alphaTextureIndex and alphaCutoff. Reflection still reports array_stride=48.
+No ray, candidate, buffer, clear, dispatch, reservoir, temporal, or spatial
+contract changed. The focused artifact target and full Vulkan preset pass;
+26 rebuilt Vulkan UPT blobs are deployed with zero hash mismatches. Selected
+indirect-only compact SPIR-V shows continuation flags=2
+(FORCE_NON_OPAQUE), LOD-0 candidate texture samples, conditional intersection
+confirmation, and secondary visibility flags=6
+(FORCE_NON_OPAQUE | ACCEPT_FIRST). Runtime accepted the alpha-cutout result:
+the remaining light-panel blockers are fixed. The no-reuse one-continuation
+D0 path is now accepted as the basic reliable indirect-lighting checkpoint.
 
 2.8 Russian roulette (paper Section 6.2.4, supplemental Section 6) - VERIFIED
 ------------------------------------------------------------------------------

@@ -35,7 +35,8 @@ enum class PathTraceUnifiedPtFamily : uint32_t
 enum PathTraceUnifiedPtMaterialPolicyFlags : uint32_t
 {
     PATH_TRACE_UPT_MATERIAL_USE_SPECULAR_MAPS = 1u << 0u,
-    PATH_TRACE_UPT_MATERIAL_LEGACY_SPECMAP_TO_PBR = 1u << 1u
+    PATH_TRACE_UPT_MATERIAL_LEGACY_SPECMAP_TO_PBR = 1u << 1u,
+    PATH_TRACE_UPT_MATERIAL_DECODE_TEXTURES = 1u << 2u
 };
 
 struct PathTraceUnifiedPtDispatchInputs
@@ -219,6 +220,7 @@ private:
     uint32_t m_diagnosticReadbackSampleIndex = 0;
     uint32_t m_diagnosticReadbackWidth = 0;
     uint32_t m_diagnosticReadbackHeight = 0;
+    uint32_t m_diagnosticReadbackMaterialPolicyFlags = 0;
     bool m_diagnosticProbeFromHistory = false;
     uint64_t m_diagnosticProbeFrameSerial = 0;
     PathTraceUnifiedPtFamily m_diagnosticReadbackFamily =

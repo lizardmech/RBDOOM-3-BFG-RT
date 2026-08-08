@@ -36,6 +36,7 @@ set(UPT04_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_control.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_live_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_alpha_clip.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_emission.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_provider_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_bindings.slang"
