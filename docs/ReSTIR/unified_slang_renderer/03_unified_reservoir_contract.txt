@@ -184,6 +184,14 @@ Direct/global unification rule
 the BSDF continuation path are streamed through one reservoir. It does not mean
 adding precomputed DI and GI radiance and putting the sum into a struct.
 
+The Enhanced reference unifies the path tree, not a tagged union of separate
+DI and GI estimators. A direct-light result is the k=2 short path produced when
+the same NEE construction is admitted at x1; longer results extend the same
+path with x2..xk. eventKind remains a codec/replay detail in the current proof
+lane. It must not become the production estimator partition or select a
+tag-specific MIS/reuse formula. The production lane selects short and long
+paths in the same initial path-resampling domain.
+
 At each admitted path vertex, NEE is evaluated in addition to the bounded BSDF
 continuation. For k_max = 2 the path tree is primary NEE at x1, one continuation
 x1 -> x2, and (for an opaque x2) NEE at x2. A miss or emissive x2 contributes
@@ -402,26 +410,45 @@ the full output domain and encode no-data in-band (for example, zero hit
 distance where that guide contract defines zero as invalid); conditional guide
 paths may not be repaired with a full-texture clear.
 
-Duplication map plan
---------------------
+Duplication map implementation and proof contract
+-------------------------------------------------
 
-Duplication-based history reduction is planned before temporal stabilization,
-but no resources are allocated in the baseline.
+UPT-08 is implemented behind r_pathTracingUnifiedPtDuplication and its accepted
+sub-policy default is on. It is required for the opt-in sustained temporal+
+spatial loop; it is not an optional cosmetic optimization. Turning it off is a
+diagnostic A/B and must remove its resources and dispatches completely.
 
-Evaluate two implementations:
+The admitted layout is the explicit two-pass compact-ID route:
 
-    A. Reservoir-output pass also writes compact selected sample ID; one compute
-       pass builds the neighborhood duplication count.
+    U0 FillSampleID reads the final 64-byte reservoir page and writes one R32
+        stable random-sample ID per selected non-rescue reservoir. Invalid,
+        count-only, canonical-empty, and one-frame rescue records write zero.
 
-    B. Separate fill-sample-ID pass followed by duplication-count pass, matching
-       the reference structure.
+    U1 ComputeDuplication reads those IDs through a 24x24 groupshared tile per
+        8x8 output group, counts equal nonzero IDs in the surrounding 17x17
+        window excluding the center (288 possible neighbors), and stores
+        round(255 * count / 288) as four packed UNORM8 scores per uint.
 
-Also estimate direct packed-reservoir reads, but reject it if neighborhood
-bandwidth exceeds the compact-ID path.
+The score has two physical pages and page metadata matching the reservoir page:
+extent, content generation, history epoch, and frame serial must all agree.
+The transient R32 ID buffer and both score pages are fully overwritten and are
+never cleared per frame. At 2560x1440 their total footprint is approximately
+22.1 MB: 14.7 MB transient IDs plus 7.4 MB for two packed score pages.
 
-Acceptance considers total dispatch time and bandwidth, not the number of
-passes alone. Invalid reservoirs write ID 0/reserved invalid and are excluded
-from positive duplication counts.
+T0 reads the score at the history pixel actually selected by reprojection. With
+c = score / 255, the local history-M cap is
+
+    round(lerp(min(maximumHistoryM, 20), 1, pow(c, 0.1)))
+
+clamped to at least one. Twenty is the reference uncorrelated default; a lower
+user maximum remains authoritative. A missing, stale, or mismatched score page disables
+only the adaptive cap; it never invalidates otherwise usable reservoir history.
+The disabled path allocates no UPT-08 resources and has no U0/U1 dispatch cost.
+
+Acceptance considers U0+U1 dispatch time, bandwidth, runaway suppression, and
+localized energy loss. The control must be A/B tested with identical D0/T0/S0
+settings in cutout/grate and dissimilar-light-domain scenes; reducing the global
+maximumHistoryM is not an equivalent quality-preserving solution.
 
 Bias/robustness prohibitions
 ----------------------------

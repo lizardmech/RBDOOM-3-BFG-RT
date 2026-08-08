@@ -92,7 +92,11 @@ struct PathTraceEmissiveDistributionEntry
     uint32_t emissiveTriangleIndex = UINT32_MAX;
     float cumulativePdf = 0.0f;
     float weight = 0.0f;
-    float padding0 = 0.0f;
+    // UPT samples the legacy power CDF but consumes the Remix light manager's
+    // dense records.  CDF ordinals cannot be used as dense light indices: the
+    // two producers are allowed to filter different source triangles.  Keep
+    // the authoritative source-to-dense result in the existing padding word.
+    uint32_t denseLightIndex = UINT32_MAX;
 };
 static_assert(sizeof(PathTraceEmissiveDistributionEntry) == 16, "PathTraceEmissiveDistributionEntry must match HLSL layout");
 

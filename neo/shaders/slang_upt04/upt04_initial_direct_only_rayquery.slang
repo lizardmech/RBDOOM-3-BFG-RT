@@ -3,6 +3,7 @@ import upt04_backend_rayquery;
 import upt04_hit_contract;
 import upt04_initial_bindings;
 import upt04_initial_direct_only_shared;
+import upt04_initial_direct;
 import upt04_initial_work_contract;
 import upt04_primary_surface_live_contract;
 import upt04_initial_reservoir_stream;
@@ -66,7 +67,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (fixedRayProof || (work.valid != 0u && work.traceRequired != 0u))
         hit = Upt04TraceRayQueryProof(
             queryRequest,
-            gUpt04Control.shaderProofMode >= 6u);
+            fixedRayProof ? gUpt04Control.shaderProofMode >= 6u : true,
+            !fixedRayProof,
+            fixedRayProof
+                ? Upt04NoVisibilityIgnore()
+                : Upt04DirectVisibilityIgnore(work));
     if (fixedRayProof)
     {
         Upt03PackedReservoir proof = (Upt03PackedReservoir)0;

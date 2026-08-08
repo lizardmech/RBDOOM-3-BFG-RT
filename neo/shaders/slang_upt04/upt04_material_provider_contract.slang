@@ -24,7 +24,9 @@ public interface IUpt04MaterialSet
     static Upt04MaterialEmissionEvaluation EvaluateEmissiveEndpoint(
         uint materialIndex,
         uint triangleClassAndFlags,
-        float2 uv);
+        float2 uv,
+        float2 uvGradient0,
+        float2 uvGradient1);
 
     static Upt04MaterialEvaluation EvaluateSecondaryDirect(
         Upt04GeometryHitSurface surface,

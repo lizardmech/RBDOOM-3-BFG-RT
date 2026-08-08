@@ -294,33 +294,43 @@ F5. Optional multibounce path-state queues
         outweighs their bandwidth, barriers, clears, and dispatch overhead.
     See 07_three_bounce_and_russian_roulette_readiness.txt.
 
-Future dispatches already planned but not admitted
----------------------------------------------------
+Reuse dispatches and remaining planned work
+---------------------------------------------
 
-F-D0. Temporal resampling
+F-D0. Temporal resampling (implemented, opt-in)
     One pass. Reads current initial plus previous history, writes current page.
     Must rescue an invalid current reservoir from valid history.
     Reject the entire previous page before per-pixel reads when its page
     metadata is invalid or its generation/epoch does not match. Ordinary camera
     motion uses reprojection and must not change the global history epoch.
 
-    First verified provider, not yet runtime-admitted:
-        five compile-time bounded prior surface/reservoir attempts;
-        choose one compatible source before any shift work;
-        primary non-global analytic sample replay only;
-        zero or one current visibility RayQuery per pixel;
-        six bindings total, with full-112 and compact-64 light variants;
-        no geometry/material-table/texture/diagnostic/output side resources;
-        emissive and global/indirect history rejected until their narrow replay
-            contracts are independently proved.
+    Current primary-DI provider:
+        one exact attempt plus at most eight randomized radius-4 prior-surface probes;
+        sub-pixel reprojection dither, with exact/jitter/search runtime A/B modes;
+        validate the first compatible geometric receiver before loading its reservoir;
+        reservoir contents may not steer or continue the surface search;
+        primary non-global analytic and emissive replay;
+        at most one winner-only current-frame visibility RayQuery; a fresh D0
+            winner with valid current visibility pays no second ray;
+        consumes the current/history reservoir pages, current/previous primary
+            history, TLAS, current lights, and only the exact replay/material
+            resources required by the selected direct winner;
+        no diagnostic/output side resource in the production closure;
+        global/indirect history remains rejected until a separate traced
+            shift/reconnection provider is proved.
 
-F-D1. Spatial resampling
+F-D1. Spatial resampling (implemented direct-only, opt-in)
     One pass. Reads temporal/current page, writes the other page.
     Must search for valid neighbors even when center reservoir is empty.
+    Uses unique bounded neighbors, non-recursive rescue, and at most one
+    selected-winner visibility RayQuery. Indirect path shifting is not admitted.
 
-F-D2. Duplication map
-    One or two compute passes only after the fused-store versus explicit-fill
-    A/B in 03_unified_reservoir_contract.txt.
+F-D2. Duplication map (implemented, accepted sub-policy default on)
+    U0 writes one transient R32 selected sample ID per pixel. U1 reads a 24x24
+    groupshared tile per 8x8 group and writes one packed UNORM8 correlation
+    score per pixel across two history pages. Total 1440p footprint is about
+    22.1 MB. Every buffer is fully overwritten; there is no per-frame clear.
+    The disabled path allocates and dispatches nothing.
 
 F-D3. Boiling/firefly control
     Not part of baseline. Prefer candidate-domain robust weighting/clamping.

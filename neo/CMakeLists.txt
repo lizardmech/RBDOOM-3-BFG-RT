@@ -1675,6 +1675,7 @@ add_subdirectory(tests/upt04)
 # reservoir combination, and empty-current recovery before a live history ray
 # or runtime temporal dispatch is admitted.
 add_subdirectory(tests/upt07)
+add_subdirectory(tests/upt08)
 
 if(WIN32 AND PATH_TRACING_ENABLE_STREAMLINE_DLSS_RR)
 	set(PATH_TRACING_STREAMLINE_INCLUDE_DIR "${PATH_TRACING_STREAMLINE_SDK_ROOT}/include")
@@ -1715,5 +1716,7 @@ add_subdirectory(shaders/slang_upt03)
 add_subdirectory(shaders/slang_upt04)
 add_subdirectory(shaders/slang_upt05)
 add_subdirectory(shaders/slang_upt07)
+add_subdirectory(shaders/slang_upt08)
+add_subdirectory(shaders/slang_upt09)
 add_dependencies(Shaders ShaderMake)
 add_dependencies(${APP_NAME} Shaders ${MASKED_OCCLUSION_LIBRARY} ${ISPC_TEXCOMP_LIBRARY})

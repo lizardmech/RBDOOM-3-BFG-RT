@@ -24,10 +24,12 @@ public struct Upt09SpatialDirectControl
     public uint rescueNeighborCount;
     public float neighborRadius;
     public uint geometryAvailabilityFlags;
-    public uint emissiveReplayCount;
+    public float emissiveScale;
     public uint proofMode;
     public float3 primaryCameraOrigin;
     public uint compactPrimaryHistory;
+    public uint materialCount;
+    public uint logicalTextureCount;
 };
 
 public [[vk::binding(0, 0)]] RaytracingAccelerationStructure gUpt09Scene;

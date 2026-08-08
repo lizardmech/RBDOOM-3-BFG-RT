@@ -1285,7 +1285,13 @@ idCVar r_pathTracingReservoirCandidateTrials(
     "r_pathTracingReservoirCandidateTrials",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Emissive reservoir candidate trials per pixel; higher values improve off-screen light selection at extra shader cost" );
+    "Emissive reservoir candidate trials per pixel for clean DI, PDFNEE, and UPT parity sampling; higher values improve small-light reachability at extra shader cost" );
+
+idCVar r_pathTracingEmissiveUniformMixture(
+    "r_pathTracingEmissiveUniformMixture",
+    "0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Uniform full-support fraction mixed into the shared emissive power CDF; 0 is power-only, 1 is uniform triangle selection" );
 
 idCVar r_pathTracingRestirPTTemporalAnalyticNeeReuse(
     "r_pathTracingRestirPTTemporalAnalyticNeeReuse",
@@ -1419,6 +1425,12 @@ idCVar r_pathTracingUnifiedPtDirectProposalParity(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT D0 direct proposal: 1 uses one uniform emissive trial plus up to 32 range-stratified analytic trials while retaining one selected visibility ray; 0 selects the fixed 8-trial split fallback" );
 
+idCVar r_pathTracingUnifiedPtD0PreviousBest(
+    "r_pathTracingUnifiedPtD0PreviousBest",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT D0 legacy-shaped previous-best emissive reseed: reproject one prior receiver, remap the stable light identity, replay at the current receiver, exclude duplicate fresh proposals, and retain one winner-only visibility ray" );
+
 idCVar r_pathTracingUnifiedPtTemporal(
     "r_pathTracingUnifiedPtTemporal",
     "0",
@@ -1507,7 +1519,7 @@ idCVar r_pathTracingUnifiedPtShaderProof(
     "r_pathTracingUnifiedPtShaderProof",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "UPT-04 RayQuery execution ladder: 1 UAV write, 2 primary read, 3 proposal/material without tracing, 4 fixed valid RayQuery with status only, 5 proposed visibility RayQuery with status only, 6 full committed-hit metadata and reservoir completion, 7 compact one-invocation live-TLAS Slang probe, 8 byte-equivalent DXC-to-SPIR-V probe, 9 production reservoir/push shader ABI through the full host layout, 10 pure b0/b4 fixed query through that same full host layout, 11 same pure query with complete set 0 but bindless set 1 omitted, 12 only production TLAS b0 plus uint UAV b4, 13 mode 12 plus the 128-byte production push range, 14 full-frame one-ray traversal isolation using only TLAS, receiver position/normal, and one uint output" );
+    "UPT-04 RayQuery execution ladder: 1 UAV write, 2 primary read, 3 proposal/material without tracing, 4 fixed valid RayQuery with status only, 5 proposed visibility RayQuery with status only, 6 full committed-hit metadata and reservoir completion, 7 compact one-invocation live-TLAS Slang probe, 8 byte-equivalent DXC-to-SPIR-V probe, 9 production reservoir/push shader ABI through the full host layout, 10 pure b0/b4 fixed query with status only, 11 same pure query with complete set 0 but bindless set 1 omitted, 12 only production TLAS b0 plus uint UAV b4, 13 mode 12 plus the 192-byte production push range, 14 full-frame one-ray traversal isolation using only TLAS, receiver position/normal, and one uint output" );
 
 idCVar r_pathTracingUnifiedPtDiagnostics(
     "r_pathTracingUnifiedPtDiagnostics",
@@ -1531,7 +1543,7 @@ idCVar r_pathTracingUnifiedPtResolveView(
     "r_pathTracingUnifiedPtResolveView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "UPT-05 resolve view: 0 estimator, 1 direct/global classification, 2 diffuse/specular classification, 3 selected contribution, 4 normalization, 5 temporal state/rejection (selected blue-to-green; yellow no compatible history; red history empty; magenta unsupported event; cyan shift invalid; white shifted zero; green merge math)" );
+    "UPT-05 resolve view: 0 estimator, 1 direct/global classification, 2 diffuse/specular classification, 3 selected contribution, 4 normalization, 5 temporal state/rejection (selected blue-to-green; yellow no compatible history; red history empty; magenta unsupported event; cyan shift invalid; white shifted zero; green merge math), 6 emissive-triangle cast estimate only, 7 Doom-analytic estimate only, 8 emissive-triangle cast plus primary self-emission, 9 primary self-emission only" );
 
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",

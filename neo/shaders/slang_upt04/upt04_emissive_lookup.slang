@@ -1,4 +1,5 @@
 import upt04_initial_bindings;
+import upt04_initial_control;
 import upt04_geometry_bindings;
 import upt04_light_contract;
 import upt04_local_light_proposal;
@@ -83,7 +84,11 @@ public float Upt04ExactNeePdfForEmissiveHit(
         return 0.0f;
     const float3 direction = toLight * rsqrt(distanceSquared);
     const float3 normal = normalize(light.normalAndArea.xyz);
-    const float lightFacing = dot(normal, -direction);
+    const float lightFacingRaw = dot(normal, -direction);
+    const float lightFacing =
+        (gUpt04Control.availabilityFlags & kUpt04TwoSidedEmissives) != 0u
+        ? abs(lightFacingRaw)
+        : lightFacingRaw;
     if (!Upt04FinitePositive(lightFacing))
         return 0.0f;
     const float solidAnglePdf = distanceSquared / (area * lightFacing);

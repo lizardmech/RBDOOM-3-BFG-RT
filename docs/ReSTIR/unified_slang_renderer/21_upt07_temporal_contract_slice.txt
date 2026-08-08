@@ -4,10 +4,14 @@ UPT-07 Temporal Contract Slice: Ownership Before Rays
 Status
 ------
 
-Implemented as an offline CPU oracle, an isolated Slang ownership probe, and a
-verified primary-analytic current-domain shift provider. It is not a runtime
-temporal renderer yet and no UPT-07 SPIR-V is deployed to base/renderprogs2.
-Host page-role/descriptor integration remains a separate admission gate.
+Implemented as a live, opt-in primary-direct Vulkan temporal pass plus its CPU
+oracle and isolated ownership proofs. It consumes analytic and emissive direct
+history, uses the two admitted 64-byte pages, a compact cold history sidecar,
+stable manager light identity, a host frame-serial gate, bounded randomized
+surface reprojection, and at most one winner-only visibility RayQuery. Temporal
+itself remains default off; indirect/reconnection history remains outside this
+provider until its separately budgeted exact shift and visibility contracts
+exist.
 
 Live ownership audit
 --------------------
@@ -47,22 +51,121 @@ must match:
     width and height
     full-width contentGeneration
     monotonic historyEpoch
+    history frameSerial exactly one less than current frameSerial
 
 The shader receives one uniform historyAvailable value. When it is false, no
 previous surface or reservoir element is read. A stale page therefore cannot
 change per-pixel M, age, identity, or weight.
 
-First neighborhood contract
----------------------------
+Temporal setup failures are reported once per changing failure condition with
+the D0 sample index, physical page roles and both serials. Successful dispatch
+re-arms the report. This distinguishes an actual skipped T0 frame from a
+shader-side per-pixel rejection without adding a readback or GPU counter.
 
-The first proof uses five compile-time taps:
+Primary-DI reprojection contract
+--------------------------------
 
-    center, left, right, up, down
+The production primary-DI specialization first inspects the projected history
+pixel, then may inspect up to eight randomized offsets inside the accepted
+radius-4 convention. Sub-pixel dither is applied before flooring so slow pans
+do not hold a biased integer mapping and then jump coherently. The first
+geometrically compatible surface wins. Only after that choice does T0 load the
+single matching reservoir; an empty or unsupported reservoir never causes the
+search to continue. This is the essential distinction from the rejected fixed
+cross, which selected a favorable reservoir and acted as an unweighted spatial
+pass hidden inside temporal.
 
-Each tap checks bounds, prior surface validity, material id/index/surface class,
-geometric-normal agreement, roughness agreement, projected previous depth, and
-selected reservoir validity. The bound is five surface/reservoir attempts and
-zero rays. A rejected surface never reaches shift/reconnection work.
+The bounded search is controlled without another shader variant or resource:
+
+    r_pathTracingUnifiedPtTemporalSearch 0  exact floor, one surface
+    r_pathTracingUnifiedPtTemporalSearch 1  sub-pixel dither, one surface
+    r_pathTracingUnifiedPtTemporalSearch 2  dither plus up to nine probes (default)
+
+History confidence and expiry are independently adjustable through the existing
+push-constant fields; changing either CVar requires no shader variant:
+
+    r_pathTracingUnifiedPtTemporalMaxHistoryM 1..1024  default 32
+    r_pathTracingUnifiedPtTemporalMaxAge     1..63    default 32
+    r_pathTracingUnifiedPtTemporalPreviousBest 0/1   default 0
+
+Age values below 63 impose a hard expiry. Value 63 is the six-bit saturation
+value and deliberately keeps coherent history reusable rather than periodically
+resetting it, but it is retained only as a stress setting. Runtime acceptance
+with mode-0 spatial reuse and UPT-08 duplication control found age 32 stable and
+found no demonstrated quality reason to expose the residual age-63 correlation
+runaway in the default configuration.
+
+Previous-best current-domain seed
+---------------------------------
+
+Sparse initial visibility made the old T0 recurrence pathological: a compatible
+history winner was only ever represented as capped history. In pixels where D0
+rarely produced a visible winner, its age therefore increased monotonically
+until a finite maximum age expired many neighboring pixels together. Resolve
+view 5 exposed this as a green dwell followed by a blue reset wave.
+
+The previous-best policy replays that already-loaded compatible winner at the
+current receiver and admits it once as an age-zero, M=1 current proposal. This
+matches the established DI estimator shape: invSourcePdf=1 finalizes to W=1,
+and when a fresh D0 winner is also present the two one-sample proposals are
+combined, finalized over M=2, then collapsed back to one current proposal.
+
+Previous-best and the normal confidence merge draw from the same history
+reservoir, so they are mutually exclusive for that frame. After the M=1 seed
+is admitted, the accumulated-M history candidate is excluded from the later
+merge. The earlier implementation admitted both copies and overexposed the
+result while preserving max-age-shaped trails. The seed also has stale
+visibility proof removed; if selected, it pays T0's one current-frame winner
+visibility query.
+
+This adds no descriptor, buffer, dispatch, ray, reservoir read, or push-constant
+byte. The policy uses a reserved high bit in geometryAvailabilityFlags; geometry
+replay continues to test only its own route bits. The corrected single-admission
+implementation remains default-off until runtime energy, motion, and density
+behavior are accepted.
+
+Later runtime testing did not accept this T0 policy: it could turn the image
+dark or overexposed. It is retained only as an A/B. Legacy clean DI's successful
+previous-best mechanism is instead an initial-sampling reseed in D0, before
+ordinary RIS, with stable previous-to-current light translation and duplicate
+exclusion. The current UPT emissive-acquisition investigation must port that D0
+ordering rather than enabling this rejected T0 substitute.
+
+Failed and off-screen centers may therefore recover at borders, while every
+candidate load retains an explicit signed-coordinate bounds check. Stationary
+interior pixels normally stop at probe zero, so the eight extra 176-byte reads
+are a failure-path ceiling rather than unconditional full-frame traffic.
+
+The CustomRestir DI reservoir also accumulates spatialDistance after a borrowed
+probe. UPT does not silently bolt that field into this slice: the frozen 64-byte
+unified ABI has no two-axis drift field. T0 now validates an unproven final
+history winner immediately rather than caching visibility across drift, so no
+distance consumer exists yet. Before indirect/PT temporal reuse or bounded
+visibility reuse consumes borrowed history, drift accounting needs an explicit
+packed-ABI decision and duplication/correlation validation rather than stealing
+identity, replay, PDF, or path-state bits.
+
+The geometric gate now matches that path: valid prior surface, normal dot at
+least 0.35, and relative hit-distance error at most ten percent. Material id,
+material index, surface class and roughness are not compatibility predicates;
+the selected light is replayed and evaluated against the current material after
+admission. This prevents animated/rigid material metadata from alternating an
+otherwise sound geometric history mapping between valid and rejected.
+
+When rigid/skinned object motion is present, its packed previous position is
+projected. When it is missing, primary DI falls back to camera reprojection just
+as PathTraceCleanRoomLoadMotion does; the former fail-closed rule was visible as
+rigid reservoirs flickering out of history. A future PT/GI reconnection provider
+may require a stricter object-motion gate, but that policy must not be imposed on
+the direct specialization.
+
+The canonical producer's field name says view depth, but its live value is
+normalized-ray hitT: Euclidean camera-to-hit distance. Reprojection therefore
+uses forward-axis distance only for NDC division and separately compares the
+previous record against length(previousPosition - previousCameraOrigin). Using
+forward distance for both created a circular temporal-acceptance region around
+the optical axis because forward depth and hitT agree only near screen center.
+The CPU oracle includes an off-axis regression vector for this distinction.
 
 This is a correctness starting point, not the final sampling policy. UPT-09
 still owns reciprocal spatial neighbor selection. Changing the temporal tap
@@ -81,24 +184,100 @@ For current finalized reservoir C and accepted shifted history H:
     currentMass = C.meanWeight * C.M
     historyMass = H.meanWeight * capped(H.M)
         * shiftedTarget / H.selectedTarget
-    outputM = C.M + capped(H.M)
-    outputMeanWeight = (currentMass + historyMass) / outputM
+    streamMass = currentMass + historyMass
 
-Weighted winner selection uses currentMass and historyMass. If history wins,
-the stored candidate is the current-domain shifted/re-evaluated candidate and
-age increments once. Current count-only M participates in outputM with zero
-mass. Previous count-only records have no selected identity and no history
-authority, so they do not enter the merge. Invalid page/surface/reservoir/shift
-state adds neither M nor age.
+Winner selection uses currentMass and historyMass. Finalization then evaluates
+the selected sample in both the current and history receiver domains:
+
+    selectedCurrentTarget = target(selected, currentReceiver)
+    selectedHistoryTarget = target(selected, historyReceiver)
+    Z = selectedCurrentTarget * C.M
+        + selectedHistoryTarget * capped(H.M)
+    selectedSourceTarget = history won
+        ? selectedHistoryTarget : selectedCurrentTarget
+    outputMeanWeight = streamMass * selectedSourceTarget / Z
+
+Packed word11 remains the value that resolve divides by the selected current
+target. The expression above is the two-domain BASIC/1-Z finalization written
+in that representation; it is algebraically equivalent to storing the
+reference reservoir inverse PDF after combine/finalize.
+
+If history wins, the stored candidate is the current-domain shifted/re-evaluated
+candidate and age increments once. Current count-only M participates in Z only
+when that selected history sample has current-domain support. Previous
+count-only records have no selected identity and no history authority, so they
+do not enter the merge. Invalid page/surface/reservoir/shift state adds neither
+M nor age.
 
 A structurally valid shifted history sample whose current-domain contribution
-is zero is VALID_ZERO, not INVALID. Its capped history M enters outputM with
-zero mass. This attenuates a positive current winner through the denominator,
-or produces count-only plus needs-rescue when no positive current exists.
-Occlusion must not be silently dropped merely to brighten temporal output.
+is zero is VALID_ZERO, not INVALID. It contributes zero streaming mass. Its
+capped history M enters Z only if the ultimately selected current sample has
+history-domain support. This distinction is mandatory: blindly dividing by
+C.M + H.M made Doom analytic influence-radius boundaries become rigid temporal
+brightness rings and made history reset propagate as an expanding window after
+camera motion. Occlusion is still represented as a defined zero trial; BASIC
+normalization, rather than discarding the trial, prevents unsupported domains
+from darkening the result.
+
+This was checked against all three available working shapes before changing
+the live math: the RTXDI DI temporal combine/finalize path, the RTXDI PT
+temporal selected-target numerator/denominator path, and rbdoom's clean DI/GI
+temporal implementation that was also exercised inside the NVIDIA sample. All
+three preserve selected-sample target evaluation in both domains. The earlier
+UPT implementation stopped at OFF-style count normalization, which was the
+proven divergence.
 
 The CPU oracle accepts an already shifted current-domain candidate. It does not
 pretend that copying prior shaded radiance is a valid shift.
+
+The recurrence tests run the same stationary current/history reservoir through
+64 temporal frames and require packed word11's resolved estimate to remain
+constant while M grows and caps. They also require an empty center reservoir to
+own reprojection rather than allowing a neighboring positive reservoir to be
+borrowed. A separate saturated-age regression requires age 63 to remain
+reusable indefinitely. Single-frame merge tests alone did not expose these
+failure modes.
+
+Resolve view 5 is the no-extra-resource state diagnostic for the live gate:
+
+    blue -> selected fresh/current sample (age zero)
+    blue-to-green -> selected temporal sample as age increases
+    yellow -> history page/projection/compatible-surface unavailable
+    red -> exact history reservoir empty or count-only
+    magenta -> exact history selected an unsupported event family
+    cyan -> direct-light identity/replay shift invalid
+    white -> direct-light shift was a defined zero trial
+    green -> merge/finalization math failure
+
+When no explicit temporal rejection reason exists, the legacy packed-state
+fallback remains red for count-only, magenta for rescue-only, yellow for
+count-only plus rescue, black for canonical empty, and cyan for an unknown tag.
+Rejection reason occupies bits 8..11 only on non-selected records; selected
+records continue to use those bits as part of the lobe mask. The temporal
+decoder masks these diagnostic bits before validating a non-selected header.
+
+This view reads the existing 64-byte page and adds no buffer, clear, ray, or
+readback. It distinguishes an estimator that resolves dark from a temporal pass
+that actually published a non-selected record at the same screen location.
+
+The rejection view exposed a design failure in the first runtime provider. It
+persisted analytic selections but rejected emissive selections. During camera
+motion the unsupported selected records became non-selected output, then
+appeared as red empty/count-only history on the following frame until most of
+the screen flashed red. This was not a reprojection threshold failure: yellow
+would have indicated that. Primary-direct temporal is not a valid visual slice
+unless both analytic and emissive event kinds survive exact current-domain
+shift. The emissive replay closure below is therefore part of the first
+production provider rather than a later optional feature.
+
+The packed selected-sample age uses its full six-bit range. The initial live
+maximum of 20 synchronized hard history rejection after camera movement and
+could create a visible expanding reset pulse. A later version raised the host
+limit to 63 but still tested age < limit. Age therefore saturated at 63 and was
+rejected on the next frame, producing the observed blue reset wave roughly
+1.6 seconds after motion at 39 FPS. Age 63 is now a saturation value, not an
+expiry marker: T0 caps M independently at 32 and continues admitting coherent
+history at the packed ceiling.
 
 Empty-current and rescue encoding
 ---------------------------------
@@ -124,8 +303,8 @@ CPU:
 
     PathTraceUnifiedTemporalContractHarness
 
-It covers uniform page rejection, two-page role flips, projection, bounded
-fallback search, material/normal/roughness/depth incompatibility, empty-current
+It covers uniform page rejection, two-page role flips, projection, exact-pixel
+normal/depth incompatibility, empty-current
 history recovery, current-valid stale-history identity, failed-shift atomicity,
 valid-zero M preservation, finalized mean-weight math, and rescue round trip.
 
@@ -140,39 +319,59 @@ SPIR-V work. It demonstrates current-index-only in-place output and a separate
 history neighborhood. Its history copy is explicitly proof-only and is not a
 valid estimator or runtime artifact.
 
-First current-domain shift provider
------------------------------------
+Complete primary-direct shift provider
+--------------------------------------
 
-The second offline specialization admits only the sample family whose complete
-replay state already exists in the 64-byte reservoir:
+The production specialization admits both primary-direct sample families whose
+complete identities and two-dimensional sample coordinates exist in the
+64-byte reservoir:
 
-    event kind = analytic local light
+    event kind = analytic local light or emissive triangle
     global flag = clear
     path length = 1
     reconnection length = 0
 
-It validates the stored dense light identity and manager source identity,
-replays the stored two-dimensional analytic-sphere coordinates at the current
-receiver, evaluates the current MaterialSet through IUpt07PrimaryMaterialSet,
-recomputes proposal PDF/contribution/target, and performs one current visibility
-query only when the shifted material/light result is positive. Occlusion becomes
-VALID_ZERO and still contributes capped M.
+It validates the stored dense light identity and manager source identity. An
+analytic selection replays its two-dimensional sphere coordinates. An emissive
+selection validates the current 128-byte replay-sidecar identity and resolves
+the current static, dynamic, rigid, or skinned triangle at the barycentrics
+stored by D0. Those stored values are already barycentrics; applying D0's
+random-to-barycentric transform a second time is forbidden. T0 then evaluates
+the current MaterialSet through IUpt07PrimaryMaterialSet and recomputes
+solid-angle proposal PDF, emissive MIS, contribution and target.
 
-The provider has exactly six bindings:
+For BASIC finalization, the selected current sample is also replayed at the
+chosen history receiver to obtain only its target support. This evaluation uses
+the same abstract MaterialSet and current direct-light identity but casts no
+visibility ray. Primary-DI T0 matches legacy DI and RTXDI FullSample BASIC
+temporal correction. Future indirect/reconnection events require a separate
+traced provider; the shared reservoir ABI is not permission to charge every
+direct event for PT/GI validation.
 
-    TLAS
+The provider has exactly twenty bindings. Five are the temporal core:
+
     canonical current primary surfaces, 176 bytes
     canonical previous primary surfaces, 176 bytes
     current reservoir page UAV, 64 bytes
     history reservoir page SRV, 64 bytes
     current light records, either manager 112-byte or compact 64-byte form
 
-It has no material table, bindless texture set, geometry stream, extra output,
-or diagnostic buffer. Reprojection and compatibility inspect at most five
-history records. Selection is completed before shift, so the compiler exposes
-one RayQuery site rather than duplicating a trace into each unrolled tap. The
-per-pixel maximum is therefore five surface/reservoir attempts and one
-visibility ray.
+The TLAS binding exists solely for winner-only current-frame visibility.
+Fourteen read-only bindings are the already-live D0 replay route: the emissive
+sidecar plus static, dynamic, rigid and skinned vertex/index/route metadata.
+The final read-only binding is the manager previous-to-current light remap.
+T0 deliberately binds the original vertex streams rather than creating another
+compact copy. Buffer dimensions provide bounds, while the final 16 bytes of the
+128-byte push block publish the exact static-bucket route bit and live emissive
+replay count. There is no material table, sampler, bindless texture set, extra
+output, diagnostic buffer, per-frame upload buffer, or clear.
+
+Reprojection inspects the exact projection plus at most eight randomized
+surface-only probes; the first compatible surface fixes the history record.
+Geometry replay occurs only for that selected history record. The per-pixel
+maximum is therefore nine surface attempts, one reservoir load, one selected
+triangle replay, and one visibility ray only when the final winner lacks D0's
+current-frame visibility proof.
 
 Material composition remains separate. Temporal code is generic over
 IUpt07PrimaryMaterialSet; the current specialization is an OpenPBR adapter and
@@ -181,10 +380,6 @@ the reservoir/reprojection modules import no concrete closure.
 Deliberate exclusions
 ---------------------
 
-Emissive-primary history is not admitted yet. Exact replay needs triangle
-geometry; pulling the full D0 geometry closure into T0 without first designing
-a narrow replay input would repeat the old bandwidth mistake.
-
 Global/indirect history is also not admitted. The current replayKey is a hash of
 the initial pixel/frame/slot but cannot reconstruct the three continuation
 random values from the key alone. Reusing it as though it were a replay seed
@@ -192,20 +387,253 @@ would generate a different path while claiming the old identity/PDF. UPT-07
 must either store a sufficient compact replay seed/coordinates or define an
 invertible keyed random mapping before indirect shift work exists.
 
-Next admission boundary
------------------------
+Runtime integration
+-------------------
 
-The next UPT-07 slice is host integration of the verified analytic provider.
-It must cache both physical binding-set permutations so the page-role flip does
-not rebuild descriptors every frame. Only then may the runtime add:
+The verified primary-direct provider is now composed as a default-off runtime pass:
 
-    default-off temporal CVar
-    T0 pipeline and two cached page-role binding sets
-    canonical current/previous primary buffers
-    uniform page-admission push constant
-    completed-frame page-role flip
-    resolve selection of the current physical page
+    r_pathTracingUnifiedPtTemporal 0/1
 
-The proof-only history copy must never be deployed or presented. The first
-runtime view remains analytic-history only; other selected history families are
-rejected without changing current M or age.
+T0 owns one compute pipeline and two cached binding-set permutations. D0 writes
+the physical current page, T0 reads the other physical page and overwrites the
+current page in place, and R0 resolves that same page. CompleteFrame promotes
+the current page after every full D0 publication when spatial did not already
+publish into the history page. Promotion does not depend on T0 success: a
+portal/resource transition can rebuild or temporarily withhold T0 descriptors,
+but the fresh D0 page still has to advance with the canonical primary surface
+that SmokeDispatch publishes unconditionally afterward. The old success-only
+rule left N-2 reservoirs paired with N-1 surfaces after a skipped T0 frame even
+though both metadata records still passed the epoch/generation gate. A failed
+D0 or partial proof-stage frame has no publication and cannot flip roles. With
+the CVar off the role remains current0/history1 and D0/R0 use the original
+page-0 path.
+
+Host admission is uniform for the whole dispatch. History is available only
+when both page metadata records agree on dimensions, contentGeneration and
+historyEpoch, the history page serial is exactly one less than the current D0
+publication serial, and the shared canonical previous-primary publication and
+camera are valid. The serial is host-only and adds no GPU storage or traffic;
+it makes an N-2 reservoir/N-1 surface pairing fail admission explicitly even
+when its generation and epoch remain valid. Map/world resets, resolution
+changes and CVar toggles invalidate only host metadata. They do not clear either 64-byte page. Ordinary portal scene
+package commits use deferred retirement and do not advance historyEpoch; live
+geometry and light changes are handled by reprojection and per-sample identity
+replay/remapping instead of whole-page invalidation.
+
+Every pre-dispatch T0 early return now reports its reason, sample index, page
+roles and page serials once per changing failure condition. A successful T0
+dispatch re-arms the report. A portal flash with no skip report and no
+historyAvailable transition is therefore a shader-side surface/light rejection,
+not a silent host page-role failure.
+
+The live T0 descriptor closure remains the audited twenty resources. It reuses
+D0's geometry/replay allocations and adds no storage. Both current and previous
+primary inputs are the canonical 176-byte streams even when D0
+would otherwise request a compact primary receiver. The initial live gate
+therefore forces the canonical P0/D0 receiver while temporal is enabled; the
+compact P0 route writes only its private compact receiver and cannot be treated
+as though it also published canonical history. A future compact temporal path
+must own an explicit two-frame compact surface contract before this gate may be
+removed. The full and compact-light Vulkan artifacts are the only UPT-07
+shaders copied to the runtime tree; the proof-only history copy is not deployed.
+
+contentGeneration fingerprints only the stored proposal/estimator ABI: family
+and backend specialization, transport constants, material policy, and output
+dimensions. It deliberately excludes live geometry/material/texture/light
+payloads, availability flags, light-range boundaries/counts, and current
+payload count. Those values can change every frame; camera/resource
+invalidation belongs to historyEpoch, surface motion belongs to reprojection,
+and analytic light remapping is rejected per sample by dense-index plus source
+identity. Historical reservoir weights remain valid records of their source
+proposal even when the current light population changes. Including volatile
+range/count/availability values made the two physical pages disagree and
+caused historyAvailable to oscillate 1/0 while the camera was stationary.
+
+The UPT route returns before the legacy path's shared restirPTFrameIndex
+increment. It therefore advances that same counter immediately before its
+early return. FixedSampleIndex -1 now changes D0 and T0 random streams every
+rendered UPT frame; values >= 0 still override the shader input for deliberate
+repeatability tests. Before this fix, both one-shot diagnostics reported
+sampleIndex=0 and D0 replayed a fixed screen-space noise pattern indefinitely.
+
+Real-map seed-density gate
+--------------------------
+
+The first Doom-scale view-5 run after admitting eight unshadowed direct RIS
+trials produced 1,117,409 selected visibility requests but only 34,106 visible
+primary-NEE reservoirs at 2560 x 1440. The resulting almost-solid red view is
+rejection reason 2: the chosen compatible history receiver owns an empty
+reservoir. T0 may search for the first compatible surface after exact
+reprojection fails, but it must not continue searching because that surface's
+reservoir is empty or unfavorable. Content-driven neighbor borrowing previously
+acted as an unweighted spatial pass and produced the documented watery motion
+and bright persistence. Empty-neighbor reservoir rescue remains UPT-09's
+responsibility.
+
+An A/B temporarily restricted UPT publication to Doom's portal-selected light
+region. It raised visible primary-NEE reservoirs from 34,106 to roughly 156,000,
+but issued about 2.82 million selected visibility rays and still lost roughly
+94.5 percent of them. It only made small portal regions easier and immediately
+failed again in large areas. The restriction is rejected and the full eligible
+light universe is restored so later proposal/reuse work cannot hide the
+receiver-independent selection failure by shrinking its test domain.
+
+The acceptance A/B is a map reload followed by the same view-5 and diagnostics
+capture. Compare selected primary-NEE count against visibility rays; a useful
+proposal-domain correction must raise that ratio and let exact temporal history
+replace reason-2 red over stationary frames. Do not weaken T0 surface ownership,
+merely increase RIS trials, or prune the universe to manufacture that result.
+Proceed to the planned weighted/local proposal provider and UPT-09 reciprocal
+spatial rescue.
+
+Adjacent-frame analytic-light contract restored
+------------------------------------------------
+
+The first UPT-09 density test exposed two regressions that the legacy/RRX lane
+had already fixed.  They are not consequences of a unified DI/GI reservoir:
+
+1. An early T0 correction incorrectly treated adjacent-frame DI history as a
+   persistent cache. A Doom analytic remains CURRENT_SAMPLEABLE while animated
+   position, radius, color or intensity changes remove STABLE_CACHEABLE. That
+   flag is the stronger promise required by multi-frame caches such as NEE
+   cache entries; the accepted legacy DI temporal path does not require it.
+   T0 already has a previous-to-current remap plus stable identity fingerprint
+   and reevaluates the current payload, so requiring STABLE_CACHEABLE rejected
+   valid one-frame analytic history across animation and portal publication.
+   Dynamic emissive records carrying RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC
+   remain current-frame only because their geometry-route/motion replay
+   contract is not yet complete.
+
+2. UPT analytic replay always multiplied radiance by the authored Doom-radius
+   quadratic mask.  The accepted legacy/RRX default keeps that radius as
+   proposal metadata and does not hard-reject or attenuate shading at its
+   boundary; the hard mask is diagnostic-only.  UPT therefore recreated rigid
+   visible light volumes that had already been removed from the legacy output.
+
+T0 resolves the selected light through the existing manager remap and source
+identity, then applies the adjacent-frame replay contract at both sides:
+
+    analytic current selection -> temporal merge remains eligible
+    analytic history -> require valid remap, type and stable identity fingerprint
+    analytic payload animation -> reevaluate against the current record
+    dynamic emissive current selection -> keep the fresh reservoir unchanged
+    dynamic emissive -> reject only from temporal history
+
+Analytic payload changes therefore do not require a page clear or history epoch
+bump and no longer discard accumulated DI solely because a persistent-cache
+flag changed. Compact 64-byte light replay retains the identity and dynamic
+emissive flags, so full and compact-light T0 use the same proof.
+
+The shared UPT analytic sampler now matches the accepted no-hard-cutoff default
+for D0, T0, S0 and R0.  The release Vulkan build and all affected Slang
+artifacts completed successfully and were deployed on 2026-08-03.  Runtime
+acceptance remains the same animated/strobe scene with spatial enabled: density
+must remain improved, authored radius rings must disappear, and an animated
+light stopping or changing state must not poison or strobe neighboring lights.
+
+The first version of that correction was incomplete.  Although it consumed the
+manager's previous-to-current dense remap, reservoir word3 still stored and
+validated PathTraceUnifiedLightRecord.sourceIndex.  sourceIndex is a frame-local
+address into the original emissive or analytic source array; it is explicitly
+not the stable light identity.  Consequently UPT reintroduced identity churn
+after the manager had already solved it.
+
+The corrected direct-light reservoir identity is now:
+
+    word2 = dense manager index + 1 for current-frame addressing/remap
+    word3 = nonzero fingerprint of
+        (type, identityA, identityB, materialOrLightId)
+
+That tuple is the exact key used by PathTraceRemixLightManager.  T0 first maps
+word2 through the authoritative manager previous-to-current table, then checks
+word3 against the mapped current record.  S0 uses the same fingerprint for its
+same-frame guard.  D0 and secondary NEE publish it directly.  No UPT direct
+consumer may use sourceIndex as reservoir identity again.
+
+This regression happened because UPT shared the manager's storage but rebuilt
+the consumer-side identity contract independently.  Future UPT work must audit
+each legacy fix as a semantic contract, not assume that binding the same buffer
+inherits remap, stability, proposal, replay, or invalidation behavior.
+
+Object-motion and history-outlier guards restored
+-------------------------------------------------
+
+The stable-light correction removed the animated-light strobe, but motion still
+exposed two more legacy protections that UPT had not carried across.  Panning
+could leave the polygonal outline of the previous view, and rigid or skinned
+receivers could flicker between valid and empty history.  These are not inherent
+costs of a unified DI/GI reservoir.  They were consumer-contract omissions:
+
+1. The first attempted fix failed closed whenever a rigid or skinned canonical
+   receiver lacked packed object motion. Runtime testing showed that this made
+   those receivers flicker between valid and empty history. Primary-DI T0 now
+   matches the proven legacy fallback: use packed previous position when valid,
+   otherwise camera-reproject and let the exact normal/depth gate decide.
+
+2. Mature history must not recursively amplify a contribution-scale outlier.
+   T0 now applies the accepted legacy DI ratio gate before merge.  With the
+   initial ratio of 32, history whose shifted current-receiver contribution
+   scale exceeds the fresh selected scale by more than that ratio is rejected.
+   This is a history rejection, not a radiance clamp: fresh current samples are
+   unchanged.
+
+Resolve view 5 extends its rejection colors without another resource:
+
+    orange -> reserved old missing-object-motion diagnostic
+    pink   -> mature history rejected as a contribution outlier
+
+Runtime correction: these guards improved tracking only modestly.  Rigid
+receivers still flicker and portal-boundary history is still unstable.  The
+guards therefore close two invalid-input cases, but they are not accepted fixes
+for either visible failure and must not be described as such.  The remaining
+polygonal/red-cyan footprint also persists.  The next investigation must trace
+the live rigid/portal receiver identity and reprojection contract, then separate
+that from D0's sparse fresh proposal domain and direct-light shift/replay.
+Temporal must not hide any of those failures by borrowing a favorable neighbor.
+
+The primary-direct runtime provider now supports both manager analytic and
+emissive selected history through exact current-light replay. Global/indirect
+selected history is rejected without changing current M or age. This direct
+provider is not permission to condition temporal surface selection on event
+kind, nor is it a claim that unified path temporal reuse is complete. The
+production unified route must add the indirect replay/shift provider explicitly;
+unsupported history must not change the probability of selecting a supported
+family or be hidden with neighbor borrowing.
+
+Shadow-ray parity and direct temporal visibility ownership
+----------------------------------------------------------
+
+A direct comparison with the accepted legacy DI path found that D0 and S0
+had independently repeated the same low-level visibility-ray defect.  They
+launched from the unoffset receiver position, stopped only 0.02 Doom units
+before the endpoint, checked no geometric horizon, forced every triangle
+opaque, and could not ignore the selected emissive triangle itself.  This is
+unsafe at Doom-scale coordinates even when the reservoir math is otherwise
+correct.
+
+The shared UPT hit contract now constructs primary-direct visibility rays with
+both shading- and geometric-normal horizon tests, a 0.75-unit signed geometric
+normal offset plus 0.25 units along the ray, and a 0.5-unit endpoint margin.
+RayQuery D0/S0 traversal uses FORCE_NON_OPAQUE candidate control and skips
+the selected emissive instance/primitive pair before committing the first other
+triangle.  The ignore tuple is reconstructed in-register from the selected
+light; no persistent reservoir, trace-work, or light-record ABI grew. Exact
+glass/liquid/card filtering is not part of this slice because S0 does not yet
+bind the material-class authority required to reproduce it correctly.
+
+Legacy DI and RTXDI FullSample DI use BASIC temporal correction and do not trace
+inside their generic resampling helper, but both re-establish visibility before
+the reused winner is shaded. UPT-05 is intentionally trace-free, so removing
+T0's ray left no owner for that required current-frame test. A stale visible
+history sample could then deterministically replace a correct D0 count-only
+result when a new occluder arrived.
+
+Primary-DI T0 therefore exposes one TLAS binding and at most one winner-only
+RayQuery. Fresh D0 winners retain VisibilityKnown|VisibilityPassed and pay no
+second ray. A shifted/seeded winner without that proof is reconstructed after
+the final merge, tested with the shared Doom-scale offset and emissive-self
+ignore contract, and rejected back to the untouched D0 reservoir on occlusion
+or reconstruction failure. No rejected history mass is retained. Indirect and
+reconnection history remains rejected until its separately budgeted traced
+provider exists. Reciprocal current-at-history evaluation is still skipped
+unless compatible, shiftable history was admitted.

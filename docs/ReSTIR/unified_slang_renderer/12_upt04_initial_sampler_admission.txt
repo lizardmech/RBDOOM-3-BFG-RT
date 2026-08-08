@@ -150,6 +150,24 @@ it fixes the selected-sample ABI, event classification, later reuse input, and
 identical normalization for direct/global families. Raising the initial
 candidate count is a new ledger decision, not a cvar hidden inside this pass.
 
+The direct-light proposal provider may internally use a fixed RIS schedule to
+produce that one logical candidate. Its normalization must count every
+scheduled trial, including a mathematically defined zero-target trial. An
+invalid/malformed proposal is never selectable and contributes zero weight,
+but it does not shrink the fixed schedule after the draw. In particular, the
+effective proposal PDF for selected target p_hat and accumulated RIS weight W
+is:
+
+    effectiveProposalPdf = p_hat * scheduledTrialCount / W
+
+It must not use the number of positive proposals. Positive-only normalization
+conditions the estimator on having found illumination: sparse receivers become
+too bright, increasing the proposal count changes energy, and temporal reuse
+then preserves a bright sparse outlier as a long ghost. This internal RIS count
+does not change the finalized D0 reservoir confidence/M contract above; D0
+still publishes one current-frame logical candidate after selected-sample
+visibility.
+
 The stored proposal PDF includes every probability used to create the event:
 
     top-level family probability
@@ -900,3 +918,175 @@ currently modified Clean-DI sentinel shader before compiling this C++ change:
 That shader is outside UPT-04 and was not edited or rolled back. The C++-only
 verification isolates this publication change without consuming or disturbing
 the user's active shader experiments.
+
+Emissive gate before unified indirect paths
+-------------------------------------------
+
+UPT follows the established Doom content policy controlled by
+r_pathTracingReservoirTwoSidedEmissives. Emissive-triangle solid-angle replay
+uses the absolute light-facing cosine when that policy is enabled. The policy
+bit is passed explicitly into the shared replay helper by D0, T0, and S0; the
+shared module must never read one pass's global control block. This prevents a
+back-facing panel from being admitted initially and then disappearing during
+temporal or spatial replay.
+
+Visible primary-surface self-emission is a local resolve term, not a reservoir
+candidate. P0 carries non-negative HDR emission in the existing compact48 and
+compact32 receiver records using one previously available 32-bit word. R0 adds
+that term only in the normal shaded view, even when the reusable reservoir is
+empty. Debug reservoir views remain unchanged. Self-emission must never be
+inserted into the reusable reservoir: doing so would let a surface-local value
+migrate to another receiver during reuse.
+
+This repair adds no full-frame buffer, clear, dispatch, texture sample, or ray.
+The Vulkan build produces receiver-specific trace-free R0 variants so the host
+layout exactly matches the active legacy176, compact48, or compact32 P0 record.
+Changing the compact receiver encoding requires a version bump on both producer
+and consumer and a rebuilt lean primary producer blob; a Slang-only rebuild is
+not sufficient.
+
+Reusable emissive-light candidates have a different contract. The unified CPU
+light record retains an exact triangle/material identity and replay geometry,
+but its constant estimated radiance is not the shaded emitter texel. D0, T0,
+and S0 therefore replay the selected triangle UV and evaluate the current
+material's emissive texture and dynamic stage before target evaluation. A pass
+must not fall back to light.radianceAndLuminance.xyz merely because it is a
+direct-only specialization; that silently turns textured emitters into flat or
+zero-radiance lights. This exact evaluation uses existing tables and bindless
+textures and adds no reservoir fields or full-frame resources.
+
+Conditional translucent/additive signage is neither of those cases. It is a
+primary-ray overlay that must be blended through to the opaque receiver, while
+the emitter light proposal remains a separate exact triangle. The ordinary
+primary producer has a three-layer decal bin plus liquid-pool transport. The
+lean UPT producer deliberately does not restore that wide payload: it carries
+one nearest signage tuple only (material index, packed UV, hit distance = 12
+bytes), evaluates the live dynamic material record, and adds the active stage's
+textured emission to the receiver. This is sufficient for mutually exclusive
+parm-driven stages such as doorlocklightg without re-admitting general decal or
+liquid candidate arrays. UPT is also an explicit emissive-map consumer in the
+shared primary producer; gating emissive textures only on the clean-DI shaded
+view loses vending-machine and other textured fixture emission before D0.
+
+The final gate is proposal probability. One uniform emissive trial over every
+emissive triangle in a Doom map makes textured emitters visible to the camera
+but effectively absent from direct lighting. With direct proposal parity
+enabled, D0 therefore selects its emissive trial from the manager-owned
+power/area CDF. The selected probability is the exact CDF interval multiplied
+by the analytic/emissive domain-mixture probability; it is not reconstructed
+from the compact light record, which intentionally omits sourcePdf. The CDF's
+positive-source order must match the unified manager's dense emissive order,
+and D0 validates the selected manager record's sourceIndex before accepting
+the replay. A mismatch falls back to the existing uniform proposal rather than
+silently assigning the wrong source PDF.
+
+This adds one existing read-only structured-buffer binding to the D0 closure
+(set 0 binding 25, 16-byte entries). It adds no allocation, upload, clear,
+full-frame buffer, dispatch, texture sample, or ray. Static specialization must
+retain this binding in direct and unified families and strip it from the
+indirect-only family. The reflection verifier freezes those exact closures.
+
+Legacy/UPT emissive acquisition comparison, 2026-08-08
+------------------------------------------------------
+
+Runtime testing after the replay/self-emission fixes found a narrower UPT-only
+failure: some emissive lights disappear at reproducible player portal positions
+and return after moving through other portals. Legacy clean DI is not affected.
+The same emitters can work in one position and fail in another. Static bucket
+routing explained a separate color/white-replay defect but did not change the
+disappearance, and the observed inventories remain below the 4096-triangle cap.
+
+The producer audit establishes that both lanes receive the same upstream data:
+
+    PathTraceSmokeSceneBuild publishes the emissive triangle inventory;
+    PathTraceRemixLightManager publishes the current light payload and typed
+        sampleable ranges;
+    BuildSmokeEmissiveDistribution publishes the same power/area CDF and dense
+        positive-emissive order.
+
+The first material difference is downstream candidate persistence. Legacy clean
+DI calls PathTraceCleanRoomResolvePreviousBestInitialSeed before ordinary RIS.
+With r_pathTracingCleanRtxdiDiBestLights=1 (default), it reprojects the prior
+winner, translates its light through the stable previous-to-current mapping,
+replays it at the current receiver, and streams it once as a current proposal
+before combining fresh candidates. UPT D0 currently performs fresh CDF/range
+selection only. Its r_pathTracingUnifiedPtTemporalPreviousBest experiment is in
+T0, defaults off, and was not runtime-accepted because it could darken or
+overexpose the image.
+
+The next D0 slice must therefore reproduce the accepted legacy ordering, not
+enable the T0 alternate:
+
+    reproject one prior selected direct light;
+    translate and validate its stable manager identity/fingerprint;
+    replay it at the current receiver with current material and light state;
+    admit it once as a current proposal;
+    exclude a duplicate fresh selection of the same sample;
+    retain the existing one-winner visibility-ray ceiling.
+
+Keep this behind a narrow A/B until the same emitter is traced in one working
+and one broken portal position. If the reseed does not close the difference,
+record failure counters/identity at the CDF interval, dense manager map, replay
+tuple, triangle UV/material emission, target/source PDF, visibility, and final
+reservoir selection boundaries. Do not add another emissive cap, portal-local
+universe, or candidate-count workaround without that evidence.
+
+D0 emissive acquisition repair, 2026-08-08
+-------------------------------------------
+
+The follow-up audit found a failure before proposal. UPT interpreted
+gUpt04EmissiveDistribution.GetDimensions() as the live entry count. That value
+is the allocation capacity of a reuse-grown structured buffer. It can retain a
+larger high-water tail after a portal-frame rebuild publishes fewer positive
+entries. Binary search could therefore enter stale, non-current CDF entries and
+reject the resulting light before replay. The uniform-mixture experiment hid
+the defect by keeping every current entry positive; it did not repair the
+count contract.
+
+The current-frame publication is now authoritative:
+
+    emissiveDistributionCount selects the searchable CDF prefix;
+    emissiveDistributionValid admits the weighted route;
+    GetDimensions is used only as an out-of-bounds capacity guard;
+    an invalid current CDF falls through to the existing typed uniform route.
+
+D0 also owns an emissive-only previous-best proposal, independently controlled
+by r_pathTracingUnifiedPtD0PreviousBest. It reprojects and validates the prior
+receiver, decodes a structurally valid prior direct-emissive reservoir, maps its
+stable dense identity through the manager's previous-to-current table, checks
+the current fingerprint, replays the stored triangle barycentrics against the
+current geometry/material state, evaluates the current receiver target, and
+rejects invalid, dynamic-history, zero-target, or non-visible winners. A fresh
+proposal of the same mapped light contributes zero to the fixed fresh schedule
+and cannot enter twice. Analytic previous-best samples are not admitted by this
+slice, so the accepted fresh analytic path is unchanged.
+
+The reseed follows UPT's target-scaled mean-mass convention. Fresh RIS supplies
+weightSum/candidateCount, the legacy-shaped seed supplies currentTarget with
+source PDF one, and a two-source merge stores their mean. The packed reservoir
+continues to carry one finalized current-frame proposal. Only the selected
+proposal uses the existing D0 visibility ray; the reflection proof still finds
+one trace site in direct-only and three in the unified family.
+
+Focused diagnostic counters now separate previous lookup attempt/success,
+stable remap failure, replay failure, current-target failure, visibility
+failure, duplicate rejection, successful admission, fresh analytic selection,
+fresh emissive selection, and unavailable current weighted CDF. The diagnostic
+line also prints current CDF count, physical capacity, validity, and skipped
+zero-PDF entries. This proves the audited portal-dependent failure was at the
+pre-proposal CDF count boundary; any remaining runtime rejection can be placed
+at remap, replay, target, or visibility without adding candidates or filters.
+
+Offline verification:
+
+    cmake --build --preset win64-pt-dev-release
+        passed on 2026-08-08;
+    Vulkan reflection freezes the 192-byte D0 control block and D0 history
+        bindings while retaining compact32 and the accepted static families;
+    direct-only/unified trace-site ceilings, repeatability, UPT-07, UPT-08, and
+        UPT-09 verification all passed;
+    git diff --check passed.
+
+Portal-position image acceptance remains a live Vulkan A/B after deployment;
+do not call this runtime-accepted until that test records the new counters with
+temporal and spatial disabled.

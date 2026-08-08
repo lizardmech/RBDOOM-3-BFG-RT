@@ -28,11 +28,13 @@ public struct Upt07TemporalDirectControl
     public uint maximumHistoryAge;
     public Upt07PreviousCamera previousCamera;
     public uint geometryAvailabilityFlags;
-    public uint emissiveReplayCount;
+    public float emissiveScale;
     public uint previousToCurrentLightCount;
     public uint maximumHistoryContributionRatio;
     public float3 primaryCameraOrigin;
     public uint compactPrimaryHistory;
+    public uint materialCount;
+    public uint logicalTextureCount;
 };
 
 public [[vk::binding(0, 0)]] RaytracingAccelerationStructure gUpt07Scene;

@@ -1,6 +1,7 @@
 import upt03_reservoir_contract;
 import upt04_hit_contract;
 import upt04_initial_work_contract;
+import upt04_initial_control;
 import upt04_geometry_contract;
 import upt04_light_contract;
 import upt04_local_light_proposal;
@@ -10,6 +11,7 @@ import upt04_primary_surface_live_contract;
 import upt04_random_white_hash;
 import upt07_material_openpbr;
 import upt07_material_provider_contract;
+import upt07_emissive_material;
 import upt07_temporal_reservoir;
 import upt09_spatial_direct_bindings;
 
@@ -121,18 +123,44 @@ public uint Upt09EvaluateDirectSample(
             Upt04ReplayEmissiveTriangleBarycentrics(
                 light,
                 receiver.worldPositionAndViewDepth.xyz,
-                float2(source.sampleCoord0, source.sampleCoord1));
+                float2(source.sampleCoord0, source.sampleCoord1),
+                (gUpt09Control.geometryAvailabilityFlags
+                    & kUpt04EmissiveReplayTwoSided) != 0u);
         if (replay.status == kUpt04SampleInvalid)
             return 0u;
+        const float4 regionWeights = UptDirectEmissiveRegionWeights(
+            replay,
+            gUpt09Control.materialCount,
+            gUpt09Control.logicalTextureCount,
+            gUpt09Control.emissiveScale);
+        const uint region = Upt04EmissiveRegionFromBarycentrics(
+            replay.barycentrics);
+        const Upt04MaterialEmissionEvaluation emission =
+            UptDirectEvaluateEmissiveEndpoint(
+                replay.materialIndex,
+                replay.triangleClassAndFlags,
+                replay.emissionTexCoord,
+                float2(0.0f),
+                float2(0.0f),
+                gUpt09Control.materialCount,
+                gUpt09Control.logicalTextureCount,
+                gUpt09Control.emissiveScale);
+        if (emission.valid == 0u)
+            return 0u;
+        // Preserve valid black mask texels. Otherwise temporal/spatial feedback
+        // promotes the triangle-level estimate into a persistent ghost light.
+        const float3 replayRadiance = emission.radiance;
         sample.status = replay.status == kUpt04SampleValidPositive
-                && any(light.radianceAndLuminance.xyz > 0.0f)
+                && any(replayRadiance > 0.0f)
             ? kUpt04SampleValidPositive : kUpt04SampleValidZero;
         sample.position = replay.position;
         sample.normal = replay.normal;
         sample.distance = replay.distance;
         sample.direction = replay.direction;
-        sample.solidAnglePdf = replay.solidAnglePdf;
-        sample.radiance = max(light.radianceAndLuminance.xyz, float3(0.0f));
+        sample.solidAnglePdf = replay.solidAnglePdf
+            * (4.0f * Upt04EmissiveRegionSelectionPdf(
+                regionWeights, region));
+        sample.radiance = replayRadiance;
     }
     else
     {
@@ -181,7 +209,9 @@ public uint Upt09ShiftPrimaryDirectUnshadowed<
         emissive != 0u
             ? kUpt04LightEmissiveTriangle : kUpt04LightDoomAnalytic,
         (source.flags & kUpt04CandidateFlagDirectProposalParity) != 0u
-            ? 1u : 0u)
+            ? 1u : 0u,
+        Upt04ConfiguredEmissiveTrialCount(
+            gUpt09Control.geometryAvailabilityFlags))
         * sample.solidAnglePdf;
     if (!Upt04FinitePositive(proposalPdf))
         return 0u;

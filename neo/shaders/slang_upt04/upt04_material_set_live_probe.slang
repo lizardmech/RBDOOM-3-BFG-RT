@@ -1,6 +1,7 @@
 import upt04_material_contract;
 import upt04_primary_surface_live_contract;
 import upt04_material_live_contract;
+import upt04_material_emission;
 import upt04_initial_bindings;
 import upt04_initial_control;
 import upt04_hit_contract;
@@ -9,9 +10,6 @@ import upt04_path_event_contract;
 import upt04_geometry_contract;
 import upt04_material_primary_live;
 import upt05_material_openpbr;
-
-public static const uint kUpt04MaterialEmissive = 0x00000008u;
-public static const uint kUpt04TriangleEmissiveStageOff = 0x00040000u;
 
 public float Upt04MaterialSrgbToLinear(float encoded)
 {
@@ -48,38 +46,40 @@ public float3 Upt04MaterialBindingProbe(uint materialIndex, float2 uv)
 public Upt04MaterialEmissionEvaluation Upt04EvaluateEmissiveEndpoint(
     uint materialIndex,
     uint triangleClassAndFlags,
-    float2 uv)
+    float2 uv,
+    float2 uvGradient0,
+    float2 uvGradient1)
 {
     Upt04MaterialEmissionEvaluation result = (Upt04MaterialEmissionEvaluation)0;
     if (materialIndex >= gUpt04Control.materialCount
-        || !all(isfinite(uv)))
+        || !all(isfinite(uv))
+        || !all(isfinite(uvGradient0))
+        || !all(isfinite(uvGradient1)))
         return result;
 
     const Upt04SmokeMaterialRecord material = Upt04LoadMaterialRecord(materialIndex);
-    if ((material.flags & kUpt04MaterialEmissive) == 0u
-        || (triangleClassAndFlags & kUpt04TriangleEmissiveStageOff) != 0u)
-    {
-        result.valid = 1u;
-        return result;
-    }
-
-    float3 radiance = max(material.emissiveColor.xyz, float3(0.0f));
+    float3 emissiveTexel = float3(1.0f);
+    uint emissiveTexelValid = 1u;
     if (material.emissiveTextureIndex != kUpt04InvalidIdentity)
     {
         if (material.emissiveTextureIndex >= gUpt04Control.logicalTextureCount)
-            return result;
-        radiance *= saturate(
-            gUpt04MaterialTextures[NonUniformResourceIndex(material.emissiveTextureIndex)]
-                .SampleLevel(gUpt04MaterialSampler, frac(uv), 0.0f).xyz);
+            emissiveTexelValid = 0u;
+        else
+            emissiveTexel =
+                gUpt04MaterialTextures[NonUniformResourceIndex(
+                    material.emissiveTextureIndex)]
+                    .SampleGrad(
+                        gUpt04MaterialSampler,
+                        frac(uv),
+                        uvGradient0,
+                        uvGradient1).xyz;
     }
-    // Doom's baseline emissive scale belongs to this replaceable MaterialSet,
-    // never to proposal, replay, transport, or reservoir code.
-    radiance *= 1.75f;
-    if (!all(isfinite(radiance)))
-        return result;
-    result.radiance = radiance;
-    result.valid = 1u;
-    return result;
+    return Upt04FinalizeEmissiveEndpoint(
+        material,
+        triangleClassAndFlags,
+        emissiveTexel,
+        emissiveTexelValid,
+        gUpt04Control.emissiveScale);
 }
 
 public Upt04MaterialEvaluation Upt04EvaluateSecondaryDirectProbe(

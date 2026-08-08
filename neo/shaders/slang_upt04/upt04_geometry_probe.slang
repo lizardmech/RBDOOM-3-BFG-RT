@@ -36,7 +36,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         replay = Upt04ReplayEmissiveTriangleGeometry(
             gUpt04CurrentLights[0],
             primary.worldPositionAndViewDepth.xyz,
-            float2(0.25f, 0.75f));
+            float2(0.25f, 0.75f),
+            (gUpt04Control.availabilityFlags
+                & kUpt04EmissiveReplayTwoSided) != 0u);
     }
     const float3 textureProbe = Upt04MaterialBindingProbe(
         decoded.materialIndex,

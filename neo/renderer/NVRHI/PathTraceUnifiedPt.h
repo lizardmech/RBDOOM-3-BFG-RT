@@ -16,6 +16,9 @@
 #include <array>
 #include <cstdint>
 
+struct PathTraceUnifiedLightRecord;
+struct PathTraceSmokeEmissiveTriangle;
+
 enum class PathTraceUnifiedPtBackend : uint32_t
 {
     RayQuery = 0,
@@ -40,6 +43,13 @@ struct PathTraceUnifiedPtDispatchInputs
     nvrhi::IDevice* device = nullptr;
     nvrhi::ICommandList* commandList = nullptr;
     const RtPathTraceSceneInputs* sceneInputs = nullptr;
+    // CPU mirror of the exact manager payload bound through sceneInputs. This
+    // is diagnostic-only: delayed reservoir probes use the stable fingerprint
+    // to identify the current record without trusting a frame-local index.
+    const PathTraceUnifiedLightRecord* currentLightRecords = nullptr;
+    uint32_t currentLightRecordCount = 0;
+    const PathTraceSmokeEmissiveTriangle* currentEmissiveTriangles = nullptr;
+    uint32_t currentEmissiveTriangleCount = 0;
     nvrhi::BufferHandle primarySurfaceBuffer;
     nvrhi::BufferHandle primarySurfaceCurrentBuffer;
     nvrhi::BufferHandle primarySurfacePreviousBuffer;
@@ -48,6 +58,7 @@ struct PathTraceUnifiedPtDispatchInputs
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t frameSampleIndex = 0;
+    float emissiveScale = 1.0f;
     uint32_t materialPolicyFlags = 0;
     uint32_t proofStage = 1;
     uint32_t shaderProofMode = 1;
@@ -208,6 +219,8 @@ private:
     uint32_t m_diagnosticReadbackSampleIndex = 0;
     uint32_t m_diagnosticReadbackWidth = 0;
     uint32_t m_diagnosticReadbackHeight = 0;
+    bool m_diagnosticProbeFromHistory = false;
+    uint64_t m_diagnosticProbeFrameSerial = 0;
     PathTraceUnifiedPtFamily m_diagnosticReadbackFamily =
         PathTraceUnifiedPtFamily::DirectOnly;
 
@@ -309,6 +322,7 @@ private:
 
     uint32_t m_resolveWidth = 0;
     uint32_t m_resolveHeight = 0;
+    uint32_t m_resolvePrimaryReceiverMode = UINT32_MAX;
     bool m_resolvePipelineAttempted = false;
     bool m_resolveFailureLogged = false;
     bool m_resolveReady = false;

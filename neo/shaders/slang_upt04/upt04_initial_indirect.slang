@@ -139,7 +139,9 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         TMaterialSet.EvaluateEmissiveEndpoint(
             hitSurface.materialIndex,
             hitSurface.triangleClassAndFlags,
-            hitSurface.texCoord);
+            hitSurface.texCoord,
+            float2(0.0f),
+            float2(0.0f));
     if (endpointEmission.valid == 0u)
         return result;
 
@@ -200,9 +202,11 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     const Upt04UnifiedLightRecord light = Upt04LoadCurrentLightRecord(selection.denseIndex);
     const Upt04EvaluatedLocalLight evaluated =
         Upt04EvaluateSelectedLocalLight<TMaterialSet>(
-        selection,
-        light,
-        hitSurface.position);
+            selection,
+            light,
+            hitSurface.position,
+            gUpt04Control.availabilityFlags,
+            gUpt04Control.emissiveScale);
     if (evaluated.valid == 0u)
         return result;
     const Upt04MaterialEvaluation material = TMaterialSet.EvaluateSecondaryDirect(
@@ -225,7 +229,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     nee.identity0 = selection.denseIndex + 1u;
     if (nee.identity0 == 0u)
         return result;
-    nee.identity1 = light.sourceIndex + 1u;
+    nee.identity1 = Upt04StableLightIdentityFingerprint(light);
     nee.sampleCoordinates = evaluated.storedSampleCoordinates;
     nee.pathLength = 2u;
     nee.reconnectionVertexLength = 1u;

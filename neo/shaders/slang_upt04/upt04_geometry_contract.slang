@@ -264,5 +264,12 @@ public struct Upt04EmissiveGeometrySample
     public float distance;
     public float solidAnglePdf;
     public float2 texCoord;
+    // RTXDI-style triangle-footprint emissive evaluation.  Geometry remains
+    // sampled at texCoord/barycentrics, but the emitted radiance is constant
+    // over the triangle and filtered over its UV footprint.  Keeping these
+    // values in-register avoids widening the persistent light/reservoir ABI.
+    public float2 emissionTexCoord;
+    public float2 emissionUvGradient0;
+    public float2 emissionUvGradient1;
     public float2 barycentrics;
 };

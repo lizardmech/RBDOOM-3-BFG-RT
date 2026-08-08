@@ -39,4 +39,4 @@ if(disassembly MATCHES "OpCapability (Int16|Float16)" OR
 endif()
 
 file(WRITE "${UPT07_STAMP}"
-    "UPT-07 temporal ownership verified: current-only in-place output, separate history page, 2x176-byte surfaces, 2x64-byte reservoirs, five compile-time taps, 8x8, no rays/textures/native16\n")
+    "UPT-07 temporal ownership verified: current-only in-place output, separate history page, 2x176-byte surfaces, 2x64-byte reservoirs, exact projected pixel, 8x8, no rays/textures/native16\n")

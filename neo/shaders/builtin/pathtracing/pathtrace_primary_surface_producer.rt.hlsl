@@ -41,7 +41,15 @@ struct PathTraceSmokePayload
     uint shadowIgnoreMaterialId;
     float3 debugVector;
     uint debugFlags;
-#if !RB_PT_UPT_LEAN_PRIMARY
+#if RB_PT_UPT_LEAN_PRIMARY
+    // UPT keeps one nearest additive-signage layer.  This is deliberately not
+    // the legacy three-entry decal/liquid bin: conditional Doom stages such as
+    // doorlocklightg must survive the primary trace, but restoring the wide
+    // modifier payload would undo the compact-primary performance win.
+    uint leanSignageMaterialIndex;
+    uint leanSignagePackedTexCoord;
+    float leanSignageHitT;
+#else
     // Detail-decal blend-through bin (docs/decal_cards/02 M4): any-hit accumulates
     // decal layers here and IgnoreHit()s; the base wall stays the committed
     // closest hit and the layers composite at surface-build time.
@@ -1089,7 +1097,15 @@ bool ResolvePrimaryFilterDecalReceiver(inout PathTraceSmokePayload payload, RayD
     }
 
     PathTraceSmokePayload receiverPayload = InitSmokePayload();
-#if !RB_PT_UPT_LEAN_PRIMARY
+#if RB_PT_UPT_LEAN_PRIMARY
+    // Preserve the overlay found in front of a filter-decal receiver while the
+    // retrace searches for the actual opaque surface behind both modifiers.
+    receiverPayload.leanSignageMaterialIndex =
+        payload.leanSignageMaterialIndex;
+    receiverPayload.leanSignagePackedTexCoord =
+        payload.leanSignagePackedTexCoord;
+    receiverPayload.leanSignageHitT = payload.leanSignageHitT;
+#else
     // Seed the retrace with the first trace's dedicated set. Any-hit deduplicates
     // the exact five-word occurrence key before capacity accounting.
     receiverPayload.liquidRawCount = payload.liquidRawCount;
@@ -1486,7 +1502,11 @@ PathTraceSmokePayload InitSmokePayload()
     payload.shadowIgnoreMaterialId = 0xffffffffu;
     payload.debugVector = float3(0.0, 0.0, 0.0);
     payload.debugFlags = 0u;
-#if !RB_PT_UPT_LEAN_PRIMARY
+#if RB_PT_UPT_LEAN_PRIMARY
+    payload.leanSignageMaterialIndex = 0xffffffffu;
+    payload.leanSignagePackedTexCoord = 0u;
+    payload.leanSignageHitT = 0.0;
+#else
     payload.decalCount = 0u;
     [unroll]
     for (uint decalSlot = 0u; decalSlot < RT_SMOKE_DECAL_BIN_SIZE; ++decalSlot)
@@ -3324,6 +3344,59 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
 }
 #endif
 
+#if RB_PT_UPT_LEAN_PRIMARY
+// The compact UPT producer carries exactly one nearest additive signage layer.
+// LoadSmokeMaterial applies the live PathTraceDynamicMaterialRecord before the
+// texture lookup, so parm-driven mutually exclusive stages retain their current
+// red/green tint instead of collapsing to a static material color.
+void ApplyLeanAdditiveSignageComposite(
+    inout RAB_Surface surface,
+    PathTraceSmokePayload payload,
+    float3 rayDirection)
+{
+    if (!PathTraceAdditiveEmissiveCollectEnabled() ||
+        payload.leanSignageMaterialIndex == 0xffffffffu ||
+        !RAB_IsSurfaceValid(surface))
+    {
+        return;
+    }
+
+    const float offsetEnvelope = DecalInfo.y * DecalInfo.z * 1.5 + 0.05;
+    const float normalCosine = abs(dot(rayDirection, surface.geometryNormal));
+    const float normalSeparation =
+        abs(payload.hitT - payload.leanSignageHitT) * normalCosine;
+    if (normalSeparation > offsetEnvelope)
+    {
+        return;
+    }
+
+    const PathTraceSmokeMaterial signageMaterial =
+        LoadSmokeMaterial(payload.leanSignageMaterialIndex);
+    const bool activeAdditiveEmissive =
+        (signageMaterial.flags &
+            (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+                RT_SMOKE_MATERIAL_EMISSIVE)) ==
+            (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+                RT_SMOKE_MATERIAL_EMISSIVE);
+    if (!activeAdditiveEmissive)
+    {
+        return;
+    }
+
+    const uint packedTexCoord = payload.leanSignagePackedTexCoord;
+    const float2 texCoord = float2(
+        f16tof32(packedTexCoord & 0xffffu),
+        f16tof32(packedTexCoord >> 16));
+    surface.material.emissiveRadiance +=
+        SampleSmokeEmissive(
+            signageMaterial,
+            texCoord,
+            RT_SMOKE_SURFACE_CLASS_TRANSLUCENT,
+            true) *
+        max(ToyPathInfo.z, 0.0);
+}
+#endif
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -3357,10 +3430,12 @@ void RayGen()
     // bypassed (docs/decal_cards/08 sec.4 -- do not build on the receiver re-trace).
 #if RB_PT_UPT_LEAN_PRIMARY
     // UPT's lean P0 keeps the ordinary opaque/alpha-tested/filter-decal receiver
-    // contract, but deliberately omits the optional any-hit candidate bins.  The
-    // emitted PathTracePrimarySurfaceRecord remains byte-for-byte ABI compatible.
+    // contract and a single additive-signage slot, while omitting the wide
+    // detail-decal and liquid candidate bins.  The emitted
+    // PathTracePrimarySurfaceRecord remains byte-for-byte ABI compatible.
     const bool decalCollectMode = false;
-    const bool additiveEmissiveCollectMode = false;
+    const bool additiveEmissiveCollectMode =
+        PathTraceAdditiveEmissiveCollectEnabled();
 #else
     const bool decalCollectMode = PathTraceDecalCollectEnabled(PathTraceDecalCompositeStage());
     const bool additiveEmissiveCollectMode = PathTraceAdditiveEmissiveCollectEnabled();
@@ -3381,7 +3456,12 @@ void RayGen()
         {
             ApplyPrimaryFilterDecalToSurface(surface, filterDecalPayload);
         }
-#if !RB_PT_UPT_LEAN_PRIMARY
+#if RB_PT_UPT_LEAN_PRIMARY
+        if (additiveEmissiveCollectMode)
+        {
+            ApplyLeanAdditiveSignageComposite(surface, payload, ray.Direction);
+        }
+#else
         if (decalCollectMode || additiveEmissiveCollectMode)
         {
             ApplyDetailDecalComposite(surface, payload, ray.Direction);
@@ -3420,7 +3500,26 @@ void ShadowMiss(inout PathTraceSmokeShadowPayload payload)
 // Remix-style conditionallyStoreDecal: keep the RT_SMOKE_DECAL_BIN_SIZE entries
 // with the highest sort keys (the topmost-drawn layers). The decal never commits;
 // receiver validation happens at composite time where the base hitT is known.
-#if !RB_PT_UPT_LEAN_PRIMARY
+#if RB_PT_UPT_LEAN_PRIMARY
+void ConditionallyStoreLeanAdditiveSignageResolved(
+    inout PathTraceSmokePayload payload,
+    uint materialIndex,
+    float2 texCoord)
+{
+    const float hitT = RayTCurrent();
+    if (payload.leanSignageMaterialIndex != 0xffffffffu &&
+        hitT >= payload.leanSignageHitT)
+    {
+        return;
+    }
+
+    payload.leanSignageMaterialIndex = materialIndex;
+    payload.leanSignagePackedTexCoord =
+        (f32tof16(texCoord.x) & 0xffffu) |
+        (f32tof16(texCoord.y) << 16);
+    payload.leanSignageHitT = hitT;
+}
+#else
 void ConditionallyStoreDetailDecalResolved(
     inout PathTraceSmokePayload payload,
     uint materialIndex,
@@ -3630,6 +3729,7 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
         const bool detailDecal =
             (optionalMaterialFlags & RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u;
         const bool additiveEmissiveSignage =
+            PathTraceAdditiveEmissiveCollectEnabled() &&
             (optionalMaterialFlags &
                 (RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
                     RT_SMOKE_MATERIAL_EMISSIVE)) ==
@@ -3659,7 +3759,35 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
 #endif
         if (detailDecal || additiveEmissiveSignage)
         {
-#if !RB_PT_UPT_LEAN_PRIMARY
+#if RB_PT_UPT_LEAN_PRIMARY
+            if (additiveEmissiveSignage)
+            {
+                if (resolved.staticBucket)
+                {
+                    if (PathTraceStaticBucketDetailDecalFacesPrimaryRay(
+                            resolved.staticAddress))
+                    {
+                        ConditionallyStoreLeanAdditiveSignageResolved(
+                            payload,
+                            hitMaterialIndex,
+                            InterpolateSmokeTexCoord(
+                                lookupInstanceId,
+                                lookupPrimitiveIndex,
+                                attributes.barycentrics));
+                    }
+                }
+                else
+                {
+                    ConditionallyStoreLeanAdditiveSignageResolved(
+                        payload,
+                        hitMaterialIndex,
+                        InterpolateSmokeTexCoord(
+                            lookupInstanceId,
+                            lookupPrimitiveIndex,
+                            attributes.barycentrics));
+                }
+            }
+#else
             if (resolved.staticBucket)
             {
                 if (PathTraceStaticBucketDetailDecalFacesPrimaryRay(

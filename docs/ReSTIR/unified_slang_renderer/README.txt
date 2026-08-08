@@ -4,36 +4,34 @@ Unified ReSTIR PT Slang Test Renderer
 Status
 ------
 
-UPT-00 through UPT-03 are complete. UPT-04 has passed its live RayQuery and
-ray-generation execution ladder, full-frame dispatch, diagnostic counter, and
-backend-parity gates. UPT-05 now owns one verified trace-free compute resolve,
-one RGBA16F output, direct presentation, and a statically selected modular
-OpenPBR material provider. A zero-production-cost fixed-input repeatability
-probe is also accepted for direct-only and unified RayQuery at 2560 x 1440
-through the existing one-shot diagnostic. Four 2560 x 1440 Nsight GPU Trace
-captures accept the steady-state timing and no-pipeline-creation gates:
-the UPT submit remained within 4.67-4.83 ms and P0+D0+R0 remained within
-4.24-4.37 ms. The live image was fully functional and remained at the user's
-120 FPS cap with textured models. A subsequent live-SPIR-V bandwidth audit
-removed unused UPT-only RR guides and a duplicate 176-byte D0 receiver load,
-but the runtime A/B produced no counter change and rejected explicit output
-traffic as the governing bottleneck. Audit 19 proves a much larger shared
-architecture divergence: the early/current P0 payloads are 176/336 bytes
-versus NVIDIA FullSample's 40-byte PT payload, and unified RayQuery D0 retains
-multiple 168-byte work records across three inline traversal loops. A 5,732-
-byte full-frame traversal-isolation shader is built and deployed as proof mode
-14. Its live Nsight result reached nearly maximum RT-core utilization and was
-read-constrained, proving that the live TLAS and Vulkan RayQuery path can feed
-traversal when production D0 state is absent. The later compact-record and
-split A/Bs retained compact primary/geometry/light data but rejected both D0
-splits: each serialized traversal and was slower than the roughly 0.9 ms
-monolithic result. UPT-06 now admits exactly two 64-byte reservoir pages,
-host-owned full-width metadata, and a count-only zero-trial encoding without a
-stride increase. Its allocation/no-clear/page-publication runtime gate passed
-on 2026-08-03. Page 1 is not consumed or cleared yet; temporal/spatial math
-remains outside this admission task. The same validation run found and removed
-an unintended native Int16/Float16 SPIR-V feature dependency from the compact
-binary16 storage codec.
+UPT-00 through UPT-06 are complete through the accepted direct no-reuse and
+two-page history contracts. P0/D0/R0 produced a functional textured 2560 x
+1440 image at the user's 120 FPS cap. The compact32 receiver plus cold history
+sidecar is accepted, authored vertex smoothing is preserved, and both attempted
+D0 splits remain rejected because they serialized or duplicated traversal and
+were slower than the roughly 0.9 ms monolithic result.
+
+UPT-07 is a live, opt-in primary-direct temporal pass. It uses a dithered
+nine-probe surface-only reprojection search, stable manager light identity,
+host frame-serial page admission, current-domain sample replay, and at most one
+winner-only visibility RayQuery. UPT-08 is implemented and defaults on inside
+the opt-in route: U0/U1 publish a stable sample identity, count correlation in
+a 17 x 17 neighborhood, and adapt the next temporal history-M cap without a
+per-frame clear. UPT-09 is a live, opt-in direct spatial pass over the same two
+64-byte pages. Its accepted sub-policy defaults are unique-neighbor mode 0,
+direct proposal parity, RTXDI target-PDF parity, duplication control, and
+history M/age 32. Temporal and spatial themselves remain default off.
+
+The remaining direct blocker is UPT-only portal/player-position emissive
+acquisition loss. Legacy clean DI consumes the same light-manager payload,
+typed ranges, and host-built emissive CDF without the disappearance. The key
+downstream difference is legacy D0's default-on previous-best reseed; UPT D0
+currently relies on fresh proposals while its rejected previous-best experiment
+lives in T0. The next narrow task is to port that D0 reseed with stable-ID
+translation and duplicate exclusion, prove the exact acquisition stage where a
+missing emitter is lost, and only then admit unified indirect continuation and
+secondary NEE paths. See 23_handover_2026_08_08.txt for current controls,
+non-regression fixes, evidence, and sequencing.
 
 Purpose
 -------
@@ -261,7 +259,8 @@ Packet index
         UPT-04 GPU work admission and implementation record: corrected path-tree
         candidate streaming, exact three-ray ceiling, resource/module boundaries,
         mandatory host publications, fixed counter readback, offline shader
-        closure, and selected runtime wiring.
+        closure, selected runtime wiring, exact current emissive-CDF count, and
+        the bounded D0 previous-best emissive acquisition checkpoint.
 
     14_upt05_trace_free_resolve_results.txt
         UPT-05 resolve resource/dispatch admission, static SPIR-V closure,
@@ -300,7 +299,24 @@ Packet index
         Two-page allocation/lifetime admission, host-owned page metadata,
         count-only zero-trial encoding, no-clear invalidation, and the exact
         temporal/spatial page-role schedules, including live acceptance and
-        the compact binary16 Vulkan capability correction.
+        the compact binary16 Vulkan capability correction. D0 now advances and
+        consumes the same two-page history even when T0/S0 are disabled.
+
+    21_upt07_temporal_contract_slice.txt
+        Nine-probe surface-only reprojection, finalized-weight oracle, stable
+        light identity, frame-serial/page-role repair, one winner-only
+        visibility ray, and the live two-page T0 composition with no clears.
+
+    22_upt09_spatial_rescue_slice.txt
+        Bounded direct spatial reuse, non-recursive empty-center rescue,
+        unique-neighbor and estimator proof modes, UPT-08 duplication control,
+        accepted direct-reuse sub-policy defaults, and remaining limitations.
+
+    23_handover_2026_08_08.txt
+        Current branch/worktree state, known-good runtime controls, fixes that
+        must not regress, the audited UPT-only emissive CDF-capacity failure,
+        D0 previous-best implementation/build state, remaining live portal A/B,
+        evidence locations, and the next implementation sequence.
 
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
@@ -310,10 +326,11 @@ Packet index
         roulette, measured costs) so the PDF does not have to be re-read.
         Also carries the live host-side blockers.
 
-Stop condition
---------------
+Historical reuse admission gate
+-------------------------------
 
-Do not add temporal or spatial reuse unless the no-reuse renderer:
+This gate admitted UPT-07 through UPT-09 and remains a regression checklist.
+The no-reuse renderer had to:
 
     produces a correct unified direct/global image;
     reports exact ray and dispatch counts;

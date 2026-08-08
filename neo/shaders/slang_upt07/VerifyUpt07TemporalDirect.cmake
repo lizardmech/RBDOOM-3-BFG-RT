@@ -11,15 +11,18 @@ file(READ "${UPT07_COMPACT_REFLECTION}" compact_reflection)
 file(READ "${UPT07_COMPACT_DISASSEMBLY}" compact_disassembly)
 
 foreach(kind full compact)
-    foreach(binding 0 1 2 3 4 5 6 7 8 10 11 12 14 15 16 17 18 19 20 21 23 25 26)
+    foreach(binding 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 23 25 26 27 28)
         if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*${binding}")
             message(FATAL_ERROR "UPT-07 ${kind} direct temporal lacks set 0 binding ${binding}")
         endif()
     endforeach()
     string(REGEX MATCHALL "\"binding\"[ \t]*:" bindings "${${kind}_reflection}")
     list(LENGTH bindings binding_count)
-    if(NOT binding_count EQUAL 23)
-        message(FATAL_ERROR "UPT-07 ${kind} direct temporal must expose exactly twenty-three narrow replay bindings")
+    if(NOT binding_count EQUAL 28)
+        message(FATAL_ERROR "UPT-07 ${kind} direct temporal must expose exactly twenty-eight replay bindings including triangle classes and emitter material lookup")
+    endif()
+    if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*1,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*0")
+        message(FATAL_ERROR "UPT-07 ${kind} direct temporal lacks the bindless emitter texture set")
     endif()
     if(NOT ${kind}_reflection MATCHES "\"array_stride\"[ \t]*:[ \t]*32")
         message(FATAL_ERROR "UPT-07 ${kind} direct temporal lacks the compact 32-byte receiver/history sidecar types")
@@ -30,7 +33,7 @@ foreach(kind full compact)
     if(NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"maximumHistoryAge\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*44" OR
        NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"previousCamera\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"_[0-9]+\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*48" OR
        NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"geometryAvailabilityFlags\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*112" OR
-       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"emissiveReplayCount\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*116" OR
+       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"emissiveScale\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*116" OR
        NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"previousToCurrentLightCount\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*120")
         message(FATAL_ERROR "UPT-07 ${kind} direct temporal push constants lost the established 128-byte prefix")
     endif()
@@ -39,8 +42,8 @@ foreach(kind full compact)
     if(NOT rayquery_initializer_count EQUAL 1 OR ${kind}_disassembly MATCHES "OpTraceRayKHR")
         message(FATAL_ERROR "UPT-07 ${kind} direct temporal must expose exactly one winner-only RayQuery and no TraceRay site")
     endif()
-    if(${kind}_disassembly MATCHES "OpImageSample|OpImageFetch|OpTypeImage")
-        message(FATAL_ERROR "UPT-07 ${kind} direct temporal admitted texture/image work")
+    if(NOT ${kind}_disassembly MATCHES "OpImageSample" OR ${kind}_disassembly MATCHES "OpImageFetch")
+        message(FATAL_ERROR "UPT-07 ${kind} direct temporal lost exact sampled emissive endpoint replay")
     endif()
     if(${kind}_disassembly MATCHES "OpCapability (Int16|Float16)" OR
        ${kind}_disassembly MATCHES "OpType(Int|Float) 16")
@@ -54,4 +57,4 @@ if(NOT full_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt07CurrentLights\"" OR
 endif()
 
 file(WRITE "${UPT07_STAMP}"
-    "UPT-07 direct temporal verified: twenty-three bindings including TLAS, light remap, 2x32-byte receivers and 2x32-byte cold history sidecars, exact emissive geometry replay, full/compact light variants, bounded randomized surface-only reprojection, exactly one winner-only RayQuery, no textures/native16\n")
+    "UPT-07 direct temporal verified: twenty-eight bindings including TLAS, light remap, 2x32-byte receivers and 2x32-byte cold history sidecars, exact emissive geometry and texture replay, full/compact light variants, bounded randomized surface-only reprojection, exactly one winner-only RayQuery, no native16\n")

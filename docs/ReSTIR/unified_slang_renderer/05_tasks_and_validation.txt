@@ -281,6 +281,14 @@ plus dispatch control is proven insufficient for uniform history rejection.
 UPT-07: Temporal reuse with empty-current recovery
 --------------------------------------------------
 
+Current status, 2026-08-08:
+
+    Live and opt-in for primary direct analytic/emissive history. The accepted
+    implementation includes nine-probe surface-only reprojection, frame-serial
+    page admission, stable light remap/fingerprint validation, and at most one
+    winner-only visibility RayQuery. Indirect/reconnection history is still
+    rejected. See 21_upt07_temporal_contract_slice.txt.
+
 Requirements:
 
     current initial and previous history are independent candidates
@@ -306,6 +314,13 @@ Acceptance:
 UPT-08: Duplication history reduction
 --------------------------------------
 
+Current status, 2026-08-08:
+
+    Implemented as U0 sample-ID publication plus U1 packed 17x17 duplication
+    scoring. The accepted sub-policy default is enabled; disabling it removes
+    its allocation and dispatch work. It bounds correlated temporal history but
+    does not repair incorrect replay, target, identity, or visibility math.
+
 Compare:
 
     fused sample-ID output + duplication compute
@@ -320,6 +335,14 @@ Acceptance:
 
 UPT-09: Spatial reuse with invalid-center rescue
 ------------------------------------------------
+
+Current status, 2026-08-08:
+
+    Live and opt-in for primary direct events. Unique-neighbor proof mode 0,
+    non-recursive empty-center rescue, direct proposal parity, target-PDF
+    parity, duplication control, and history M/age 32 are the accepted direct
+    sub-policy. Reciprocal-neighbor cost proof and indirect path shifting remain
+    open. See 22_upt09_spatial_rescue_slice.txt.
 
 First policy:
     reciprocal neighbor selection
@@ -345,8 +368,32 @@ Acceptance:
     ray/tap counts and GPU timing
     reciprocal policy demonstrates its intended cost reduction or is rejected
 
+UPT-D0 emissive acquisition checkpoint, 2026-08-08
+------------------------------------------------------
+
+    implemented exact current CDF count/valid publication rather than buffer
+        capacity;
+    implemented emissive-only legacy-shaped previous-best replay in D0;
+    retained one winner-only D0 visibility ray and existing two history pages;
+    retained compact32, proposal-parity, duplication, T0, and S0 closures;
+    added stage-specific rejection/admission and fresh-type diagnostics;
+    Vulkan release build and all offline closure checks pass;
+    live temporal-off/spatial-off portal A/B remains the acceptance gate.
+
+Do not begin UPT-10A unified indirect/GI work until that live D0 gate passes.
+
 UPT-10A: Three-bounce transport and aggressive roulette
 -------------------------------------------------------
+
+Current sequencing note, 2026-08-08:
+
+    Do not jump directly from direct-only reuse to the three-bounce target. The
+    next code boundary is (1) exact UPT D0 emissive acquisition parity with the
+    accepted legacy previous-best reseed, then (2) the existing unified family
+    with one indirect continuation and secondary NEE in the shared path-tree
+    reservoir. Validate that no-reuse unified image first. Only then extend the
+    same path/ABI toward the mapped three-bounce and roulette policy. See
+    23_handover_2026_08_08.txt.
 
 Type:
     later measured transport-policy extension; not part of initial acceptance

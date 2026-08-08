@@ -584,8 +584,17 @@ void ApplyDoomLightGameMetadataToRecord(const viewDef_t* viewDef, const DoomLigh
     record.baseColor = metadata.baseColor;
     record.currentGameColor = metadata.currentColor;
     const bool cleanDoomColorRoute = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
+    // UPT publishes and consumes the Remix-shaped dense light universe even
+    // when the diagnostic r_pathTracingRemixLightUniverseEnable CVar remains
+    // off.  Keep it on the same stable Doom-color contract as the explicit
+    // RLU route.  Falling through to source 0 here evaluates material shader
+    // registers; animated/effect stages can then turn an unrelated analytic
+    // light red for a frame.  A sparse proposal schedule often misses that
+    // payload, while proposal-parity's stratified 32-light schedule exposes
+    // it across the portal and makes temporal/spatial reuse look poisoned.
     const bool remixLightUniverseColorRoute =
         r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
+        r_pathTracingUnifiedPtEnable.GetInteger() != 0 ||
         (r_pathTracingReGIREnable.GetInteger() != 0 && r_pathTracingReGIRMode.GetInteger() != 0);
     const int doomColorSource = cleanDoomColorRoute
         ? idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger())

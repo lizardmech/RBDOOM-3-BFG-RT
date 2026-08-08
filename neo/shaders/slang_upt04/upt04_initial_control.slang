@@ -4,11 +4,29 @@ public static const uint kUpt04RouteStaticBuckets = 0x00000002u;
 public static const uint kUpt04EnvironmentAvailable = 0x00000004u;
 public static const uint kUpt04MaterialUseSpecularMaps = 0x00000010u;
 public static const uint kUpt04MaterialLegacySpecmapToPbr = 0x00000020u;
+public static const uint kUpt04TwoSidedEmissives = 0x00000040u;
+public static const uint kUpt04EmissiveTrialCountShift = 8u;
+public static const uint kUpt04EmissiveTrialCountMask = 0x00001f00u;
+public static const uint kUpt04DirectProposalParity = 0x40000000u;
+public static const uint kUpt04D0PreviousBest = 0x80000000u;
 public static const uint kUpt04TextureProbeDisabled = 0u;
+public static const uint kUpt04ControlMetadataValidBit = 0x80000000u;
+public static const uint kUpt04ControlMetadataCountMask = 0x7fffffffu;
 
-// Thirty-two scalar words / 128 bytes.  UPT-04 has no history page consumer;
-// three formerly reserved generation words carry the primary camera origin
-// needed by the compact32 current-frame receiver without adding a buffer.
+public uint Upt04ConfiguredEmissiveTrialCount(uint availabilityFlags)
+{
+    return clamp(
+        (availabilityFlags & kUpt04EmissiveTrialCountMask)
+            >> kUpt04EmissiveTrialCountShift,
+        1u,
+        16u);
+}
+
+// Forty-eight scalar words / 192 bytes. The first 128 bytes retain the
+// accepted current-frame D0 ABI. The final four words groups add the exact
+// previous-camera/remap metadata needed by the D0 previous-best lookup and the
+// current valid CDF count. Both count words reserve their high bit for the
+// matching availability/validity bit.
 public struct Upt04InitialControl
 {
     public uint renderWidth;
@@ -42,5 +60,54 @@ public struct Upt04InitialControl
     public uint skinnedRouteTriangleCount;
     public uint skinnedSourceIndexCount;
     public uint skinnedCurrentVertexCount;
-    public uint emissiveReplayCount;
+    // The replay buffer publishes its own count through GetDimensions. Reuse
+    // this final ABI word for the live emissive scale so D0/T0/S0 evaluate the
+    // same emitter energy as the accepted legacy path.
+    public float emissiveScale;
+    public float previousCameraOriginX;
+    public float previousCameraOriginY;
+    public float previousCameraOriginZ;
+    public uint previousToCurrentLightCountAndHistory;
+    public float previousCameraForwardX;
+    public float previousCameraForwardY;
+    public float previousCameraForwardZ;
+    public float previousCameraTanX;
+    public float previousCameraLeftX;
+    public float previousCameraLeftY;
+    public float previousCameraLeftZ;
+    public float previousCameraTanY;
+    public float previousCameraUpX;
+    public float previousCameraUpY;
+    public float previousCameraUpZ;
+    public uint emissiveDistributionCountAndValid;
 };
+
+public bool Upt04D0PreviousBestHistoryAvailable(
+    uint availabilityFlags,
+    uint previousToCurrentLightCountAndHistory)
+{
+    return (availabilityFlags & kUpt04D0PreviousBest) != 0u
+        && (previousToCurrentLightCountAndHistory
+            & kUpt04ControlMetadataValidBit) != 0u;
+}
+
+public uint Upt04D0PreviousToCurrentLightCount(
+    uint previousToCurrentLightCountAndHistory)
+{
+    return previousToCurrentLightCountAndHistory
+        & kUpt04ControlMetadataCountMask;
+}
+
+public bool Upt04EmissiveDistributionValid(
+    uint emissiveDistributionCountAndValid)
+{
+    return (emissiveDistributionCountAndValid
+        & kUpt04ControlMetadataValidBit) != 0u;
+}
+
+public uint Upt04EmissiveDistributionCount(
+    uint emissiveDistributionCountAndValid)
+{
+    return emissiveDistributionCountAndValid
+        & kUpt04ControlMetadataCountMask;
+}

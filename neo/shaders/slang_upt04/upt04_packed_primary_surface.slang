@@ -1,7 +1,7 @@
 import upt04_primary_surface_live_contract;
 import upt04_binary16;
 
-public static const uint kUpt04PackedPrimaryVersion = 1u;
+public static const uint kUpt04PackedPrimaryVersion = 2u;
 public static const uint kUpt04PackedPrimaryValid = 0x00010000u;
 
 // Must remain byte-identical to PathTraceUnifiedPtPrimaryReceiver (48 bytes).
@@ -34,6 +34,18 @@ public float3 Upt04DecodeOctahedral(uint packed)
     return isfinite(lengthSquared) && lengthSquared > 1.0e-12f
         ? value * rsqrt(lengthSquared)
         : float3(0.0f, 0.0f, 1.0f);
+}
+
+public float3 Upt04UnpackSharedExponentEmission(uint packed)
+{
+    if (packed == 0u)
+        return float3(0.0f);
+    const uint exponent = packed >> 27u;
+    const float scale = exp2(float(exponent) - 24.0f);
+    return float3(
+        float(packed & 0x1ffu),
+        float((packed >> 9u) & 0x1ffu),
+        float((packed >> 18u) & 0x1ffu)) * scale;
 }
 
 public Upt04PrimarySurfaceRecord Upt04UnpackPrimarySurface(
@@ -70,5 +82,7 @@ public Upt04PrimarySurfaceRecord Upt04UnpackPrimarySurface(
         0.0f);
     surface.albedoAndAlphaCutoff = float4(baseColor, 0.0f);
     surface.specularF0AndReserved = float4(specularF0, 0.0f);
+    surface.emissiveAndHeight = float4(
+        Upt04UnpackSharedExponentEmission(packed.material.w), 0.0f);
     return surface;
 }

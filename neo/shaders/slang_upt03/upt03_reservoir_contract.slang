@@ -2,6 +2,12 @@
 // material, random-provider, renderer, ray-tracing, or NVRHI dependency.
 
 public static const uint kUpt03ExpectedGeneration = 0x10203040u;
+// replayKey is also the persistent random-sample identity used by UPT-08's
+// duplication map.  The high bit is reserved as a one-frame spatial-rescue
+// flag; the remaining 31 bits remain stable while a sample moves through
+// temporal/spatial reuse.  Do not replace this with an exact magic value: that
+// destroys the identity needed to detect correlated copies.
+public static const uint kUpt03ReplayKeyRescueBit = 0x80000000u;
 public static const uint kUpt03PackedSelectedTag = 1u;
 public static const uint kUpt03PackedCountOnlyTag = 2u;
 public static const uint kUpt03PackedNeedsRescueBit = 4u;
@@ -34,6 +40,18 @@ public struct Upt03Candidate
     public uint padding;
 };
 
+public bool Upt03IsDirectSpatialRescue(Upt03Candidate candidate)
+{
+    return (candidate.eventKind == 1u || candidate.eventKind == 2u)
+        && (candidate.replayKey & kUpt03ReplayKeyRescueBit) != 0u;
+}
+
+public uint Upt03DuplicationSampleId(Upt03Candidate candidate)
+{
+    return Upt03IsDirectSpatialRescue(candidate)
+        ? 0u : (candidate.replayKey & ~kUpt03ReplayKeyRescueBit);
+}
+
 public struct Upt03PackedReservoir
 {
     public uint word0;
@@ -58,9 +76,29 @@ public struct Upt03LogicalReservoir
 {
     public uint hasSelectedSample;
     public uint effectiveM;
+    // UPT persists the target-scaled UCW, pHat(selected) * W, which is also
+    // the mean RIS weight after finalization.  This is deliberately not the
+    // RTXDI convention of persisting W itself.  Same-domain formulas often
+    // hide the distinction because pHat cancels; every cross-domain merge
+    // must convert through the selected sample's freshly evaluated source
+    // target before applying an RTXDI/GRIS UCW formula.
     public float weightSum;
     public Upt03Candidate selected;
 };
+
+public float Upt03ScaledWeightToUcw(float scaledWeight, float sourceTarget)
+{
+    return isfinite(scaledWeight) && scaledWeight > 0.0f
+            && isfinite(sourceTarget) && sourceTarget > 0.0f
+        ? scaledWeight / sourceTarget : 0.0f;
+}
+
+public float Upt03UcwToScaledWeight(float ucw, float receiverTarget)
+{
+    return isfinite(ucw) && ucw > 0.0f
+            && isfinite(receiverTarget) && receiverTarget > 0.0f
+        ? ucw * receiverTarget : 0.0f;
+}
 
 public bool Upt03FinitePositive(float value)
 {

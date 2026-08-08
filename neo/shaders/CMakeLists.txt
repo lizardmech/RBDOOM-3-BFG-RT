@@ -118,9 +118,12 @@ set(PATH_TRACING_CLEAN_RESTIR_GI_SPLIT_RAYGENS
     "first_indirect_specular_shade|CLEAN_GI_EXPORT_FIRST_INDIRECT_SPECULAR_SHADE"
     "first_indirect_specular_shade_fast|CLEAN_GI_EXPORT_FIRST_INDIRECT_SPECULAR_SHADE_FAST"
     "seed|CLEAN_GI_EXPORT_SEED"
+    "spatial_reuse_only|CLEAN_GI_EXPORT_SPATIAL_REUSE_ONLY"
+    "final_shading|CLEAN_GI_EXPORT_FINAL_SHADING"
     "reuse|CLEAN_GI_EXPORT_REUSE")
 set(PATH_TRACING_CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_producer_rayquery.cs.hlsl)
 set(PATH_TRACING_CLEAN_RESTIR_GI_TEMPORAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_temporal.cs.hlsl)
+set(PATH_TRACING_CLEAN_RESTIR_GI_SPATIAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_spatial.cs.hlsl)
 set(PATH_TRACING_CLEAN_RESTIR_GI_SKY_RESOLVE_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_sky_resolve.cs.hlsl)
 set(PATH_TRACING_CLEAN_RESTIR_GI_BOILING_FILTER_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_boiling_filter.cs.hlsl)
 file(GLOB_RECURSE PATH_TRACING_SHADER_INCLUDES
@@ -214,13 +217,13 @@ set(PATH_TRACING_SHADER_OUTPUT_BASE ${CMAKE_CURRENT_SOURCE_DIR}/../../base/rende
 set(PATH_TRACING_SHADER_OUTPUTS)
 set(PATH_TRACING_RTXDI_INCLUDE_ARGS)
 list(APPEND PATH_TRACING_RTXDI_INCLUDE_ARGS -I "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing")
-
-function(path_tracing_declare_spirv_rt_library)
-    set(options)
 # The path-tracing layouts intentionally use their HLSL t/b/u register numbers
 # as Vulkan bindings, but keep NVRHI's sampler namespace at binding 128.  Every
 # shader compiled for those layouts must apply the same sampler shift.
 set(PATH_TRACING_ZERO_CLASS_VULKAN_BINDING_ARGS -fvk-s-shift 128 0)
+
+function(path_tracing_declare_spirv_rt_library)
+    set(options)
     set(oneValueArgs OUTPUT SOURCE OUTPUT_DIR COMMENT)
     set(multiValueArgs DEPENDS DEFINES)
     cmake_parse_arguments(PT_RT "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
@@ -423,6 +426,7 @@ if(USE_VULKAN)
     set(PATH_TRACING_CLEAN_RESTIR_GI_SKINNED_HITS_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_skinned_hits.rt.bin)
     set(PATH_TRACING_CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_producer_rayquery.cs.bin)
     set(PATH_TRACING_CLEAN_RESTIR_GI_TEMPORAL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_temporal.cs.bin)
+    set(PATH_TRACING_CLEAN_RESTIR_GI_SPATIAL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_spatial.cs.bin)
     set(PATH_TRACING_CLEAN_RESTIR_GI_SKY_RESOLVE_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_sky_resolve.cs.bin)
     set(PATH_TRACING_CLEAN_RESTIR_GI_BOILING_FILTER_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_boiling_filter.cs.bin)
     add_custom_command(
@@ -595,6 +599,13 @@ if(USE_VULKAN)
         COMMENT "Compiling clean-room ReSTIR GI temporal CS (SPIR-V)"
         VERBATIM)
     add_custom_command(
+        OUTPUT ${PATH_TRACING_CLEAN_RESTIR_GI_SPATIAL_SPIRV_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi
+        COMMAND ${DXC_SPIRV_PATH} -T cs_6_6 -spirv -fspv-target-env=vulkan1.2 ${PATH_TRACING_ZERO_CLASS_VULKAN_BINDING_ARGS} -D SPIRV -D RBPT_ENABLE_BLUE_NOISE ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_CLEAN_RESTIR_GI_SPATIAL_SPIRV_OUTPUT} ${PATH_TRACING_CLEAN_RESTIR_GI_SPATIAL_SHADER_SOURCE}
+        DEPENDS ${PATH_TRACING_CLEAN_RESTIR_GI_SPATIAL_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES}
+        COMMENT "Compiling clean-room ReSTIR GI spatial CS (SPIR-V)"
+        VERBATIM)
+    add_custom_command(
         OUTPUT ${PATH_TRACING_CLEAN_RESTIR_GI_SKY_RESOLVE_SPIRV_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi
         COMMAND ${DXC_SPIRV_PATH} -T cs_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV -fvk-t-shift 0 0 -fvk-s-shift 128 0 -fvk-b-shift 256 0 -fvk-u-shift 384 0 -Fo ${PATH_TRACING_CLEAN_RESTIR_GI_SKY_RESOLVE_SPIRV_OUTPUT} ${PATH_TRACING_CLEAN_RESTIR_GI_SKY_RESOLVE_SHADER_SOURCE}
@@ -625,6 +636,7 @@ if(USE_VULKAN)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RESTIR_GI_SKINNED_HITS_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RESTIR_GI_TEMPORAL_SPIRV_OUTPUT})
+    list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RESTIR_GI_SPATIAL_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RESTIR_GI_SKY_RESOLVE_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RESTIR_GI_BOILING_FILTER_SPIRV_OUTPUT})
 endif()

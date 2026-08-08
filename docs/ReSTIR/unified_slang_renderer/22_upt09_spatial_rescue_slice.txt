@@ -1,0 +1,485 @@
+UPT-09 Bounded Spatial Rescue Baseline
+======================================
+
+Status
+------
+
+Built and deployed as an opt-in Vulkan direct-reuse pass. The accepted
+sub-policy defaults are unique-neighbor proof mode 0, direct proposal parity,
+RTXDI target-PDF parity, analytic portal admission, UPT-08 duplication control,
+and temporal history M/age 32. Temporal and spatial themselves remain default
+off, and indirect/reconnection spatial shifting remains unimplemented. The
+reciprocal-neighbor cost experiment and final unified-path quality/timing gates
+remain open.
+
+Why this baseline exists now
+----------------------------
+
+The first real-map UPT-07 runs proved that temporal reprojection was often
+surface-compatible while the exact history receiver held no selected direct
+sample. View 5 therefore became almost solid rejection reason 2. Searching
+other temporal taps for a selected sample was rejected: it mixed a favorable
+spatial search into temporal ownership and previously caused watery motion,
+bright persistence, and trails.
+
+A temporary portal-selected analytic-light restriction improved small portal
+rooms but failed immediately in larger areas. In one large-area diagnostic it
+issued about 2.82 million selected visibility rays yet retained only about
+156,000 positive direct reservoirs, losing roughly 94.5 percent. That A/B was
+reverted. The full eligible light universe remains visible to D0; spatial
+rescue must expose rather than hide proposal-domain failure.
+
+Admitted GPU work
+-----------------
+
+Pass:
+
+    UPT.S0 Spatial Direct Rescue
+
+Inputs:
+
+    current canonical 176-byte primary surfaces
+    completed current 64-byte reservoir page from D0 or T0
+    current direct-light stream, either legacy 112-byte or compact 64-byte
+    the existing emissive replay and geometry route streams
+    live TLAS
+
+Output:
+
+    the other already-admitted 64-byte reservoir page
+
+There is no third full-frame page, per-frame clear, material table, sampler,
+bindless texture table, diagnostic side buffer, or CPU readback. Both output
+pages are fully covered; invalid receivers and unrecovered receivers receive
+self-validating canonical empty records.
+
+The compute group is 8 x 8. A selected center attempts three neighbors; an
+empty center attempts twelve. Coordinates come from a fixed 32-point disc with
+a 30-pixel radius and a frame/pixel/ordinal hash. The compile-time maximum is
+twelve attempts. Surface and reservoir validity plus surface class, normal,
+roughness, depth, and receiver-plane compatibility are checked before direct
+sample shift/replay.
+
+Only the final selected borrowed sample may issue visibility, so the shader has
+one RayQuery site and the per-pixel ceiling is one visibility ray. Analytic and
+emissive direct events use exact current-light replay. Invalid or unsupported
+selected neighbors do not increase M. A structurally valid count-only neighbor
+does increase M and participates in the bias-correction denominator: it is a
+defined zero trial published by D0, not an invalid sample. It can never become
+the selected identity or issue a ray. A valid receiver with an empty center is
+allowed to search and can recover a neighbor sample.
+
+This first runtime lane is explicitly direct-only. Enabling the CVar while the
+unified or indirect-only family is selected does not dispatch S0, because the
+baseline does not yet preserve and shift indirect events. Partial support must
+not discard a valid indirect center.
+
+Two-page schedule
+-----------------
+
+The physical roles are deliberately not copied or cleared:
+
+    current role <- D0 initial
+    current role <- optional T0 temporal, in place
+    full UAV/SRV transition
+    history role <- S0(current role)
+    R0 reads history role
+    history role remains next-frame temporal history
+
+When S0 completes, CompleteFrame does not swap roles. On the next frame D0
+overwrites the current role while T0 reads the spatial result in the history
+role. If S0 is disabled or fails after a successful T0, the established
+temporal-only role swap remains in force. Resolve chooses the spatial output
+only after S0 has actually completed.
+
+Build and static proof
+----------------------
+
+Target:
+
+    PathTraceSlangUpt09Spatial
+
+Runtime artifacts:
+
+    renderprogs2/spirv/builtin/pathtracing/slang_upt09/
+        upt09_spatial_direct_rayquery.bin
+        upt09_spatial_direct_rayquery_light64.bin
+
+The verification target proves both variants expose exactly nineteen narrow
+bindings, a canonical 176-byte surface input, separate reservoir SRV/UAV pages,
+a 64-byte push block, 8 x 8 groups, exactly one RayQuery site, and no texture
+operations or native 16-bit SPIR-V capability. The full release engine and all
+Vulkan shader targets built successfully after host integration.
+
+Runtime control and first gate
+------------------------------
+
+Enable only after the normal direct-only UPT-07 setup is producing the current
+diagnostic result:
+
+    r_pathTracingUnifiedPtSpatial 1
+
+Keep:
+
+    r_pathTracingUnifiedPtFamily 1
+    r_pathTracingUnifiedPtBackend 0
+    r_pathTracingUnifiedPtProofStage 9
+    r_pathTracingUnifiedPtShaderProof 6
+    r_pathTracingUnifiedPtResolve 1
+    r_pathTracingUnifiedPtTemporal 1
+
+First compare resolve view 5 with spatial off and on in the same large area.
+The baseline must materially replace reason-2 red with accepted selected
+reservoirs without bright flashes, trails, thin-wall leaks, or camera-motion
+smearing. Then capture S0 timing, ray-query dependency, L2/VRAM throughput, and
+active-thread coherence. An image improvement that merely hides D0's poor
+visible-sample ratio is evidence for proposal work, not acceptance of S0.
+
+Deferred work
+-------------
+
+The planned first production policy is reciprocal neighbor selection. This
+random-disc implementation is only the required comparison baseline. Do not
+declare UPT-09 complete until reciprocal selection either demonstrates its
+intended cost reduction or is measured and rejected.
+
+UPT-08 is a prerequisite for accepting a temporal+spatial production loop.
+The first UPT-09 slice remains useful for diagnosing empty-center recovery,
+but it must not be promoted as a stable production default without correlation
+control. ReSTIR PT Enhanced identifies persistent blobs, disks, and streaks as
+copies of one random sample circulating through spatiotemporal reuse. The local
+maximum-history-M tests reproduced the same control only as a global quality
+loss. UPT-08 must therefore compare fused sample-ID publication with an
+explicit FillSampleID pass, exclude invalid IDs, match a CPU count oracle, and
+feed an adaptive temporal cap before final UPT-09 acceptance.
+
+The first UPT-08 proof now exists behind
+r_pathTracingUnifiedPtDuplication (accepted default 1). U0 publishes stable sample IDs,
+U1 counts matching IDs in a 17x17 neighborhood, and next-frame T0 reduces its
+history-M cap from maximumHistoryM toward one using the packed local score.
+Markers are "UPT.U0 Fill SampleID", "UPT.U1 Compute Duplication17x17", and
+"UPT.T0 Temporal Direct Shift AdaptiveDupCap" once matching history is usable.
+This is correlation containment, not permission to retain incorrect shift,
+target-density, visibility, or light-identity math.
+
+Runtime acceptance after correcting the adaptive uncorrelated cap to 20 found
+mode 0 stable through temporal maximum age 32. Age 63 could still amplify a few
+isolated regions and provided no observed quality benefit. The production
+default is therefore age 32; 63 remains available only as a saturation/no-expiry
+stress case. Mode 3 remains a useful immune 1/M control but is visibly slightly
+worse and is not selected merely to conceal the age-63 mode-0 failure.
+
+First runtime result and correction
+-----------------------------------
+
+The bounded S0 baseline materially repaired direct-reservoir density, proving
+that the empty-center rescue direction is useful.  It also made two pre-existing
+T0/D0 light-contract regressions obvious: rigid Doom-radius lighting volumes
+and temporal poisoning/strobing from animated lights.  S0 did not create either
+rule, but its wider sample coverage propagated their visible consequences.
+
+The correction is owned below S0.  Shared UPT analytic replay no longer applies
+the legacy diagnostic hard radius mask, and T0 now admits history only for
+manager-proven stable-cacheable analytics and non-dynamic emissives.  S0 may
+still reuse those lights across current-frame neighbors; it must not invent a
+second temporal-stability policy.  Runtime acceptance of the spatial baseline
+remains open until the same large-area animated-light test is clean.
+
+The subsequent runtime A/B confirmed the light identity/stability correction:
+the animated-light strobe is gone.  It also showed a separate motion failure in
+which the previous-view polygon can remain visible and valid history grows
+outward over later frames.  T0 now rejects rigid/skinned receivers that lack
+valid packed object motion and rejects mature history contribution outliers;
+view 5 reports those cases as orange and pink.  Runtime testing found only a
+modest tracking improvement: rigid flicker and portal-boundary instability both
+remain, so neither is accepted as fixed.  S0 remains intentionally unchanged.
+A remaining expanding red boundary is sparse D0 seed coverage, not permission
+for S0 or T0 to widen their search until a positive sample is found.
+
+Rejected rescue-only A/B after proposal parity
+----------------------------------------------
+
+A real-map cable test showed progressive brightening with the original 3/12
+schedule. A rescue-only A/B changed selected-center attempts from three to zero
+and empty-center attempts from twelve to four. It heavily degraded spatial
+coverage and made the same regions darken instead of brighten. The A/B is
+rejected and the 3/12 schedule is restored. Neighbor count is therefore not
+the root correction; the remaining investigation belongs to spatial estimator
+normalization and the D0 internal-RIS proposal contract.
+
+Count-only neighbor normalization correction
+--------------------------------------------
+
+The follow-up audit found that S0 accepted only neighbors with selected
+samples. This violated D0's self-describing zero-trial contract: a valid
+count-only record carries effective M even though it has no selectable
+identity. Excluding those records conditioned spatial reuse on a neighbor
+having found illumination. That explains why the 3/12 schedule could brighten
+sparse cable geometry while the reduced schedule darkened the same area.
+
+S0 now admits a compatible count-only neighbor into output M and the
+target-weighted bias-correction denominator. Its mass remains zero, so it
+cannot win reservoir selection and cannot issue visibility. Malformed records
+and selected records whose direct event cannot be replayed remain excluded.
+This correction preserves the original 3/12 coverage schedule while removing
+the positive-only neighborhood conditioning; runtime acceptance remains open.
+
+Alpha-coverage reuse boundary
+-----------------------------
+
+The next real-map A/B isolated a second failure to alpha-clipped geometry:
+cutout surfaces brightened repeatedly and contaminated samples could propagate
+away from the card when no stronger geometric boundary stopped them. The
+original S0 compatibility gate compared surface class, geometric normal,
+roughness, depth, and receiver plane only. A visible texel on a cutout card and
+the opaque surface visible through its neighboring rejected texel can satisfy
+all of those tests, yet they are different sampling domains. Cross-domain
+shifted weights can become extreme and are fed back through the temporal and
+spatial pages on later frames.
+
+The canonical 176-byte primary record already carries the material alpha-test
+flag, stable material ID, and alpha cutoff. No buffer, descriptor, or dispatch
+is justified for this correction. Shared surface compatibility now treats
+alpha coverage as an explicit edge: if either surface is alpha-tested, both
+must be alpha-tested, have the same stable material ID, and have the same
+finite alpha cutoff. The dense material-table index is deliberately not used
+because it is a frame-local address. Opaque-to-opaque reuse retains the broad
+existing gate. Both T0 and S0 apply this rule so an invalid cutout crossing
+cannot enter history through one pass and be propagated by the other.
+
+Runtime acceptance must repeat the cable/card test with S0 off and on and
+confirm that brightness no longer grows over time or travels beyond the
+cutout silhouette. This guard does not implement alpha-aware visibility for
+S0 RayQuery; that is a separate traversal/material ABI decision and must not
+be inferred from this surface-reuse fix.
+
+The first runtime test showed no improvement, disproving stable alpha-material
+identity as the operative boundary in that scene. The primary producer can
+composite filter/alpha layers into the evaluated receiver albedo while
+deliberately retaining the underlying receiver identity. More generally, S0
+had omitted the reference spatial material-similarity gate: it compared
+roughness but ignored evaluated diffuse albedo and specular F0. S0 now applies
+the FullSample thresholds to the canonical record (50 percent relative
+roughness difference, 0.25 reflectivity-luminance difference, and 0.25
+diffuse-luminance difference). This is the relevant guard for a composited
+alpha edge that has no distinct material identity. Runtime acceptance remains
+open; the no-improvement result is retained rather than overwritten.
+Fault-isolation note (2026-08-05)
+---------------------------------
+
+Compatibility experiments on alpha identity and RTXDI-shaped material
+similarity produced no visible change in the reported runaway-bright spatial
+case.  Do not keep loosening or tightening surface gates on that evidence.
+
+The next audit found a concrete estimator-input divergence: every UPT09
+neighbor ordinal independently selected one of the 32 offset-table entries.
+With 12 rescue attempts this made repeated table entries overwhelmingly likely,
+and the same physical reservoir could be streamed and counted more than once.
+Production mode now chooses one random start and walks distinct table entries;
+it also rejects physical-pixel duplicates caused by viewport-edge clamping.
+
+Use r_pathTracingUnifiedPtSpatialProofMode to isolate failures without changing
+the resource graph or rebuilding shaders between cases:
+
+  0 = production: unique neighbors, basic correction, non-recursive rescue
+  1 = exact packed-reservoir pass-through through the S0 dispatch/page publish
+  2 = reproduce the former recursive with-replacement rescue behavior
+  3 = non-recursive unique neighbors, but standard streamed-weight 1/M normalization
+  4 = strict legacy admission: selected center and selected neighbors only
+
+Interpretation:
+
+  - mode 1 differs from spatial-off: page ownership/resolve/history is wrong;
+  - mode 0 is stable but mode 2 grows: duplicate reservoir admission caused it;
+  - mode 0 grows but mode 3 is stable: the basic-correction denominator caused it;
+  - modes 0 and 3 both grow while mode 1 is stable: the shifted stream or its
+    recursively published mass is wrong, not surface compatibility.
+
+Runtime result from the first proof build: mode 3 survived but progressively
+darkened the region behind the alpha-clipped surface, while modes 0 and 2
+retained the runaway failure.  This proves the basic-correction path preserves
+the contamination while ordinary 1/M dilutes it with empty source domains; it
+does not identify duplicate offsets or compatibility thresholds as the cause.
+
+The exact legacy comparison then exposed the missing admission boundary:
+legacy DI returns immediately for an invalid center and skips invalid neighbor
+reservoirs.  UPT09 instead borrowed into an empty center and published that
+borrowed winner as an ordinary reusable reservoir.  The rescue could therefore
+donate again in later temporal/spatial frames.  Production now writes a direct-
+only replayKey stamp into empty-center rescue winners.  Resolve may consume the
+winner for the current frame, but UPT07 and UPT09 reject the stamp as history or
+as a future donor.  This is stamp-and-skip invalidation with no extra buffer,
+clear, ray, or per-pixel storage.  Mode 2 deliberately preserves the old
+recursive behavior; mode 4 disables rescue entirely as the legacy control.
+
+Runtime result after the replay stamp: modes 0 and 4 still exhibited the
+runaway alpha-card failure. Mode 3 remained materially better, although it
+could darken the region behind the card over time. This ruled out both repeated
+rescue donation and empty-center admission as the sole root cause: mode 4 could
+fail using only ordinarily valid selected reservoirs. Later target-measure,
+identity, duplication, and bounded-history corrections made mode 0 stable at
+the accepted age-32 setting. Mode 3 is retained as an immune 1/M diagnostic;
+it is visibly worse and is not the production default.
+
+Direct target-PDF parity experiment
+-----------------------------------
+
+The next comparison found a precise measure mismatch rather than another
+surface threshold. Both the accepted legacy DI lane and RTXDI FullSample define
+the direct reservoir target as:
+
+    luminance(BRDF * incidentRadiance * cosine) / lightSample.solidAnglePdf
+
+The discrete light-selection PDF and technique-MIS weight are applied by the
+scalar reservoir stream. Original UPT instead stored max(R,G,B) of the
+MIS-weighted contribution as its target, stored that same MIS-weighted RGB
+contribution, and divided the candidate weight by selectionPdf *
+solidAnglePdf. These forms can give the same initial one-sample estimate, but
+they are not the same target measure. Basic correction re-evaluates the stored
+target at multiple receiver surfaces, so the missing solid-angle term, the
+max-channel norm, and the embedded technique-MIS term can produce radically
+different cross-surface ratios even when initial D0 looks plausible.
+
+r_pathTracingUnifiedPtDirectTargetPdfParity selects a coherent D0/T0/S0 A/B:
+
+  0 = original UPT max-channel target with technique MIS embedded in the
+      stored RGB sample and target;
+  1 = RTXDI measure above, with technique MIS applied once in the scalar RIS
+      weight and un-MISed contribution/solidAnglePdf stored for resolve.
+
+The mode is part of the page content-generation fingerprint, so changing it
+rejects incompatible history without clearing either 64-byte page. Never
+change only S0's target evaluation: mixing measures between D0, T0, and S0
+would make the proof invalid. Runtime acceptance is specifically mode 0 basic
+correction with target-PDF parity 1 versus 0 on the same alpha-card view. Keep
+mode 3 as the safe fallback if parity does not remove the growth.
+
+Analytic portal-domain proof (2026-08-05)
+-----------------------------------------
+
+The target-PDF experiment did not remove the failure. Spatial proof mode 3
+bounded its energy, but exposed a stronger clue: a tiny red analytic light with
+little or no plausible influence over the receiver could dominate a large mesh.
+That points at the admitted light domain before it points at another spatial
+normalization formula.
+
+The host intentionally publishes a globally stable analytic-light universe for
+reservoir identity and previous-to-current remapping. D0, T0, and S0 were also
+using that whole universe as the current receiver's proposal/replay domain.
+Legacy Doom DI instead restricts analytic candidates to the current selected
+portal region. The full light record already carries this classification in
+uvOrDoomParams.z (negative outside the selected region), but the UPT 64-byte
+compact-light route discarded it.
+
+r_pathTracingUnifiedPtAnalyticPortalDomain provides one coherent D0/T0/S0 A/B:
+
+  0 = retain the old behavior and admit the full global analytic range;
+  1 = admit only analytic records selected by the current Doom portal region.
+
+The global stable universe remains allocated and indexed in both cases. The
+switch changes candidate and replay eligibility, not identity. Compact analytic
+records preserve portal depth in the otherwise-unused packed normal word;
+emissive records retain their octahedral normal. There is no ABI-size increase,
+new buffer, clear, or ray.
+
+This first proof deliberately samples the stable global range and turns an
+outside-domain analytic draw into a null trial. That is statistically coherent
+for the restricted domain but can reduce proposal density. If the domain proof
+is accepted, a later host-built dense eligible-index distribution can recover
+the wasted trials without changing reservoir identity.
+
+Acceptance is unambiguous on the reported red-wall view:
+
+  - red dominance disappears with mode 1: the omitted portal-domain boundary
+    is confirmed;
+  - red dominance remains with mode 1: the light is portal-selected, and the
+    next audit is its Doom projected/falloff evaluation, not more normalization
+    or compatibility guesses;
+  - the red source disappears but coverage drops: correctness is confirmed and
+    the next task is a compact eligible-index proposal distribution.
+
+Do not replace this proof with a hard Doom-radius cutoff. The accepted legacy
+lane deliberately allows smooth contribution beyond Doom's nominal influence
+radius, and a hard cutoff recreates the rejected rigid light-volume boundary.
+
+Runtime result: portal-domain mode 1 did not remove the failure. The dominant
+light must be inside the same selected portal as the alpha-clipped receiver.
+Mode 0 can lock onto several light colors; mode 3 bounds the growth for most
+lights but a small red light can still dominate a large mesh. Portal membership
+is therefore a necessary admission boundary, not the root cause. Keep the
+boundary, but do not continue changing the light universe on this evidence.
+
+Fresh source-target proof
+-------------------------
+
+The mode split exposed one remaining operation unique to basic correction.
+The denominator replays the selected light at every participating surface, but
+the numerator and neighbor mass conversion used the packed source target from
+the donor reservoir. That packed value can have passed through earlier temporal
+or spatial reuse. It is not proof of the light's target at the donor's current
+surface. Reusing it combines a fresh denominator with a potentially stale
+numerator; mode 3 bypasses that numerator entirely, matching its ability to
+bound the failure.
+
+Spatial proof mode 5 keeps mode 0's neighbors, selection, visibility, and basic
+correction, but freshly replays each donor light at the actual donor surface for
+both uses of the source target. It introduces no extra ray or resource. Compare
+mode 5 directly against modes 0 and 3 on the red-light view:
+
+  - mode 5 removes mode 0's growth: stale packed source targets caused the
+    amplification; the fresh replay should replace the old path;
+  - mode 5 matches mode 0: the source target is coherent, and the remaining
+    failure is high-variance basic correction / correlated light selection;
+    the next bounded experiment is pairwise MIS, not another surface gate;
+  - mode 5 bounds energy but retains a red winner like mode 3: amplification
+    and proposal correlation are two separate defects.
+Mode 6 is a selected-center-only pairwise-MIS proof.  It freshly evaluates
+both samples in both receiver domains and applies pair-local balance weights
+before streaming.  It deliberately disables empty-center rescue and never
+uses the mode-0/5 post-selection global denominator.  This separates ordinary
+spatial reuse from rescue feedback and tests whether the unbounded growth is
+the expected support-collapse failure of basic correction.  The construction
+is derived from the normalization proof in the repo-owned clean-room GI
+spatial implementation; direct-light replay uses no reconnection Jacobian.
+
+Accepted direct-reuse checkpoint
+--------------------------------
+
+The final direct-only runtime A/B promoted these sub-policy defaults in commit
+d5929c127:
+
+    r_pathTracingUnifiedPtDirectProposalParity  1
+    r_pathTracingUnifiedPtDuplication           1
+    r_pathTracingUnifiedPtSpatialProofMode      0
+
+Together with direct-target PDF parity, stable light fingerprints, non-recursive
+rescue, unique neighbor admission, the adaptive duplication cap, and maximum
+history M/age 32, mode 0 no longer ran away in the accepted scenes. Age 63 can
+still amplify a few isolated regions and has no observed quality justification.
+Mode 3 remains useful to bracket estimator failures, and mode 6 remains a
+pairwise proof; neither replaces mode 0 by default.
+
+The performance result was also positive. In the user's tested scene proposal
+parity 1 was approximately 2 ms faster than the fallback. S0 was approximately
+2.3 ms faster while about 0.4 ms moved elsewhere, and compact32 saved roughly
+0.8 ms. These are scene/capture results, not universal constants, but they are
+sufficient to reject reverting to the sparse fallback merely because it issues
+fewer nominal trials.
+
+Remaining direct-light limitation
+---------------------------------
+
+UPT still loses some emissive lights at reproducible player portal positions;
+legacy clean DI does not. The two lanes share the upstream emissive inventory,
+manager current payload/ranges, and host-built power/area CDF, so another cap or
+universe restriction is not justified by current evidence. The strongest
+downstream difference is legacy D0's default-on previous-best reseed before RIS.
+UPT currently has only fresh D0 proposals and a rejected/default-off previous-
+best experiment in T0.
+
+The next spatial-related change is therefore not another S0 correction mode.
+Port the legacy-shaped previous-best reseed into D0 with stable-ID translation
+and duplicate exclusion, then instrument selection, dense mapping, exact replay,
+target/source PDF, visibility, and final reservoir retention for one emitter in
+a working and broken portal position. Only after that proof should indirect
+path spatial shifting or reciprocal-neighbor policy work resume.

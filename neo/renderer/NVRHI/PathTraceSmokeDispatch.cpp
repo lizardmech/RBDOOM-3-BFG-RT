@@ -2298,13 +2298,22 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 ? static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger()))
                 : 0.0f;
             primarySurfaceConstants.textureInfo[2] = static_cast<float>(Max(0, m_smokeMaterialTableEntryCount));
+            // UPT consumes emissiveRadiance from the shared primary receiver.
+            // Treat it as a real emissive-map consumer even when clean DI is
+            // disabled; otherwise textured fixtures (notably vending machines)
+            // collapse to the material's flat fallback or zero before D0 sees
+            // the receiver.
+            const bool primarySurfaceUsesEmissiveMaps =
+                cleanRtxdiDiResolveView == 16 ||
+                cleanRtxdiDiPsrMaskView ||
+                primarySchedule.requestedByUnifiedPt;
             uint32_t primarySurfaceTextureFlags =
                 (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
                 (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
                 (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
                 (r_pathTracingUseNormalMaps.GetInteger() != 0 ? 8u : 0u) |
                 (r_pathTracingUseSpecularMaps.GetInteger() != 0 ? 16u : 0u) |
-                (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (cleanRtxdiDiResolveView == 16 || cleanRtxdiDiPsrMaskView) ? 32u : 0u) |
+                (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && primarySurfaceUsesEmissiveMaps ? 32u : 0u) |
                 (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (cleanRtxdiDiResolveView == 16 || cleanRtxdiDiMaterialClassifierProofView || cleanRtxdiDiPsrMaskView) ? 128u : 0u) |
                 PackPathTraceOpenPbrBrdfMode();
             if (r_pathTracingSkyCubeEnvironment.GetInteger() != 0 && m_smokeSkyEnvironmentCube)
@@ -2385,7 +2394,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 primarySurfaceConstants.unifiedLightInfo[2] = static_cast<float>( idMath::ClampInt( 0, 2, r_pathTracingDLSSRRDepthMode.GetInteger() ) );
                 primarySurfaceConstants.unifiedLightInfo[3] = 0.0f;
             }
-            primarySurfaceConstants.toyPathInfo[2] = cleanRtxdiDiResolveView == 16
+            primarySurfaceConstants.toyPathInfo[2] =
+                (cleanRtxdiDiResolveView == 16 || primarySchedule.requestedByUnifiedPt)
                 ? idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat())
                 : 0.0f;
             const int primarySurfaceDynamicRecordCount = Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount);
@@ -2683,6 +2693,19 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.device = device;
             unifiedPtInputs.commandList = commandList;
             unifiedPtInputs.sceneInputs = &m_sceneInputs;
+            const std::vector<PathTraceUnifiedLightRecord>&
+                unifiedPtCurrentLightRecords =
+                    m_remixLightManager.GetCurrentLightPayloads();
+            unifiedPtInputs.currentLightRecords =
+                unifiedPtCurrentLightRecords.empty()
+                    ? nullptr : unifiedPtCurrentLightRecords.data();
+            unifiedPtInputs.currentLightRecordCount =
+                static_cast<uint32_t>(unifiedPtCurrentLightRecords.size());
+            unifiedPtInputs.currentEmissiveTriangles =
+                m_smokePreviousEmissiveTriangles.empty()
+                    ? nullptr : m_smokePreviousEmissiveTriangles.data();
+            unifiedPtInputs.currentEmissiveTriangleCount =
+                static_cast<uint32_t>(m_smokePreviousEmissiveTriangles.size());
             unifiedPtInputs.primarySurfaceBuffer =
                 useUptCompactPrimaryReceiver
                     ? unifiedPtPrimaryReceiverBuffer
@@ -2710,6 +2733,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.frameSampleIndex = unifiedPtFixedSampleIndex >= 0
                 ? static_cast<uint32_t>(unifiedPtFixedSampleIndex)
                 : m_frameResources.restirPTFrameIndex;
+            unifiedPtInputs.emissiveScale = idMath::ClampFloat(
+                0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
             unifiedPtInputs.materialPolicyFlags =
                 (r_pathTracingUseSpecularMaps.GetInteger() != 0
                     ? PATH_TRACE_UPT_MATERIAL_USE_SPECULAR_MAPS
@@ -2862,7 +2887,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         unifiedPtInputs,
                         static_cast<uint32_t>(idMath::ClampInt(
                             0,
-                            5,
+                            9,
                             r_pathTracingUnifiedPtResolveView.GetInteger()))))
                 {
                     m_smokeTestDispatched = true;

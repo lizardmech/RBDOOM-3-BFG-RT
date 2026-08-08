@@ -1,4 +1,5 @@
 import upt04_initial_shared;
+import upt04_initial_direct;
 import upt04_initial_work_contract;
 import upt04_backend_rayquery;
 import upt04_initial_bindings;
@@ -42,7 +43,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             pixel, receiverWork.surfaceIndex, primarySurface);
     Upt04HitFacts hit = Upt04MissFacts(direct.ray.tMax);
     if (direct.valid != 0u && direct.traceRequired != 0u)
-        hit = Upt04TraceRayQuery(direct.ray);
+        hit = Upt04TraceVisibilityRayQuery(
+            direct.ray, Upt04DirectVisibilityIgnore(direct));
     direct = Upt04AdvanceInitialTraceWork(direct, hit);
     Upt04StreamInitialTraceWork(reservoir, direct, pixel, 0u);
     if (direct.valid != 0u)

@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceEmissiveCandidates.h"
+#include "PathTraceCVars.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceMaterialUniverse.h"
@@ -413,7 +414,7 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
             UINT32_MAX);
         std::vector<uint32_t> bucketRecordInstanceIds(
             route.triangleCount,
-            0u);
+            route.instanceId);
         std::vector<uint32_t> bucketRecordPrimitiveIds(
             route.triangleCount,
             UINT32_MAX);
@@ -444,10 +445,13 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
             }
             const RtSmokeStaticBucketCanonicalTriangleAddress& address =
                 canonicalAddressPlan.addresses[packedTriangleIndex];
-            bucketRecordInstanceIds[localBucketTriangleIndex] =
-                address.instanceId;
+            // Exact replay consumes the hardware static-bucket namespace: the
+            // TLAS InstanceID encodes the bucket's packed triangle offset and
+            // PrimitiveIndex is bucket-local.  The canonical surface-record
+            // address is a stable identity input only; publishing it as a hit
+            // address makes UPT decode a surface index as a triangle base.
             bucketRecordPrimitiveIds[localBucketTriangleIndex] =
-                address.sourceTriangleIndex;
+                localBucketTriangleIndex;
             bucketIdentityPrimitiveIds[localBucketTriangleIndex] =
                 monolithicPrimitiveIndexes
                     ? (*monolithicPrimitiveIndexes)[packedTriangleIndex]
@@ -491,9 +495,22 @@ void FinalizeSmokeEmissiveTriangleSamplingFields(std::vector<PathTraceSmokeEmiss
 
     const float inverseTotalWeightedLuminance = stats.totalWeightedLuminance > 1.0e-8f ? 1.0f / stats.totalWeightedLuminance : 0.0f;
     const float inverseTotalArea = stats.totalArea > 1.0e-8f ? 1.0f / stats.totalArea : 0.0f;
+    const float uniformMixture = idMath::ClampFloat(
+        0.0f, 1.0f, r_pathTracingEmissiveUniformMixture.GetFloat());
+    const float powerMixture = 1.0f - uniformMixture;
+    const float uniformPdf = emissiveTriangles.empty()
+        ? 0.0f : 1.0f / static_cast<float>(emissiveTriangles.size());
     for (PathTraceSmokeEmissiveTriangle& record : emissiveTriangles)
     {
-        record.sampleWeightAndPdf[1] = record.sampleWeightAndPdf[0] * inverseTotalWeightedLuminance;
+        const float powerPdf =
+            record.sampleWeightAndPdf[0] * inverseTotalWeightedLuminance;
+        // A pure scene-global power CDF can give a nearby small emitter
+        // effectively zero reachability whenever an unrelated large emitter
+        // dominates the level.  Keep full support with an explicit mixture;
+        // this PDF is published to both the CDF and unified light record, so
+        // every producer and replay consumer evaluates the same proposal.
+        record.sampleWeightAndPdf[1] =
+            powerMixture * powerPdf + uniformMixture * uniformPdf;
         record.sampleWeightAndPdf[3] = record.centerAndArea[3] * inverseTotalArea;
         record.centroidUvAndWeight[3] = record.sampleWeightAndPdf[1];
     }

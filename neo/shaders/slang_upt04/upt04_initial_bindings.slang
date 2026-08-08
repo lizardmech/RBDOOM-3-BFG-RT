@@ -3,6 +3,7 @@ import upt04_primary_surface_live_contract;
 import upt04_light_contract;
 import upt04_material_live_contract;
 import upt04_initial_control;
+import upt04_primary_history_sidecar;
 #ifndef UPT04_PACKED_PRIMARY_RECEIVER
 #define UPT04_PACKED_PRIMARY_RECEIVER 0
 #endif
@@ -38,6 +39,24 @@ public [[vk::binding(3, 0)]] StructuredBuffer<Upt04SmokeMaterialRecord> gUpt04Ma
 #endif
 public [[vk::binding(4, 0)]] RWStructuredBuffer<Upt03PackedReservoir> gUpt04Reservoirs;
 public [[vk::binding(5, 0)]] SamplerState gUpt04MaterialSampler;
+public [[vk::binding(25, 0)]] StructuredBuffer<Upt04EmissiveDistributionEntry>
+    gUpt04EmissiveDistribution;
+#if UPT04_PACKED_PRIMARY_RECEIVER == 1
+public [[vk::binding(26, 0)]] StructuredBuffer<Upt04PackedPrimarySurfaceRecord>
+    gUpt04PreviousPrimarySurfaces;
+#elif UPT04_PACKED_PRIMARY_RECEIVER == 2
+public [[vk::binding(26, 0)]] StructuredBuffer<Upt04PackedPrimarySurfaceRecord32>
+    gUpt04PreviousPrimarySurfaces;
+#else
+public [[vk::binding(26, 0)]] StructuredBuffer<Upt04PrimarySurfaceRecord>
+    gUpt04PreviousPrimarySurfaces;
+#endif
+public [[vk::binding(27, 0)]] StructuredBuffer<Upt04PrimaryHistorySidecar>
+    gUpt04PreviousPrimarySidecars;
+public [[vk::binding(28, 0)]] StructuredBuffer<Upt03PackedReservoir>
+    gUpt04PreviousReservoirs;
+public [[vk::binding(29, 0)]] StructuredBuffer<uint>
+    gUpt04PreviousToCurrentLights;
 public [[vk::binding(0, 1)]] Texture2D<float4> gUpt04MaterialTextures[];
 public [[vk::push_constant]] ConstantBuffer<Upt04InitialControl> gUpt04Control;
 
@@ -72,5 +91,26 @@ public Upt04SmokeMaterialRecord Upt04LoadMaterialRecord(uint index)
     return Upt04UnpackCompactMaterial(gUpt04Materials[index]);
 #else
     return gUpt04Materials[index];
+#endif
+}
+
+public Upt04PrimarySurfaceRecord Upt04LoadPreviousPrimarySurface(uint index)
+{
+#if UPT04_PACKED_PRIMARY_RECEIVER == 1
+    // Compact48 is a current-frame-only receiver. Host metadata keeps D0
+    // history disabled for this specialization, so this declaration exists
+    // only to retain one descriptor layout across production variants.
+    return Upt04UnpackPrimarySurface(gUpt04PreviousPrimarySurfaces[index]);
+#elif UPT04_PACKED_PRIMARY_RECEIVER == 2
+    return Upt04ApplyPrimaryHistorySidecar(
+        Upt04UnpackPrimarySurface32(
+            gUpt04PreviousPrimarySurfaces[index],
+            float3(
+                gUpt04Control.previousCameraOriginX,
+                gUpt04Control.previousCameraOriginY,
+                gUpt04Control.previousCameraOriginZ)),
+        gUpt04PreviousPrimarySidecars[index]);
+#else
+    return gUpt04PreviousPrimarySurfaces[index];
 #endif
 }

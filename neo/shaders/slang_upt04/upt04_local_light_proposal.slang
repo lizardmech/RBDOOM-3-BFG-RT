@@ -1,5 +1,75 @@
 import upt04_light_contract;
 
+// Fixed initial-RIS budget for the first reference-shaped D0 slice. Both
+// populated light domains receive proposals; visibility remains one ray for
+// the locally selected result, not one ray per trial.
+public static const uint kUpt04DirectRisBaselineCandidateCount = 8u;
+public static const uint kUpt04DirectRisParityAnalyticCount = 32u;
+public static const uint kUpt04DirectRisMaximumEmissiveCount = 16u;
+public static const uint kUpt04DirectRisMaximumCandidateCount = 48u;
+
+public uint Upt04DirectRisDomainTrialCount(
+    Upt04LocalLightRanges ranges,
+    uint lightType,
+    uint proposalParity,
+    uint configuredEmissiveTrials)
+{
+    const bool hasEmissive = ranges.emissiveCount != 0u;
+    const bool hasAnalytic = ranges.analyticCount != 0u;
+    if (!hasEmissive && !hasAnalytic)
+        return 0u;
+    if (proposalParity != 0u)
+    {
+        if (lightType == kUpt04LightEmissiveTriangle)
+            return hasEmissive
+                ? min(configuredEmissiveTrials,
+                    kUpt04DirectRisMaximumEmissiveCount)
+                : 0u;
+        return hasAnalytic
+            ? min(ranges.analyticCount, kUpt04DirectRisParityAnalyticCount)
+            : 0u;
+    }
+    if (hasEmissive && hasAnalytic)
+        return lightType == kUpt04LightEmissiveTriangle
+            ? kUpt04DirectRisBaselineCandidateCount / 2u
+            : kUpt04DirectRisBaselineCandidateCount
+                - kUpt04DirectRisBaselineCandidateCount / 2u;
+    if (lightType == kUpt04LightEmissiveTriangle)
+        return hasEmissive ? kUpt04DirectRisBaselineCandidateCount : 0u;
+    return hasAnalytic ? kUpt04DirectRisBaselineCandidateCount : 0u;
+}
+
+public uint Upt04DirectRisCandidateCount(
+    Upt04LocalLightRanges ranges,
+    uint proposalParity,
+    uint configuredEmissiveTrials)
+{
+    return Upt04DirectRisDomainTrialCount(
+            ranges, kUpt04LightEmissiveTriangle, proposalParity,
+            configuredEmissiveTrials)
+        + Upt04DirectRisDomainTrialCount(
+            ranges, kUpt04LightDoomAnalytic, proposalParity,
+            configuredEmissiveTrials);
+}
+
+public float Upt04DirectRisIdentityPdf(
+    Upt04LocalLightRanges ranges,
+    uint lightType,
+    uint proposalParity,
+    uint configuredEmissiveTrials)
+{
+    const uint domainCount = lightType == kUpt04LightEmissiveTriangle
+        ? ranges.emissiveCount : ranges.analyticCount;
+    const uint domainTrials = Upt04DirectRisDomainTrialCount(
+        ranges, lightType, proposalParity, configuredEmissiveTrials);
+    const uint totalTrials = Upt04DirectRisCandidateCount(
+        ranges, proposalParity, configuredEmissiveTrials);
+    return domainCount != 0u && domainTrials != 0u && totalTrials != 0u
+        ? float(domainTrials)
+            / float(totalTrials * domainCount)
+        : 0.0f;
+}
+
 public bool Upt04LocalLightRangesStructurallyValid(
     Upt04LocalLightRanges ranges,
     uint currentLightCount)
@@ -121,17 +191,16 @@ public Upt04LocalLightSample Upt04SampleAnalyticSphere(
     if (!isfinite(hitT) || hitT <= 0.01f || !Upt04FinitePositive(solidAngle))
         return result;
 
-    const float influenceRadius = light.uvOrDoomParams.x;
-    const float radiusFraction = saturate(centerDistance / influenceRadius);
-    const float influence = saturate(1.0f - radiusFraction * radiusFraction);
     result.position = receiverPosition + direction * hitT;
     result.normal = normalize(result.position - light.positionAndRadius.xyz);
     result.distance = hitT;
     result.direction = direction;
     result.solidAnglePdf = 1.0f / solidAngle;
-    result.radiance = max(light.radianceAndLuminance.xyz, float3(0.0f)) * influence;
-    result.status = influence > 0.0f
-        ? kUpt04SampleValidPositive
-        : kUpt04SampleValidZero;
+    // Match the accepted legacy/RRX default: the authored Doom radius remains
+    // proposal metadata, not a hard shading boundary.  Applying its quadratic
+    // mask here produced rigid visible light volumes in the UPT output.
+    result.radiance = max(light.radianceAndLuminance.xyz, float3(0.0f));
+    result.status = any(result.radiance > 0.0f)
+        ? kUpt04SampleValidPositive : kUpt04SampleValidZero;
     return result;
 }

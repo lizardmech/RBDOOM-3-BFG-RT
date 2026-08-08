@@ -80,6 +80,115 @@ int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
 int g_smokeLastGeometryValidationDumpErrors = 0;
 
+void MergeSmokeMaterialStats(
+    RtSmokeMaterialStats& destination,
+    const RtSmokeMaterialStats& source)
+{
+    destination.totalSurfaces += source.totalSurfaces;
+    destination.totalTriangles += source.totalTriangles;
+    destination.translucentSurfaces += source.translucentSurfaces;
+    destination.translucentTriangles += source.translucentTriangles;
+
+    for (uint32_t materialId : source.materialIds)
+    {
+        if (std::find(
+                destination.materialIds.begin(),
+                destination.materialIds.end(),
+                materialId) == destination.materialIds.end())
+        {
+            destination.materialIds.push_back(materialId);
+        }
+    }
+    destination.uniqueMaterials =
+        static_cast<int>(destination.materialIds.size());
+
+    for (uint32_t materialId : source.translucentMaterialIds)
+    {
+        if (std::find(
+                destination.translucentMaterialIds.begin(),
+                destination.translucentMaterialIds.end(),
+                materialId) == destination.translucentMaterialIds.end())
+        {
+            destination.translucentMaterialIds.push_back(materialId);
+        }
+    }
+    destination.translucentUniqueMaterials =
+        static_cast<int>(destination.translucentMaterialIds.size());
+
+    destination.dynamicEvalSurfaces += source.dynamicEvalSurfaces;
+    destination.dynamicEvalTriangles += source.dynamicEvalTriangles;
+    destination.dynamicEvalStages += source.dynamicEvalStages;
+    destination.dynamicEvalEnabledStages += source.dynamicEvalEnabledStages;
+    destination.dynamicEvalDisabledStages += source.dynamicEvalDisabledStages;
+    destination.dynamicEvalColorStages += source.dynamicEvalColorStages;
+    destination.dynamicEvalAlphaStages += source.dynamicEvalAlphaStages;
+    destination.dynamicEvalAlphaTestStages += source.dynamicEvalAlphaTestStages;
+    destination.dynamicEvalTexMatrixStages += source.dynamicEvalTexMatrixStages;
+    destination.dynamicEvalDynamicImageStages += source.dynamicEvalDynamicImageStages;
+    destination.dynamicEvalCinematicStages += source.dynamicEvalCinematicStages;
+    destination.dynamicEvalGuiRenderTargetStages += source.dynamicEvalGuiRenderTargetStages;
+    destination.dynamicEvalProgramStages += source.dynamicEvalProgramStages;
+    destination.dynamicEvalNoRegisterSurfaces += source.dynamicEvalNoRegisterSurfaces;
+    destination.dynamicEvalNoSelectedStageSurfaces += source.dynamicEvalNoSelectedStageSurfaces;
+
+    // Static capture and the draw-surface mirror observe the same frame, but
+    // the static route is the only producer for preloaded portal-area
+    // surfaces. Preserve its sample when an ID is duplicated; otherwise a
+    // mirror-only replacement drops the runtime emissive color/condition as
+    // soon as that static surface leaves the current draw list.
+    for (const RtSmokeDynamicMaterialEvalSample& sourceSample :
+        source.dynamicEvalMaterialSamples)
+    {
+        const auto existing = std::find_if(
+            destination.dynamicEvalMaterialSamples.begin(),
+            destination.dynamicEvalMaterialSamples.end(),
+            [&sourceSample](const RtSmokeDynamicMaterialEvalSample& sample) {
+                return sample.id == sourceSample.id;
+            });
+        if (existing == destination.dynamicEvalMaterialSamples.end())
+        {
+            destination.dynamicEvalMaterialSamples.push_back(sourceSample);
+        }
+    }
+
+    for (int sampleIndex = 0;
+        sampleIndex < source.dynamicEvalSampleCount &&
+            destination.dynamicEvalSampleCount <
+                RT_SMOKE_DYNAMIC_MATERIAL_REASON_SAMPLES;
+        ++sampleIndex)
+    {
+        const RtSmokeDynamicMaterialEvalSample& sourceSample =
+            source.dynamicEvalSamples[sampleIndex];
+        bool duplicate = false;
+        for (int destinationIndex = 0;
+            destinationIndex < destination.dynamicEvalSampleCount;
+            ++destinationIndex)
+        {
+            if (destination.dynamicEvalSamples[destinationIndex].id ==
+                sourceSample.id)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate)
+        {
+            destination.dynamicEvalSamples[
+                destination.dynamicEvalSampleCount++] = sourceSample;
+        }
+    }
+
+    for (int subtypeIndex = 0;
+        subtypeIndex < RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT;
+        ++subtypeIndex)
+    {
+        destination.translucentSubtypeSurfaces[subtypeIndex] +=
+            source.translucentSubtypeSurfaces[subtypeIndex];
+        destination.translucentSubtypeTriangles[subtypeIndex] +=
+            source.translucentSubtypeTriangles[subtypeIndex];
+    }
+}
+
 void AppendRenderedAttributeSurveyRange(
     const std::vector<PathTraceSmokeVertex>& vertices,
     int vertexOffset,
@@ -7741,6 +7850,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             const int staticSourceVerts = classStats.staticWorldVerts;
             const int staticSourceIndexes = classStats.staticWorldIndexes;
 
+            const RtSmokeMaterialStats staticMaterialStats = materialStats;
             RtSmokeSurfaceClassStats mirrorClassStats;
             RtSmokeSurfaceSkipStats mirrorSkipStats;
             RtSmokeDynamicGeometryStats mirrorDynamicStats;
@@ -7806,7 +7916,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     staticSkipStats.geometryStaticAdmittedSurfaces;
                 dynamicStats = mirrorDynamicStats;
                 attributeStats = mirrorAttributeStats;
-                materialStats = mirrorMaterialStats;
+                materialStats = staticMaterialStats;
+                MergeSmokeMaterialStats(materialStats, mirrorMaterialStats);
                 bucketRanges = mirrorBucketRanges;
                 bucketRanges.buckets[0] = staticBucketRange;
                 captureTiming.dynamicPassClassifyMs += mirrorCaptureTiming.dynamicPassClassifyMs;
@@ -10533,23 +10644,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_remixLightManager.GetStats().emissiveRangeOffset,
             m_remixLightManager.GetStats().emissiveRangeCount)
         : PathTraceUnifiedEmissiveLookupBuild();
-    emissiveDistribution = [&]() {
-        OPTICK_EVENT("PT Emissive Distribution");
-        return BuildSmokeEmissiveDistribution(emissiveTriangles);
-    }();
-    const PathTraceUnifiedLightBuild unifiedLights = [&]() {
-        OPTICK_EVENT("PT Unified Light Build");
-        return BuildPathTraceUnifiedLights(
-            emissiveTriangles,
-            previousEmissiveTriangles,
-            emissiveLightRemap,
-            doomAnalyticLights,
-            doomAnalyticRemap.previousCandidates,
-            doomAnalyticRemap.currentCandidateIdentities,
-            doomAnalyticRemap.previousCandidateIdentities,
-            doomAnalyticRemap.universeRemap,
-            idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat()));
-    }();
     const auto findEmissiveLightRecord =
         [](const std::vector<PathTraceUnifiedLightRecord>& records,
            uint32_t sourceIndex) -> uint32_t
@@ -10569,6 +10663,31 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
             return PT_SKINNED_EMISSIVE_GPU_INVALID_INDEX;
         };
+    emissiveDistribution = [&]() {
+        OPTICK_EVENT("PT Emissive Distribution");
+        RtSmokeEmissiveDistributionBuild build =
+            BuildSmokeEmissiveDistribution(emissiveTriangles);
+        for (PathTraceEmissiveDistributionEntry& entry : build.entries)
+        {
+            entry.denseLightIndex = findEmissiveLightRecord(
+                restirLightManagerCurrentPayloadRecords,
+                entry.emissiveTriangleIndex);
+        }
+        return build;
+    }();
+    const PathTraceUnifiedLightBuild unifiedLights = [&]() {
+        OPTICK_EVENT("PT Unified Light Build");
+        return BuildPathTraceUnifiedLights(
+            emissiveTriangles,
+            previousEmissiveTriangles,
+            emissiveLightRemap,
+            doomAnalyticLights,
+            doomAnalyticRemap.previousCandidates,
+            doomAnalyticRemap.currentCandidateIdentities,
+            doomAnalyticRemap.previousCandidateIdentities,
+            doomAnalyticRemap.universeRemap,
+            idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat()));
+    }();
     for (PathTraceSkinnedEmissiveGpuWork& work :
         skinnedEmissiveGpuWork)
     {
@@ -10661,6 +10780,119 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             emissiveDistribution.fallbackWeight,
             emissiveDistribution.totalPdf,
             r_pathTracingEmissiveDistribution.GetInteger());
+
+        // A visually useful legacy result is not proof that its proposal was
+        // well conditioned: temporal/spatial reuse can accidentally compensate
+        // for a scene-global CDF dominated by a few unrelated emitters. Keep
+        // this audit on the producer side so regressions in inventory coverage
+        // can be distinguished from changes in reservoir reuse math.
+        std::vector<float> sortedEmissivePdfs;
+        sortedEmissivePdfs.reserve(emissiveTriangles.size());
+        double pdfSquareSum = 0.0;
+        int positivePdfCount = 0;
+        for (const PathTraceSmokeEmissiveTriangle& triangle : emissiveTriangles)
+        {
+            const float pdf = Max(triangle.sampleWeightAndPdf[1], 0.0f);
+            sortedEmissivePdfs.push_back(pdf);
+            if (pdf > 0.0f)
+            {
+                ++positivePdfCount;
+                pdfSquareSum += static_cast<double>(pdf) *
+                    static_cast<double>(pdf);
+            }
+        }
+        std::sort(sortedEmissivePdfs.begin(), sortedEmissivePdfs.end(),
+            [](float lhs, float rhs) { return lhs > rhs; });
+
+        const auto pdfPrefix = [&sortedEmissivePdfs](int count) -> double
+        {
+            const int boundedCount = Min(count,
+                static_cast<int>(sortedEmissivePdfs.size()));
+            double sum = 0.0;
+            for (int index = 0; index < boundedCount; ++index)
+            {
+                sum += sortedEmissivePdfs[index];
+            }
+            return sum;
+        };
+        const auto recordsForMass = [&sortedEmissivePdfs](double target) -> int
+        {
+            double sum = 0.0;
+            for (int index = 0;
+                 index < static_cast<int>(sortedEmissivePdfs.size());
+                 ++index)
+            {
+                sum += sortedEmissivePdfs[index];
+                if (sum >= target)
+                {
+                    return index + 1;
+                }
+            }
+            return 0;
+        };
+        const double effectivePdfRecords = pdfSquareSum > 0.0
+            ? 1.0 / pdfSquareSum : 0.0;
+        double texturedWeight = 0.0;
+        double untexturedWeight = 0.0;
+        for (const RtSmokeEmissiveLightCandidateSummary& candidate :
+             emissiveInventoryStats.lightCandidates)
+        {
+            if (candidate.hasEmissiveTexture)
+            {
+                texturedWeight += candidate.weightedLuminance;
+            }
+            else
+            {
+                untexturedWeight += candidate.weightedLuminance;
+            }
+        }
+        const double totalCandidateWeight =
+            texturedWeight + untexturedWeight;
+        common->Printf(
+            "PathTracePrimaryPass: RT smoke emissive PDF audit records(total/positive/effective)=%d/%d/%.1f mass(top1/top8/top32)=%.4f/%.4f/%.4f recordsFor(50/90/99pct)=%d/%d/%d materialWeight(textured/untextured/share)=%.3f/%.3f/%.4f\n",
+            static_cast<int>(emissiveTriangles.size()),
+            positivePdfCount,
+            effectivePdfRecords,
+            pdfPrefix(1),
+            pdfPrefix(8),
+            pdfPrefix(32),
+            recordsForMass(0.50),
+            recordsForMass(0.90),
+            recordsForMass(0.99),
+            texturedWeight,
+            untexturedWeight,
+            totalCandidateWeight > 0.0
+                ? texturedWeight / totalCandidateWeight
+                : 0.0);
+
+        const int materialAuditCount = Min(8,
+            static_cast<int>(emissiveInventoryStats.lightCandidates.size()));
+        for (int materialAuditIndex = 0;
+             materialAuditIndex < materialAuditCount;
+             ++materialAuditIndex)
+        {
+            const RtSmokeEmissiveLightCandidateSummary& candidate =
+                emissiveInventoryStats.lightCandidates[materialAuditIndex];
+            const RtMaterialRecord* materialRecord =
+                FindPathTraceMaterialRecord(candidate.materialId);
+            common->Printf(
+                "PathTracePrimaryPass: RT smoke emissive PDF material rank=%d id=%u name='%s' triangles=%d static/dynamic=%d/%d area=%.3f weight=%.6f share=%.6f textured/safe=%d/%d texture=%u\n",
+                materialAuditIndex + 1,
+                candidate.materialId,
+                materialRecord ? materialRecord->materialName.c_str() : "<unknown>",
+                candidate.triangles,
+                candidate.staticTriangles,
+                candidate.dynamicTriangles,
+                candidate.area,
+                candidate.weightedLuminance,
+                emissiveInventoryStats.totalWeightedLuminance > 1.0e-8f
+                    ? candidate.weightedLuminance /
+                        emissiveInventoryStats.totalWeightedLuminance
+                    : 0.0f,
+                candidate.hasEmissiveTexture ? 1 : 0,
+                candidate.hasSafeEmissiveTexture ? 1 : 0,
+                candidate.emissiveTextureIndex);
+        }
     }
     const bool skinnedCpuReferenceAuditActive =
         r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0 ||

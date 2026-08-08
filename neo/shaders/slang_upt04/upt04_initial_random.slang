@@ -40,5 +40,7 @@ public uint Upt04InitialReplayKey(uint2 pixel)
     uint value = Upt04HashWord(key.pixelX ^ (key.pixelY * 0x9e3779b9u));
     value = Upt04HashWord(value ^ key.frameSampleIndex);
     value = Upt04HashWord(value ^ key.streamNamespace ^ key.dimension);
-    return value | 1u;
+    // High bit belongs to UPT-09's rescue stamp. Keep the base identity
+    // nonzero so UPT-08 can use zero as the invalid/no-sample sentinel.
+    return (value & 0x7fffffffu) | 1u;
 }

@@ -9,29 +9,24 @@ public struct Upt07PreviousCamera
     public float3 left;
     public float tanY;
     public float3 up;
-    public uint reserved;
+    // Uses the formerly reserved final camera word without growing the frozen
+    // 128-byte push-constant ABI: 0 exact, 1 dither, 2 dither + probes.
+    public uint historySearchMode;
 };
 
 public struct Upt07PreviousProjection
 {
     public int2 pixel;
-    public float viewDepth;
+    public float linearDepth;
     public uint valid;
 };
 
-public int2 Upt07HistoryTap(uint index)
-{
-    if (index == 1u) return int2(-1, 0);
-    if (index == 2u) return int2(1, 0);
-    if (index == 3u) return int2(0, -1);
-    if (index == 4u) return int2(0, 1);
-    return int2(0, 0);
-}
-
-public Upt07PreviousProjection Upt07ProjectPrevious(
+public Upt07PreviousProjection Upt07ProjectPreviousForSearch(
     Upt04PrimarySurfaceRecord current,
     Upt07PreviousCamera camera,
-    uint2 dimensions)
+    uint2 dimensions,
+    float2 pixelJitter,
+    uint borderMargin)
 {
     Upt07PreviousProjection result = (Upt07PreviousProjection)0;
     result.pixel = int2(-1, -1);
@@ -41,34 +36,55 @@ public Upt07PreviousProjection Upt07ProjectPrevious(
         ? current.previousPositionOrMotion.xyz
         : current.worldPositionAndViewDepth.xyz;
     const float3 delta = previousPosition - camera.origin;
-    result.viewDepth = dot(delta, camera.forward);
-    if (!isfinite(result.viewDepth) || result.viewDepth <= 0.05f
+    const float forwardDistance = dot(delta, camera.forward);
+    result.linearDepth = length(delta);
+    if (!isfinite(forwardDistance) || forwardDistance <= 0.05f
+        || !isfinite(result.linearDepth)
         || !isfinite(camera.tanX) || !isfinite(camera.tanY)
         || camera.tanX <= 0.0f || camera.tanY <= 0.0f)
         return result;
     const float2 ndc = float2(
-        -dot(delta, camera.left) / (result.viewDepth * camera.tanX),
-        -dot(delta, camera.up) / (result.viewDepth * camera.tanY));
-    if (!all(isfinite(ndc)) || any(abs(ndc) > 1.0f))
+        -dot(delta, camera.left) / (forwardDistance * camera.tanX),
+        -dot(delta, camera.up) / (forwardDistance * camera.tanY));
+    if (!all(isfinite(ndc)) || !all(isfinite(pixelJitter)))
         return result;
     const float2 pixelFloat = (ndc * 0.5f + 0.5f) * float2(dimensions);
-    result.pixel = int2(floor(pixelFloat));
-    result.valid = result.pixel.x >= 0 && result.pixel.y >= 0
-            && uint(result.pixel.x) < dimensions.x
-            && uint(result.pixel.y) < dimensions.y
-        ? 1u : 0u;
+    const float margin = float(borderMargin) + 1.0f;
+    if (!all(isfinite(pixelFloat))
+        || pixelFloat.x < -margin || pixelFloat.y < -margin
+        || pixelFloat.x >= float(dimensions.x) + margin
+        || pixelFloat.y >= float(dimensions.y) + margin)
+        return result;
+    result.pixel = int2(floor(pixelFloat + pixelJitter));
+    // A randomized probe may recover a center just outside the viewport.
+    // Every actual surface load still performs an explicit signed bounds test.
+    result.valid = 1u;
     return result;
 }
 
-public bool Upt07SurfacesCompatible(
+public Upt07PreviousProjection Upt07ProjectPrevious(
+    Upt04PrimarySurfaceRecord current,
+    Upt07PreviousCamera camera,
+    uint2 dimensions)
+{
+    const Upt07PreviousProjection result = Upt07ProjectPreviousForSearch(
+        current, camera, dimensions, float2(0.0f), 0u);
+    if (result.valid == 0u || result.pixel.x < 0 || result.pixel.y < 0
+        || uint(result.pixel.x) >= dimensions.x
+        || uint(result.pixel.y) >= dimensions.y)
+        return (Upt07PreviousProjection)0;
+    return result;
+}
+
+public bool Upt07SurfacesCompatibleScored(
     Upt04PrimarySurfaceRecord current,
     Upt04PrimarySurfaceRecord previous,
-    float projectedPreviousDepth)
+    float projectedPreviousLinearDepth,
+    out float compatibilityScore)
 {
+    compatibilityScore = 1.0e30f;
     if (!Upt04PrimarySurfaceRecordValid(previous)
-        || current.materialAndSurface.x != previous.materialAndSurface.x
-        || current.materialAndSurface.y != previous.materialAndSurface.y
-        || current.materialAndSurface.w != previous.materialAndSurface.w)
+        || !Upt04PrimarySurfaceAlphaReuseCompatible(current, previous))
         return false;
     const float currentLengthSquared = dot(
         current.geometricNormalAndRoughness.xyz,
@@ -83,12 +99,36 @@ public bool Upt07SurfacesCompatible(
         * rsqrt(currentLengthSquared);
     const float3 previousNormal = previous.geometricNormalAndRoughness.xyz
         * rsqrt(previousLengthSquared);
-    if (dot(currentNormal, previousNormal) < 0.85f
-        || abs(current.geometricNormalAndRoughness.w
-            - previous.geometricNormalAndRoughness.w) > 0.20f)
+    // Match the proven RTXDI DI temporal surface gate. The shifted light is
+    // re-evaluated against the current material, so material identity and
+    // roughness are not temporal-neighbor criteria. Requiring those fields
+    // made animated/rigid receivers alternate between valid and rejected
+    // history even when their geometric reprojection was sound.
+    if (dot(currentNormal, previousNormal) < 0.35f)
         return false;
-    const float depthTolerance = max(0.10f, abs(projectedPreviousDepth) * 0.10f);
-    return isfinite(previous.worldPositionAndViewDepth.w)
-        && abs(previous.worldPositionAndViewDepth.w - projectedPreviousDepth)
-            <= depthTolerance;
+    const float depthError = abs(previous.worldPositionAndViewDepth.w
+        - projectedPreviousLinearDepth);
+    const float depthTolerance = 0.10f * max(
+        previous.worldPositionAndViewDepth.w,
+        projectedPreviousLinearDepth);
+    if (!isfinite(previous.worldPositionAndViewDepth.w)
+        || !isfinite(depthError) || !isfinite(depthTolerance)
+        || depthTolerance < 0.0f || depthError > depthTolerance)
+        return false;
+    compatibilityScore = depthError / max(depthTolerance, 1.0e-6f)
+        + (1.0f - saturate(dot(currentNormal, previousNormal)));
+    return isfinite(compatibilityScore);
+}
+
+public bool Upt07SurfacesCompatible(
+    Upt04PrimarySurfaceRecord current,
+    Upt04PrimarySurfaceRecord previous,
+    float projectedPreviousLinearDepth)
+{
+    float compatibilityScore;
+    return Upt07SurfacesCompatibleScored(
+        current,
+        previous,
+        projectedPreviousLinearDepth,
+        compatibilityScore);
 }

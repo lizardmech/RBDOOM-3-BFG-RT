@@ -3,8 +3,8 @@
 // This kernel deliberately performs no path shift, target re-evaluation, or
 // ray work and is not copied into the runtime shader directory.  It proves the
 // two-page access pattern before those costs are admitted: each invocation
-// reads only its own current record, searches a bounded neighborhood in the
-// other physical history page, and overwrites only its own current record.
+// reads only its own current record and exact reprojected history record, then
+// overwrites only its own current record.
 
 import upt03_reservoir_contract;
 import upt04_primary_surface_live_contract;
@@ -61,33 +61,24 @@ public bool Upt07FindHistory(
     camera.left = gUpt07Control.previousCameraLeftAndTanY.xyz;
     camera.tanY = gUpt07Control.previousCameraLeftAndTanY.w;
     camera.up = gUpt07Control.previousCameraUpAndReserved.xyz;
-    camera.reserved = 0u;
+    camera.historySearchMode = 0u;
     const uint2 dimensions = uint2(
         gUpt07Control.renderWidth, gUpt07Control.renderHeight);
     const Upt07PreviousProjection projection = Upt07ProjectPrevious(
         current, camera, dimensions);
     if (projection.valid == 0u)
         return false;
-    [ForceUnroll]
-    for (uint tap = 0u; tap < 5u; ++tap)
-    {
-        const int2 pixel = projection.pixel + Upt07HistoryTap(tap);
-        if (pixel.x < 0 || pixel.y < 0
-            || uint(pixel.x) >= gUpt07Control.renderWidth
-            || uint(pixel.y) >= gUpt07Control.renderHeight)
-            continue;
-        const uint index = uint(pixel.y) * gUpt07Control.renderWidth
-            + uint(pixel.x);
-        const Upt04PrimarySurfaceRecord previous = gUpt07PreviousSurfaces[index];
-        if (!Upt07SurfacesCompatible(current, previous, projection.viewDepth))
-            continue;
-        const Upt03PackedReservoir candidate = gUpt07HistoryReservoirs[index];
-        if (!Upt07Selected(candidate))
-            continue;
-        history = candidate;
-        return true;
-    }
-    return false;
+    const int2 pixel = projection.pixel;
+    const uint index = uint(pixel.y) * gUpt07Control.renderWidth
+        + uint(pixel.x);
+    const Upt04PrimarySurfaceRecord previous = gUpt07PreviousSurfaces[index];
+    if (!Upt07SurfacesCompatible(current, previous, projection.linearDepth))
+        return false;
+    const Upt03PackedReservoir candidate = gUpt07HistoryReservoirs[index];
+    if (!Upt07Selected(candidate))
+        return false;
+    history = candidate;
+    return true;
 }
 
 [numthreads(8, 8, 1)]

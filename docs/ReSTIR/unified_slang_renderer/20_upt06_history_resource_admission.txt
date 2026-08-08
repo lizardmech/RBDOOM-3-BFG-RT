@@ -45,8 +45,8 @@ The owner has exactly two structured buffers:
 At 2560 x 1440 this is 235,929,600 bytes per page and 471,859,200 bytes total.
 There is no GPU metadata/header allocation. Page 0 receives its existing
 allocation-only clear so partial proof stages remain deterministic. Page 1 is
-never cleared; its bytes are unavailable until a future full-domain producer
-publishes fullyWritten=true.
+never cleared; its bytes are unavailable until T0/S0 (or another explicitly
+admitted full-domain producer) publishes fullyWritten=true.
 
 Host metadata
 -------------
@@ -57,12 +57,21 @@ Each physical page owns one PathTraceUnifiedPtPageMetadata record:
     width and height
     uint64 contentGeneration
     uint64 historyEpoch
+    uint64 frameSerial
 
 contentGeneration fingerprints the reservoir ABI, enabled family/backend,
-proposal and transport policy, route availability, material policy, stable
-scene/geometry/material/texture/light publications, and output resolution. It
-deliberately excludes cameraProjection and cpuUploadGeneration because both
-change during ordinary frames.
+proposal and transport policy, material policy, and output resolution. It
+deliberately excludes live scene/geometry/material/texture/light publications,
+route availability, range/count values, cameraProjection and
+cpuUploadGeneration because all may change during an ordinary frame or portal
+package transition. Current-domain replay and stable identity remapping own
+those live changes.
+
+frameSerial is a host-only serial incremented by every production full-frame
+D0 publication. An admitted history page must be exactly current.frameSerial-1.
+It is not packed into the reservoir and costs no GPU memory or bandwidth. This
+closes the otherwise silent case where a stale physical page still matches the
+extent, generation and epoch but belongs to N-2 or earlier.
 
 historyEpoch is a full-width monotonic host token published by frame resources.
 It advances on explicit output/scene/primary-history invalidation. Zero is
@@ -87,11 +96,16 @@ No reuse:
 
 Temporal only:
 
-    roles flip once per completed frame
+    roles flip once per fully published D0 frame
     current <- initial
     temporal reads current plus history and writes current in-place
     resolve <- current
     current becomes next history
+
+If temporal setup or descriptor admission skips after D0 completed, the fresh
+D0 current page is still promoted. The caller publishes the matching canonical
+primary surface every frame; retaining the old reservoir history in that case
+would pair frame N-2 reservoirs with frame N-1 surfaces on the next frame.
 
 The in-place temporal write remains gated on proving that an invocation never
 reads another current pixel after it may have been overwritten. Previous
@@ -110,7 +124,17 @@ Temporal plus spatial:
     full UAV barrier
     page 1 <- spatial(page 0)
     resolve <- page 1
-    page 1 becomes next history and physical roles flip
+    page 1 is already next history; physical roles do not flip
+
+The invariant is publication pairing, not successful reuse: after every
+full-frame D0, the reservoir page made available as next history must describe
+the same rendered frame as the canonical primary-surface page published by the
+caller. A failed D0/proof-stage frame has no publication and cannot change
+roles. A spatial publication already lands in the history role. Otherwise every
+completed D0 frame promotes the current page whether T0 ran, skipped, or was
+disabled. D0 now consumes the previous page for its bounded emissive
+previous-best proposal, so this role advance is required even in the
+temporal-off/spatial-off acceptance configuration.
 
 Every admitted producer must cover its full output domain with selected,
 count-only, or canonical-empty records. No invalidation path may clear a page.
@@ -125,8 +149,11 @@ Use the normal UPT route with proofStage 9. The first enable must report:
     history metadata invalidated ... pageClear=none
     page metadata page0(...)=... page1Full=0 ... pages=2
 
-Reload/resize must advance the epoch and print metadata invalidation without a
-page clear. Ordinary camera movement must not repeatedly print invalidation.
+Map/world reset and resize must advance the epoch and print metadata
+invalidation without a page clear. Ordinary camera movement and a portal scene
+package retirement/commit must not print invalidation: the old package remains
+alive through deferred retirement and stable identities are remapped into the
+new publication.
 The resolved image must remain equivalent to UPT-05 because count-only records
 have no selected contribution.
 
@@ -168,8 +195,19 @@ reprojection/compatibility, explicit camera-cut observation, history page role
 flip, and history candidate math. It must consume the host metadata before any
 per-pixel history load and must not add a clear or a third page.
 
-The first bounded ownership/merge proof is recorded in
+The implemented ownership/merge provider is recorded in
 21_upt07_temporal_contract_slice.txt. It assigns packed word0 bit 2 as a
 reservoir-local needs-rescue marker for non-selected records, fixes packed
-word11 as finalized mean source weight for reuse, and keeps its proof shader
-offline until a current-domain shift provider is admitted.
+word11 as finalized mean source weight for reuse, admits direct analytic and
+emissive current-domain shift/replay plus one winner-only visibility ray, and
+retains this UPT-06 page/serial/no-clear contract unchanged.
+
+D0 previous-best ownership amendment, 2026-08-08
+------------------------------------------------
+
+UPT-04 D0 now reads the existing history page, matching previous canonical
+primary receiver, compact32 sidecar when applicable, and stable light remap.
+No page, clear, copy, or full-frame side buffer was added. The prior page is
+admitted only when extent, content generation, history epoch, and published
+frame serial match exactly. Allocation and invalidation remain metadata-only;
+the two-page ceiling is unchanged.

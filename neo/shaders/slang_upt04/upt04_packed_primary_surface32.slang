@@ -1,7 +1,7 @@
 import upt04_primary_surface_live_contract;
 import upt04_packed_primary_surface;
 
-public static const uint kUpt04PackedPrimary32Version = 1u;
+public static const uint kUpt04PackedPrimary32Version = 2u;
 public static const uint kUpt04PackedPrimary32Valid = 0x8000u;
 
 // Must remain byte-identical to PathTraceUnifiedPtPrimaryReceiver32.
@@ -27,10 +27,15 @@ public Upt04PrimarySurfaceRecord Upt04UnpackPrimarySurface32(
         !all(isfinite(cameraOrigin)))
         return surface;
 
-    const float2 baseRg = Upt04UnpackHalf2(packed.material.x);
-    const float2 baseBRoughness = Upt04UnpackHalf2(packed.material.y);
-    const float2 specularRg = Upt04UnpackHalf2(packed.material.z);
-    const float specularB = Upt04UnpackHalf2(packed.material.w).x;
+    const float3 baseColor = float3(
+        float(packed.material.x & 0x3ffu),
+        float((packed.material.x >> 10u) & 0x3ffu),
+        float((packed.material.x >> 20u) & 0x3ffu)) / 1023.0f;
+    const float3 specularF0 = float3(
+        float(packed.material.y & 0x3ffu),
+        float((packed.material.y >> 10u) & 0x3ffu),
+        float((packed.material.y >> 20u) & 0x3ffu)) / 1023.0f;
+    const float roughness = Upt04UnpackHalf2(packed.material.w).x;
     surface.header = uint4(
         kUpt04PrimarySurfaceVersion,
         kUpt04PrimarySurfaceValid,
@@ -41,18 +46,16 @@ public Upt04PrimarySurfaceRecord Upt04UnpackPrimarySurface32(
         hitDistance);
     surface.geometricNormalAndRoughness = float4(
         Upt04DecodeOctahedral(packed.geometry.y),
-        baseBRoughness.y);
+        roughness);
     surface.shadingNormalAndOpacity = float4(
         Upt04DecodeOctahedral(packed.geometry.z),
         1.0f);
     surface.viewDirectionAndReserved = float4(viewDirection, 0.0f);
     surface.albedoAndAlphaCutoff = float4(
-        baseRg,
-        baseBRoughness.x,
+        baseColor,
         0.0f);
-    surface.specularF0AndReserved = float4(
-        specularRg,
-        specularB,
-        0.0f);
+    surface.specularF0AndReserved = float4(specularF0, 0.0f);
+    surface.emissiveAndHeight = float4(
+        Upt04UnpackSharedExponentEmission(packed.material.z), 0.0f);
     return surface;
 }

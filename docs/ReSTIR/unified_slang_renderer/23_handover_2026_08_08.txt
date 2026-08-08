@@ -1,0 +1,429 @@
+Unified Slang ReSTIR PT Handover - 2026-08-08
+================================================
+
+Read this first
+---------------
+
+This is the current handover for the experimental UPT renderer on branch
+restir-development. It summarizes the accepted direct-reuse route, the fixes
+that must not be lost, the current unresolved emissive problem, and the next
+implementation boundary. The numbered documents remain the detailed contract;
+this file is the entry point for continuing the work without reconstructing the
+entire development conversation.
+
+Repository state at handover
+----------------------------
+
+    branch: restir-development
+    checkpoint: d5929c127eb3  Promote tested UPT reuse defaults
+
+The worktree is intentionally dirty and contains substantial user/renderer
+work after that checkpoint. Do not reset, checkout over, or broadly reformat
+it. In particular, 22_upt09_spatial_rescue_slice.txt and alternates/ are
+untracked at this handover, while several earlier numbered documents and the
+UPT host/shader sources are modified. Inspect the scoped diff before staging.
+
+Renderer purpose and present boundary
+-------------------------------------
+
+UPT is a Vulkan-only Slang renderer built beside the legacy clean DI/GI lanes.
+It is not a refactor of those lanes. Its long-term target is the ReSTIR PT
+Enhanced path-tree design: direct light is a short selected path and indirect
+light is a longer selected path in one reservoir stream. Materials remain
+separate providers rather than being embedded in ReSTIR passes.
+
+The direct-only route is now useful and fast enough to move beyond D0/T0/S0
+micro-tuning. The next large unknown is the unified D0 path with indirect
+continuation/secondary NEE enabled. Do not begin that extension until the
+remaining UPT-only emissive acquisition loss is understood or fixed; otherwise
+the indirect comparison will be contaminated by a known direct-light defect.
+
+Accepted runtime shape
+----------------------
+
+The accepted direct test composition is:
+
+    P0  UPT lean primary producer
+    D0  monolithic RayQuery direct initial sampling
+    T0  optional temporal direct shift and winner visibility
+    U0  optional sample-ID publication
+    U1  optional 17x17 duplication count
+    S0  optional direct spatial reuse
+    R0  trace-free RGBA16F resolve
+
+Important defaults inside that opt-in route are:
+
+    r_pathTracingUnifiedPtLeanPrimary             1
+    r_pathTracingUnifiedPtCompactReceiver         2
+    r_pathTracingUnifiedPtDirectProposalParity    1
+    r_pathTracingUnifiedPtTemporalSearch          2
+    r_pathTracingUnifiedPtTemporalMaxHistoryM     32
+    r_pathTracingUnifiedPtTemporalMaxAge          32
+    r_pathTracingUnifiedPtTemporalPreviousBest    0
+    r_pathTracingUnifiedPtTemporalPairwise        0
+    r_pathTracingUnifiedPtDuplication             1
+    r_pathTracingUnifiedPtSpatialProofMode        0
+    r_pathTracingUnifiedPtDirectTargetPdfParity   1
+    r_pathTracingUnifiedPtAnalyticPortalDomain    1
+    r_pathTracingUnifiedPtBackend                 0
+    r_pathTracingUnifiedPtFamily                  1
+
+The renderer, presentation, temporal pass, and spatial pass themselves remain
+default off. The promoted values above are the accepted sub-policy defaults
+when their owning route/pass is enabled; they do not make UPT the normal game
+renderer.
+
+Known-good direct-reuse test setup
+----------------------------------
+
+Apply controls while UPT is disabled, then enable it last:
+
+    r_pathTracingUnifiedPtEnable 0
+    r_pathTracingUnifiedPtBackend 0
+    r_pathTracingUnifiedPtFamily 1
+    r_pathTracingUnifiedPtProofStage 9
+    r_pathTracingUnifiedPtShaderProof 6
+    r_pathTracingUnifiedPtResolve 1
+    r_pathTracingUnifiedPtResolveView 0
+    r_pathTracingUnifiedPtLeanPrimary 1
+    r_pathTracingUnifiedPtCompactReceiver 2
+    r_pathTracingUnifiedPtDirectProposalParity 1
+    r_pathTracingUnifiedPtTemporal 1
+    r_pathTracingUnifiedPtTemporalSearch 2
+    r_pathTracingUnifiedPtTemporalMaxHistoryM 32
+    r_pathTracingUnifiedPtTemporalMaxAge 32
+    r_pathTracingUnifiedPtTemporalPreviousBest 0
+    r_pathTracingUnifiedPtTemporalPairwise 0
+    r_pathTracingUnifiedPtDuplication 1
+    r_pathTracingUnifiedPtSpatial 1
+    r_pathTracingUnifiedPtSpatialProofMode 0
+    r_pathTracingUnifiedPtDirectTargetPdfParity 1
+    r_pathTracingUnifiedPtAnalyticPortalDomain 1
+    r_pathTracingUnifiedPtDiagnostics 0
+    r_pathTracingUnifiedPtFixedSampleIndex -1
+    r_pathTracingUnifiedPtEnable 1
+
+Safe CVar defaults use proofStage=1, shaderProof=1, resolve=0, and enable=0.
+Full-frame shaded testing therefore requires the explicit 9/6/1 setup above.
+
+Debug and profiling controls
+----------------------------
+
+Resolve views currently useful for diagnosis:
+
+    0  final estimator
+    5  temporal state/rejection
+    6  emissive-triangle cast contribution only
+    7  Doom analytic contribution only
+    8  emissive cast plus primary self-emission
+    9  primary self-emission only
+
+r_pathTracingUnifiedPtDiagnostics is a one-shot diagnostic specialization. A
+0 -> 1 transition compiles/runs it, reads the fixed counter/signature tuple,
+then returns to production. It is not a persistent overlay.
+
+Set r_pathTracingNsightGpuMarkers 1 for the P0/D0/T0/U0/U1/S0/R0 markers.
+Temporal is named "UPT.T0 Temporal Direct Shift..."; duplication adds U0/U1.
+
+Accepted low-level and ABI fixes - do not regress
+-------------------------------------------------
+
+1. Slang RayQuery Vulkan bindings
+
+   Initial device removals were descriptor-layout errors, not a RayQuery or
+   Slang hardware failure. The Vulkan/NVRHI binding-offset contract, TLAS slot,
+   push constants, and reflected descriptor order must remain exact. Later
+   duplicate t5 and UPT-08 SRV ordering crashes were also binding-layout bugs.
+   Treat reflection and the live binding set as one ABI.
+
+2. Two fully written 64-byte pages, no per-frame clear
+
+   D0/T0/S0 fully cover their destination. Canonical empty/count-only encoding
+   makes stale bytes self-invalid. Pages are cleared only when allocated; reset
+   and camera/scene invalidation advance host metadata. Do not add a 225 MiB
+   per-frame clear. Future sparse sidecars require stamps or compact active
+   storage rather than relying on page metadata.
+
+3. Frame serial and page-role advancement
+
+   History metadata includes a host frame serial. History is usable only when
+   its serial is exactly current-1. A skipped T0/S0 frame must advance or repair
+   page ownership consistently; otherwise an N-2 reservoir page is compared
+   against N-1 primary surfaces and portal crossings look like a persistent
+   flush. This fixed the portal temporal desynchronization. Preserve the source
+   comment documenting this invariant.
+
+4. Stable direct-light identity
+
+   Reservoir word2 is the current dense manager index+1. Word3 is a fingerprint
+   of (type, identityA, identityB, materialOrLightId). sourceIndex is a
+   frame-local source-array address and must never be treated as stable light
+   identity. T0 maps through the manager previous-to-current table, then checks
+   the fingerprint. This fixed animated-light ID churn/strobing.
+
+5. Doom-scale visibility rays
+
+   Primary-direct visibility uses both geometric- and shading-normal horizon
+   tests, a 0.75-unit signed geometric-normal offset, 0.25 units along the ray,
+   and a 0.5-unit endpoint margin. RayQuery uses non-opaque candidate control
+   and ignores the selected emissive instance/primitive tuple. Reverting to an
+   unoffset origin, 0.02 endpoint margin, FORCE_OPAQUE, or no self-ignore causes
+   self-intersections on real Doom maps.
+
+6. Temporal visibility ownership
+
+   R0 is intentionally trace-free. Therefore T0 performs at most one
+   winner-only visibility RayQuery for a reused winner whose current-frame
+   visibility is not already proven. On failure it restores the untouched D0
+   reservoir; rejected history mass is not retained. Do not remove this ray on
+   the assumption that RTXDI's resampling helper is trace-free: its surrounding
+   pipeline re-establishes visibility elsewhere.
+
+7. Temporal surface search discipline
+
+   Search mode 2 dithers reprojection and probes up to nine radius-4 surface
+   positions. The first compatible surface wins, and only then is its reservoir
+   loaded. Reservoir content must never steer the surface search. The rejected
+   fixed/favorable-neighbor variants produced watery noise, trails, and hidden
+   spatial reuse inside T0.
+
+8. Compact receiver and authored smoothing
+
+   CompactReceiver=2 uses a 32-byte hot D0 receiver plus a separate 32-byte cold
+   history sidecar for T0/S0. The lean primary route also preserves authored
+   vertex normals/smoothing. Do not replace authored smoothing with a fixed
+   angle or recomputed face normal.
+
+9. Direct target measure and proposal parity
+
+   DirectTargetPdfParity=1 stores the RTXDI-shaped target
+   luminance(BRDF*Li*cos)/solidAnglePdf, with technique MIS applied once in the
+   scalar RIS weight. DirectProposalParity=1 uses one CDF-selected emissive
+   trial plus up to 32 range-stratified analytic trials. Changing only one pass
+   to another target convention invalidates D0/T0/S0 reuse math.
+
+10. Duplication control and bounded age
+
+   U0/U1 publish/count a stable sample ID over a 17x17 neighborhood and reduce
+   the next-frame temporal M cap in correlated regions. MaxHistoryM=32 and
+   MaxAge=32 passed the accepted mode-0 test. Age 63 remains a stress/no-expiry
+   setting and can still amplify isolated regions. Spatial mode 3 is a useful
+   bounded 1/M diagnostic, not the production default.
+
+11. Non-recursive empty-center rescue
+
+   An empty-center rescue winner is consumable for the current frame but is
+   stamped so it cannot donate recursively through later temporal/spatial
+   frames. Neighbor offsets are unique and edge-clamped pixel duplicates are
+   rejected. Do not restore with-replacement recursive donation.
+
+12. Monolithic D0 remains the accepted performance shape
+
+   The combined direct/indirect and continuation split experiments serialized
+   work and duplicated traversal. They were slower than the approximately
+   0.9 ms monolithic D0 in the accepted direct scene. Do not reopen a split
+   solely because its individual marker is smaller; compare the complete sum
+   and RT-core work.
+
+Performance observations worth preserving
+------------------------------------------
+
+The small test scene reached the 120 FPS cap at 2560x1440 with textured models.
+CompactReceiver=2 saved roughly 0.8 ms in the user's capture. In the tested
+larger scene DirectProposalParity=1 was unexpectedly about 2 ms faster than the
+fallback; S0 itself was about 2.3 ms faster while moving about 0.4 ms elsewhere.
+The compact route also reduced render-thread pressure and improved FPS in the
+CPU-bound parts of the game. Treat in-game FPS as secondary at high frame rates;
+use Nsight marker sums for small differences.
+
+The early performance investigation also found discrete slow/fast GPU states
+whose delay moved between substantial dispatches. It was not tied to one shader
+and Nsight's clock lock did not explain the within-capture change. That issue is
+recorded separately in docs/optimize and is not an excuse to discard measured
+UPT payload/bandwidth wins.
+
+Emissive state: what is fixed
+-----------------------------
+
+The following are distinct contracts and have been repaired:
+
+    primary visible self-emission is a local R0 term and never enters reuse;
+    back-facing Doom panels follow the explicit two-sided emissive policy;
+    D0/T0/S0 replay exact triangle UV/material emission rather than a flat
+        manager radiance estimate;
+    conditional door/signage stages use the lean nearest-signage tuple;
+    static-bucket replay uses the TLAS instance/primitive identity rather than
+        confusing it with the canonical surface record;
+    stale/dynamic material-state ownership that created ghost emitters was
+        corrected in the current worktree.
+
+Bucket routing explained an emission-color/white-replay defect, but disabling
+bucket routes did not fix emitters disappearing. Do not conflate those issues.
+
+Current blocker: UPT-only emissive acquisition loss
+---------------------------------------------------
+
+Some emitters disappear reproducibly in particular player portal positions,
+often inside or one portal away. Running through other portals can make them
+return; one standing position can reliably turn them off. Legacy clean DI is
+not affected. Analytic portal-domain, static-bucket route, and other tested
+route controls did not change the disappearance. The problem is not the global
+emissive cap: observed inventories are well below the 4096-triangle cap.
+
+The important comparison is:
+
+    shared upstream data
+        Both lanes consume the same emissive triangle inventory, the light
+        manager's current payload/ranges, and the same host-built power/area CDF.
+
+    legacy D0
+        Before ordinary RIS, it reprojects the prior best reservoir, translates
+        the light through stable previous-to-current identity, replays it at the
+        current receiver, and streams it once as a current proposal. The default
+        r_pathTracingCleanRtxdiDiBestLights=1 enables this D0 reseed.
+
+    UPT D0
+        It currently relies on fresh CDF selection. Its previous-best experiment
+        lives in T0, defaults off, and was visually broken (dark/overexposed).
+
+This makes the leading next fix a legacy-parity D0 previous-best reseed with
+stable-ID translation and duplicate exclusion. Do not simply enable
+r_pathTracingUnifiedPtTemporalPreviousBest; that is a different stage and its
+estimator was not accepted.
+
+If that does not close the portal-position loss, instrument the stages in this
+order, using one selected emitter identity across both positions:
+
+    1. CDF interval selected and dense manager index resolved;
+    2. dense index maps to the expected emissive replay tuple;
+    3. tuple/triangle/UV/material replay succeeds;
+    4. exact endpoint emission is finite and colored;
+    5. target and source PDF are positive;
+    6. visibility ray reaches the receiver without self-hit;
+    7. reservoir selection/finalization retains the candidate.
+
+Do not add candidate-count guesses, portal-local caps, or another emissive
+universe until that boundary records where the same light is lost.
+
+Implemented D0 acquisition checkpoint, 2026-08-08
+-------------------------------------------------
+
+The reported uniform-mixture experiment led to a verified pre-proposal defect.
+UPT used the emissive CDF structured buffer's physical GetDimensions result as
+the searchable entry count. The allocation is intentionally capacity-reused,
+so a smaller portal-frame publication left a stale high-water tail visible to
+UPT's binary search. The scene already publishes the exact current count and
+valid bit, which legacy clean DI consumes through its current-frame constants.
+
+The implemented repair uses that exact current count/validity and treats the
+physical dimension only as an OOB guard. Invalid current weighted publication
+uses the existing typed uniform fallback. It does not add a PDF floor, enlarge
+the portal domain, shrink/reallocate the buffer, or add random candidates.
+
+D0 now also has an emissive-only legacy-shaped previous-best reseed behind
+r_pathTracingUnifiedPtD0PreviousBest=1. It validates prior receiver history,
+stable remap, current identity, exact stored barycentric replay, current
+material/target, duplicate exclusion, and winner visibility. Dynamic-history
+emissives remain rejected. Analytic previous-best samples remain excluded, so
+fresh analytic behavior is unchanged. The merge preserves UPT's target-scaled
+mean-mass convention and uses no ray beyond the existing selected D0 visibility
+query. T0 was not used as compensation.
+
+Diagnostics now distinguish:
+
+    previous lookup attempted/succeeded;
+    remap, replay, current-target, and visibility failure;
+    duplicate rejection and successful previous admission;
+    fresh analytic versus fresh emissive selection;
+    unavailable weighted CDF plus current count/capacity/valid/zero-PDF skips.
+
+Verification completed:
+
+    cmake --build --preset win64-pt-dev-release passed;
+    Vulkan reflection and bounded trace-site checks passed;
+    compact32, direct/unified specialization, repeatability, UPT-07 temporal,
+        UPT-08 duplication, and UPT-09 spatial verification passed;
+    no DX12 shader build was run;
+    no per-frame clear or third reservoir page was added.
+
+Remaining gate: run the deployed Vulkan build at the same working/broken portal
+positions with T0/S0 disabled, record the focused counters, then re-enable T0
+and S0 to check for poisoning/energy regression. Do not start unified indirect
+or GI implementation before that gate is accepted.
+
+Latest external evidence
+------------------------
+
+The latest console captures are under:
+
+    C:/Users/lizard/Saved Games/id Software/RBDOOM 3 BFG/base/
+
+Useful names include case1.txt through case6.txt, capture1.txt through
+capture8.txt, emissive.txt, emissive2.txt, and emissive_inventory.txt.
+capture7/capture8 established that bucket routing affected color but not the
+portal-dependent disappearance. These are external evidence, not repo inputs.
+
+Next implementation sequence
+----------------------------
+
+1. Add a narrow D0 previous-best emissive/direct reseed matching the accepted
+   legacy ordering and identity translation. Keep it independently switchable
+   for a portal-position A/B. Do not alter temporal math in the same change.
+
+2. Prove the emitter survives the seven acquisition stages above in one broken
+   and one working portal position. Record counts/identity, not screenshots
+   alone. Remove temporary readback/log volume after the proof.
+
+3. Once direct emissives are stable, enable the existing unified family and
+   add/repair the first indirect continuation and secondary NEE path-tree work.
+   Preserve one shared selected path; do not create separate DI and GI
+   reservoirs or tag-specific Lambert kernels.
+
+4. Validate the unified image before adding more reuse policy. Compare direct-
+   only versus unified D0/R0 with T0/S0 disabled first, then admit temporal and
+   spatial shift providers for indirect paths explicitly. A partial provider
+   must reject an unsupported history event without changing current M/age.
+
+5. Only after the one-continuation unified path is correct, extend toward the
+   user-validated three-bounce/Russian-roulette target in UPT-10A. No current
+   ABI choice should prevent it, but no extra queue/buffer/dispatch is admitted
+   without measured justification.
+
+Build and deployment
+--------------------
+
+From neo/:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy:
+
+    build-win64-pt-dev/Release/RBDoom3BFG.exe
+        -> E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Copy only rebuilt Vulkan SPIR-V under:
+
+    base/renderprogs2/spirv/
+
+Do not compile or deploy DX12 shaders. Slang UPT targets are declared in
+neo/shaders/CMakeLists.txt and emit under their slang_uptXX directories.
+
+Gotcha: editing an HLSLI or RT HLSL include may not retrigger DXC. Delete the
+affected .rt.bin before the build and verify the rebuilt blob's timestamp is
+newer than the source edit. Always verify deployed EXE/blob size and mtime when
+a runtime A/B shows no change.
+
+Documentation ownership
+-----------------------
+
+    02  exact GPU resource/work ledger
+    03  reservoir validity, page, duplication, and estimator invariants
+    12/13  D0 admission and corrected ReSTIR PT Enhanced path-tree authority
+    20  two-page history/no-clear/serial contract
+    21  T0 implementation, visibility, stable identity, and temporal controls
+    22  S0/UPT-08 experiments and accepted direct-reuse sub-policy
+    23  this current handover and continuation sequence
+
+When a runtime result changes an accepted default or invalidates a hypothesis,
+update the owning numbered document in the same change. Do not let this handover
+become a second authority that silently diverges from those contracts.

@@ -1,7 +1,7 @@
 #ifndef RB_PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_HLSLI
 #define RB_PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_HLSLI
 
-static const uint RT_UPT_PRIMARY_RECEIVER_VERSION = 1u;
+static const uint RT_UPT_PRIMARY_RECEIVER_VERSION = 2u;
 static const uint RT_UPT_PRIMARY_RECEIVER_VALID = 0x00010000u;
 
 // Three uint4 words, exactly 48 bytes.  This is a current-frame shading
@@ -10,7 +10,7 @@ struct PathTraceUnifiedPtPrimaryReceiver
 {
     uint4 positionAndHeader;       // xyz = asuint(world position), w = version/valid
     uint4 directionsAndRoughness;  // oct geom, oct shading, oct view, fp16 roughness
-    uint4 material;                // fp16 baseColor.rgb + specularF0.rgb
+    uint4 material;                // fp16 baseColor/specularF0 + RGB9E5 emission
 };
 
 // Two uint4 words, exactly 32 bytes.  World position is reconstructed in D0
@@ -20,7 +20,7 @@ struct PathTraceUnifiedPtPrimaryReceiver
 struct PathTraceUnifiedPtPrimaryReceiver32
 {
     uint4 geometry; // hit distance, oct geom, oct shading, oct view
-    uint4 material; // fp16 baseColor.rgb, roughness, specularF0.rgb, header
+    uint4 material; // RGB10 base/specular, RGB9E5 emission, fp16 roughness + header
 };
 
 // Motion and stable material identity are cold for D0 but required by T0/S0.
@@ -62,6 +62,42 @@ uint PathTraceUptPackHalf2(float2 value)
         (f32tof16(finiteValue.y) << 16u);
 }
 
+uint PathTraceUptPackRgb10(float3 value)
+{
+    const uint3 packed = uint3(round(saturate(
+        all(isfinite(value)) ? value : float3(0.0, 0.0, 0.0)) * 1023.0));
+    return (packed.x & 0x3ffu) | ((packed.y & 0x3ffu) << 10u) |
+        ((packed.z & 0x3ffu) << 20u);
+}
+
+// Unsigned RGB9E5-style shared-exponent storage. Primary self-emission is
+// resolved locally and must survive the compact P0->D0 ABI; it must not be
+// injected into the reusable reservoir where it could migrate to a neighbor.
+uint PathTraceUptPackSharedExponentEmission(float3 value)
+{
+    const float3 finiteValue = all(isfinite(value))
+        ? min(max(value, float3(0.0, 0.0, 0.0)), float3(65408.0, 65408.0, 65408.0))
+        : float3(0.0, 0.0, 0.0);
+    const float maximum = max(finiteValue.x, max(finiteValue.y, finiteValue.z));
+    if (maximum <= 0.0)
+    {
+        return 0u;
+    }
+
+    uint exponent = (uint)clamp((int)floor(log2(maximum)) + 16, 0, 31);
+    float scale = exp2(24.0 - float(exponent));
+    uint3 mantissa = uint3(round(finiteValue * scale));
+    if (max(mantissa.x, max(mantissa.y, mantissa.z)) > 511u && exponent < 31u)
+    {
+        ++exponent;
+        scale *= 0.5;
+        mantissa = uint3(round(finiteValue * scale));
+    }
+    mantissa = min(mantissa, uint3(511u, 511u, 511u));
+    return mantissa.x | (mantissa.y << 9u) | (mantissa.z << 18u) |
+        (exponent << 27u);
+}
+
 PathTraceUnifiedPtPrimaryReceiver PackPathTraceUnifiedPtPrimaryReceiver(
     RAB_Surface surface)
 {
@@ -93,7 +129,8 @@ PathTraceUnifiedPtPrimaryReceiver PackPathTraceUnifiedPtPrimaryReceiver(
         PathTraceUptPackHalf2(baseColor.xy),
         PathTraceUptPackHalf2(float2(baseColor.z, specularF0.x)),
         PathTraceUptPackHalf2(specularF0.yz),
-        0u);
+        PathTraceUptPackSharedExponentEmission(
+            surface.material.emissiveRadiance));
     return receiver;
 }
 
@@ -127,12 +164,11 @@ PathTraceUnifiedPtPrimaryReceiver32 PackPathTraceUnifiedPtPrimaryReceiver32(
         PathTraceUptPackOctahedral(surface.shadingNormal),
         PathTraceUptPackOctahedral(viewDirection));
     receiver.material = uint4(
-        PathTraceUptPackHalf2(baseColor.xy),
-        PathTraceUptPackHalf2(float2(
-            baseColor.z,
-            saturate(surface.material.roughness))),
-        PathTraceUptPackHalf2(specularF0.xy),
-        (f32tof16(specularF0.z) & 0xffffu) |
+        PathTraceUptPackRgb10(baseColor),
+        PathTraceUptPackRgb10(specularF0),
+        PathTraceUptPackSharedExponentEmission(
+            surface.material.emissiveRadiance),
+        (f32tof16(saturate(surface.material.roughness)) & 0xffffu) |
             ((RT_UPT_PRIMARY_RECEIVER_VERSION | 0x8000u) << 16u));
     return receiver;
 }

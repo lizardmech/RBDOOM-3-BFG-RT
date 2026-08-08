@@ -37,10 +37,16 @@ public struct Upt05OpenPbrMaterialSet : IUpt04MaterialSet
     static Upt04MaterialEmissionEvaluation EvaluateEmissiveEndpoint(
         uint materialIndex,
         uint triangleClassAndFlags,
-        float2 uv)
+        float2 uv,
+        float2 uvGradient0,
+        float2 uvGradient1)
     {
         return Upt04EvaluateEmissiveEndpoint(
-            materialIndex, triangleClassAndFlags, uv);
+            materialIndex,
+            triangleClassAndFlags,
+            uv,
+            uvGradient0,
+            uvGradient1);
     }
 
     static Upt04MaterialEvaluation EvaluateSecondaryDirect(

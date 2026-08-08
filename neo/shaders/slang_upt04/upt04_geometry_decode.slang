@@ -1,6 +1,5 @@
 import upt04_geometry_contract;
 import upt04_geometry_bindings;
-import upt04_initial_bindings;
 import upt04_initial_control;
 import upt04_hit_contract;
 
@@ -102,11 +101,11 @@ public bool Upt04LoadStaticTriangle(
     out Upt04ResolvedTriangle triangle)
 {
     triangle = (Upt04ResolvedTriangle)0;
-    if (triangleIndex >= gUpt04Control.staticTriangleCount
+    if (triangleIndex >= Upt04StaticTriangleCount()
         || !Upt04LoadIndexedTriangle(
             triangleIndex,
-            gUpt04Control.staticVertexCount,
-            gUpt04Control.staticIndexCount,
+            Upt04StaticVertexCount(),
+            Upt04StaticIndexCount(),
             gUpt04StaticVertices,
             gUpt04StaticIndices,
             triangle.vertex0,
@@ -124,11 +123,11 @@ public bool Upt04LoadStaticTriangle(
 public bool Upt04LoadDynamicTriangle(uint primitiveIndex, out Upt04ResolvedTriangle triangle)
 {
     triangle = (Upt04ResolvedTriangle)0;
-    if (primitiveIndex >= gUpt04Control.dynamicTriangleCount
+    if (primitiveIndex >= Upt04DynamicTriangleCount()
         || !Upt04LoadIndexedTriangle(
             primitiveIndex,
-            gUpt04Control.dynamicVertexCount,
-            gUpt04Control.dynamicIndexCount,
+            Upt04DynamicVertexCount(),
+            Upt04DynamicIndexCount(),
             gUpt04DynamicVertices,
             gUpt04DynamicIndices,
             triangle.vertex0,
@@ -149,29 +148,29 @@ public bool Upt04LoadRigidTriangle(
     out Upt04ResolvedTriangle triangle)
 {
     triangle = (Upt04ResolvedTriangle)0;
-    if (instanceId < 2u || instanceId - 2u >= gUpt04Control.rigidInstanceCount)
+    if (instanceId < 2u || instanceId - 2u >= Upt04RigidInstanceCount())
         return false;
     const Upt04RigidRouteInstance route = gUpt04RigidInstances[instanceId - 2u];
     if (primitiveIndex >= route.triangleCount
-        || route.triangleOffset > gUpt04Control.rigidTriangleCount
-        || primitiveIndex >= gUpt04Control.rigidTriangleCount - route.triangleOffset
+        || route.triangleOffset > Upt04RigidTriangleCount()
+        || primitiveIndex >= Upt04RigidTriangleCount() - route.triangleOffset
         || primitiveIndex > (0xffffffffu - 2u) / 3u)
         return false;
     const uint localIndexOffset = primitiveIndex * 3u;
     if (localIndexOffset >= route.indexCount || route.indexCount - localIndexOffset < 3u
-        || route.indexOffset > gUpt04Control.rigidIndexCount
-        || localIndexOffset >= gUpt04Control.rigidIndexCount - route.indexOffset
-        || gUpt04Control.rigidIndexCount - route.indexOffset - localIndexOffset < 3u)
+        || route.indexOffset > Upt04RigidIndexCount()
+        || localIndexOffset >= Upt04RigidIndexCount() - route.indexOffset
+        || Upt04RigidIndexCount() - route.indexOffset - localIndexOffset < 3u)
         return false;
     const uint indexOffset = route.indexOffset + localIndexOffset;
     const uint localIndex0 = gUpt04RigidIndices[indexOffset + 0u];
     const uint localIndex1 = gUpt04RigidIndices[indexOffset + 1u];
     const uint localIndex2 = gUpt04RigidIndices[indexOffset + 2u];
     if (localIndex0 >= route.vertexCount || localIndex1 >= route.vertexCount || localIndex2 >= route.vertexCount
-        || route.vertexOffset > gUpt04Control.rigidVertexCount
-        || localIndex0 >= gUpt04Control.rigidVertexCount - route.vertexOffset
-        || localIndex1 >= gUpt04Control.rigidVertexCount - route.vertexOffset
-        || localIndex2 >= gUpt04Control.rigidVertexCount - route.vertexOffset)
+        || route.vertexOffset > Upt04RigidVertexCount()
+        || localIndex0 >= Upt04RigidVertexCount() - route.vertexOffset
+        || localIndex1 >= Upt04RigidVertexCount() - route.vertexOffset
+        || localIndex2 >= Upt04RigidVertexCount() - route.vertexOffset)
         return false;
 #if UPT04_PACKED_GEOMETRY_VERTEX
     triangle.vertex0 = Upt04RigidTransformVertex(route, Upt04UnpackCompactVertex(gUpt04RigidVertices[route.vertexOffset + localIndex0]));
@@ -193,11 +192,11 @@ public bool Upt04LoadRigidTriangle(
 public bool Upt04SkinnedInstanceInRange(uint instanceId, out uint routeIndex)
 {
     routeIndex = 0u;
-    if (gUpt04Control.skinnedRouteRecordCount == 0u)
+    if (Upt04SkinnedRouteRecordCount() == 0u)
         return false;
     const Upt04SkinnedRouteRecord header = gUpt04SkinnedRoutes[0];
-    if (header.routeCount != gUpt04Control.skinnedRouteRecordCount
-        || header.triangleMetadataCount != gUpt04Control.skinnedRouteTriangleCount
+    if (header.routeCount != Upt04SkinnedRouteRecordCount()
+        || header.triangleMetadataCount != Upt04SkinnedRouteTriangleCount()
         || instanceId < header.shaderInstanceId
         || instanceId - header.shaderInstanceId >= header.routeCount)
         return false;
@@ -216,18 +215,18 @@ public bool Upt04LoadSkinnedTriangle(
         return false;
     const Upt04SkinnedRouteRecord route = gUpt04SkinnedRoutes[routeIndex];
     if (route.shaderInstanceId != instanceId
-        || route.routeCount != gUpt04Control.skinnedRouteRecordCount
-        || route.triangleMetadataCount != gUpt04Control.skinnedRouteTriangleCount
+        || route.routeCount != Upt04SkinnedRouteRecordCount()
+        || route.triangleMetadataCount != Upt04SkinnedRouteTriangleCount()
         || primitiveIndex >= route.triangleCount
         || primitiveIndex > (0xffffffffu - 2u) / 3u)
         return false;
     const uint localIndexOffset = primitiveIndex * 3u;
     if (localIndexOffset >= route.indexCount || route.indexCount - localIndexOffset < 3u
-        || route.sourceIndexOffset > gUpt04Control.skinnedSourceIndexCount
-        || localIndexOffset >= gUpt04Control.skinnedSourceIndexCount - route.sourceIndexOffset
-        || gUpt04Control.skinnedSourceIndexCount - route.sourceIndexOffset - localIndexOffset < 3u
-        || route.triangleMetadataOffset > gUpt04Control.skinnedRouteTriangleCount
-        || primitiveIndex >= gUpt04Control.skinnedRouteTriangleCount - route.triangleMetadataOffset)
+        || route.sourceIndexOffset > Upt04SkinnedSourceIndexCount()
+        || localIndexOffset >= Upt04SkinnedSourceIndexCount() - route.sourceIndexOffset
+        || Upt04SkinnedSourceIndexCount() - route.sourceIndexOffset - localIndexOffset < 3u
+        || route.triangleMetadataOffset > Upt04SkinnedRouteTriangleCount()
+        || primitiveIndex >= Upt04SkinnedRouteTriangleCount() - route.triangleMetadataOffset)
         return false;
     const Upt04SkinnedRouteTriangle metadata =
         gUpt04SkinnedTriangles[route.triangleMetadataOffset + primitiveIndex];
@@ -238,10 +237,10 @@ public bool Upt04LoadSkinnedTriangle(
     const uint localIndex1 = gUpt04SkinnedSourceIndices[indexOffset + 1u];
     const uint localIndex2 = gUpt04SkinnedSourceIndices[indexOffset + 2u];
     if (localIndex0 >= route.vertexCount || localIndex1 >= route.vertexCount || localIndex2 >= route.vertexCount
-        || route.outputVertexOffset > gUpt04Control.skinnedCurrentVertexCount
-        || localIndex0 >= gUpt04Control.skinnedCurrentVertexCount - route.outputVertexOffset
-        || localIndex1 >= gUpt04Control.skinnedCurrentVertexCount - route.outputVertexOffset
-        || localIndex2 >= gUpt04Control.skinnedCurrentVertexCount - route.outputVertexOffset)
+        || route.outputVertexOffset > Upt04SkinnedCurrentVertexCount()
+        || localIndex0 >= Upt04SkinnedCurrentVertexCount() - route.outputVertexOffset
+        || localIndex1 >= Upt04SkinnedCurrentVertexCount() - route.outputVertexOffset
+        || localIndex2 >= Upt04SkinnedCurrentVertexCount() - route.outputVertexOffset)
         return false;
 #if UPT04_PACKED_GEOMETRY_VERTEX
     triangle.vertex0 = Upt04UnpackCompactVertex(gUpt04SkinnedCurrentVertices[route.outputVertexOffset + localIndex0]);
@@ -267,14 +266,14 @@ public bool Upt04ResolveTriangle(Upt04HitFacts hit, out Upt04ResolvedTriangle tr
         return false;
 
     const bool staticBucket =
-        (gUpt04Control.availabilityFlags & kUpt04RouteStaticBuckets) != 0u
+        Upt04StaticBucketRouteAvailable()
         && (hit.instanceId & ~kUpt04ShaderInstanceMask) == 0u
         && (hit.instanceId & kUpt04StaticBucketInstanceBit) != 0u;
     if (staticBucket)
     {
         const uint triangleBase = hit.instanceId & kUpt04StaticBucketTriangleMask;
-        if (triangleBase >= gUpt04Control.staticTriangleCount
-            || hit.primitiveId >= gUpt04Control.staticTriangleCount - triangleBase)
+        if (triangleBase >= Upt04StaticTriangleCount()
+            || hit.primitiveId >= Upt04StaticTriangleCount() - triangleBase)
             return false;
         return Upt04LoadStaticTriangle(
             triangleBase + hit.primitiveId,

@@ -4,10 +4,14 @@ public static const uint kUpt04LightInvalid = 0u;
 public static const uint kUpt04LightEmissiveTriangle = 1u;
 public static const uint kUpt04LightDoomAnalytic = 2u;
 public static const uint kUpt04LightCurrentSampleable = 1u << 24u;
+public static const uint kUpt04LightStableCacheable = 1u << 25u;
+public static const uint kUpt04LightUnstableDynamic = 1u << 26u;
+public static const uint kUpt04EmissiveHistoryDynamic = 0x00020000u;
 public static const uint kUpt04InvalidLightIndex = 0xffffffffu;
 public static const uint kUpt04SampleInvalid = 0u;
 public static const uint kUpt04SampleValidZero = 1u;
 public static const uint kUpt04SampleValidPositive = 2u;
+public static const uint kUpt04AnalyticPortalDomain = 0x10000000u;
 
 // Exact field order of PathTraceUnifiedLightRecord.  Scalar layout gives the
 // manager-owned current payload a 112-byte StructuredBuffer stride.
@@ -103,12 +107,20 @@ public Upt04UnifiedLightRecord Upt04UnpackCompactLight(
     const float signedArea = asfloat(packed.normalAreaInfluenceRadiance.y);
     light.positionAndRadius = asfloat(packed.positionAndRadius);
     light.normalAndArea = float4(
-        Upt04DecodeLightOctahedral(packed.normalAreaInfluenceRadiance.x),
+        signedArea > 0.0f
+            ? Upt04DecodeLightOctahedral(packed.normalAreaInfluenceRadiance.x)
+            : float3(0.0f, 0.0f, 1.0f),
         abs(signedArea));
     light.radianceAndLuminance = float4(
         Upt04UnpackLightHalf2(packed.normalAreaInfluenceRadiance.w),
         Upt04UnpackLightHalf2(packed.radianceAndHeader.x));
     light.uvOrDoomParams.x = asfloat(packed.normalAreaInfluenceRadiance.z);
+    // Analytic spheres do not consume a surface normal. Preserve the current
+    // portal-selection depth in that otherwise-dead compact word so the 64 B
+    // route and the authoritative 112 B route make identical domain choices.
+    if (signedArea < 0.0f)
+        light.uvOrDoomParams.z = asfloat(
+            packed.normalAreaInfluenceRadiance.x);
     light.type = signedArea > 0.0f
         ? kUpt04LightEmissiveTriangle
         : (signedArea < 0.0f ? kUpt04LightDoomAnalytic : kUpt04LightInvalid);
@@ -171,6 +183,20 @@ public struct Upt04EmissiveLookupEntry
     public uint occupied;
 };
 
+// Exact scalar layout of PathTraceEmissiveDistributionEntry.  This is the
+// manager-owned power/area CDF already consumed by the legacy DI lane; D0 uses
+// it only to choose an emissive identity and retains exact material replay for
+// the selected triangle's radiance.
+public struct Upt04EmissiveDistributionEntry
+{
+    public uint emissiveTriangleIndex;
+    public float cumulativePdf;
+    public float weight;
+    // Filled by the scene publisher after the current light-manager payload
+    // is known.  CDF entry order is not a dense-light indexing contract.
+    public uint denseLightIndex;
+};
+
 public static const uint kUpt04EmissiveLookupMaxProbes = 16u;
 
 public bool Upt04FinitePositive(float value)
@@ -190,21 +216,62 @@ public float Upt04BalanceHeuristic(float selectedPdf, float alternatePdf)
 
 public bool Upt04UnifiedLightRecordStructurallyValid(Upt04UnifiedLightRecord record)
 {
-    if ((record.flags & kUpt04LightCurrentSampleable) == 0u
-        || record.sourceIndex == kUpt04InvalidLightIndex
+    if (record.sourceIndex == kUpt04InvalidLightIndex
         || !all(isfinite(record.positionAndRadius.xyz))
         || !all(isfinite(record.radianceAndLuminance.xyz))
         || !Upt04FinitePositive(record.radianceAndLuminance.w))
         return false;
 
+    // CURRENT_SAMPLEABLE is assigned by the manager's Doom-analytic
+    // stability classification. Emissive range membership and triangle
+    // replay are their admission contract; requiring the analytic-only bit
+    // here rejects every otherwise valid emissive before replay.
     if (record.type == kUpt04LightEmissiveTriangle)
         return Upt04FinitePositive(record.normalAndArea.w)
             && dot(record.normalAndArea.xyz, record.normalAndArea.xyz) > 1.0e-8f
             && Upt04FinitePositive(record.sourceWeight);
 
     return record.type == kUpt04LightDoomAnalytic
+        && (record.flags & kUpt04LightCurrentSampleable) != 0u
         && Upt04FinitePositive(record.positionAndRadius.w)
         && Upt04FinitePositive(record.uvOrDoomParams.x);
+}
+
+public bool Upt04AnalyticPortalDomainEnabled(uint policyFlags)
+{
+    return (policyFlags & kUpt04AnalyticPortalDomain) != 0u;
+}
+
+public bool Upt04AnalyticLightCurrentPortalEligible(
+    Upt04UnifiedLightRecord light,
+    uint policyFlags)
+{
+    // BuildDoomLightPortalSelection writes -1 for lights outside the current
+    // selected portal region and a nonnegative portal depth for admitted
+    // lights. Keep the global stable universe for remapping, but do not let an
+    // unrelated area supply a current-frame direct-light candidate.
+    return !Upt04AnalyticPortalDomainEnabled(policyFlags)
+        || (isfinite(light.uvOrDoomParams.z)
+            && light.uvOrDoomParams.z >= 0.0f);
+}
+
+// The light manager remaps the exact tuple
+// (type, identityA, identityB, materialOrLightId). Reservoir word3 has room for
+// one guard word, so retain a nonzero fingerprint of that tuple. sourceIndex is
+// only a frame-local payload address and must never be used as history identity.
+public uint Upt04StableLightIdentityFingerprint(Upt04UnifiedLightRecord light)
+{
+    uint hash = 2166136261u;
+    hash = (hash ^ light.type) * 16777619u;
+    hash = (hash ^ light.identityA) * 16777619u;
+    hash = (hash ^ light.identityB) * 16777619u;
+    hash = (hash ^ light.materialOrLightId) * 16777619u;
+    hash ^= hash >> 16u;
+    hash *= 0x7feb352du;
+    hash ^= hash >> 15u;
+    hash *= 0x846ca68bu;
+    hash ^= hash >> 16u;
+    return hash != 0u ? hash : 1u;
 }
 
 public Upt04CompactLightRecord Upt04PackCompactLight(
@@ -220,7 +287,9 @@ public Upt04CompactLightRecord Upt04PackCompactLight(
     }
     packed.positionAndRadius = asuint(light.positionAndRadius);
     packed.normalAreaInfluenceRadiance = uint4(
-        Upt04EncodeLightOctahedral(light.normalAndArea.xyz),
+        light.type == kUpt04LightDoomAnalytic
+            ? asuint(light.uvOrDoomParams.z)
+            : Upt04EncodeLightOctahedral(light.normalAndArea.xyz),
         asuint(signedArea),
         asuint(light.uvOrDoomParams.x),
         Upt04PackLightHalf2(light.radianceAndLuminance.xy));

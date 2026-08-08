@@ -12,6 +12,15 @@ import upt04_light_contract;
 import upt04_initial_control;
 import upt05_material_set_openpbr;
 import upt04_random_white_hash;
+import upt04_initial_direct;
+import upt04_local_light_evaluation;
+import upt04_local_light_evaluation_direct;
+import upt04_local_light_proposal;
+import upt04_emissive_replay;
+import upt04_geometry_contract;
+import upt04_geometry_bindings;
+import upt04_geometry_decode;
+import upt04_material_contract;
 
 // This entry point is intentionally separate from every production entry.
 // The first 16 words are the bring-up counters.  Words 16..19 are a
@@ -38,6 +47,57 @@ public static const uint kUpt04DiagReservoirHash0 = 16u;
 public static const uint kUpt04DiagReservoirHash1 = 17u;
 public static const uint kUpt04DiagReservoirHash2 = 18u;
 public static const uint kUpt04DiagReservoirHash3 = 19u;
+public static const uint kUpt04DiagDirectRejectSelection = 20u;
+public static const uint kUpt04DiagDirectRejectRecord = 21u;
+public static const uint kUpt04DiagDirectRejectEmissiveReplay = 22u;
+public static const uint kUpt04DiagDirectRejectAnalyticSample = 23u;
+public static const uint kUpt04DiagDirectRejectMaterial = 24u;
+public static const uint kUpt04DiagDirectRejectPdf = 25u;
+public static const uint kUpt04DiagDirectRejectOther = 26u;
+public static const uint kUpt04DiagEmissiveAttempts = 27u;
+public static const uint kUpt04DiagEmissiveSelectionReject = 28u;
+public static const uint kUpt04DiagEmissiveIdentityReject = 29u;
+public static const uint kUpt04DiagEmissiveResolveReject = 30u;
+public static const uint kUpt04DiagEmissiveMaterialReject = 31u;
+public static const uint kUpt04DiagEmissiveOtherReject = 32u;
+public static const uint kUpt04DiagEmissiveGeometryPositive = 33u;
+public static const uint kUpt04DiagEmissiveGeometryZero = 34u;
+public static const uint kUpt04DiagEmissiveEndpointPositive = 35u;
+public static const uint kUpt04DiagEmissiveEndpointZero = 36u;
+public static const uint kUpt04DiagEmissiveTargetPositive = 37u;
+public static const uint kUpt04DiagEmissiveProposalPositive = 38u;
+public static const uint kUpt04DiagSelectedEmissive = 39u;
+public static const uint kUpt04DiagSelectedAnalytic = 40u;
+public static const uint kUpt04DiagSelectedEmissiveVisible = 41u;
+public static const uint kUpt04DiagSelectedEmissiveOccluded = 42u;
+public static const uint kUpt04DiagFinalEmissive = 43u;
+public static const uint kUpt04DiagFinalAnalytic = 44u;
+public static const uint kUpt04DiagFinalEmissiveBelow1e4 = 45u;
+public static const uint kUpt04DiagFinalEmissiveBelow1e2 = 46u;
+public static const uint kUpt04DiagFinalEmissiveBelow1 = 47u;
+public static const uint kUpt04DiagFinalEmissiveAtLeast1 = 48u;
+public static const uint kUpt04DiagFinalAnalyticBelow1e4 = 49u;
+public static const uint kUpt04DiagFinalAnalyticBelow1e2 = 50u;
+public static const uint kUpt04DiagFinalAnalyticBelow1 = 51u;
+public static const uint kUpt04DiagFinalAnalyticAtLeast1 = 52u;
+public static const uint kUpt04DiagEmissiveOccluderSameInstanceSameMaterial = 53u;
+public static const uint kUpt04DiagEmissiveOccluderSameInstanceOtherMaterial = 54u;
+public static const uint kUpt04DiagEmissiveOccluderOtherInstanceSameMaterial = 55u;
+public static const uint kUpt04DiagEmissiveOccluderOtherInstanceOtherMaterial = 56u;
+public static const uint kUpt04DiagEmissiveOccluderDecodeFailed = 57u;
+public static const uint kUpt04DiagPreviousLookupAttempted = 58u;
+public static const uint kUpt04DiagPreviousLookupSucceeded = 59u;
+public static const uint kUpt04DiagPreviousRemapFailure = 60u;
+public static const uint kUpt04DiagPreviousReplayFailure = 61u;
+public static const uint kUpt04DiagPreviousTargetFailure = 62u;
+public static const uint kUpt04DiagPreviousVisibilityFailure = 63u;
+public static const uint kUpt04DiagPreviousDuplicateRejected = 64u;
+public static const uint kUpt04DiagPreviousAdmitted = 65u;
+public static const uint kUpt04DiagFreshAnalyticSelected = 66u;
+public static const uint kUpt04DiagFreshEmissiveSelected = 67u;
+public static const uint kUpt04DiagWeightedCdfUnavailable = 68u;
+public static const uint kUpt04DiagD0ProbeBase = 85u;
+public static const uint kUpt04DiagD0ProbeMagic = 0x44305052u;
 
 groupshared uint gUpt04GroupReservoirHash0;
 groupshared uint gUpt04GroupReservoirHash1;
@@ -48,6 +108,134 @@ public void Upt04DiagIncrement(uint counter)
 {
     uint ignored;
     InterlockedAdd(gUpt04Diagnostics[counter], 1u, ignored);
+}
+
+public void Upt04DiagD0AcquisitionStages(Upt04InitialTraceWork work)
+{
+    const uint bits = work.directDiagnostics;
+    if ((bits & kUpt04D0DiagPreviousLookupAttempted) != 0u)
+        Upt04DiagIncrement(kUpt04DiagPreviousLookupAttempted);
+    if ((bits & kUpt04D0DiagPreviousLookupSucceeded) != 0u)
+        Upt04DiagIncrement(kUpt04DiagPreviousLookupSucceeded);
+    if ((bits & kUpt04D0DiagPreviousRemapFailure) != 0u)
+        Upt04DiagIncrement(kUpt04DiagPreviousRemapFailure);
+    if ((bits & kUpt04D0DiagPreviousReplayFailure) != 0u)
+        Upt04DiagIncrement(kUpt04DiagPreviousReplayFailure);
+    if ((bits & kUpt04D0DiagPreviousTargetFailure) != 0u)
+        Upt04DiagIncrement(kUpt04DiagPreviousTargetFailure);
+    if ((bits & kUpt04D0DiagPreviousVisibilityFailure) != 0u)
+        Upt04DiagIncrement(kUpt04DiagPreviousVisibilityFailure);
+    if ((bits & kUpt04D0DiagPreviousDuplicateRejected) != 0u)
+        Upt04DiagIncrement(kUpt04DiagPreviousDuplicateRejected);
+    if ((bits & kUpt04D0DiagPreviousAdmitted) != 0u)
+        Upt04DiagIncrement(kUpt04DiagPreviousAdmitted);
+    if ((bits & kUpt04D0DiagFreshAnalyticSelected) != 0u)
+        Upt04DiagIncrement(kUpt04DiagFreshAnalyticSelected);
+    if ((bits & kUpt04D0DiagFreshEmissiveSelected) != 0u)
+        Upt04DiagIncrement(kUpt04DiagFreshEmissiveSelected);
+    if ((bits & kUpt04D0DiagWeightedCdfUnavailable) != 0u)
+        Upt04DiagIncrement(kUpt04DiagWeightedCdfUnavailable);
+}
+
+// Diagnostic-only classification of the first committed blocker for an
+// emissive shadow ray. The production visibility contract is deliberately not
+// changed here: this distinguishes an endpoint self-hit, a duplicated TLAS
+// route, and a genuine unrelated blocker before choosing a fix.
+public void Upt04DiagEmissiveOccluder(
+    Upt04InitialTraceWork work,
+    Upt04HitFacts hit)
+{
+    if (work.valid == 0u
+        || work.lightType != kUpt04LightEmissiveTriangle
+        || hit.status != kUpt04HitTriangle
+        || work.lightIndex >= gUpt04Control.currentLightCount)
+        return;
+
+    const Upt04UnifiedLightRecord light =
+        Upt04LoadCurrentLightRecord(work.lightIndex);
+    Upt04ResolvedTriangle blocker;
+    if (!Upt04ResolveTriangle(hit, blocker) || blocker.valid == 0u)
+    {
+        Upt04DiagIncrement(kUpt04DiagEmissiveOccluderDecodeFailed);
+        return;
+    }
+
+    const bool sameInstance = hit.instanceId == light.instanceId;
+    const bool sameMaterial = blocker.materialIndex == light.materialOrLightId;
+    const uint counter = sameInstance
+        ? (sameMaterial
+            ? kUpt04DiagEmissiveOccluderSameInstanceSameMaterial
+            : kUpt04DiagEmissiveOccluderSameInstanceOtherMaterial)
+        : (sameMaterial
+            ? kUpt04DiagEmissiveOccluderOtherInstanceSameMaterial
+            : kUpt04DiagEmissiveOccluderOtherInstanceOtherMaterial);
+    Upt04DiagIncrement(counter);
+}
+
+public bool Upt04DiagIsCrosshair(uint2 pixel)
+{
+    return pixel.x == gUpt04Control.renderWidth / 2u
+        && pixel.y == gUpt04Control.renderHeight / 2u;
+}
+
+// Preserve one receiver-local D0 decision next to the full-frame counters.
+// The 69 stage counters occupy words 0..68 and the copied reservoir occupies
+// words 69..84, so this record begins at 85 without either overwriting the
+// other.
+public void Upt04DiagWriteD0Probe(
+    uint2 pixel,
+    bool receiverValid,
+    Upt04PrimarySurfaceRecord receiver,
+    Upt04InitialTraceWork selected,
+    Upt04HitFacts hit,
+    Upt04InitialTraceWork completed)
+{
+    if (!Upt04DiagIsCrosshair(pixel))
+        return;
+
+    Upt04UnifiedLightRecord light = (Upt04UnifiedLightRecord)0;
+    const bool selectedValid = selected.valid != 0u
+        && selected.lightIndex < gUpt04Control.currentLightCount;
+    if (selectedValid)
+        light = Upt04LoadCurrentLightRecord(selected.lightIndex);
+
+    uint blockerMaterial = kUpt04InvalidIdentity;
+    Upt04ResolvedTriangle blocker;
+    if (hit.status == kUpt04HitTriangle
+        && Upt04ResolveTriangle(hit, blocker)
+        && blocker.valid != 0u)
+        blockerMaterial = blocker.materialIndex;
+
+    const Upt04LocalLightRanges ranges = Upt04InitialDirectLightRanges();
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 0u] = kUpt04DiagD0ProbeMagic;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 1u] =
+        (receiverValid ? 1u : 0u)
+        | (selectedValid ? 2u : 0u)
+        | (ranges.emissiveCount << 16u);
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 2u] =
+        receiverValid ? receiver.materialAndSurface.x : kUpt04InvalidIdentity;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 3u] =
+        selectedValid ? selected.lightType : 0u;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 4u] =
+        selectedValid ? selected.lightIndex : kUpt04InvalidIdentity;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 5u] =
+        selectedValid ? light.sourceIndex : kUpt04InvalidIdentity;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 6u] =
+        selectedValid ? light.instanceId : kUpt04InvalidIdentity;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 7u] =
+        selectedValid ? light.primitiveIndex : kUpt04InvalidIdentity;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 8u] =
+        selectedValid ? light.materialOrLightId : kUpt04InvalidIdentity;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 9u] = hit.status;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 10u] = hit.instanceId;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 11u] = hit.geometryId;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 12u] = hit.primitiveId;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 13u] = blockerMaterial;
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 14u] =
+        (completed.candidateReady & 0xffu)
+        | ((completed.candidateStatus & 0xffu) << 8u)
+        | (ranges.analyticCount << 16u);
+    gUpt04Diagnostics[kUpt04DiagD0ProbeBase + 15u] = completed.candidateFlags;
 }
 
 public void Upt04DiagCandidate(Upt04InitialTraceWork work, bool direct)
@@ -61,6 +249,220 @@ public void Upt04DiagCandidate(Upt04InitialTraceWork work, bool direct)
     }
     Upt04DiagIncrement(base + statusOffset);
     Upt04DiagIncrement(kUpt04DiagCandidateInputs);
+}
+
+public uint Upt04DiagClassifyDirectRejection(
+    uint2 pixel,
+    Upt04PrimarySurfaceRecord surface)
+{
+    const Upt04LocalLightSelection selection =
+        Upt04SelectInitialDirectLight(pixel);
+    if (selection.valid == 0u
+        || selection.denseIndex >= gUpt04Control.currentLightCount)
+        return kUpt04DiagDirectRejectSelection;
+
+    const Upt04UnifiedLightRecord light =
+        Upt04LoadCurrentLightRecord(selection.denseIndex);
+    if (!Upt04SelectionMatchesRecord(selection, light))
+        return kUpt04DiagDirectRejectRecord;
+
+    if (selection.requiresTriangleReplay != 0u)
+    {
+        const Upt04EmissiveGeometrySample replay =
+            Upt04ReplayEmissiveTriangleGeometry(
+                light,
+                surface.worldPositionAndViewDepth.xyz,
+                selection.sampleCoordinates,
+                (gUpt04Control.availabilityFlags & kUpt04TwoSidedEmissives) != 0u);
+        if (replay.status == kUpt04SampleInvalid)
+            return kUpt04DiagDirectRejectEmissiveReplay;
+    }
+    else
+    {
+        if (!Upt04AnalyticLightCurrentPortalEligible(
+                light, gUpt04Control.availabilityFlags))
+            return kUpt04DiagDirectRejectAnalyticSample;
+        const Upt04LocalLightSample analytic = Upt04SampleAnalyticSphere(
+            light,
+            surface.worldPositionAndViewDepth.xyz,
+            selection.sampleCoordinates);
+        if (analytic.status == kUpt04SampleInvalid)
+            return kUpt04DiagDirectRejectAnalyticSample;
+    }
+
+    const Upt04EvaluatedLocalLight evaluated =
+        Upt04EvaluateSelectedLocalLightDirectOnly(
+            selection,
+            light,
+            surface.worldPositionAndViewDepth.xyz,
+            gUpt04Control.availabilityFlags,
+            gUpt04Control.emissiveScale);
+    if (evaluated.valid == 0u)
+        return kUpt04DiagDirectRejectOther;
+
+    const Upt04MaterialEvaluation material =
+        Upt05OpenPbrMaterialSet.EvaluatePrimaryDirect(
+            surface,
+            evaluated.sample.direction,
+            evaluated.sample.radiance);
+    if (material.valid == 0u)
+        return kUpt04DiagDirectRejectMaterial;
+
+    const float proposalPdf = selection.selectionPdf
+        * evaluated.sample.solidAnglePdf;
+    if (!Upt04FinitePositive(proposalPdf))
+        return kUpt04DiagDirectRejectPdf;
+    return kUpt04DiagDirectRejectOther;
+}
+
+// The aggregate direct-rejection classifier above only runs when every direct
+// trial failed.  Proposal parity normally supplies 32 analytic trials, so an
+// analytic success used to hide a failed emissive replay completely.  Audit
+// every emissive trial independently in the diagnostic specialization.
+public void Upt04DiagEmissiveTrials(
+    uint2 pixel,
+    Upt04PrimarySurfaceRecord surface)
+{
+    const Upt04LocalLightRanges ranges = Upt04InitialDirectLightRanges();
+    const uint proposalParity =
+        (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
+            ? 1u : 0u;
+    const uint configuredEmissiveTrials = Upt04ConfiguredEmissiveTrialCount(
+        gUpt04Control.availabilityFlags);
+    const uint emissiveTrials = Upt04DirectRisDomainTrialCount(
+        ranges, kUpt04LightEmissiveTriangle, proposalParity,
+        configuredEmissiveTrials);
+    [loop]
+    for (uint candidateOrdinal = 0u;
+         candidateOrdinal < emissiveTrials;
+         ++candidateOrdinal)
+    {
+        Upt04DiagIncrement(kUpt04DiagEmissiveAttempts);
+        const Upt04LocalLightSelection selection =
+            Upt04SelectInitialDirectLight(pixel, candidateOrdinal);
+        if (selection.valid == 0u
+            || selection.type != kUpt04LightEmissiveTriangle
+            || selection.denseIndex >= gUpt04Control.currentLightCount)
+        {
+            Upt04DiagIncrement(kUpt04DiagEmissiveSelectionReject);
+            continue;
+        }
+
+        const Upt04UnifiedLightRecord light =
+            Upt04LoadCurrentLightRecord(selection.denseIndex);
+        if (!Upt04SelectionMatchesRecord(selection, light))
+        {
+            Upt04DiagIncrement(kUpt04DiagEmissiveIdentityReject);
+            continue;
+        }
+
+        if (light.sourceIndex >= Upt04EmissiveReplayCount())
+        {
+            Upt04DiagIncrement(kUpt04DiagEmissiveIdentityReject);
+            continue;
+        }
+        const Upt04EmissiveReplayRecord replay =
+            gUpt04EmissiveReplay[light.sourceIndex];
+        if (replay.instanceId != light.instanceId
+            || replay.primitiveIndex != light.primitiveIndex
+            || replay.materialIndex != light.materialOrLightId
+            || replay.identityHashLo != light.identityA
+            || replay.identityHashHi != light.identityB)
+        {
+            Upt04DiagIncrement(kUpt04DiagEmissiveIdentityReject);
+            continue;
+        }
+
+        const float squareRootU = sqrt(selection.sampleCoordinates.x);
+        const float barycentric1 =
+            selection.sampleCoordinates.y * squareRootU;
+        const float barycentric2 = squareRootU - barycentric1;
+        Upt04HitFacts replayHit = Upt04MissFacts(0.0f);
+        replayHit.status = kUpt04HitTriangle;
+        replayHit.instanceId = replay.instanceId;
+        replayHit.geometryId = 0u;
+        replayHit.primitiveId = replay.primitiveIndex;
+        replayHit.barycentrics = float2(barycentric1, barycentric2);
+        replayHit.frontFace = 1u;
+        Upt04ResolvedTriangle triangle;
+        if (!Upt04ResolveTriangle(replayHit, triangle))
+        {
+            Upt04DiagIncrement(kUpt04DiagEmissiveResolveReject);
+            continue;
+        }
+        if (triangle.materialIndex != replay.materialIndex)
+        {
+            Upt04DiagIncrement(kUpt04DiagEmissiveMaterialReject);
+            continue;
+        }
+
+        const Upt04EmissiveGeometrySample sample =
+            Upt04ReplayEmissiveTriangleBarycentrics(
+                light,
+                surface.worldPositionAndViewDepth.xyz,
+                replayHit.barycentrics,
+                (gUpt04Control.availabilityFlags
+                    & kUpt04TwoSidedEmissives) != 0u);
+        if (sample.status == kUpt04SampleInvalid)
+        {
+            Upt04DiagIncrement(kUpt04DiagEmissiveOtherReject);
+            continue;
+        }
+        Upt04DiagIncrement(sample.status == kUpt04SampleValidPositive
+            ? kUpt04DiagEmissiveGeometryPositive
+            : kUpt04DiagEmissiveGeometryZero);
+
+        const Upt04MaterialEmissionEvaluation emission =
+            Upt05OpenPbrMaterialSet.EvaluateEmissiveEndpoint(
+                sample.materialIndex,
+                sample.triangleClassAndFlags,
+                sample.emissionTexCoord,
+                float2(0.0f),
+                float2(0.0f));
+        if (emission.valid != 0u && any(emission.radiance > 0.0f))
+            Upt04DiagIncrement(kUpt04DiagEmissiveEndpointPositive);
+        else
+            Upt04DiagIncrement(kUpt04DiagEmissiveEndpointZero);
+
+        const Upt04EvaluatedLocalLight evaluated =
+            Upt04EvaluateSelectedLocalLight<Upt05OpenPbrMaterialSet>(
+                selection,
+                light,
+                surface.worldPositionAndViewDepth.xyz,
+                gUpt04Control.availabilityFlags,
+                gUpt04Control.emissiveScale);
+        if (evaluated.valid == 0u
+            || evaluated.sample.status != kUpt04SampleValidPositive)
+            continue;
+        const Upt04MaterialEvaluation material =
+            Upt05OpenPbrMaterialSet.EvaluatePrimaryDirect(
+                surface,
+                evaluated.sample.direction,
+                evaluated.sample.radiance);
+        if (material.valid == 0u || !Upt04FinitePositive(material.target))
+            continue;
+        Upt04DiagIncrement(kUpt04DiagEmissiveTargetPositive);
+
+        const float physicalProposalPdf = selection.selectionPdf
+            * evaluated.sample.solidAnglePdf;
+        const float techniqueMis = Upt04DirectTechniqueMis(
+            selection.type, physicalProposalPdf, material.directionalPdf);
+        const float3 contribution = Upt04DirectReservoirContribution(
+            material.weightedContribution,
+            evaluated.sample.solidAnglePdf,
+            techniqueMis,
+            gUpt04Control.availabilityFlags);
+        const float target = Upt04DirectReservoirTarget(
+            contribution, gUpt04Control.availabilityFlags);
+        const float reservoirSourcePdf = Upt04DirectReservoirSourcePdf(
+            selection.selectionPdf,
+            evaluated.sample.solidAnglePdf,
+            techniqueMis,
+            gUpt04Control.availabilityFlags);
+        if (Upt04FinitePositive(target)
+            && Upt04FinitePositive(reservoirSourcePdf))
+            Upt04DiagIncrement(kUpt04DiagEmissiveProposalPositive);
+    }
 }
 
 public void Upt04DiagRay(Upt04InitialTraceWork work, bool continuation)
@@ -84,7 +486,30 @@ public void Upt04DiagSelection(Upt03LogicalReservoir reservoir)
     const bool indirect =
         (reservoir.selected.flags & kUpt04CandidateFlagGlobal) != 0u;
     if (!indirect)
+    {
         Upt04DiagIncrement(kUpt04DiagSelectedPrimaryNee);
+        const bool emissive = reservoir.selected.eventKind == 2u;
+        Upt04DiagIncrement(emissive
+            ? kUpt04DiagFinalEmissive
+            : kUpt04DiagFinalAnalytic);
+        const float meanWeight = reservoir.effectiveM != 0u
+            ? reservoir.weightSum / float(reservoir.effectiveM)
+            : 0.0f;
+        const float normalization = reservoir.selected.target > 0.0f
+            ? meanWeight / reservoir.selected.target
+            : 0.0f;
+        const float3 estimate = float3(
+            reservoir.selected.contributionR,
+            reservoir.selected.contributionG,
+            reservoir.selected.contributionB) * normalization;
+        const float estimateLuminance = Upt04DirectLuminance(estimate);
+        const uint binOffset = estimateLuminance < 1.0e-4f ? 0u
+            : (estimateLuminance < 1.0e-2f ? 1u
+                : (estimateLuminance < 1.0f ? 2u : 3u));
+        Upt04DiagIncrement((emissive
+            ? kUpt04DiagFinalEmissiveBelow1e4
+            : kUpt04DiagFinalAnalyticBelow1e4) + binOffset);
+    }
     else if (reservoir.selected.eventKind == 4u)
         Upt04DiagIncrement(kUpt04DiagSelectedBsdfEndpoint);
     else
@@ -139,6 +564,13 @@ public Upt03PackedReservoir Upt04BuildDiagnosticReservoir(
     Upt04PrimarySurfaceRecord receiverSurface;
     if (!Upt04LoadInitialSurface(pixel, receiverWork, receiverSurface))
     {
+        Upt04DiagWriteD0Probe(
+            pixel,
+            false,
+            receiverSurface,
+            (Upt04InitialTraceWork)0,
+            Upt04MissFacts(0.0f),
+            (Upt04InitialTraceWork)0);
         Upt04DiagIncrement(kUpt04DiagReceiverInvalid);
         Upt04DiagIncrement(kUpt04DiagCanonicalEmptyWrites);
         return packedEmpty;
@@ -150,15 +582,43 @@ public Upt03PackedReservoir Upt04BuildDiagnosticReservoir(
 
     const bool directEnabled =
         (gUpt04Control.enabledFamilyMask & kUpt04FamilyLocalLight) != 0u;
+    if (directEnabled)
+        Upt04DiagEmissiveTrials(pixel, receiverSurface);
     Upt04InitialTraceWork direct =
         Upt04PrepareDirectPathTreeWork<Upt05OpenPbrMaterialSet>(pixel);
+    if (direct.valid != 0u)
+    {
+        if (direct.lightType == kUpt04LightEmissiveTriangle)
+            Upt04DiagIncrement(kUpt04DiagSelectedEmissive);
+        else if (direct.lightType == kUpt04LightDoomAnalytic)
+            Upt04DiagIncrement(kUpt04DiagSelectedAnalytic);
+    }
     Upt04HitFacts hit = Upt04MissFacts(direct.ray.tMax);
     Upt04DiagRay(direct, false);
     if (direct.valid != 0u && direct.traceRequired != 0u)
-        hit = Upt04TraceRayQuery(direct.ray);
+        hit = Upt04TraceVisibilityRayQuery(
+            direct.ray, Upt04DirectVisibilityIgnore(direct));
+    Upt04DiagEmissiveOccluder(direct, hit);
+    const Upt04InitialTraceWork selectedDirect = direct;
     direct = Upt04AdvanceInitialTraceWork(direct, hit);
+    Upt04DiagD0AcquisitionStages(direct);
+    Upt04DiagWriteD0Probe(
+        pixel, true, receiverSurface, selectedDirect, hit, direct);
+    if (direct.lightType == kUpt04LightEmissiveTriangle
+        && direct.candidateReady != 0u)
+    {
+        Upt04DiagIncrement(
+            (direct.candidateFlags & kUpt04CandidateFlagVisibilityPassed) != 0u
+                ? kUpt04DiagSelectedEmissiveVisible
+                : kUpt04DiagSelectedEmissiveOccluded);
+    }
     if (directEnabled)
+    {
         Upt04DiagCandidate(direct, true);
+        if (direct.valid == 0u || direct.candidateReady == 0u)
+            Upt04DiagIncrement(
+                Upt04DiagClassifyDirectRejection(pixel, receiverSurface));
+    }
     Upt04StreamInitialTraceWork(reservoir, direct, pixel, 0u);
     if (direct.valid != 0u)
         transport = direct.transport;
