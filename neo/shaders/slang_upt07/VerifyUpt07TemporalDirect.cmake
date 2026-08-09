@@ -2,6 +2,8 @@ foreach(required UPT07_FULL_REFLECTION UPT07_FULL_DISASSEMBLY
         UPT07_COMPACT_REFLECTION UPT07_COMPACT_DISASSEMBLY
         UPT07_UNIFIED_REFLECTION UPT07_UNIFIED_DISASSEMBLY
         UPT07_UNIFIED_COMPACT_REFLECTION UPT07_UNIFIED_COMPACT_DISASSEMBLY
+        UPT07_ROUTE_DIAG_REFLECTION UPT07_ROUTE_DIAG_DISASSEMBLY
+        UPT07_ROUTE_DIAG_COMPACT_REFLECTION UPT07_ROUTE_DIAG_COMPACT_DISASSEMBLY
         UPT07_RECONNECT_REFLECTION UPT07_RECONNECT_DISASSEMBLY
         UPT07_RECONNECT_COMPACT_REFLECTION UPT07_RECONNECT_COMPACT_DISASSEMBLY
         UPT07_STAMP)
@@ -18,6 +20,10 @@ file(READ "${UPT07_UNIFIED_REFLECTION}" unified_reflection)
 file(READ "${UPT07_UNIFIED_DISASSEMBLY}" unified_disassembly)
 file(READ "${UPT07_UNIFIED_COMPACT_REFLECTION}" unified_compact_reflection)
 file(READ "${UPT07_UNIFIED_COMPACT_DISASSEMBLY}" unified_compact_disassembly)
+file(READ "${UPT07_ROUTE_DIAG_REFLECTION}" route_diag_reflection)
+file(READ "${UPT07_ROUTE_DIAG_DISASSEMBLY}" route_diag_disassembly)
+file(READ "${UPT07_ROUTE_DIAG_COMPACT_REFLECTION}" route_diag_compact_reflection)
+file(READ "${UPT07_ROUTE_DIAG_COMPACT_DISASSEMBLY}" route_diag_compact_disassembly)
 file(READ "${UPT07_RECONNECT_REFLECTION}" reconnect_reflection)
 file(READ "${UPT07_RECONNECT_DISASSEMBLY}" reconnect_disassembly)
 file(READ "${UPT07_RECONNECT_COMPACT_REFLECTION}" reconnect_compact_reflection)
@@ -61,6 +67,22 @@ foreach(kind full compact)
     if(${kind}_disassembly MATCHES "OpCapability (Int16|Float16)" OR
        ${kind}_disassembly MATCHES "OpType(Int|Float) 16")
         message(FATAL_ERROR "UPT-07 ${kind} direct temporal introduced native 16-bit SPIR-V")
+    endif()
+endforeach()
+
+foreach(kind route_diag route_diag_compact)
+    if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*30")
+        message(FATAL_ERROR "UPT temporal ${kind} lacks the route diagnostic UAV")
+    endif()
+    string(REGEX MATCHALL "\"binding\"[ \t]*:" bindings "${${kind}_reflection}")
+    list(LENGTH bindings binding_count)
+    if(NOT binding_count EQUAL 31)
+        message(FATAL_ERROR "UPT temporal ${kind} must expose exactly thirty-one bindings")
+    endif()
+    string(REGEX MATCHALL "OpRayQueryInitializeKHR" rayquery_initializers "${${kind}_disassembly}")
+    list(LENGTH rayquery_initializers rayquery_initializer_count)
+    if(NOT rayquery_initializer_count EQUAL 4 OR ${kind}_disassembly MATCHES "OpTraceRayKHR")
+        message(FATAL_ERROR "UPT temporal ${kind} must preserve the baseline four RayQuery sites")
     endif()
 endforeach()
 
@@ -113,4 +135,4 @@ if(NOT full_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt07CurrentLights\"" OR
 endif()
 
 file(WRITE "${UPT07_STAMP}"
-    "UPT-07 temporal verified: direct variants retain 28 bindings/one winner RayQuery; baseline unified variants retain 30 bindings/four RayQuery sites; UPT-17 reconnect variants expose 31 bindings/six bounded branch-dependent sites; no TraceRay or native16\n")
+    "UPT-07 temporal verified: direct variants retain 28 bindings/one winner RayQuery; baseline unified variants retain 30 bindings/four RayQuery sites; route diagnostics expose 31 bindings while retaining four sites; UPT-17 reconnect variants expose 31 bindings/six bounded branch-dependent sites; no TraceRay or native16\n")

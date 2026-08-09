@@ -1491,6 +1491,12 @@ idCVar r_pathTracingUnifiedPtTemporalReconnectDiagnostics(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-17 one-frame-delayed aggregate counters for static locator, footprint, reconnect visibility, Jacobian, replay fallback, and admission stages" );
 
+idCVar r_pathTracingUnifiedPtTemporalRouteDiagnostics(
+    "r_pathTracingUnifiedPtTemporalRouteDiagnostics",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT temporal workload diagnostic specialization: one-frame-delayed counters for current/history event mix, indirect replay attempts, BASIC selection, merge winner, age, and failure route; valid with early reconnect disabled" );
+
 idCVar r_pathTracingUnifiedPtDuplication(
     "r_pathTracingUnifiedPtDuplication",
     "1",

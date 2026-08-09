@@ -752,3 +752,20 @@ proposal mass by the freshly evaluated hybrid Jacobian while retaining the
 physical current target in the selected candidate. Pairwise MIS and all non-
 static geometry remain on exact replay. The feature is isolated behind
 r_pathTracingUnifiedPtTemporalEarlyReconnect and documented in file 32.
+
+UPT-18 temporal route-state finding, 2026-08-10
+------------------------------------------------
+
+Runtime rejected UPT-17 static reconnection as approximately 6 ms slower. A
+separate 7 ms swing was observed in baseline indirect temporal with reconnect
+disabled after light-payload changes and player motion. Audit proves temporal
+cost depends on retained event population: indirect history runs one replay
+and a fresh indirect sample can run a second reciprocal replay when BASIC
+predicts the current sample will win. Analytic intensity is outside the UPT
+generation hash but inside analytic payload compatibility, so changing it can
+transiently prune remaps and reshape history.
+
+Document 33 adds an isolated _route_diag shader family and aggregate counters.
+Production blobs remain unchanged when diagnostics are off. Do not time the
+diagnostic blob; collect its replay counts immediately before a production
+capture.

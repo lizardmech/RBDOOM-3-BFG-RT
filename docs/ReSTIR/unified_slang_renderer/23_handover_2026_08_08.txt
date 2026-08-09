@@ -1044,3 +1044,23 @@ off, first indoors and outdoors on the same level, then enable
 r_pathTracingUnifiedPtTemporalReconnectDiagnostics briefly to explain coverage.
 Do not begin spatial indirect until image, energy, and timing evidence accepts
 or rejects this slice. See document 32.
+
+UPT-17 rejection and UPT-18 state-variance handover, 2026-08-10
+----------------------------------------------------------------
+
+Static early reconnection measured about 6 ms slower and remains default off.
+Do not promote that branch from the current result.
+
+Baseline indirect temporal, also with reconnection off, varied by up to 7 ms
+in the same view after analytic-intensity changes and movement. The audit found
+a live state-dependent workload: indirect history performs one replay, and a
+BASIC current selection can require a second reciprocal replay. Analytic
+intensity does not invalidate the UPT generation, but it can cause a one-frame
+analytic payload-remap rejection and reshape retained event mix. Motion can
+reshape it further. Camera/cvar-only Nsight comparisons are insufficient.
+
+Use r_pathTracingUnifiedPtTemporalRouteDiagnostics 1 briefly to collect the
+aggregate route line, then disable it before timing. Compare slow, fast, and a
+temporal off-for-one-frame/on reset state as specified in document 33. The
+diagnostic uses separate Vulkan blobs; production temporal remains untouched.
+Do not begin spatial-indirect work until this variance is explained.

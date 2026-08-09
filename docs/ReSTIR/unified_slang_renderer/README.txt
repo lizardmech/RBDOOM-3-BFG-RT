@@ -415,6 +415,12 @@ Packet index
         gate and BASIC-shift Jacobian, exact replay fallback, isolated Vulkan
         shader A/B, and aggregate route/visibility/admission diagnostics.
 
+    33_upt18_temporal_route_state_diagnostics.txt
+        Records the rejected UPT-17 timing and multi-ms temporal state
+        variance, traces the event-dependent one/two indirect replay routes
+        and light-payload remap effect, and adds isolated baseline counters and
+        a controlled reset protocol.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

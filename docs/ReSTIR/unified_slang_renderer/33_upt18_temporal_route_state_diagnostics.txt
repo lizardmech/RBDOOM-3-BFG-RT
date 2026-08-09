@@ -1,0 +1,99 @@
+UPT-18 Temporal Route-State Diagnostics
+=======================================
+
+Status
+------
+
+Implemented and build-verified on Vulkan, 2026-08-10. Runtime evidence is
+pending. The diagnostic is isolated from production temporal SPIR-V and
+defaults off.
+
+Observed trigger
+----------------
+
+The UPT-17 static reconnection A/B was about 6 ms slower. More importantly,
+with reconnection disabled, captures of the same view differed by as much as
+7 ms in indirect temporal after changing analytic-light intensity and moving
+through the level. The improvement was delayed and did not repeat as a stable
+response to intensity. This invalidates the reconnection timing comparison
+until the temporal workload is classified.
+
+Verified mechanism
+------------------
+
+Baseline unified temporal has data-dependent work:
+
+1. A replayable indirect history sample executes Upt07ReplayIndirectSample.
+2. Under BASIC normalization, when the fresh sample is predicted to win, a
+   fresh indirect sample can execute a second replay at the previous receiver
+   to obtain currentTargetAtHistory.
+3. Direct history takes the cheaper arithmetic shift.
+4. Selected event and age are retained in the reservoir. Default maximum age
+   is 32; packed age 63 is explicitly the no-expiry stress case.
+
+Identical camera and cvars therefore do not imply identical temporal work
+unless reservoir event populations are also equivalent. Motion can replace
+that population and alter the number of one- and two-replay lanes.
+
+Analytic intensity is not part of Upt06BuildContentGeneration. Live payload
+changes instead use stable identity replay. Analytic payload compatibility
+includes color and intensity, so a scale change can make previous-to-current
+remaps fail for the changed frame. That can prune light-backed histories and
+then allow them to repopulate. It explains a transient timing change; it does
+not prove that lower light energy makes equivalent shader work cheaper.
+
+Diagnostic specialization
+-------------------------
+
+    r_pathTracingUnifiedPtTemporalRouteDiagnostics 0|1
+
+The enabled form selects separate _route_diag Vulkan blobs for natural or
+compact lights and duplication on or off. Binding 30 and aggregate atomics
+exist only in those blobs. Normal unified blobs retain 30 bindings and four
+static RayQuery sites. Diagnostic blobs retain the same four sites and expose
+31 bindings. Early reconnection must be off; if both cvars are requested, the
+reconnect specialization remains authoritative.
+
+One-frame-delayed output reports current/history event mix, history replay and
+reciprocal replay attempts and results, BASIC choice, merge winner and event,
+history age buckets, unsupported/missing history, and visibility fallback.
+
+Focused runtime protocol
+------------------------
+
+Use the same view and accepted UPT cvars for every sample.
+
+1. Keep r_pathTracingUnifiedPtTemporalEarlyReconnect 0.
+2. In the slow state, enable route diagnostics, collect one complete
+   "PathTraceUnifiedPt: temporal route" line, then disable diagnostics before
+   an Nsight timing capture.
+3. After the unexplained fast transition, repeat the one-line diagnostic and
+   disable it before timing.
+4. As a controlled reset, toggle temporal off for one rendered frame and back
+   on. ExecuteInitial invalidates both page metadata records on this mode
+   transition without a full-buffer clear. Compare the first stable timing and
+   route line with the slow and fast states.
+5. Optionally set maximum age to 1 and perform the same temporal off/on reset.
+   This bounds persistence and tests whether variance follows aged indirect
+   history.
+
+If temporal time tracks history and reciprocal replay attempts, the next work
+is workload shaping or replay compaction. If route counts remain equivalent
+while pass time differs by milliseconds, compare GPU clocks, shader hash,
+resolution, TLAS instance count and traversal metrics instead.
+
+Do not time the diagnostic blob itself. Its atomics only classify production
+work.
+
+Build proof
+-----------
+
+    cd neo
+    cmake --build --preset win64-pt-dev-release
+
+passed. VerifyUpt07TemporalDirect proves 31 diagnostic bindings, four static
+RayQuery sites and no TraceRay. PathTraceUnifiedTemporalContractHarness passed:
+
+    UPT-07 temporal contract tests passed; pages=2 taps=9 winnerVisibilityRaysMax=1
+
+No DX12 shader was compiled.

@@ -311,6 +311,7 @@ private:
     bool m_temporalDuplication = false;
     bool m_temporalIndirect = false;
     bool m_temporalEarlyReconnect = false;
+    bool m_temporalRouteDiagnostics = false;
     bool m_temporalPipelineAttempted = false;
     nvrhi::BindingLayoutHandle m_temporalBindingLayout;
     std::array<nvrhi::BindingSetHandle, 2> m_temporalBindingSets;
@@ -321,6 +322,7 @@ private:
     nvrhi::BufferHandle m_temporalDiagnosticCounters;
     nvrhi::BufferHandle m_temporalDiagnosticReadback;
     bool m_temporalDiagnosticReadbackPending = false;
+    bool m_temporalDiagnosticReadbackIsRoute = false;
     int m_temporalDiagnosticReadbackDelayFrames = 0;
 
     uint32_t m_duplicationWidth = 0;

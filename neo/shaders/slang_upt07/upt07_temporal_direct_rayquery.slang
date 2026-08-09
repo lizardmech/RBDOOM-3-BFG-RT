@@ -21,12 +21,28 @@ import upt07_emissive_material;
 #ifndef UPT07_EARLY_RECONNECT
 #define UPT07_EARLY_RECONNECT 0
 #endif
+#ifndef UPT07_ROUTE_DIAGNOSTICS
+#define UPT07_ROUTE_DIAGNOSTICS 0
+#endif
 #if UPT07_INDIRECT_REPLAY
 import upt07_temporal_indirect;
 #endif
 
 #ifndef UPT07_DUPLICATION_MAP
 #define UPT07_DUPLICATION_MAP 0
+#endif
+
+#if UPT07_INDIRECT_REPLAY && UPT07_ROUTE_DIAGNOSTICS
+public static const uint kUpt07RouteDiagnosticsFlag = 1u << 22u;
+
+public void Upt07RouteDiag(uint counter)
+{
+    if ((gUpt07Control.geometryAvailabilityFlags
+            & kUpt07RouteDiagnosticsFlag) == 0u)
+        return;
+    uint ignored;
+    InterlockedAdd(gUpt07ReconnectDiagnostics[counter], 1u, ignored);
+}
 #endif
 
 public float Upt07SelectionRandom(uint2 pixel, uint historyIdentity)
@@ -441,6 +457,19 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         gUpt07CurrentReservoirs[index] = currentPacked;
         return;
     }
+#if UPT07_INDIRECT_REPLAY && UPT07_ROUTE_DIAGNOSTICS
+    Upt07RouteDiag(0u);
+    if (current.valid == 0u || current.logical.hasSelectedSample == 0u)
+        Upt07RouteDiag(29u);
+    else if (Upt07DirectHistoryEligible(current))
+        Upt07RouteDiag(1u);
+    else if (current.logical.selected.eventKind == 4u
+        && current.logical.selected.pathLength == 1u)
+        Upt07RouteDiag(2u);
+    else if ((current.logical.selected.flags & kUpt04CandidateFlagGlobal) != 0u
+        && current.logical.selected.pathLength == 2u)
+        Upt07RouteDiag(3u);
+#endif
 
     // Only a dynamic emissive selection bypasses temporal merge.  Analytic
     // lights remain replayable when their current payload changes; identity
@@ -543,6 +572,30 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #else
     const bool indirectHistoryEligible = false;
 #endif
+#if UPT07_INDIRECT_REPLAY && UPT07_ROUTE_DIAGNOSTICS
+    if (history.valid != 0u && history.logical.hasSelectedSample != 0u)
+    {
+        Upt07RouteDiag(4u);
+        const uint historyAge = history.logical.selected.age;
+        Upt07RouteDiag(historyAge == 0u ? 20u
+            : (historyAge <= 3u ? 21u
+                : (historyAge <= 15u ? 22u
+                    : (historyAge <= 31u ? 23u : 24u))));
+        if (directHistoryEligible)
+            Upt07RouteDiag(5u);
+        else if (indirectHistoryEligible
+            && history.logical.selected.eventKind == 4u)
+            Upt07RouteDiag(6u);
+        else if (indirectHistoryEligible)
+            Upt07RouteDiag(7u);
+        else
+            Upt07RouteDiag(8u);
+    }
+    else
+    {
+        Upt07RouteDiag(28u);
+    }
+#endif
 #if UPT07_INDIRECT_REPLAY
     Upt07PendingIndirectVisibility shiftedIndirectVisibility =
         (Upt07PendingIndirectVisibility)0;
@@ -565,6 +618,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     else if (indirectHistoryEligible)
     {
 #if UPT07_INDIRECT_REPLAY
+#if UPT07_ROUTE_DIAGNOSTICS
+        Upt07RouteDiag(9u);
+#endif
         historyFailureReason = kUpt07RejectShiftInvalid;
         uint indirectFailureReason = kUpt07RejectIndirectStructure;
         shiftedValid = Upt07ReplayIndirectSample(
@@ -576,6 +632,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             shifted,
             shiftedIndirectVisibility,
             historyShiftJacobian);
+#if UPT07_ROUTE_DIAGNOSTICS
+        Upt07RouteDiag(shiftedValid != 0u ? 10u : 11u);
+#endif
         if (shiftedValid == 0u)
             historyFailureReason = indirectFailureReason;
         if (shiftedValid != 0u)
@@ -657,6 +716,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             temporalSelectionRandom,
             adaptiveMaximumHistoryM,
             historyShiftJacobian);
+#if UPT07_INDIRECT_REPLAY && UPT07_ROUTE_DIAGNOSTICS
+    Upt07RouteDiag(basicSelectsHistory ? 15u : 16u);
+#endif
 
     float currentTargetAtHistory = 0.0f;
     float currentTargetAtCurrent = 0.0f;
@@ -690,11 +752,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 && Upt04PrimarySurfaceRecordValid(historyReceiver)
                 && (pairwiseMis != 0u || !basicSelectsHistory))
             {
+#if UPT07_ROUTE_DIAGNOSTICS
+                Upt07RouteDiag(12u);
+#endif
                 Upt03Candidate currentAtHistory;
                 uint currentShiftFailure;
                 float unusedCurrentJacobian;
                 Upt07PendingIndirectVisibility unusedCurrentVisibility;
-                if (Upt07ReplayIndirectSample(
+                const uint currentAtHistoryValid = Upt07ReplayIndirectSample(
                         currentCandidate,
                         receiver,
                         historyReceiver,
@@ -702,7 +767,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                         currentShiftFailure,
                         currentAtHistory,
                         unusedCurrentVisibility,
-                        unusedCurrentJacobian) != 0u
+                        unusedCurrentJacobian);
+#if UPT07_ROUTE_DIAGNOSTICS
+                Upt07RouteDiag(currentAtHistoryValid != 0u ? 13u : 14u);
+#endif
+                if (currentAtHistoryValid != 0u
                     && currentAtHistory.status == kUpt04SampleValidPositive)
                     currentTargetAtHistory = currentAtHistory.target;
             }
@@ -741,6 +810,22 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         float(gUpt07Control.maximumHistoryContributionRatio),
         pairwiseMis,
         historyShiftJacobian);
+#if UPT07_INDIRECT_REPLAY && UPT07_ROUTE_DIAGNOSTICS
+    if (merged.logical.hasSelectedSample == 0u)
+        Upt07RouteDiag(19u);
+    else if (merged.selectedHistory != 0u)
+    {
+        Upt07RouteDiag(17u);
+        if ((merged.logical.selected.flags & kUpt04CandidateFlagGlobal) == 0u)
+            Upt07RouteDiag(27u);
+        else if (merged.logical.selected.eventKind == 4u)
+            Upt07RouteDiag(25u);
+        else
+            Upt07RouteDiag(26u);
+    }
+    else
+        Upt07RouteDiag(18u);
+#endif
 #if UPT07_INDIRECT_REPLAY && UPT07_EARLY_RECONNECT
     if (merged.selectedHistory != 0u && indirectHistoryEligible)
         Upt07ReconnectDiag(kUpt07ReconnectDiagHistorySelected);
@@ -797,6 +882,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         }
         if (!visibilityPassed)
         {
+#if UPT07_ROUTE_DIAGNOSTICS
+            Upt07RouteDiag(31u);
+#endif
             gUpt07CurrentReservoirs[index] = currentPacked;
             return;
         }

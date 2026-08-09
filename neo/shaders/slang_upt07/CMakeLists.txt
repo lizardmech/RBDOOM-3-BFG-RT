@@ -180,6 +180,46 @@ path_tracing_declare_slang_spirv_module(
     OUT_VAR temporal_unified_compact_duplication_outputs)
 
 path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_route_diag
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main STAGE compute OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03" "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_INDIRECT_REPLAY=1 UPT07_ROUTE_DIAGNOSTICS=1
+    OUT_VAR temporal_unified_route_diag_outputs)
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64_route_diag
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main STAGE compute OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03" "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_INDIRECT_REPLAY=1 UPT07_ROUTE_DIAGNOSTICS=1
+    OUT_VAR temporal_unified_compact_route_diag_outputs)
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_duplication_route_diag
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main STAGE compute OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03" "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1 UPT07_ROUTE_DIAGNOSTICS=1
+    OUT_VAR temporal_unified_duplication_route_diag_outputs)
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64_duplication_route_diag
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main STAGE compute OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03" "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1 UPT07_ROUTE_DIAGNOSTICS=1
+    OUT_VAR temporal_unified_compact_duplication_route_diag_outputs)
+
+path_tracing_declare_slang_spirv_module(
     NAME upt07_temporal_unified_rayquery_reconnect
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
     ENTRY main STAGE compute OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
@@ -244,6 +284,10 @@ add_custom_command(
         -DUPT07_UNIFIED_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery.slang.spvasm
         -DUPT07_UNIFIED_COMPACT_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64.slang.spirv-reflection.json
         -DUPT07_UNIFIED_COMPACT_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64.slang.spvasm
+        -DUPT07_ROUTE_DIAG_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_route_diag.slang.spirv-reflection.json
+        -DUPT07_ROUTE_DIAG_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_route_diag.slang.spvasm
+        -DUPT07_ROUTE_DIAG_COMPACT_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_route_diag.slang.spirv-reflection.json
+        -DUPT07_ROUTE_DIAG_COMPACT_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_route_diag.slang.spvasm
         -DUPT07_RECONNECT_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_reconnect.slang.spirv-reflection.json
         -DUPT07_RECONNECT_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_reconnect.slang.spvasm
         -DUPT07_RECONNECT_COMPACT_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_reconnect.slang.spirv-reflection.json
@@ -252,6 +296,8 @@ add_custom_command(
         -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt07TemporalDirect.cmake"
     DEPENDS ${temporal_direct_outputs} ${temporal_direct_compact_outputs}
         ${temporal_unified_outputs} ${temporal_unified_compact_outputs}
+        ${temporal_unified_route_diag_outputs}
+        ${temporal_unified_compact_route_diag_outputs}
         ${temporal_unified_reconnect_outputs}
         ${temporal_unified_compact_reconnect_outputs}
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt07TemporalDirect.cmake"
@@ -276,6 +322,14 @@ set(UPT07_UNIFIED_DUPLICATION_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_duplication.bin")
 set(UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication.bin")
+set(UPT07_UNIFIED_ROUTE_DIAG_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_route_diag.bin")
+set(UPT07_UNIFIED_COMPACT_ROUTE_DIAG_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_route_diag.bin")
+set(UPT07_UNIFIED_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_duplication_route_diag.bin")
+set(UPT07_UNIFIED_COMPACT_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication_route_diag.bin")
 set(UPT07_UNIFIED_RECONNECT_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_reconnect.bin")
 set(UPT07_UNIFIED_COMPACT_RECONNECT_RUNTIME_OUTPUT
@@ -292,6 +346,10 @@ add_custom_command(
         "${UPT07_UNIFIED_COMPACT_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_DUPLICATION_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_ROUTE_DIAG_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_COMPACT_ROUTE_DIAG_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_COMPACT_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_RECONNECT_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_COMPACT_RECONNECT_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_DUPLICATION_RECONNECT_RUNTIME_OUTPUT}"
@@ -322,6 +380,18 @@ add_custom_command(
         "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication.slang.spv"
         "${UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_route_diag.slang.spv"
+        "${UPT07_UNIFIED_ROUTE_DIAG_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_route_diag.slang.spv"
+        "${UPT07_UNIFIED_COMPACT_ROUTE_DIAG_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_duplication_route_diag.slang.spv"
+        "${UPT07_UNIFIED_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_route_diag.slang.spv"
+        "${UPT07_UNIFIED_COMPACT_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_reconnect.slang.spv"
         "${UPT07_UNIFIED_RECONNECT_RUNTIME_OUTPUT}"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
@@ -339,6 +409,10 @@ add_custom_command(
         ${temporal_unified_outputs} ${temporal_unified_compact_outputs}
         ${temporal_unified_duplication_outputs}
         ${temporal_unified_compact_duplication_outputs}
+        ${temporal_unified_route_diag_outputs}
+        ${temporal_unified_compact_route_diag_outputs}
+        ${temporal_unified_duplication_route_diag_outputs}
+        ${temporal_unified_compact_duplication_route_diag_outputs}
         ${temporal_unified_reconnect_outputs}
         ${temporal_unified_compact_reconnect_outputs}
         ${temporal_unified_duplication_reconnect_outputs}
@@ -358,7 +432,11 @@ add_custom_target(PathTraceSlangUpt07TemporalOwnership
         "${UPT07_UNIFIED_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_COMPACT_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_DUPLICATION_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT}")
+        "${UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_ROUTE_DIAG_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_COMPACT_ROUTE_DIAG_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_COMPACT_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
     FOLDER "Shaders/UPT-07")
 if(TARGET RBDoom3BFG)
