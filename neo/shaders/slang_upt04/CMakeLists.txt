@@ -35,6 +35,7 @@ set(UPT04_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_primary_history_sidecar.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_hit_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_tile_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_control.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_live_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_alpha_clip.slang"
@@ -269,6 +270,24 @@ list(APPEND UPT04_BACKEND_OUTPUTS
 # publishes an unnormalized intermediate reservoir into page 0; the indirect
 # pass loads, extends, and performs the sole final normalization.
 path_tracing_declare_slang_spirv_module(
+    NAME upt04_light_tile_presample
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_tile_presample.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_tile_presample.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_tile_contract.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_contract.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_random_white_hash.slang"
+    OUT_VAR light_tile_presample_outputs)
+list(APPEND UPT04_BACKEND_OUTPUTS ${light_tile_presample_outputs})
+
+path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_split_direct_rayquery_compact32
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
     ENTRY main
@@ -280,7 +299,7 @@ path_tracing_declare_slang_spirv_module(
         "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
     DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
-    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_SPLIT_INITIAL_DIRECT=1
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_SPLIT_INITIAL_DIRECT=1 UPT04_NATIVE_LIGHT_UINT4_VIEW=1
     OUT_VAR split_direct_native_rayquery_outputs
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS ${split_direct_native_rayquery_outputs})
@@ -301,6 +320,42 @@ path_tracing_declare_slang_spirv_module(
     OUT_VAR split_indirect_native_rayquery_outputs
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS ${split_indirect_native_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_direct_rayquery_compact32_light_tiles
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_SPLIT_INITIAL_DIRECT=1 UPT04_NATIVE_LIGHT_UINT4_VIEW=1 UPT04_LIGHT_TILES=1
+    OUT_VAR split_direct_light_tiles_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_direct_light_tiles_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light_tiles
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_NATIVE_LIGHT_UINT4_VIEW=1 UPT04_LIGHT_TILES=1
+    OUT_VAR split_indirect_light_tiles_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light_tiles_rayquery_outputs})
 
 path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_split_direct_rayquery_compact32_geometry48_light64
@@ -583,6 +638,10 @@ add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04GeometryClosu
 
 set(UPT04_STATIC_SPECIALIZATION_OUTPUTS)
 foreach(family direct indirect)
+    set(static_native_light_view_define)
+    if(family STREQUAL "direct")
+        set(static_native_light_view_define UPT04_NATIVE_LIGHT_UINT4_VIEW=1)
+    endif()
     path_tracing_declare_slang_spirv_module(
         NAME "upt04_initial_${family}_only_rayquery"
         SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_rayquery.slang"
@@ -630,6 +689,7 @@ foreach(family direct indirect)
         DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
             "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_${family}_only_rayquery.slang"
         DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2
+            ${static_native_light_view_define}
         OUT_VAR static_compact32_rayquery_outputs
         RAY_QUERY)
     list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS
@@ -904,6 +964,51 @@ add_custom_command(
 # Reflection/disassembly artifacts remain build-only evidence.
 set(UPT04_RUNTIME_OUTPUT_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../../../base/renderprogs2/spirv/builtin/pathtracing/slang_upt04")
+set(UPT04_LIGHT_TILE_VERIFY_STAMP
+    "${UPT04_OUTPUT_DIR}/upt04_light_tiles_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT04_LIGHT_TILE_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT04_TILE_PRESAMPLE_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_light_tile_presample.slang.spvasm
+        -DUPT04_TILE_DIRECT_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_split_direct_rayquery_compact32_light_tiles.slang.spvasm
+        -DUPT04_TILE_INDIRECT_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_split_indirect_rayquery_compact32_light_tiles.slang.spvasm
+        -DUPT04_TILE_STAMP=${UPT04_LIGHT_TILE_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04LightTiles.cmake"
+    DEPENDS ${light_tile_presample_outputs}
+        ${split_direct_light_tiles_rayquery_outputs}
+        ${split_indirect_light_tiles_rayquery_outputs}
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04LightTiles.cmake"
+    COMMENT "UPT-11 verifying light-tile bindings and split ray ceiling"
+    VERBATIM)
+add_custom_target(PathTraceSlangUpt04LightTiles
+    DEPENDS "${UPT04_LIGHT_TILE_VERIFY_STAMP}")
+set_target_properties(PathTraceSlangUpt04LightTiles
+    PROPERTIES FOLDER "Shaders/UPT-04")
+add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04LightTiles)
+
+set(UPT04_NATIVE_LIGHT_VIEW_VERIFY_STAMP
+    "${UPT04_OUTPUT_DIR}/upt04_native_light_view_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT04_NATIVE_LIGHT_VIEW_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT04_NATIVE_DIRECT_SPLIT_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_split_direct_rayquery_compact32.slang.spvasm
+        -DUPT04_NATIVE_DIRECT_ONLY_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_direct_only_rayquery_compact32.slang.spvasm
+        -DUPT04_NATIVE_INDIRECT_SPLIT_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_split_indirect_rayquery_compact32.slang.spvasm
+        -DUPT04_NATIVE_LIGHT_VIEW_STAMP=${UPT04_NATIVE_LIGHT_VIEW_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04NativeLightView.cmake"
+    DEPENDS ${split_direct_native_rayquery_outputs}
+        ${split_indirect_native_rayquery_outputs}
+        ${UPT04_STATIC_SPECIALIZATION_OUTPUTS}
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04NativeLightView.cmake"
+    COMMENT "UPT-12 verifying native current-light uint4 views"
+    VERBATIM)
+add_custom_target(PathTraceSlangUpt04NativeLightView
+    DEPENDS "${UPT04_NATIVE_LIGHT_VIEW_VERIFY_STAMP}")
+set_target_properties(PathTraceSlangUpt04NativeLightView
+    PROPERTIES FOLDER "Shaders/UPT-04")
+add_dependencies(PathTraceSlangUpt04ModuleGraph
+    PathTraceSlangUpt04NativeLightView)
+
 set(UPT04_RUNTIME_MODULES
     upt04_initial_rayquery
     upt04_initial_rayquery_compact
@@ -914,8 +1019,11 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_rayquery_compact32_geometry48_light64
     upt04_compact_light_pack
     upt04_initial_rayquery_compact32_geometry48_light64_material48
+    upt04_light_tile_presample
     upt04_initial_split_direct_rayquery_compact32
     upt04_initial_split_indirect_rayquery_compact32
+    upt04_initial_split_direct_rayquery_compact32_light_tiles
+    upt04_initial_split_indirect_rayquery_compact32_light_tiles
     upt04_initial_split_direct_rayquery_compact32_geometry48_light64
     upt04_initial_split_indirect_rayquery_compact32_geometry48_light64
     upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_material48
@@ -960,6 +1068,8 @@ foreach(runtime_module IN LISTS UPT04_RUNTIME_MODULES)
             "${UPT04_BACKEND_VERIFY_STAMP}"
             "${UPT04_STATIC_VERIFY_STAMP}"
             "${UPT05_MATERIAL_BOUNDARY_STAMP}"
+            "${UPT04_LIGHT_TILE_VERIFY_STAMP}"
+            "${UPT04_NATIVE_LIGHT_VIEW_VERIFY_STAMP}"
         COMMENT "UPT-04 verified Vulkan runtime artifact: ${runtime_module}"
         VERBATIM)
     list(APPEND UPT04_RUNTIME_OUTPUTS "${runtime_output}")

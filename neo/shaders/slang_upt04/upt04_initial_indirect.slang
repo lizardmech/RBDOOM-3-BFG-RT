@@ -67,6 +67,7 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
     const Upt04LocalLightSelection selection =
         Upt04SelectInitialLightFromReplay(
             schedule,
+            pixel,
             work.replayKey,
             work.replayIndex,
             1u,
@@ -356,7 +357,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     }
 
     const Upt04InitialLightSchedule schedule =
-        Upt04MakeInitialLightSchedule(ranges);
+        Upt04MakeSecondaryLightSchedule(ranges);
     const uint candidateCount = schedule.candidateCount;
     Upt04SecondaryNeeProposal selected = (Upt04SecondaryNeeProposal)0;
     float weightSum = 0.0f;
@@ -405,9 +406,9 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     }
     const float finalizedMass = weightSum / float(candidateCount);
-    const float selectedUcw = finalizedMass / selected.target;
+    const float effectiveProposalPdf = selected.target / finalizedMass;
     if (!Upt04FinitePositive(finalizedMass)
-        || !Upt04FinitePositive(selectedUcw))
+        || !Upt04FinitePositive(effectiveProposalPdf))
     {
         result.diagnostics |= kUpt04IndirectDiagSecondaryPdfRayFailure;
         return result;
@@ -429,15 +430,19 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     nee.sampleCoordinates = selected.sampleCoordinates;
     nee.pathLength = 2u;
     nee.reconnectionVertexLength = 1u;
-    nee.proposalPdf = 1.0f;
+    nee.proposalPdf = effectiveProposalPdf;
     nee.pathPdf = work.pathPdf * selected.sourcePdf;
     nee.lobeMask = work.lobeMask | selected.lobeMask;
-    // Convert the inner NEE RIS UCW into one complete PSS estimator before it
-    // enters the outer path-tree stream. Zero/malformed trials remain in the
-    // fixed candidateCount denominator but are never selectable.
-    nee.contribution = selected.rawContribution * selectedUcw;
-    nee.target = max(nee.contribution.x,
-        max(nee.contribution.y, nee.contribution.z));
+    // Preserve the inner-RIS estimator while retaining the physical target
+    // needed by temporal shift mapping. Streaming target / proposalPdf still
+    // contributes exactly finalizedMass, and resolve still produces
+    // rawContribution * finalizedMass / target. This is algebraically
+    // identical to folding the UCW into contribution with proposalPdf = 1,
+    // but it makes the selected NEE vertex independently reconnectable.
+    // Zero/malformed trials remain in the fixed candidateCount denominator
+    // and are never selectable.
+    nee.contribution = selected.rawContribution;
+    nee.target = selected.target;
     if (!all(isfinite(nee.contribution)) || !Upt04FinitePositive(nee.target))
     {
         result.diagnostics |= kUpt04IndirectDiagSecondaryPdfRayFailure;

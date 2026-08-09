@@ -663,9 +663,12 @@ emissive history. The provider then regenerates the primary continuation from
 the stored PSS seed, traces closest current geometry with the accepted alpha-
 clip candidate rule, and decodes the same routed material surface as D0.
 Endpoint events re-evaluate texture emission and exact reverse NEE MIS.
-Secondary-NEE events replay the complete typed proposal schedule and inner RIS
-from the persisted seed, then trace only its selected light with emissive-self
-ignore and alpha clipping. Invalid, missing, incompatible, zero-target, or
+Secondary-NEE events use the section 6.2.3 forced-reconnection route recorded
+in document 29. They remap the stored selected light, replay its stored triangle
+barycentrics or analytic coordinates at the random-replayed secondary vertex,
+evaluate the current physical target, then trace only that light with emissive-
+self ignore and alpha clipping. They do not rebuild the typed candidate schedule
+or search the emissive CDF. Invalid, missing, incompatible, zero-target, or
 occluded replay never becomes a positive candidate.
 
 Global D0 candidates also persist the proposal-parity bit already reserved in
@@ -686,7 +689,7 @@ Resolve view 5 retains the original reasons 1..8 and adds:
     10 blue        persisted continuation replay failure
     11 sky blue    continuation trace/geometry decode failure
     12 orange      endpoint emission/reverse evaluation failure
-    13 brown       secondary inner-RIS replay failure
+    13 brown       forced secondary-light replay/current-target failure
     14 green       indirect visibility construction failure
     15 gray        unsupported/malformed indirect structure
 
@@ -695,3 +698,27 @@ An occluded but otherwise defined shifted sample continues to use reason 5
 variants pass the dedicated reflection/disassembly gate. Live temporal-only
 visual, energy, and performance acceptance remains pending; spatial indirect
 reuse must not begin until this cvar is accepted or corrected.
+
+First temporal performance slice, 2026-08-09
+--------------------------------------------
+
+Runtime reports that unified temporal is mostly functionally correct, but the
+initial Nsight capture measured approximately 34.51 ms for D0 and 43.32 ms for
+T0. Spatial remains gated. The first proven T0 multiplier was default BASIC
+correction eagerly evaluating the fresh global sample at the history receiver
+before reservoir selection. That reciprocal evaluation is a complete second
+continuation, secondary inner-RIS schedule, and selected visibility replay,
+even on pixels where mature history subsequently wins and the result is thrown
+away.
+
+BASIC selection depends first on the existing current and shifted-history
+masses. T0 now computes that exact selection decision with the same clamped
+history M and random value, then defers current-at-history replay unless the
+current sample is selected. A later merge rejection also needs no reciprocal
+target because it returns current D0 unchanged. Pairwise MIS still evaluates
+both domains eagerly because its selection weights require both cross targets.
+The mathematical merge, random sequence, reservoir ABI, maximum ray ceiling,
+page schedule, and rejection rules are unchanged; only dynamically discarded
+replay work is bypassed. The eight rebuilt UPT-07 Vulkan variants pass static
+verification and both UPT-04/UPT-07 CPU contract harnesses. A same-scene GPU
+timing A/B against the 43.32 ms baseline is pending.

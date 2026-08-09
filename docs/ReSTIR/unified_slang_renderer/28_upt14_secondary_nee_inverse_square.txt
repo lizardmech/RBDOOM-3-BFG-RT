@@ -1,0 +1,87 @@
+UPT-14 Secondary NEE Inverse-Square Schedule
+=============================================
+
+Date: 2026-08-09
+
+Decision
+--------
+
+UPT-13 reduced registers but slowed the pass and raised No Instructions from 38
+to 48 percent, so its lifetime refactor is rolled back. UPT-14 instead removes
+executed secondary-light trials that the paper does not prescribe.
+
+Reference and live mismatch
+---------------------------
+
+ReSTIR PT Enhanced section 7 states that primary-hit NEE draws 32 light samples
+and deeper vertices use an inverse-square 32 / i^2 schedule, clamped to at least
+one sample. Bounce index 1 is the primary hit; the first secondary hit is index
+2 and therefore receives 8 of the primary 32 analytic trials.
+
+The live UPT code used Upt04MakeInitialLightSchedule for both primary and
+secondary NEE. Under accepted proposal parity 1 and the default one emissive
+trial, both vertices therefore evaluated 32 analytic plus 1 emissive proposal.
+No bounce-index reduction existed.
+
+Implementation
+--------------
+
+Primary NEE is untouched. A secondary-only schedule applies floor(primary / 4)
+with a minimum of one trial for each populated domain. The parity-1 default is:
+
+    primary NEE      32 analytic + 1 emissive = 33 trials
+    secondary NEE     8 analytic + 1 emissive =  9 trials
+
+This removes 24 secondary analytic light evaluations per eligible continuation
+hit. It adds no ray, dispatch, queue, buffer, clear, descriptor, or random
+dimension. Visibility remains one selected-light ray.
+
+Estimator and replay contract
+-----------------------------
+
+The reduced per-domain counts are used consistently by:
+
+    D0 secondary light selection and candidateCount denominator;
+    typed source-mixture PDF;
+    endpoint reverse NEE PDF and multi-sample MIS density;
+    T0 indirect random replay selection, denominator, source PDF, and endpoint
+        reverse MIS density.
+
+The same existing candidate ordinals and replay random streams are used; only
+ordinals beyond the decayed fixed count are no longer evaluated. D0 and T0
+therefore replay the same inner RIS schedule. The host content-generation hash
+includes the secondary bounce index so history from a different schedule is
+not admitted.
+
+Static and build gate
+---------------------
+
+The original primary schedule is retained as its own function. Production
+native D0a and direct-only compact32 artifacts are byte-for-byte identical to
+the preceding build. Native split D0b retains two RayQuery sites and changes
+from the pre-UPT-13 356,180 bytes / 21,705 operations to 356,568 bytes / 21,726
+operations. T0 unified base falls from 900,364 to 892,028 bytes; its duplication
+variant falls from 901,276 to 892,940 bytes.
+
+The exact full Vulkan release preset and all five PathTraceUnified contract
+tests pass. The rebuilt executable and exactly 30 changed Vulkan UPT D0/T0
+artifacts are deployed with zero remaining hash mismatches. No DX12 shader was
+compiled or deployed.
+
+Runtime gate
+------------
+
+Runtime disposition: retain provisionally. The complete path was approximately
+1 ms faster. No Instructions and SM-utilization percentages worsened, which is
+consistent with removing arithmetic while leaving the same ray-latency phases;
+elapsed time is the governing result. The next level test showed that temporal
+indirect, not D0, is the dominant remaining multiplier. Continue in document
+29 rather than spending more work on the already bounded secondary D0 loop.
+
+Use the accepted native split, proposal parity 1, and light tiles disabled.
+First require fixed-sample image parity and no missing small emissive/analytic
+lighting. Then compare complete D0a + barrier + D0b time. D0a should remain
+unchanged; D0b should execute 9 rather than 33 secondary trials at the default
+emissive setting. Capture D0b duration, No Instructions, active threads, and
+candidate-loop source attribution. With temporal enabled, verify T0 does not
+produce replay corruption, ghost lights, or energy growth.

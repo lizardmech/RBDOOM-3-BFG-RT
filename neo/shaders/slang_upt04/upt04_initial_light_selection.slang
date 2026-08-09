@@ -2,10 +2,15 @@ import upt04_initial_random;
 import upt04_initial_bindings;
 import upt04_initial_control;
 import upt04_light_contract;
+import upt04_light_tile_contract;
 import upt04_local_light_proposal;
 import upt04_random_contract;
 import upt04_random_white_hash;
 import upt04_replay_random;
+
+#ifndef UPT04_LIGHT_TILES
+#define UPT04_LIGHT_TILES 0
+#endif
 
 // Immutable per-receiver schedule.  Keep control-buffer loads and domain-count
 // arithmetic out of the candidate loop while preserving the exact proposal
@@ -44,6 +49,19 @@ public Upt04InitialLightSchedule Upt04MakeInitialLightSchedule(
     return schedule;
 }
 
+public Upt04InitialLightSchedule Upt04MakeSecondaryLightSchedule(
+    Upt04LocalLightRanges ranges)
+{
+    Upt04InitialLightSchedule schedule = Upt04MakeInitialLightSchedule(ranges);
+    schedule.emissiveTrials = Upt04InverseSquareNeeTrialCount(
+        schedule.emissiveTrials, kUpt04SecondaryNeeBounceIndex);
+    schedule.analyticTrials = Upt04InverseSquareNeeTrialCount(
+        schedule.analyticTrials, kUpt04SecondaryNeeBounceIndex);
+    schedule.candidateCount = schedule.emissiveTrials
+        + schedule.analyticTrials;
+    return schedule;
+}
+
 public float Upt04InitialLightScheduleIdentityPdf(
     Upt04InitialLightSchedule schedule,
     uint lightType)
@@ -57,6 +75,85 @@ public float Upt04InitialLightScheduleIdentityPdf(
         ? float(domainTrials) / float(schedule.candidateCount * domainCount)
         : 0.0f;
 }
+
+#if UPT04_LIGHT_TILES
+public uint Upt04SelectCoherentLightTile(uint2 pixel, uint pathVertex)
+{
+    const uint2 screenTile = pixel >> 3u;
+    uint key = gUpt04Control.frameSampleIndex ^ 0x68bc21ebu;
+    key = Upt04HashWord(key ^ (screenTile.x * 0x9e3779b9u));
+    key = Upt04HashWord(key ^ (screenTile.y * 0x85ebca6bu));
+    key = Upt04HashWord(key ^ (pathVertex * 0xc2b2ae35u));
+    return key % kUpt04LightTileCount;
+}
+
+public Upt04LocalLightSelection Upt04SelectInitialLightFromTile(
+    Upt04InitialLightSchedule schedule,
+    uint2 pixel,
+    uint pathVertex,
+    uint candidateOrdinal,
+    float identityRandom,
+    float2 surfaceRandom)
+{
+    Upt04LocalLightSelection result = (Upt04LocalLightSelection)0;
+    if (candidateOrdinal >= schedule.candidateCount
+        || !isfinite(identityRandom) || identityRandom < 0.0f
+        || identityRandom >= 1.0f || !all(isfinite(surfaceRandom))
+        || any(surfaceRandom < 0.0f) || any(surfaceRandom >= 1.0f))
+        return result;
+
+    const bool emissive = candidateOrdinal < schedule.emissiveTrials;
+    const uint tileIndex = Upt04SelectCoherentLightTile(pixel, pathVertex);
+    uint entryInDomain = 0u;
+    uint domain = kUpt04LightTileDomainEmissive;
+    if (emissive)
+    {
+        entryInDomain = min(
+            uint(identityRandom * float(kUpt04LightTileDomainSize)),
+            kUpt04LightTileDomainSize - 1u);
+    }
+    else
+    {
+        const uint analyticOrdinal = candidateOrdinal
+            - schedule.emissiveTrials;
+        if (analyticOrdinal >= schedule.analyticTrials
+            || analyticOrdinal >= kUpt04LightTileAnalyticOrdinalCount)
+            return result;
+        const uint variant = min(
+            uint(identityRandom
+                * float(kUpt04LightTileAnalyticVariantsPerOrdinal)),
+            kUpt04LightTileAnalyticVariantsPerOrdinal - 1u);
+        entryInDomain = analyticOrdinal
+            + variant * kUpt04LightTileAnalyticOrdinalCount;
+        domain = kUpt04LightTileDomainAnalytic;
+    }
+
+    const Upt04LightTileEntry entry = gUpt04LightTiles[
+        Upt04LightTileLinearIndex(domain, tileIndex, entryInDomain)];
+    const uint expectedType = emissive
+        ? kUpt04LightEmissiveTriangle : kUpt04LightDoomAnalytic;
+    const bool inExpectedRange = emissive
+        ? entry.denseLightIndex >= schedule.ranges.emissiveStart
+            && entry.denseLightIndex - schedule.ranges.emissiveStart
+                < schedule.ranges.emissiveCount
+        : entry.denseLightIndex >= schedule.ranges.analyticStart
+            && entry.denseLightIndex - schedule.ranges.analyticStart
+                < schedule.ranges.analyticCount;
+    if (entry.denseLightIndex == kUpt04InvalidLightIndex
+        || entry.lightType != expectedType || !inExpectedRange
+        || !Upt04FinitePositive(entry.selectionPdf))
+        return result;
+
+    result.valid = 1u;
+    result.denseIndex = entry.denseLightIndex;
+    result.type = entry.lightType;
+    result.requiresTriangleReplay = emissive ? 1u : 0u;
+    result.selectionPdf = entry.selectionPdf;
+    result.sampleCoordinates = surfaceRandom;
+    result.reserved = emissive ? entry.replayGuard : 0u;
+    return result;
+}
+#endif
 
 // Shared current-frame emissive identity selector. The publication's logical
 // count is authoritative because the structured allocation retains a stale
@@ -241,6 +338,7 @@ public Upt04LocalLightSelection Upt04SelectInitialLightAtVertex(
 
 public Upt04LocalLightSelection Upt04SelectInitialLightFromReplay(
     Upt04InitialLightSchedule schedule,
+    uint2 pixel,
     uint replayKey,
     uint replayIndex,
     uint pathVertex,
@@ -269,8 +367,18 @@ public Upt04LocalLightSelection Upt04SelectInitialLightFromReplay(
             candidateOrdinal,
             kUpt04StreamInitialLocalLightSurfaceV,
             kUpt04DimensionInitialLocalLightSurfaceV)));
+#if UPT04_LIGHT_TILES
+    return Upt04SelectInitialLightFromTile(
+        schedule,
+        pixel,
+        pathVertex,
+        candidateOrdinal,
+        identityRandom,
+        surfaceRandom);
+#else
     return Upt04SelectInitialLightFromRandoms(
         schedule, candidateOrdinal, identityRandom, surfaceRandom);
+#endif
 }
 
 public Upt04LocalLightSelection Upt04SelectInitialLightFromReplay(
@@ -285,7 +393,7 @@ public Upt04LocalLightSelection Upt04SelectInitialLightFromReplay(
     ranges.analyticStart = gUpt04Control.analyticRangeStart;
     ranges.analyticCount = gUpt04Control.analyticRangeCount;
     return Upt04SelectInitialLightFromReplay(
-        Upt04MakeInitialLightSchedule(ranges),
+        Upt04MakeInitialLightSchedule(ranges), uint2(0u),
         replayKey,
         replayIndex,
         pathVertex,

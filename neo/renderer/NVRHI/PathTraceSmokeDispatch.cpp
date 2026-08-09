@@ -2811,6 +2811,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtInputs.shaderProofMode == 6u;
             unifiedPtInputs.directProposalParity =
                 r_pathTracingUnifiedPtDirectProposalParity.GetBool();
+            unifiedPtInputs.lightTiles =
+                r_pathTracingUnifiedPtLightTiles.GetBool() &&
+                unifiedPtInputs.splitInitial &&
+                unifiedPtInputs.directProposalParity &&
+                !unifiedPtInputs.compactLights &&
+                !unifiedPtInputs.diagnostics;
             unifiedPtInputs.temporal =
                 r_pathTracingUnifiedPtTemporal.GetBool();
             unifiedPtInputs.duplication =

@@ -91,4 +91,4 @@ if(NOT full_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt07CurrentLights\"" OR
 endif()
 
 file(WRITE "${UPT07_STAMP}"
-    "UPT-07 temporal verified: direct variants retain 28 bindings and one winner RayQuery; opt-in unified variants expose 30 bindings, exact PSS/CDF/lookup replay, and five statically bounded RayQuery call sites; no TraceRay or native16\n")
+    "UPT-07 temporal verified: direct variants retain 28 bindings and one winner RayQuery; opt-in unified variants expose 30 bindings, exact selected-light forced reconnection, and five statically bounded RayQuery call sites; no TraceRay or native16\n")

@@ -20,6 +20,14 @@ static constexpr uint32_t UPT04_COMPACT_VERTEX_STRIDE = 48u;
 static constexpr uint32_t UPT04_COMPACT_GEOMETRY_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT04_COMPACT_LIGHT_STRIDE = 64u;
 static constexpr uint32_t UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES = 4u;
+static constexpr uint32_t UPT04_LIGHT_TILE_COUNT = 128u;
+static constexpr uint32_t UPT04_LIGHT_TILE_DOMAIN_SIZE = 1024u;
+static constexpr uint32_t UPT04_LIGHT_TILE_DOMAIN_COUNT = 2u;
+static constexpr uint32_t UPT04_LIGHT_TILE_ENTRY_STRIDE = 16u;
+static constexpr uint32_t UPT04_LIGHT_TILE_ENTRY_COUNT =
+    UPT04_LIGHT_TILE_COUNT * UPT04_LIGHT_TILE_DOMAIN_SIZE *
+        UPT04_LIGHT_TILE_DOMAIN_COUNT;
+static constexpr uint32_t UPT04_LIGHT_TILE_PUSH_CONSTANT_BYTES = 48u;
 static constexpr uint32_t UPT04_COMPACT_MATERIAL_STRIDE = 48u;
 static constexpr uint32_t UPT04_COMPACT_MATERIAL_PUSH_CONSTANT_BYTES = 4u;
 static constexpr uint32_t UPT04_CONTINUATION_HIT_STRIDE = 32u;
@@ -45,7 +53,8 @@ static constexpr uint32_t UPT04_TRANSPORT_POLICY_ID = 1u;
 static constexpr uint32_t UPT04_NEE_RIS_BASELINE_CANDIDATE_COUNT = 8u;
 static constexpr uint32_t UPT04_NEE_RIS_PARITY_ANALYTIC_CANDIDATE_COUNT = 32u;
 static constexpr uint32_t UPT04_NEE_RIS_MAX_EMISSIVE_CANDIDATE_COUNT = 16u;
-static constexpr uint32_t UPT04_ABI_VERSION = 8u;
+static constexpr uint32_t UPT04_SECONDARY_NEE_BOUNCE_INDEX = 2u;
+static constexpr uint32_t UPT04_ABI_VERSION = 9u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 107u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
@@ -217,8 +226,14 @@ static const char* Upt04InitialShaderPath(
     }
 }
 
-static const char* Upt04SplitDirectShaderPath(bool compactGeometry)
+static const char* Upt04SplitDirectShaderPath(
+    bool compactGeometry,
+    bool lightTiles)
 {
+    if (lightTiles)
+    {
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_light_tiles.bin";
+    }
     return compactGeometry
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_geometry48_light64.bin"
         : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32.bin";
@@ -226,8 +241,13 @@ static const char* Upt04SplitDirectShaderPath(bool compactGeometry)
 
 static const char* Upt04SplitIndirectShaderPath(
     bool compactGeometry,
-    bool compactMaterials)
+    bool compactMaterials,
+    bool lightTiles)
 {
+    if (lightTiles)
+    {
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light_tiles.bin";
+    }
     if (!compactGeometry)
     {
         return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32.bin";
@@ -386,6 +406,8 @@ static uint64_t Upt06BuildContentGeneration(
         ? UPT04_NEE_RIS_PARITY_ANALYTIC_CANDIDATE_COUNT + emissiveTrialCount
         : UPT04_NEE_RIS_BASELINE_CANDIDATE_COUNT);
     hash = Upt04HashValue(hash, emissiveTrialCount);
+    hash = Upt04HashValue(hash, UPT04_SECONDARY_NEE_BOUNCE_INDEX);
+    hash = Upt04HashValue(hash, dispatch.lightTiles ? 1u : 0u);
     hash = Upt04HashValue(hash,
         r_pathTracingUnifiedPtD0PreviousBest.GetBool() ? 1u : 0u);
     hash = Upt04HashValue(hash,
@@ -550,6 +572,26 @@ static_assert(
     sizeof(Upt04CompactLightPackControl) == UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES,
     "UPT compact-light push constants must match Slang reflection");
 
+struct Upt04LightTilePresampleControl
+{
+    uint32_t tileCount;
+    uint32_t tileDomainSize;
+    uint32_t frameSampleIndex;
+    uint32_t emissiveDistributionCount;
+    uint32_t emissiveRangeStart;
+    uint32_t emissiveRangeCount;
+    uint32_t analyticRangeStart;
+    uint32_t analyticRangeCount;
+    uint32_t emissiveTrials;
+    uint32_t analyticTrials;
+    uint32_t candidateCount;
+    uint32_t reserved0;
+};
+static_assert(
+    sizeof(Upt04LightTilePresampleControl) ==
+        UPT04_LIGHT_TILE_PUSH_CONSTANT_BYTES,
+    "UPT light-tile push constants must match Slang reflection");
+
 struct Upt04CompactMaterialPackControl
 {
     uint32_t materialCount;
@@ -623,6 +665,16 @@ static bool Upt04InputsValid(const PathTraceUnifiedPtDispatchInputs& dispatch)
     {
         return false;
     }
+    if (dispatch.lightTiles &&
+        (!dispatch.splitInitial || !dispatch.directProposalParity ||
+         dispatch.backend != PathTraceUnifiedPtBackend::RayQuery ||
+         dispatch.family != PathTraceUnifiedPtFamily::Unified ||
+         dispatch.primaryReceiverMode != 2u || dispatch.compactGeometry ||
+         dispatch.compactLights || dispatch.compactMaterials ||
+         dispatch.diagnostics || dispatch.shaderProofMode != 6u))
+    {
+        return false;
+    }
     const uint32_t expectedPrimaryStride = dispatch.primaryReceiverMode == 2u
         ? PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE
         : (dispatch.primaryReceiverMode == 1u
@@ -668,7 +720,8 @@ static bool Upt04InputsValid(const PathTraceUnifiedPtDispatchInputs& dispatch)
 static void Upt04AddBindingLayoutItems(
     nvrhi::BindingLayoutDesc& desc,
     bool diagnostics,
-    bool splitContinuation)
+    bool splitContinuation,
+    bool lightTiles)
 {
     desc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
     desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
@@ -692,6 +745,10 @@ static void Upt04AddBindingLayoutItems(
     desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
     for (uint32_t slot = 26u; slot <= 29u; ++slot)
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
+    if (lightTiles)
+    {
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(30));
+    }
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
 }
 
@@ -726,7 +783,8 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     nvrhi::BufferHandle compactSkinnedVertices,
     nvrhi::BufferHandle compactLights,
     nvrhi::BufferHandle compactMaterials,
-    nvrhi::BufferHandle continuationHits)
+    nvrhi::BufferHandle continuationHits,
+    nvrhi::BufferHandle lightTiles)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -786,6 +844,11 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
         29, lights.restirLightManagerPreviousToCurrentBuffer
             ? lights.restirLightManagerPreviousToCurrentBuffer
             : lights.emissiveDistributionBuffer));
+    if (dispatch.lightTiles)
+    {
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            30, lightTiles));
+    }
     desc.addItem(nvrhi::BindingSetItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
     return desc;
 }
@@ -1095,6 +1158,23 @@ void PathTraceUnifiedPtState::ReleaseCompactLights()
     }
 }
 
+void PathTraceUnifiedPtState::ReleaseLightTiles()
+{
+    m_lightTileBindingSet = nullptr;
+    m_lightTileBindingSetDesc = nvrhi::BindingSetDesc();
+    m_lightTileBindingSetDescValid = false;
+    m_lightTilePipeline = nullptr;
+    m_lightTileShader = nullptr;
+    m_lightTileBindingLayout = nullptr;
+    m_lightTilePipelineAttempted = false;
+    m_lightTileBuffer = nullptr;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_bindingSets[page] = nullptr;
+        m_bindingSetDescValid[page] = false;
+    }
+}
+
 void PathTraceUnifiedPtState::ReleaseCompactMaterials()
 {
     m_compactMaterialBindingSet = nullptr;
@@ -1187,6 +1267,7 @@ void PathTraceUnifiedPtState::Release()
     ReleasePipeline();
     ReleaseCompactGeometry();
     ReleaseCompactLights();
+    ReleaseLightTiles();
     ReleaseCompactMaterials();
     ReleaseContinuation();
     ReleaseTemporal();
@@ -1226,6 +1307,7 @@ void PathTraceUnifiedPtState::Release()
     m_splitInitial = false;
     m_splitContinuation = false;
     m_directProposalParity = false;
+    m_lightTiles = false;
     m_temporalModeActive = false;
     m_initialPublishedThisFrame = false;
     m_spatialModeActive = false;
@@ -1406,7 +1488,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_compactMaterials != inputs.compactMaterials ||
         m_splitInitial != inputs.splitInitial ||
         m_splitContinuation != inputs.splitContinuation ||
-        m_directProposalParity != inputs.directProposalParity)
+        m_directProposalParity != inputs.directProposalParity ||
+        m_lightTiles != inputs.lightTiles)
     {
         ReleasePipeline();
         m_backend = inputs.backend;
@@ -1420,6 +1503,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_splitInitial = inputs.splitInitial;
         m_splitContinuation = inputs.splitContinuation;
         m_directProposalParity = inputs.directProposalParity;
+        m_lightTiles = inputs.lightTiles;
         m_selectionValid = true;
         m_resourceFailureLogged = false;
     }
@@ -1501,7 +1585,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         Upt04AddBindingLayoutItems(
             layoutDesc,
             inputs.diagnostics,
-            inputs.splitContinuation);
+            inputs.splitContinuation,
+            inputs.lightTiles);
     }
     m_bindingLayout = inputs.device->createBindingLayout(layoutDesc);
     if (!m_bindingLayout)
@@ -1525,7 +1610,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         : (liveTlasProbe
         ? Upt04LiveTlasProbePath(pipelineVariant)
         : (inputs.splitInitial
-        ? Upt04SplitDirectShaderPath(inputs.compactGeometry)
+        ? Upt04SplitDirectShaderPath(inputs.compactGeometry, inputs.lightTiles)
         : Upt04InitialShaderPath(
             m_backend,
             m_family,
@@ -1588,7 +1673,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             if (!Upt04ReadShader(
                     Upt04SplitIndirectShaderPath(
                         inputs.compactGeometry,
-                        inputs.compactMaterials),
+                        inputs.compactMaterials,
+                        inputs.lightTiles),
                     splitIndirectData,
                     splitIndirectSize,
                     splitIndirectTimestamp,
@@ -1624,7 +1710,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             }
         }
         common->Printf(
-            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s split=%s continuation=%s payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
+            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s split=%s continuation=%s lightTiles=%u payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
             Upt04BackendName(m_backend),
             Upt04FamilyName(m_family),
             pipelineVariant,
@@ -1640,6 +1726,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.compactMaterials ? "compact48" : "legacy112",
             inputs.splitInitial ? "direct+indirect" : "monolithic",
             inputs.splitContinuation ? "split-hit32" : "inline",
+            inputs.lightTiles ? 1u : 0u,
             static_cast<unsigned long long>(pipelineUs));
         if (inputs.splitInitial)
         {
@@ -1841,7 +1928,8 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             m_compactSkinnedVertices,
             m_compactLightsBuffer,
             m_compactMaterialsBuffer,
-            m_continuationHits);
+            m_continuationHits,
+            m_lightTileBuffer);
     }
     if (m_bindingSets[pageIndex] && m_bindingSetDescValid[pageIndex] &&
         m_bindingSetDescs[pageIndex] == desc)
@@ -2422,6 +2510,249 @@ bool PathTraceUnifiedPtState::ExecuteCompactLightPack(
         nvrhi::utils::BufferUavBarrier(inputs.commandList, m_compactLightsBuffer);
         inputs.commandList->setBufferState(
             m_compactLightsBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->commitBarriers();
+    }
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureLightTileResources(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.lightTiles)
+    {
+        return true;
+    }
+    const uint64_t bytes = uint64_t(UPT04_LIGHT_TILE_ENTRY_COUNT) *
+        UPT04_LIGHT_TILE_ENTRY_STRIDE;
+    if (m_lightTileBuffer &&
+        m_lightTileBuffer->getDesc().structStride ==
+            UPT04_LIGHT_TILE_ENTRY_STRIDE &&
+        m_lightTileBuffer->getDesc().byteSize == bytes)
+    {
+        return true;
+    }
+
+    nvrhi::BufferDesc desc;
+    desc.debugName = "PathTraceUnifiedPtLightTiles";
+    desc.byteSize = bytes;
+    desc.structStride = UPT04_LIGHT_TILE_ENTRY_STRIDE;
+    desc.canHaveUAVs = true;
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+    m_lightTileBuffer = inputs.device->createBuffer(desc);
+    if (!m_lightTileBuffer)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to allocate light tiles entries=%u bytes=%llu\n",
+            UPT04_LIGHT_TILE_ENTRY_COUNT,
+            static_cast<unsigned long long>(bytes));
+        return false;
+    }
+    m_lightTileBindingSet = nullptr;
+    m_lightTileBindingSetDescValid = false;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_bindingSets[page] = nullptr;
+        m_bindingSetDescValid[page] = false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: light tiles tiles=%u domains=%u entriesPerDomain=%u stride=%u entries=%u bytes=%llu clear=never\n",
+        UPT04_LIGHT_TILE_COUNT,
+        UPT04_LIGHT_TILE_DOMAIN_COUNT,
+        UPT04_LIGHT_TILE_DOMAIN_SIZE,
+        UPT04_LIGHT_TILE_ENTRY_STRIDE,
+        UPT04_LIGHT_TILE_ENTRY_COUNT,
+        static_cast<unsigned long long>(bytes));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureLightTilePipeline(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.lightTiles || m_lightTilePipeline)
+    {
+        return true;
+    }
+    if (m_lightTilePipelineAttempted)
+    {
+        return false;
+    }
+    m_lightTilePipelineAttempted = true;
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT04_LIGHT_TILE_PUSH_CONSTANT_BYTES));
+    m_lightTileBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!m_lightTileBindingLayout)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create light-tile binding layout\n");
+        return false;
+    }
+
+    void* shaderData = nullptr;
+    int shaderSize = 0;
+    ID_TIME_T shaderTimestamp = 0;
+    uint64_t shaderHash = 0;
+    if (!Upt04ReadShader(
+            "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_light_tile_presample.bin",
+            shaderData,
+            shaderSize,
+            shaderTimestamp,
+            shaderHash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtLightTilePresample";
+    m_lightTileShader = inputs.device->createShader(
+        shaderDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!m_lightTileShader)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create light-tile shader\n");
+        return false;
+    }
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_lightTileShader;
+    pipelineDesc.bindingLayouts = { m_lightTileBindingLayout };
+    const uint64_t pipelineStartUs = Sys_Microseconds();
+    m_lightTilePipeline = inputs.device->createComputePipeline(pipelineDesc);
+    const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
+    if (!m_lightTilePipeline)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create light-tile pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: light-tile presample compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=128x1 tiles=%u domains=%u entriesPerDomain=%u createUs=%llu\n",
+        shaderSize,
+        static_cast<unsigned long long>(shaderHash),
+        static_cast<long long>(shaderTimestamp),
+        UPT04_LIGHT_TILE_COUNT,
+        UPT04_LIGHT_TILE_DOMAIN_COUNT,
+        UPT04_LIGHT_TILE_DOMAIN_SIZE,
+        static_cast<unsigned long long>(pipelineUs));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureLightTileBindingSet(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.lightTiles)
+    {
+        return true;
+    }
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        0, inputs.sceneInputs->lights.emissiveDistributionBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+        1, m_lightTileBuffer));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT04_LIGHT_TILE_PUSH_CONSTANT_BYTES));
+    if (m_lightTileBindingSet && m_lightTileBindingSetDescValid &&
+        m_lightTileBindingSetDesc == desc)
+    {
+        return true;
+    }
+    m_lightTileBindingSet = inputs.device->createBindingSet(
+        desc, m_lightTileBindingLayout);
+    if (!m_lightTileBindingSet)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create light-tile binding set\n");
+        return false;
+    }
+    m_lightTileBindingSetDesc = desc;
+    m_lightTileBindingSetDescValid = true;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecuteLightTilePresample(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.lightTiles)
+    {
+        return true;
+    }
+    const RtPathTraceSceneInputLights& lights = inputs.sceneInputs->lights;
+    const uint32_t distributionCount = lights.emissiveDistributionValid
+        ? static_cast<uint32_t>(Max(0, lights.emissiveDistributionCount))
+        : 0u;
+    const uint32_t emissiveRangeCount =
+        lights.restirLightManagerEmissiveRangeCount;
+    const uint32_t analyticRangeCount =
+        lights.restirLightManagerDoomAnalyticSampleableCount;
+    const uint32_t configuredEmissiveTrials = static_cast<uint32_t>(
+        idMath::ClampInt(1, UPT04_NEE_RIS_MAX_EMISSIVE_CANDIDATE_COUNT,
+            r_pathTracingReservoirCandidateTrials.GetInteger()));
+    const uint32_t emissiveTrials =
+        distributionCount != 0u && emissiveRangeCount != 0u
+            ? configuredEmissiveTrials : 0u;
+    const uint32_t analyticTrials = Min(
+        analyticRangeCount,
+        UPT04_NEE_RIS_PARITY_ANALYTIC_CANDIDATE_COUNT);
+    Upt04LightTilePresampleControl control = {};
+    control.tileCount = UPT04_LIGHT_TILE_COUNT;
+    control.tileDomainSize = UPT04_LIGHT_TILE_DOMAIN_SIZE;
+    control.frameSampleIndex = inputs.frameSampleIndex;
+    control.emissiveDistributionCount = distributionCount;
+    control.emissiveRangeStart =
+        lights.restirLightManagerEmissiveRangeOffset;
+    control.emissiveRangeCount = emissiveRangeCount;
+    control.analyticRangeStart =
+        lights.restirLightManagerDoomAnalyticRangeOffset;
+    control.analyticRangeCount = analyticRangeCount;
+    control.emissiveTrials = emissiveTrials;
+    control.analyticTrials = analyticTrials;
+    control.candidateCount = emissiveTrials + analyticTrials;
+
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.LT0 LightTiles Presample",
+            inputs.nsightMarkers);
+        inputs.commandList->setBufferState(
+            lights.emissiveDistributionBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_lightTileBuffer,
+            nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+        nvrhi::ComputeState state;
+        state.pipeline = m_lightTilePipeline;
+        state.bindings = { m_lightTileBindingSet };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(&control, sizeof(control));
+        const uint32_t entriesPerTile = UPT04_LIGHT_TILE_DOMAIN_SIZE *
+            UPT04_LIGHT_TILE_DOMAIN_COUNT;
+        inputs.commandList->dispatch(
+            (entriesPerTile + 127u) / 128u,
+            UPT04_LIGHT_TILE_COUNT,
+            1u);
+    }
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.LT0 LightTiles OutputBarrier",
+            inputs.nsightMarkers);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_lightTileBuffer);
+        inputs.commandList->setBufferState(
+            m_lightTileBuffer,
+            nvrhi::ResourceStates::ShaderResource);
         inputs.commandList->commitBarriers();
     }
     return true;
@@ -3097,6 +3428,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     {
         ReleaseDuplication();
     }
+    if (!inputs.lightTiles && m_lightTileBuffer)
+    {
+        ReleaseLightTiles();
+    }
     if (!Upt04InputsValid(inputs))
     {
         if (!m_resourceFailureLogged)
@@ -3194,6 +3529,13 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     {
         return false;
     }
+    if (inputs.lightTiles &&
+        (!EnsureLightTileResources(inputs) ||
+         !EnsureLightTilePipeline(inputs) ||
+         !EnsureLightTileBindingSet(inputs)))
+    {
+        return false;
+    }
     if (inputs.compactMaterials &&
         (!EnsureCompactMaterialResources(inputs) ||
          !EnsureCompactMaterialPipeline(inputs) ||
@@ -3222,6 +3564,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         return false;
     }
     if (!ExecuteCompactLightPack(inputs))
+    {
+        return false;
+    }
+    if (!ExecuteLightTilePresample(inputs))
     {
         return false;
     }

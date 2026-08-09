@@ -7,6 +7,21 @@ public static const uint kUpt04DirectRisBaselineCandidateCount = 8u;
 public static const uint kUpt04DirectRisParityAnalyticCount = 32u;
 public static const uint kUpt04DirectRisMaximumEmissiveCount = 16u;
 public static const uint kUpt04DirectRisMaximumCandidateCount = 48u;
+public static const uint kUpt04SecondaryNeeBounceIndex = 2u;
+
+// ReSTIR PT Enhanced section 7 uses an inverse-square NEE budget, 32 / i^2,
+// clamped to one draw for each populated proposal domain. Primary NEE is i=1;
+// the first continuation hit is i=2.
+public uint Upt04InverseSquareNeeTrialCount(
+    uint primaryTrialCount,
+    uint bounceIndex)
+{
+    if (primaryTrialCount == 0u)
+        return 0u;
+    const uint safeIndex = max(bounceIndex, 1u);
+    const uint divisor = safeIndex * safeIndex;
+    return max(primaryTrialCount / divisor, 1u);
+}
 
 public uint Upt04DirectRisDomainTrialCount(
     Upt04LocalLightRanges ranges,

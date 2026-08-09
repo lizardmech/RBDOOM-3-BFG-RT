@@ -606,6 +606,43 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         confidenceShiftedValid = 0u;
     }
 
+    uint adaptiveMaximumHistoryM = max(gUpt07Control.maximumHistoryM, 1u);
+#if UPT07_DUPLICATION_MAP
+    if ((gUpt07Control.geometryAvailabilityFlags & (1u << 26u)) != 0u
+        && shiftedValid != 0u)
+    {
+        const uint historyY = historyIndex / gUpt07Control.renderWidth;
+        const uint historyX = historyIndex - historyY * gUpt07Control.renderWidth;
+        const uint packed = gUpt07HistoryDuplication[
+            historyY * ((gUpt07Control.renderWidth + 3u) / 4u)
+                + historyX / 4u];
+        const uint score = (packed >> ((historyX & 3u) * 8u)) & 0xffu;
+        const float correlation = float(score) / 255.0f;
+        // The enhanced estimator's adaptive range starts at 20 even when the
+        // user permits a larger global history M. Using maximumHistoryM here
+        // weakened the correlation control precisely in the 32/63 stress case
+        // it is meant to contain. A lower user cap remains authoritative.
+        const uint duplicationDefaultCap = min(adaptiveMaximumHistoryM, 20u);
+        const float adaptiveCap = lerp(
+            float(duplicationDefaultCap),
+            1.0f,
+            pow(correlation, 0.1f));
+        adaptiveMaximumHistoryM = max(uint(round(adaptiveCap)), 1u);
+    }
+#endif
+    const float temporalSelectionRandom =
+        Upt07SelectionRandom(pixel, historyIdentity);
+    const uint pairwiseMis = (gUpt07Control.geometryAvailabilityFlags
+            & kUpt07PairwiseMisFlag) != 0u ? 1u : 0u;
+    const bool basicSelectsHistory = pairwiseMis == 0u
+        && Upt07BasicTemporalWouldSelectHistory(
+            seededCurrent,
+            confidenceHistory,
+            shifted,
+            confidenceShiftedValid,
+            temporalSelectionRandom,
+            adaptiveMaximumHistoryM);
+
     float currentTargetAtHistory = 0.0f;
     float currentTargetAtCurrent = 0.0f;
     if (seededCurrent.valid != 0u
@@ -618,7 +655,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 Upt07PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
                     currentCandidate, receiver);
             if (confidenceShiftedValid != 0u
-                && Upt04PrimarySurfaceRecordValid(historyReceiver))
+                && Upt04PrimarySurfaceRecordValid(historyReceiver)
+                && (pairwiseMis != 0u || !basicSelectsHistory))
                 currentTargetAtHistory =
                     Upt07PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
                         currentCandidate, historyReceiver);
@@ -634,7 +672,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                     && currentCandidate.target > 0.0f
                 ? currentCandidate.target : 0.0f;
             if (confidenceShiftedValid != 0u
-                && Upt04PrimarySurfaceRecordValid(historyReceiver))
+                && Upt04PrimarySurfaceRecordValid(historyReceiver)
+                && (pairwiseMis != 0u || !basicSelectsHistory))
             {
                 Upt03Candidate currentAtHistory;
                 uint currentShiftFailure;
@@ -667,30 +706,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         ? confidenceHistory.logical.selected.target
         : 0.0f;
 
-    uint adaptiveMaximumHistoryM = max(gUpt07Control.maximumHistoryM, 1u);
-#if UPT07_DUPLICATION_MAP
-    if ((gUpt07Control.geometryAvailabilityFlags & (1u << 26u)) != 0u
-        && shiftedValid != 0u)
-    {
-        const uint historyY = historyIndex / gUpt07Control.renderWidth;
-        const uint historyX = historyIndex - historyY * gUpt07Control.renderWidth;
-        const uint packed = gUpt07HistoryDuplication[
-            historyY * ((gUpt07Control.renderWidth + 3u) / 4u)
-                + historyX / 4u];
-        const uint score = (packed >> ((historyX & 3u) * 8u)) & 0xffu;
-        const float correlation = float(score) / 255.0f;
-        // The enhanced estimator's adaptive range starts at 20 even when the
-        // user permits a larger global history M. Using maximumHistoryM here
-        // weakened the correlation control precisely in the 32/63 stress case
-        // it is meant to contain. A lower user cap remains authoritative.
-        const uint duplicationDefaultCap = min(adaptiveMaximumHistoryM, 20u);
-        const float adaptiveCap = lerp(
-            float(duplicationDefaultCap),
-            1.0f,
-            pow(correlation, 0.1f));
-        adaptiveMaximumHistoryM = max(uint(round(adaptiveCap)), 1u);
-    }
-#endif
     Upt07TemporalMergeResult merged = Upt07MergeTemporal(
         seededCurrent,
         confidenceHistory,
@@ -700,12 +715,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         currentTargetAtHistory,
         historyTargetAtHistory,
         historyFailureReason,
-        Upt07SelectionRandom(pixel, historyIdentity),
+        temporalSelectionRandom,
         adaptiveMaximumHistoryM,
         max(gUpt07Control.maximumHistoryAge, 1u),
         float(gUpt07Control.maximumHistoryContributionRatio),
-        (gUpt07Control.geometryAvailabilityFlags
-            & kUpt07PairwiseMisFlag) != 0u ? 1u : 0u);
+        pairwiseMis);
 
     // Regression guard: both RTXDI FullSample and the accepted legacy DI lane
     // re-establish final visibility after reuse. UPT-05 deliberately cannot

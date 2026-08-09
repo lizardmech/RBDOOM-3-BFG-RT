@@ -17,6 +17,10 @@ import upt04_random_white_hash;
 import upt04_transport_initial_bounded;
 import upt04_initial_light_selection;
 
+#ifndef UPT04_LIGHT_TILES
+#define UPT04_LIGHT_TILES 0
+#endif
+
 public Upt04LocalLightRanges Upt04InitialDirectLightRanges()
 {
     Upt04LocalLightRanges ranges;
@@ -98,6 +102,15 @@ public Upt04LocalLightSelection Upt04SelectInitialDirectLight(
                 candidateOrdinal,
                 kUpt04StreamInitialLocalLightSurfaceV,
                 kUpt04DimensionInitialLocalLightSurfaceV)));
+#if UPT04_LIGHT_TILES
+    return Upt04SelectInitialLightFromTile(
+        schedule,
+        pixel,
+        0u,
+        candidateOrdinal,
+        identityRandom,
+        surfaceRandom);
+#else
     if (schedule.proposalParity != 0u && selectEmissive)
     {
         result = Upt04SelectInitialWeightedEmissive(
@@ -115,6 +128,7 @@ public Upt04LocalLightSelection Upt04SelectInitialDirectLight(
     result.selectionPdf = Upt04InitialLightScheduleIdentityPdf(
         schedule, selectedType);
     return result;
+#endif
 }
 
 public struct Upt04DirectRisProposal

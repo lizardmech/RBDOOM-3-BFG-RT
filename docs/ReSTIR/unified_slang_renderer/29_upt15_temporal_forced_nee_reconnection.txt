@@ -1,0 +1,144 @@
+UPT-15 Temporal Forced NEE Light Reconnection
+==============================================
+
+Date: 2026-08-09
+
+Decision and measured trigger
+-----------------------------
+
+UPT-14 is retained as a small elapsed-time win: runtime was approximately
+1 ms faster even though No Instructions and SM-utilization percentages became
+worse. Those ratios are not rejection evidence by themselves because removing
+ALU work leaves the unchanged ray-latency phases as a larger percentage of a
+shorter pass.
+
+The next level test isolated the actual multiplier. Unified indirect temporal
+was between 10x and 20x slower than direct temporal plus spatial. Source and
+Nsight inspection traced this to secondary-NEE random replay in
+upt07_temporal_indirect.slang: every replayed path rebuilt the complete typed
+candidate schedule, and every emissive proposal performed a serialized binary
+search over the global CDF before material evaluation and inner RIS.
+
+This is the exact scope of ReSTIR PT Enhanced section 6.2.3. When no earlier
+reconnection was selected and the path ends at an NEE-sampled light vertex,
+the stored light vertex is forcibly reconnected instead of sampling the light
+again. It is a temporal/spatial replay optimization, not a D0 candidate-count
+or broader portal-filtering workaround.
+
+Required representation correction
+----------------------------------
+
+The previous UPT secondary-NEE candidate folded its inner-RIS UCW into RGB and
+target, then stored proposalPdf = 1. That produced the correct D0 estimate but
+discarded the physical selected target needed for a one-light shift. Replaying
+the selected light once against that folded target would change the temporal
+target ratio and poison reservoir energy.
+
+UPT-15 changes only the representation of the same D0 estimator. Let t be the
+selected raw target and F = weightSum / candidateCount be the finalized inner
+RIS mass:
+
+    old: contribution = rawContribution * F / t
+         target       = F
+         proposalPdf  = 1
+
+    new: contribution = rawContribution
+         target       = t
+         proposalPdf  = t / F
+
+Both stream exactly target / proposalPdf = F into the outer reservoir. Resolve
+also remains identical:
+
+    old contribution * outerWeight / oldTarget
+      = rawContribution * outerWeight / t
+      = new contribution * outerWeight / newTarget
+
+The new form retains the physical target and stores the inner normalization in
+an existing positive field. There is no reservoir-size or binding change. The
+host UPT content-generation ABI is bumped from 8 to 9 so folded-UCW history can
+never mix with raw-target history.
+
+Forced reconnection contract
+----------------------------
+
+For a stored secondary NEE event, temporal replay now:
+
+    validates event shape and the reprojected receiver;
+    remaps a history dense light index through previous-to-current;
+    validates current typed-range membership, stable fingerprint, and rejects
+        dynamic emissive history;
+    reconstructs the current typed source-mixture PDF, using the exact current
+        emissive lookup conditional PDF for weighted parity;
+    random-replays only the primary-to-secondary continuation;
+    replays the stored emissive triangle barycentrics directly, or the stored
+        analytic surface coordinates, against the new secondary receiver;
+    evaluates the current secondary material and physical target;
+    traces the one selected-light visibility segment with emissive self-ignore;
+    publishes the current dense identity, current path PDF, raw contribution,
+        raw target, and the source effective proposal field.
+
+Emissive barycentrics are not passed through the original four-region sampler
+a second time. Doing so would move the point and recreate duplicated/phantom
+emitter replay. Invalid remap, lookup, stored UV, material, PDF, target, portal
+eligibility, or visibility rejects the shift. There is no fallback to the old
+candidate loop and no invalid sample is admitted to raise density.
+
+Bounded work and ABI
+--------------------
+
+The dynamic ray ceiling is unchanged. Each indirect shift owns one continuation
+ray and one selected-light visibility ray. BASIC correction still defers the
+reciprocal current-at-history shift when history will be selected; pairwise MIS
+still requires both directions. No dispatch, queue, buffer, descriptor, clear,
+random candidate, or DX12 route is added.
+
+The frozen 30-binding unified T0 layout is retained. Binding 29 now participates
+only through a distribution-buffer length/stride validation; forced replay has
+no CDF entry access chain or binary search. The current emissive hash lookup is
+still required to recover the selected light's conditional identity PDF and to
+prove that the mapped dense record names the same triangle.
+
+Verification and runtime gate
+-----------------------------
+
+The final Vulkan compile reports five statically bounded RayQuery sites and
+shrinks the base unified T0 SPIR-V from 892,028 to 815,444 bytes: 76,584 bytes
+removed. It contains 51,440 SPIR-V operations, two inlined CDF-buffer length
+queries, and zero CDF-buffer access chains. Native split D0b is 356,432 bytes,
+136 bytes smaller than UPT-14. The direct-only T0 route remains separate.
+
+The exact full win64-pt-dev-release build and all five PathTraceUnified tests
+pass. The matched executable and exactly 30 hash-different Vulkan UPT D0/T0
+blobs are deployed with zero mismatches. No DX12 shader was compiled or
+deployed. Runtime visual and Nsight acceptance remains pending.
+
+Required runtime A/B uses the same level/view/sample and compares complete T0,
+not percentages alone:
+
+    temporal indirect elapsed milliseconds;
+    No Instructions and active warps together with elapsed time;
+    absence of emissive CDF entry loads in source attribution;
+    history remap/inner-evaluation/visibility rejection bands;
+    fixed-camera energy and color against temporal off;
+    portal crossings, door panels, alpha-clipped light covers, and analytic
+        lights for disappearance, phantom replay, or runaway energy.
+
+Spatial indirect remains gated. Do not begin it until UPT-15 is visually stable
+and the temporal timing change is measured.
+
+Runtime result
+--------------
+
+UPT-15 is accepted as a major temporal performance correction. On a Doom 3
+level the measured temporal scope fell from approximately 34 ms to 20 ms. On a
+small level it fell from approximately 20 ms to 7.85 ms. This proves that the
+removed candidate/CDF replay was a real level-complexity multiplier rather than
+only static code shrinkage.
+
+The small-level result remains approximately seven times slower than direct
+temporal plus spatial, so UPT-15 is not the end of temporal optimization. The
+next audited boundary is visibility ownership: secondary NEE currently traces
+its selected-light segment before the temporal merge and during reciprocal
+target-only evaluation. Direct temporal already defers this ray until the final
+winner. UPT-16 must first make indirect visibility winner-only without changing
+target evaluation, rejection, or the existing ray ceiling.

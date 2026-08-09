@@ -1,6 +1,7 @@
 import upt03_reservoir_contract;
 import upt04_primary_surface_live_contract;
 import upt04_light_contract;
+import upt04_light_tile_contract;
 import upt04_material_live_contract;
 import upt04_initial_control;
 import upt04_primary_history_sidecar;
@@ -15,6 +16,9 @@ import upt04_primary_history_sidecar;
 #endif
 #ifndef UPT04_NATIVE_LIGHT_UINT4_VIEW
 #define UPT04_NATIVE_LIGHT_UINT4_VIEW 0
+#endif
+#ifndef UPT04_LIGHT_TILES
+#define UPT04_LIGHT_TILES 0
 #endif
 #if UPT04_PACKED_PRIMARY_RECEIVER == 1
 import upt04_packed_primary_surface;
@@ -62,6 +66,10 @@ public [[vk::binding(28, 0)]] StructuredBuffer<Upt03PackedReservoir>
     gUpt04PreviousReservoirs;
 public [[vk::binding(29, 0)]] StructuredBuffer<uint>
     gUpt04PreviousToCurrentLights;
+#if UPT04_LIGHT_TILES
+public [[vk::binding(30, 0)]] StructuredBuffer<Upt04LightTileEntry>
+    gUpt04LightTiles;
+#endif
 public [[vk::binding(0, 1)]] Texture2D<float4> gUpt04MaterialTextures[];
 public [[vk::push_constant]] ConstantBuffer<Upt04InitialControl> gUpt04Control;
 

@@ -1,0 +1,158 @@
+UPT-11 Exact-PDF Light-Tile Presampling
+========================================
+
+Date: 2026-08-09
+
+Purpose
+-------
+
+Replace incoherent per-pixel global light-identity selection in split UPT D0
+with an opt-in, GPU-built light-tile proposal while preserving the accepted
+emissive and analytic sampling distributions exactly. This is a performance
+experiment, not a portal filter, extra-candidate path, or estimator change.
+
+Evidence
+--------
+
+The exact shared-reservoir D0a/D0b split saved approximately 8 ms versus the
+monolithic family-0 shader. D0b remained dominated by No Instructions and an
+eager native 112-byte current-light load appeared as a high LSU global-memory
+dependency. Replacing that load with exact uint4 member chunks saved only about
+0.1 ms. Load width therefore is secondary to divergent/scattered access and
+the size of the active indirect shader.
+
+ReSTIR PT Enhanced section 6.1 uses 128 presampled light tiles with 1024
+entries and assigns one tile coherently to each 8x8 screen tile. RTXDI's
+reference implementation proves that this is a two-stage proposal, not a
+transparent cache: the presampler stores light identity and inverse source PDF
+and the initial sampler selects an entry from the coherent tile.
+
+UPT proposal contract
+---------------------
+
+UPT has two accepted proposal domains which must not be collapsed:
+
+    emissive:
+        current exact emissive CDF;
+        current distribution logical count, never stale capacity;
+        stored dense light index and emissive replay source guard;
+        source PDF = CDF interval * emissiveTrials / candidateCount.
+
+    analytic:
+        current range-stratified proposal-parity schedule;
+        one independent tile subgroup per analytic candidate ordinal;
+        source PDF = analyticTrials /
+            (candidateCount * analyticRangeCount).
+
+The tile buffer has 128 tiles and two fixed 1024-entry segments per tile.
+Each entry is uint4:
+
+    x dense current-light index or 0xffffffff;
+    y replay guard (emissiveTriangleIndex + 1) or zero;
+    z exact selection/source PDF bits;
+    w light type, zero for invalid.
+
+The emissive segment contains 1024 independent samples from the current exact
+CDF. The analytic segment is laid out as 32 candidate ordinals x 32 variants.
+For analytic ordinal j, a pixel selects one of the 32 entries at
+`j + variant * 32`. This retains the current ordinal stratum instead of
+silently replacing it with global uniform selection.
+
+Random contract
+---------------
+
+The presampler uses a frame-indexed white hash over tile, entry, domain, and
+candidate ordinal. D0 continues to consume its existing stateless identity and
+surface-coordinate dimensions. The identity dimension now chooses an entry
+within the already sampled tile distribution; surface coordinates still replay
+the light exactly. No additional per-pixel random dimension is introduced.
+
+An 8x8 screen group chooses one tile using a frame-indexed hash of the screen
+group and path vertex. Direct and secondary NEE therefore use independently
+hashed coherent tiles while sharing the same per-frame presample buffer.
+
+Estimator and rejection invariants
+----------------------------------
+
+    candidate counts and candidate ordinals are unchanged;
+    invalid tile entries remain invalid and still occupy fixed-M slots;
+    tile entries carry the exact existing selection PDF;
+    current light type/range/source guard validation remains after lookup;
+    emissive triangle replay, material evaluation and visibility are unchanged;
+    analytic portal eligibility remains evaluation-time policy;
+    previous-best D0 reseed bypasses tiles and retains stable-ID remapping;
+    selected identity fingerprint and visibility ignore remain selected-only;
+    no sample is admitted to increase density;
+    no new visibility ray or continuation ray is introduced.
+
+Host/resource contract
+----------------------
+
+The experiment is controlled by `r_pathTracingUnifiedPtLightTiles`. It is
+admitted only for Vulkan RayQuery, family 0, production split D0, compact32
+receiver, native112 current lights, proposal parity 1, and diagnostics off.
+All other paths use the checkpointed selector and shader artifacts.
+
+The tile buffer is allocated once and rewritten completely by one bounded
+presample dispatch per active frame. It is transitioned UAV -> SRV with one
+explicit barrier before D0a. There is no clear, readback, CPU upload, history,
+or additional per-pixel buffer. The complete timing scope is:
+
+    UPT.LT0 LightTiles Presample
+    UPT.LT0 LightTiles OutputBarrier
+    UPT.D0a Split Direct
+    UPT.D0 Split Intermediate Reservoir Barrier
+    UPT.D0b Split Indirect
+
+Acceptance
+----------
+
+1. Fixed-sample output retains valid emissive and analytic identities and PDFs.
+2. Portal-boundary emissive acquisition and D0 previous-best remain unchanged.
+3. No missing, duplicated, phantom, white, or color-corrupted emitters appear.
+4. The tile pass reports 128 x 2048 entries and never reads stale CDF capacity.
+5. Static closure proves unchanged three-ray total split ceiling.
+6. Presample plus D0a/barrier/D0b is faster than checkpoint `fe4a057f0`.
+7. Nsight shows improved current-light cache/dependency behavior in D0b.
+8. A regression, zero win, or estimator mismatch rejects the experiment by
+   setting the cvar to zero; the checkpointed native split remains available.
+
+Implementation and verification, 2026-08-09
+--------------------------------------------
+
+The opt-in path is implemented and deployed. The host admits it only for the
+native112, compact32, family-0 RayQuery split with proposal parity enabled and
+diagnostics disabled. It allocates one 4,194,304-byte structured buffer once,
+fully overwrites 262,144 uint4 entries per active frame, and binds the result
+at set-0 slot 30 in both split shaders. Toggling the cvar off releases the tile
+resource and selects the checkpointed split artifacts.
+
+Build-time SPIR-V verification proves bindings 0/1 for the presampler, binding
+30 for D0a/D0b, zero presample ray queries, one D0a query, and two D0b queries.
+The deterministic CPU contract harness verifies the 16-byte ABI, complete
+two-domain addressing, analytic ordinal/variant bijection, logical-count CDF
+boundary, exact source-PDF formulae, and coherent 8x8 screen-tile selection.
+The requested Vulkan release preset and all five PathTraceUnified contract
+tests pass. No DX12 shader was compiled.
+
+Runtime image and Nsight timing remain the acceptance gate. With the existing
+split-native family-0 parity-1 setup, compare only:
+
+    r_pathTracingUnifiedPtLightTiles 0
+    r_pathTracingUnifiedPtLightTiles 1
+
+The enabled run must log `lightTiles=1` plus the 128 x 2 x 1024 allocation and
+presample-pipeline records. Time LT0 presample + LT0 output barrier + D0a + the
+intermediate reservoir barrier + D0b as one unit. Reject the experiment if the
+complete unit does not beat the native split checkpoint or if any emissive,
+analytic, portal, replay, color, or energy behavior changes.
+
+Runtime result, 2026-08-09
+--------------------------
+
+The user reported no measurable Nsight change with light tiles enabled. UPT-11
+is therefore rejected as a performance optimization. Keep the cvar at zero;
+the allocation, presample dispatch, binding 30, and specialized tile shaders
+are absent from the active path. The opt-in implementation remains isolated
+for reference until the next scoped cleanup, but it is not an accepted default
+and must not be counted as a completed optimization.

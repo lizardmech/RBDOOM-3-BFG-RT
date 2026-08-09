@@ -831,3 +831,141 @@ bytes/566 ops. The 72 removed unified predicate expansions equal direct 40
 plus indirect 32. T0 unified base falls 22,720 bytes to 900,364; S0 direct base
 falls 15,104 bytes to 423,892. Full Vulkan/static/CPU gates pass. Treat these
 as static wins only until fixed-scene timing and image parity are reported.
+
+UPT-11 light-tile A/B handover, 2026-08-09
+------------------------------------------
+
+The exact-PDF light-tile experiment in document 25 is built and deployed. It
+is deliberately narrower than RTXDI's complete presampling system: it moves
+only light-identity proposal into coherent per-frame tiles while D0 continues
+to load and validate the authoritative current light record and replay the
+selected triangle coordinates. Separate emissive-CDF and analytic-ordinal
+domains preserve the accepted proposal mixture and portal/replay behavior.
+
+The route is opt-in through `r_pathTracingUnifiedPtLightTiles` and is admitted
+only by the family-0 split/native/parity-1 production configuration. Offline
+proof is complete: Vulkan build passes, five UPT contract tests pass, binding
+30 is present in both split shaders, and the ray ceiling remains 0+1+2 across
+presample/D0a/D0b. Runtime image parity and complete-scope Nsight timing are
+still required before accepting or checkpointing UPT-11.
+
+UPT-11 rejection and UPT-12 handover, 2026-08-09
+-------------------------------------------------
+
+The user reported no measurable Nsight change from light tiles, so UPT-11 is
+rejected and `r_pathTracingUnifiedPtLightTiles` remains zero. Advanced Nsight
+CSV exports then isolated a direct-only 112-byte whole-light load at 129,523
+dependency samples and 7,206 cycles while indirect already used native uint4
+loads. UPT-12 mechanically enables that existing view for split D0a and the
+compact32 direct-only profiling artifact.
+
+Static proof now reports zero whole light-record loads, 18 uint4 load sites,
+and one ray query in both direct artifacts. The full Vulkan build and five UPT
+CPU contract tests pass. Runtime image parity and D0a/complete-D0 timing are the
+remaining gate. If the measured change is negligible, proceed to indirect D0b
+register/footprint and bounded replay-compaction work described in document 26.
+
+UPT-12 rejection and UPT-13 handover, 2026-08-09
+-------------------------------------------------
+
+The user observed no change from UPT-12. Keep the exact native direct-light view
+as neutral cleanup, but reject it as a performance solution and stop pursuing
+current-light load width. D0b remains the dominant pass and the advanced source
+capture places 91.19 percent of its samples above 64 live registers.
+
+UPT-13 stages the production split-RayQuery indirect preparation so the
+continuation endpoint is streamed before secondary NEE winner construction.
+It no longer returns endpoint and pending NEE as two full work records in one
+aggregate. The compatibility wrapper preserves raygen and diagnostics. Static
+output retains two RayQuery sites and zero whole light loads; native D0b falls
+876 bytes to 355,304 while operation count rises by 60 to 21,765. Treat this as
+a runtime register/latency A/B only.
+
+The ReSTIR PT Enhanced section 6.2.2 replay compaction is explicitly not the D0
+mechanism: it compacts sparse temporal/spatial pixel-neighbor replay pairs. D0b
+has no such pair list, so no queue is authorized by that section. See document
+27 for the fixed-sample and complete-marker acceptance gate.
+
+The full Vulkan release preset and all five PathTraceUnified contract tests
+pass. The executable and 26 rebuilt Vulkan UPT blobs are deployed with zero
+hash mismatches. No DX12 shader was compiled or deployed. Runtime D0b register
+and complete-marker evidence remains the acceptance gate; no checkpoint commit
+has been made for this unmeasured experiment.
+
+UPT-13 rejection and UPT-14 handover, 2026-08-09
+-------------------------------------------------
+
+Runtime rejected UPT-13: registers decreased, but the pass slowed and No
+Instructions rose from about 38 to 48 percent. Its staged endpoint/secondary
+refactor is rolled back completely.
+
+The next audit found a larger algorithmic mismatch. The paper uses 32 / i^2 NEE
+trials by bounce index, but UPT used the complete primary schedule at the first
+secondary hit. UPT-14 leaves primary NEE byte-for-byte unchanged and reduces
+the parity-1 default secondary schedule from 32 analytic + 1 emissive to 8 + 1.
+D0 selection/denominator/source PDF, endpoint reverse MIS PDF, and T0 random
+replay all use the same decayed domain counts. The content-generation hash now
+includes secondary bounce index 2.
+
+Static native D0b is 356,568 bytes with 21,726 operations and two RayQuery
+sites. Direct native artifacts are byte-identical to the prior build. T0 unified
+base falls 8,336 bytes to 892,028. The full Vulkan build and five UPT tests pass.
+Runtime fixed-sample image and complete D0 timing remain the acceptance gate;
+the executable and exactly 30 changed Vulkan D0/T0 artifacts are deployed with
+zero hash mismatches. No DX12 shader was compiled or deployed. No checkpoint
+commit has been made.
+
+UPT-14 runtime and UPT-15 temporal handover, 2026-08-09
+--------------------------------------------------------
+
+Runtime retained UPT-14 as an approximately 1 ms elapsed-time improvement.
+No Instructions and SM utilization percentages worsened, but those ratios grew
+after arithmetic was removed while the same ray-latency phases remained. Do not
+roll back a measured elapsed-time win based on those percentages alone.
+
+A different-level A/B then isolated unified indirect temporal at 10x to 20x
+the cost of direct temporal plus spatial. The concrete cause was the secondary-
+NEE branch in upt07_temporal_indirect.slang: every shifted path re-ran all nine
+secondary candidates, including a dependent emissive-CDF binary search per
+emissive proposal. This is section 6.2.3's forced NEE reconnection target.
+
+UPT-15 changes the secondary D0 winner from folded-UCW representation to the
+algebraically equivalent raw contribution/target plus effective proposal PDF.
+The streamed inner-RIS mass and final resolved radiance are unchanged, while
+the physical target required by temporal shift is retained. UPT content ABI 9
+invalidates older folded history.
+
+T0 now remaps and fingerprints the stored light, reconstructs its exact current
+typed PDF, random-replays only the continuation, directly replays stored
+emissive barycentrics or analytic coordinates, evaluates the current target,
+and traces selected visibility. It has no candidate loop, CDF entry access, or
+fallback admission. The 30-binding layout and five static RayQuery sites remain
+unchanged; the CDF binding is retained only by structural length/stride proof.
+
+The final unified base T0 is 815,444 bytes versus 892,028 before UPT-15, with
+51,440 operations, five RayQuery sites, two structural CDF length queries, and
+zero CDF entry access chains. Native split D0b is 356,432 bytes. The exact full
+Vulkan release build and all five PathTraceUnified tests pass. The matched
+16,303,616-byte executable and exactly 30 hash-different Vulkan D0/T0 blobs are
+deployed with zero mismatches; no DX12 shader was compiled or deployed.
+
+Runtime temporal image/energy and complete-marker timing are now the next gate.
+Spatial indirect remains blocked. See document 29 for the estimator proof and
+rejection checklist.
+
+UPT-15 runtime acceptance, 2026-08-09
+-------------------------------------
+
+Forced NEE reconnection reduced the temporal scope from about 34 ms to 20 ms
+on a Doom 3 level and from about 20 ms to 7.85 ms on a small level. Accept the
+change: it removes a proven level-complexity multiplier. The small-level result
+is still roughly seven times the direct-temporal-plus-spatial cost.
+
+The next concrete audit found selected-light visibility still executes inside
+every secondary-NEE replay, before history selection, and also during the
+reciprocal current-at-history call whose only consumer is a scalar target.
+Direct T0 already performs winner-only visibility. UPT-16 should return a
+transient indirect visibility request from history-at-current replay, omit the
+ray from target-only replay, and trace it only if shifted history wins. Do not
+reconstruct the continuation a second time and do not add a reservoir field or
+sidecar.

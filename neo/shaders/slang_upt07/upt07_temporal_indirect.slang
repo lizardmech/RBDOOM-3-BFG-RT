@@ -205,148 +205,6 @@ public Upt04PathEvent Upt07ReplayContinuation(
                 kUpt04DimensionIndirectContinuationV))));
 }
 
-public Upt04LocalLightSelection Upt07SelectWeightedEmissive(
-    Upt04LocalLightRanges ranges,
-    float identityRandom,
-    float2 surfaceRandom,
-    uint emissiveTrials,
-    uint totalTrials)
-{
-    Upt04LocalLightSelection result = (Upt04LocalLightSelection)0;
-    if (ranges.emissiveCount == 0u || emissiveTrials == 0u
-        || totalTrials == 0u || !isfinite(identityRandom)
-        || identityRandom < 0.0f || identityRandom >= 1.0f
-        || !Upt04EmissiveDistributionValid(
-            gUpt07Control.emissiveDistributionCountAndValid))
-        return result;
-    const uint logicalCount = Upt04EmissiveDistributionCount(
-        gUpt07Control.emissiveDistributionCountAndValid);
-    uint physicalCount;
-    uint stride;
-    gUpt07EmissiveDistribution.GetDimensions(physicalCount, stride);
-    if (logicalCount == 0u || logicalCount > physicalCount)
-        return result;
-    uint low = 0u;
-    uint high = logicalCount;
-    [loop]
-    while (low < high)
-    {
-        const uint mid = low + ((high - low) >> 1u);
-        if (identityRandom <= saturate(
-                gUpt07EmissiveDistribution[mid].cumulativePdf))
-            high = mid;
-        else
-            low = mid + 1u;
-    }
-    if (low >= logicalCount)
-        return result;
-    const Upt04EmissiveDistributionEntry entry =
-        gUpt07EmissiveDistribution[low];
-    const float previousCdf = low != 0u
-        ? saturate(gUpt07EmissiveDistribution[low - 1u].cumulativePdf)
-        : 0.0f;
-    const float conditionalPdf = saturate(entry.cumulativePdf) - previousCdf;
-    const float domainMixture = float(emissiveTrials) / float(totalTrials);
-    if (entry.emissiveTriangleIndex == kUpt04InvalidLightIndex
-        || entry.denseLightIndex == kUpt04InvalidLightIndex
-        || entry.denseLightIndex < ranges.emissiveStart
-        || entry.denseLightIndex - ranges.emissiveStart >= ranges.emissiveCount
-        || !Upt04FinitePositive(conditionalPdf)
-        || !Upt04FinitePositive(domainMixture))
-        return result;
-    result.valid = 1u;
-    result.denseIndex = entry.denseLightIndex;
-    result.type = kUpt04LightEmissiveTriangle;
-    result.requiresTriangleReplay = 1u;
-    result.selectionPdf = conditionalPdf * domainMixture;
-    result.sampleCoordinates = surfaceRandom;
-    result.reserved = entry.emissiveTriangleIndex + 1u;
-    return result;
-}
-
-public Upt04LocalLightSelection Upt07SelectReplayLight(
-    Upt03Candidate source,
-    uint candidateOrdinal)
-{
-    Upt04LocalLightSelection result = (Upt04LocalLightSelection)0;
-    Upt04LocalLightRanges ranges;
-    ranges.emissiveStart = gUpt07Control.emissiveRangeStart;
-    ranges.emissiveCount = gUpt07Control.emissiveRangeCount;
-    ranges.analyticStart = gUpt07Control.analyticRangeStart;
-    ranges.analyticCount = gUpt07Control.analyticRangeCount;
-    const uint proposalParity =
-        (source.flags & kUpt04CandidateFlagDirectProposalParity) != 0u
-            ? 1u : 0u;
-    const uint configuredEmissiveTrials = Upt04ConfiguredEmissiveTrialCount(
-        gUpt07Control.geometryAvailabilityFlags);
-    const uint candidateCount = Upt04DirectRisCandidateCount(
-        ranges, proposalParity, configuredEmissiveTrials);
-    if (candidateOrdinal >= candidateCount)
-        return result;
-    const uint emissiveTrials = Upt04DirectRisDomainTrialCount(
-        ranges,
-        kUpt04LightEmissiveTriangle,
-        proposalParity,
-        configuredEmissiveTrials);
-    const bool emissive = candidateOrdinal < emissiveTrials;
-    const uint type = emissive
-        ? kUpt04LightEmissiveTriangle : kUpt04LightDoomAnalytic;
-    Upt04LocalLightRanges typed = (Upt04LocalLightRanges)0;
-    if (emissive)
-    {
-        typed.emissiveStart = ranges.emissiveStart;
-        typed.emissiveCount = ranges.emissiveCount;
-    }
-    else
-    {
-        typed.analyticStart = ranges.analyticStart;
-        typed.analyticCount = ranges.analyticCount;
-    }
-    float identityRandom = Upt04WhiteHash(Upt04PersistedReplayRandomKey(
-        source.replayKey,
-        source.replayIndex,
-        1u,
-        candidateOrdinal,
-        kUpt04StreamInitialLocalLightIdentity,
-        kUpt04DimensionInitialLocalLightIdentity));
-    const float2 surfaceRandom = float2(
-        Upt04WhiteHash(Upt04PersistedReplayRandomKey(
-            source.replayKey, source.replayIndex, 1u, candidateOrdinal,
-            kUpt04StreamInitialLocalLightSurfaceU,
-            kUpt04DimensionInitialLocalLightSurfaceU)),
-        Upt04WhiteHash(Upt04PersistedReplayRandomKey(
-            source.replayKey, source.replayIndex, 1u, candidateOrdinal,
-            kUpt04StreamInitialLocalLightSurfaceV,
-            kUpt04DimensionInitialLocalLightSurfaceV)));
-    if (proposalParity != 0u && !emissive)
-    {
-        const uint analyticOrdinal = candidateOrdinal - emissiveTrials;
-        const uint analyticTrials = Upt04DirectRisDomainTrialCount(
-            ranges, kUpt04LightDoomAnalytic, proposalParity,
-            configuredEmissiveTrials);
-        const float spacing = max(1.0f,
-            float(ranges.analyticCount) / float(max(analyticTrials, 1u)));
-        const float inRange = min(
-            (float(analyticOrdinal) + identityRandom) * spacing,
-            float(max(ranges.analyticCount, 1u) - 1u));
-        identityRandom = (inRange + 0.5f)
-            / float(max(ranges.analyticCount, 1u));
-    }
-    if (proposalParity != 0u && emissive)
-    {
-        result = Upt07SelectWeightedEmissive(
-            ranges, identityRandom, surfaceRandom,
-            emissiveTrials, candidateCount);
-        if (result.valid != 0u)
-            return result;
-    }
-    result = Upt04SelectUniformLocalLight(
-        typed, identityRandom, surfaceRandom);
-    result.selectionPdf = Upt04DirectRisIdentityPdf(
-        ranges, type, proposalParity, configuredEmissiveTrials);
-    return result;
-}
-
 public bool Upt07FindEmissiveDenseLight(
     uint instanceId,
     uint primitiveIndex,
@@ -422,10 +280,15 @@ public float Upt07ExactNeePdfForEmissiveHit(
     const uint parity = proposalParity != 0u ? 1u : 0u;
     const uint configured = Upt04ConfiguredEmissiveTrialCount(
         gUpt07Control.geometryAvailabilityFlags);
-    const uint candidateCount = Upt04DirectRisCandidateCount(
-        ranges, parity, configured);
-    const uint emissiveTrials = Upt04DirectRisDomainTrialCount(
-        ranges, kUpt04LightEmissiveTriangle, parity, configured);
+    const uint emissiveTrials = Upt04InverseSquareNeeTrialCount(
+        Upt04DirectRisDomainTrialCount(
+            ranges, kUpt04LightEmissiveTriangle, parity, configured),
+        kUpt04SecondaryNeeBounceIndex);
+    const uint analyticTrials = Upt04InverseSquareNeeTrialCount(
+        Upt04DirectRisDomainTrialCount(
+            ranges, kUpt04LightDoomAnalytic, parity, configured),
+        kUpt04SecondaryNeeBounceIndex);
+    const uint candidateCount = emissiveTrials + analyticTrials;
     float selectionPdf = 0.0f;
     if (parity != 0u && Upt04EmissiveDistributionValid(
             gUpt07Control.emissiveDistributionCountAndValid))
@@ -434,8 +297,10 @@ public float Upt07ExactNeePdfForEmissiveHit(
                 / float(candidateCount)
             : 0.0f;
     else
-        selectionPdf = Upt04DirectRisIdentityPdf(
-            ranges, kUpt04LightEmissiveTriangle, parity, configured);
+        selectionPdf = ranges.emissiveCount != 0u && candidateCount != 0u
+            ? float(emissiveTrials)
+                / float(candidateCount * ranges.emissiveCount)
+            : 0.0f;
     if (!Upt04FinitePositive(selectionPdf))
         return 0.0f;
     const Upt04EmissiveGeometrySample replay =
@@ -462,14 +327,20 @@ public float Upt07ExactNeePdfForEmissiveHit(
     return Upt04FinitePositive(neePdf) ? neePdf : 0.0f;
 }
 
-public uint Upt07ValidateStoredSecondaryLight(
+public uint Upt07ResolveStoredSecondaryLight(
     Upt03Candidate source,
-    uint sourceIsHistory)
+    uint sourceIsHistory,
+    out uint denseIndex,
+    out uint lightType,
+    out float selectionPdf)
 {
+    denseIndex = kUpt04InvalidLightIndex;
+    lightType = kUpt04LightInvalid;
+    selectionPdf = 0.0f;
     if ((source.eventKind != 1u && source.eventKind != 2u)
         || source.identity0 == 0u)
         return 0u;
-    uint denseIndex = source.identity0 - 1u;
+    denseIndex = source.identity0 - 1u;
     if (sourceIsHistory != 0u)
     {
         if (denseIndex >= gUpt07Control.previousToCurrentLightCount)
@@ -481,13 +352,145 @@ public uint Upt07ValidateStoredSecondaryLight(
     if (denseIndex >= gUpt07Control.currentLightCount)
         return 0u;
     const Upt04UnifiedLightRecord light = Upt07LoadLight(denseIndex);
-    const uint expectedType = source.eventKind == 2u
+    lightType = source.eventKind == 2u
         ? kUpt04LightEmissiveTriangle : kUpt04LightDoomAnalytic;
+    const bool inExpectedRange = lightType == kUpt04LightEmissiveTriangle
+        ? denseIndex >= gUpt07Control.emissiveRangeStart
+            && denseIndex - gUpt07Control.emissiveRangeStart
+                < gUpt07Control.emissiveRangeCount
+        : denseIndex >= gUpt07Control.analyticRangeStart
+            && denseIndex - gUpt07Control.analyticRangeStart
+                < gUpt07Control.analyticRangeCount;
     const bool dynamicEmissive = light.type == kUpt04LightEmissiveTriangle
         && (light.flags & kUpt04EmissiveHistoryDynamic) != 0u;
-    return !dynamicEmissive && light.type == expectedType
-            && source.identity1 == Upt04StableLightIdentityFingerprint(light)
-        ? 1u : 0u;
+    if (!inExpectedRange || dynamicEmissive || light.type != lightType
+        || source.identity1 != Upt04StableLightIdentityFingerprint(light))
+        return 0u;
+
+    Upt04LocalLightRanges ranges;
+    ranges.emissiveStart = gUpt07Control.emissiveRangeStart;
+    ranges.emissiveCount = gUpt07Control.emissiveRangeCount;
+    ranges.analyticStart = gUpt07Control.analyticRangeStart;
+    ranges.analyticCount = gUpt07Control.analyticRangeCount;
+    if (!Upt04LocalLightRangesStructurallyValid(
+            ranges, gUpt07Control.currentLightCount))
+        return 0u;
+    const uint parity =
+        (source.flags & kUpt04CandidateFlagDirectProposalParity) != 0u
+            ? 1u : 0u;
+    const uint configured = Upt04ConfiguredEmissiveTrialCount(
+        gUpt07Control.geometryAvailabilityFlags);
+    const uint emissiveTrials = Upt04InverseSquareNeeTrialCount(
+        Upt04DirectRisDomainTrialCount(
+            ranges, kUpt04LightEmissiveTriangle, parity, configured),
+        kUpt04SecondaryNeeBounceIndex);
+    const uint analyticTrials = Upt04InverseSquareNeeTrialCount(
+        Upt04DirectRisDomainTrialCount(
+            ranges, kUpt04LightDoomAnalytic, parity, configured),
+        kUpt04SecondaryNeeBounceIndex);
+    const uint candidateCount = emissiveTrials + analyticTrials;
+    if (candidateCount == 0u)
+        return 0u;
+
+    if (lightType == kUpt04LightEmissiveTriangle
+        && parity != 0u
+        && Upt04EmissiveDistributionValid(
+            gUpt07Control.emissiveDistributionCountAndValid))
+    {
+        uint physicalDistributionCount;
+        uint distributionStride;
+        gUpt07EmissiveDistribution.GetDimensions(
+            physicalDistributionCount, distributionStride);
+        const uint logicalDistributionCount = Upt04EmissiveDistributionCount(
+            gUpt07Control.emissiveDistributionCountAndValid);
+        if (logicalDistributionCount == 0u
+            || logicalDistributionCount > physicalDistributionCount
+            || distributionStride != 16u)
+            return 0u;
+        uint lookupDenseIndex;
+        float conditionalIdentityPdf;
+        if (!Upt07FindEmissiveDenseLight(
+                light.instanceId,
+                light.primitiveIndex,
+                lookupDenseIndex,
+                conditionalIdentityPdf)
+            || lookupDenseIndex != denseIndex)
+            return 0u;
+        selectionPdf = conditionalIdentityPdf
+            * float(emissiveTrials) / float(candidateCount);
+    }
+    else
+    {
+        const uint domainCount = lightType == kUpt04LightEmissiveTriangle
+            ? ranges.emissiveCount : ranges.analyticCount;
+        const uint domainTrials = lightType == kUpt04LightEmissiveTriangle
+            ? emissiveTrials : analyticTrials;
+        selectionPdf = domainCount != 0u
+            ? float(domainTrials) / float(candidateCount * domainCount)
+            : 0.0f;
+    }
+    return Upt04FinitePositive(selectionPdf) ? 1u : 0u;
+}
+
+public uint Upt07ReplayStoredSecondaryLight(
+    Upt03Candidate source,
+    uint lightType,
+    Upt04UnifiedLightRecord light,
+    float3 receiverPosition,
+    out Upt04LocalLightSample sample)
+{
+    sample = (Upt04LocalLightSample)0;
+    if (lightType == kUpt04LightEmissiveTriangle)
+    {
+        const Upt04EmissiveGeometrySample replay =
+            Upt04ReplayEmissiveTriangleBarycentrics(
+                light,
+                receiverPosition,
+                float2(source.sampleCoord0, source.sampleCoord1),
+                (gUpt07Control.geometryAvailabilityFlags
+                    & kUpt04EmissiveReplayTwoSided) != 0u);
+        if (replay.status == kUpt04SampleInvalid)
+            return 0u;
+        const float4 regionWeights = UptDirectEmissiveRegionWeights(
+            replay,
+            gUpt07Control.materialCount,
+            gUpt07Control.logicalTextureCount,
+            gUpt07Control.emissiveScale);
+        const uint region = Upt04EmissiveRegionFromBarycentrics(
+            replay.barycentrics);
+        const Upt04MaterialEmissionEvaluation emission =
+            UptDirectEvaluateEmissiveEndpoint(
+                replay.materialIndex,
+                replay.triangleClassAndFlags,
+                replay.emissionTexCoord,
+                float2(0.0f),
+                float2(0.0f),
+                gUpt07Control.materialCount,
+                gUpt07Control.logicalTextureCount,
+                gUpt07Control.emissiveScale);
+        if (emission.valid == 0u)
+            return 0u;
+        sample.status = replay.status == kUpt04SampleValidPositive
+                && any(emission.radiance > 0.0f)
+            ? kUpt04SampleValidPositive : kUpt04SampleValidZero;
+        sample.position = replay.position;
+        sample.normal = replay.normal;
+        sample.distance = replay.distance;
+        sample.direction = replay.direction;
+        sample.solidAnglePdf = replay.solidAnglePdf
+            * (4.0f * Upt04EmissiveRegionSelectionPdf(
+                regionWeights, region));
+        sample.radiance = emission.radiance;
+        return 1u;
+    }
+    if (!Upt04AnalyticLightCurrentPortalEligible(
+            light, gUpt07Control.geometryAvailabilityFlags))
+        return 0u;
+    sample = Upt04SampleAnalyticSphere(
+        light,
+        receiverPosition,
+        float2(source.sampleCoord0, source.sampleCoord1));
+    return sample.status != kUpt04SampleInvalid ? 1u : 0u;
 }
 
 public uint Upt07ReplayIndirectSample(
@@ -513,8 +516,15 @@ public uint Upt07ReplayIndirectSample(
         && source.reconnectionVertexLength == 1u;
     if (!endpoint && !secondaryNee)
         return 0u;
-    if (secondaryNee
-        && Upt07ValidateStoredSecondaryLight(source, sourceIsHistory) == 0u)
+    uint storedDenseIndex = kUpt04InvalidLightIndex;
+    uint storedLightType = kUpt04LightInvalid;
+    float storedSelectionPdf = 0.0f;
+    if (secondaryNee && Upt07ResolveStoredSecondaryLight(
+            source,
+            sourceIsHistory,
+            storedDenseIndex,
+            storedLightType,
+            storedSelectionPdf) == 0u)
     {
         failureReason = kUpt07RejectIndirectIdentity;
         return 0u;
@@ -555,7 +565,7 @@ public uint Upt07ReplayIndirectSample(
     shifted.replayKey = source.replayKey & 0x7fffffffu;
     shifted.replayIndex = source.replayIndex;
     shifted.generationFingerprint = kUpt03ExpectedGeneration;
-    shifted.proposalPdf = 1.0f;
+    shifted.proposalPdf = source.proposalPdf;
     shifted.partialJacobian = 1.0f;
     shifted.accumulatedRouletteProbability = 1.0f;
 
@@ -603,110 +613,39 @@ public uint Upt07ReplayIndirectSample(
         return 1u;
     }
 
+    // Section 6.2.3 forced NEE reconnection: random replay has already
+    // reconstructed the secondary vertex. Keep the stored selected light
+    // vertex instead of replaying every inner-RIS candidate and sampling the
+    // emissive CDF again. D0 persists the algebraically equivalent raw-target
+    // representation, so current-domain target evaluation remains exact.
     failureReason = kUpt07RejectIndirectInnerRis;
-    Upt04LocalLightRanges ranges;
-    ranges.emissiveStart = gUpt07Control.emissiveRangeStart;
-    ranges.emissiveCount = gUpt07Control.emissiveRangeCount;
-    ranges.analyticStart = gUpt07Control.analyticRangeStart;
-    ranges.analyticCount = gUpt07Control.analyticRangeCount;
-    const uint parity =
-        (source.flags & kUpt04CandidateFlagDirectProposalParity) != 0u
-            ? 1u : 0u;
-    const uint candidateCount = Upt04DirectRisCandidateCount(
-        ranges,
-        parity,
-        Upt04ConfiguredEmissiveTrialCount(
-            gUpt07Control.geometryAvailabilityFlags));
-    Upt04EvaluatedLocalLight selectedLight =
-        (Upt04EvaluatedLocalLight)0;
-    Upt04MaterialEvaluation selectedMaterial =
-        (Upt04MaterialEvaluation)0;
-    uint selectedDenseIndex = 0xffffffffu;
-    uint selectedType = 0u;
-    float selectedSourcePdf = 0.0f;
-    float selectedPathPdf = 0.0f;
-    float3 selectedRawContribution = float3(0.0f);
-    float selectedRawTarget = 0.0f;
-    float weightSum = 0.0f;
-    [loop]
-    for (uint ordinal = 0u; ordinal < candidateCount; ++ordinal)
-    {
-        const Upt04LocalLightSelection selection =
-            Upt07SelectReplayLight(source, ordinal);
-        if (selection.valid == 0u
-            || selection.denseIndex >= gUpt07Control.currentLightCount)
-            continue;
-        const Upt04UnifiedLightRecord light =
-            Upt07LoadLight(selection.denseIndex);
-        if (selection.type == kUpt04LightEmissiveTriangle
-            && selection.reserved != 0u
-            && light.sourceIndex != selection.reserved - 1u)
-            continue;
-        const Upt04EvaluatedLocalLight evaluated =
-            Upt04EvaluateSelectedLocalLight<Upt07IndirectMaterialSet>(
-                selection,
-                light,
-                hitSurface.position,
-                gUpt07Control.geometryAvailabilityFlags,
-                gUpt07Control.emissiveScale);
-        if (evaluated.valid == 0u
-            || evaluated.sample.status != kUpt04SampleValidPositive)
-            continue;
-        const Upt04MaterialEvaluation material =
-            Upt07EvaluateSecondaryDirect(
-                hitSurface,
-                -continuation.direction,
-                evaluated.sample.direction,
-                evaluated.sample.radiance);
-        const float sourcePdf = selection.selectionPdf
-            * evaluated.sample.solidAnglePdf;
-        const float pathPdf = continuation.pdf * sourcePdf;
-        const float3 rawContribution = continuation.throughput
-            * material.weightedContribution;
-        const float rawTarget = max(rawContribution.x,
-            max(rawContribution.y, rawContribution.z));
-        if (material.valid == 0u || !Upt04FinitePositive(sourcePdf)
-            || !Upt04FinitePositive(pathPdf)
-            || !all(isfinite(rawContribution))
-            || !Upt04FinitePositive(rawTarget))
-            continue;
-        const float candidateWeight = rawTarget / sourcePdf;
-        const float newWeightSum = weightSum + candidateWeight;
-        if (!Upt04FinitePositive(candidateWeight)
-            || !Upt04FinitePositive(newWeightSum))
-            continue;
-        const float selectionRandom = Upt04WhiteHash(
-            Upt04PersistedReplayRandomKey(
-                source.replayKey,
-                source.replayIndex,
-                1u,
-                ordinal,
-                kUpt04StreamInitialReservoirSelection,
-                kUpt04DimensionInitialReservoirSelection));
-        if (selectedDenseIndex == 0xffffffffu
-            || selectionRandom * newWeightSum < candidateWeight)
-        {
-            selectedLight = evaluated;
-            selectedMaterial = material;
-            selectedDenseIndex = selection.denseIndex;
-            selectedType = selection.type;
-            selectedSourcePdf = sourcePdf;
-            selectedPathPdf = pathPdf;
-            selectedRawContribution = rawContribution;
-            selectedRawTarget = rawTarget;
-        }
-        weightSum = newWeightSum;
-    }
-    if (selectedDenseIndex == 0xffffffffu || candidateCount == 0u)
+    const Upt04UnifiedLightRecord storedLight =
+        Upt07LoadLight(storedDenseIndex);
+    Upt04LocalLightSample selectedSample;
+    if (Upt07ReplayStoredSecondaryLight(
+            source,
+            storedLightType,
+            storedLight,
+            hitSurface.position,
+            selectedSample) == 0u
+        || selectedSample.status != kUpt04SampleValidPositive)
         return 0u;
-    const float finalizedMass = weightSum / float(candidateCount);
-    const float selectedUcw = finalizedMass / selectedRawTarget;
-    const float3 contribution = selectedRawContribution * selectedUcw;
+    const Upt04MaterialEvaluation selectedMaterial =
+        Upt07EvaluateSecondaryDirect(
+            hitSurface,
+            -continuation.direction,
+            selectedSample.direction,
+            selectedSample.radiance);
+    const float sourcePdf = storedSelectionPdf
+        * selectedSample.solidAnglePdf;
+    const float pathPdf = continuation.pdf * sourcePdf;
+    const float3 contribution = continuation.throughput
+        * selectedMaterial.weightedContribution;
     const float target = max(contribution.x,
         max(contribution.y, contribution.z));
-    if (!Upt04FinitePositive(selectedSourcePdf)
-        || !Upt04FinitePositive(selectedPathPdf)
-        || !Upt04FinitePositive(selectedUcw)
+    if (selectedMaterial.valid == 0u
+        || !Upt04FinitePositive(sourcePdf)
+        || !Upt04FinitePositive(pathPdf)
         || !all(isfinite(contribution))
         || !Upt04FinitePositive(target))
         return 0u;
@@ -717,31 +656,28 @@ public uint Upt07ReplayIndirectSample(
             hitSurface.position,
             hitSurface.geometricNormal,
             hitSurface.shadingNormal,
-            selectedLight.sample.direction,
-            selectedLight.sample.distance,
+            selectedSample.direction,
+            selectedSample.distance,
             visibility))
         return 0u;
     Upt04VisibilityIgnore ignore = Upt04NoVisibilityIgnore();
-    if (selectedType == kUpt04LightEmissiveTriangle)
-    {
-        const Upt04UnifiedLightRecord light =
-            Upt07LoadLight(selectedDenseIndex);
+    if (storedLightType == kUpt04LightEmissiveTriangle)
         ignore = Upt04MakeVisibilityIgnore(
-            light.instanceId, light.primitiveIndex);
-    }
+            storedLight.instanceId, storedLight.primitiveIndex);
+    const uint storedFingerprint =
+        Upt04StableLightIdentityFingerprint(storedLight);
     const Upt04HitFacts occluder = Upt07TraceIndirect(
         visibility, 1u, ignore);
-    shifted.eventKind = selectedType == kUpt04LightEmissiveTriangle
+    shifted.eventKind = storedLightType == kUpt04LightEmissiveTriangle
         ? 2u : 1u;
     shifted.lobeMask = continuation.lobeMask | selectedMaterial.lobeMask;
-    shifted.identity0 = selectedDenseIndex + 1u;
-    shifted.identity1 = Upt04StableLightIdentityFingerprint(
-        Upt07LoadLight(selectedDenseIndex));
-    shifted.sampleCoord0 = selectedLight.storedSampleCoordinates.x;
-    shifted.sampleCoord1 = selectedLight.storedSampleCoordinates.y;
+    shifted.identity0 = storedDenseIndex + 1u;
+    shifted.identity1 = storedFingerprint;
+    shifted.sampleCoord0 = source.sampleCoord0;
+    shifted.sampleCoord1 = source.sampleCoord1;
     shifted.pathLength = 2u;
     shifted.reconnectionVertexLength = 1u;
-    shifted.pathPdf = selectedPathPdf;
+    shifted.pathPdf = pathPdf;
     if (occluder.status == kUpt04HitTriangle)
     {
         shifted.status = kUpt04SampleValidZero;

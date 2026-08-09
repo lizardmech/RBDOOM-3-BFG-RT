@@ -207,6 +207,46 @@ public Upt03PackedReservoir Upt07PackTemporalResult(
     return packed;
 }
 
+// BASIC correction chooses between the current and shifted-history masses
+// before it needs the selected sample's target in the opposite domain.  Let
+// the caller use the same decision to defer an expensive current-at-history
+// path replay when history will be selected.  If any later merge guard rejects
+// history, the cross target is irrelevant because the current reservoir is
+// returned unchanged.
+public bool Upt07BasicTemporalWouldSelectHistory(
+    Upt07DecodedReservoir current,
+    Upt07DecodedReservoir history,
+    Upt03Candidate shiftedHistory,
+    uint shiftedValid,
+    float selectionRandom,
+    uint maximumHistoryM)
+{
+    const bool currentSelected = current.valid != 0u
+        && current.logical.hasSelectedSample != 0u;
+    const bool historySelected = history.valid != 0u
+        && history.logical.hasSelectedSample != 0u;
+    if (shiftedValid == 0u || !historySelected
+        || !isfinite(selectionRandom) || selectionRandom < 0.0f
+        || selectionRandom >= 1.0f)
+        return false;
+
+    const uint historyM = min(history.logical.effectiveM, maximumHistoryM);
+    if (historyM == 0u)
+        return false;
+    const float currentMass = currentSelected
+        ? current.logical.weightSum * float(current.logical.effectiveM)
+        : 0.0f;
+    const bool shiftedPositive = shiftedHistory.status == 2u;
+    const float historyMass = shiftedPositive
+        ? history.logical.weightSum * float(historyM)
+            * (shiftedHistory.target / history.logical.selected.target)
+        : 0.0f;
+    const float totalMass = currentMass + historyMass;
+    return shiftedPositive && isfinite(historyMass) && historyMass > 0.0f
+        && isfinite(totalMass) && totalMass > 0.0f
+        && (!currentSelected || selectionRandom * totalMass < historyMass);
+}
+
 public Upt07TemporalMergeResult Upt07MergeTemporal(
     Upt07DecodedReservoir current,
     Upt07DecodedReservoir history,

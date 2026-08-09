@@ -1,6 +1,7 @@
 #include "PathTraceUnifiedPtSchedule.h"
 #include "PathTraceUnifiedPtRandomDimensions.h"
 
+#include <cmath>
 #include <iostream>
 
 namespace {
@@ -126,6 +127,25 @@ void TestPersistedContinuationReplay()
         "adjacent source pixels must retain distinct replay identities");
 }
 
+void TestSecondaryNeeRawTargetRepresentation()
+{
+    constexpr double rawTarget = 3.25;
+    constexpr double rawContribution = 2.75;
+    constexpr double finalizedMass = 7.5;
+    const double foldedUcw = finalizedMass / rawTarget;
+    const double foldedContribution = rawContribution * foldedUcw;
+    const double foldedTarget = rawTarget * foldedUcw;
+    const double effectiveProposalPdf = rawTarget / finalizedMass;
+    const double rawStreamMass = rawTarget / effectiveProposalPdf;
+    const double foldedResolved = foldedContribution / foldedTarget;
+    const double rawResolved = rawContribution / rawTarget;
+
+    Check(std::abs(rawStreamMass - finalizedMass) < 1.0e-12,
+        "raw-target secondary NEE must stream the original finalized inner-RIS mass");
+    Check(std::abs(foldedResolved - rawResolved) < 1.0e-12,
+        "raw-target secondary NEE must preserve the folded-UCW resolved estimator");
+}
+
 PrimaryProducerSchedule ReadySchedule(bool upt, bool clean, int view)
 {
     PrimaryProducerScheduleInput input;
@@ -142,6 +162,7 @@ PrimaryProducerSchedule ReadySchedule(bool upt, bool clean, int view)
 int main()
 {
     TestPersistedContinuationReplay();
+    TestSecondaryNeeRawTargetRepresentation();
     Check(RandomSlotsAreUnique(),
         "shared C++/Slang random-slot ledger must be collision-free");
     Check(kRandomSlotInitialReservoirSelection.streamNamespace !=

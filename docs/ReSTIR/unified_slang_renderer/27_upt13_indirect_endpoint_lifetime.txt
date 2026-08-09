@@ -1,0 +1,85 @@
+UPT-13 Indirect Endpoint Lifetime Specialization
+=================================================
+
+Date: 2026-08-09
+
+Decision
+--------
+
+UPT-12 is neutral at runtime. The next experiment is restricted to D0b transient
+state lifetime. It does not change sampling, geometry, materials, visibility,
+the reservoir, persistent storage, descriptors, dispatch count, or ray count.
+
+Evidence and scope correction
+-----------------------------
+
+The advanced D0b capture reports 80.56 sample-weighted registers, a maximum of
+108, and 91.19 percent of samples above 64 registers. Its two RayQuery loops
+account for most dependency stalls and execute with only 10 and 14 active
+threads per warp. That supports shrinking live state around traversal.
+
+Section 6.2.2 of ReSTIR PT Enhanced is not the matching D0 optimization. Its
+stream compaction parallelizes sparse pixel-neighbor pairs that require random
+replay during reuse. D0b generates the current path tree and has no such
+pixel-neighbor replay list. Do not introduce a queue under that citation.
+
+Implementation
+--------------
+
+The old indirect preparation helper returned one aggregate containing two full
+Upt04InitialTraceWork values: the endpoint candidate and pending secondary NEE.
+The endpoint candidate therefore shared the return/lifetime region with all
+secondary-light RIS state.
+
+UPT-13 separates that code into two exact stages:
+
+    prepare and immediately stream the continuation endpoint;
+    only then construct the secondary NEE winner and visibility work.
+
+The original aggregate helper remains as a compatibility wrapper for raygen and
+diagnostic artifacts. The production split RayQuery entry uses the staged form.
+Endpoint emission, reverse NEE PDF, MIS, fixed candidate denominator, random
+keys and ordinals, selected-light identity, UCW conversion, self-ignore,
+alpha-clipped traversal, and visible/occluded admission remain unchanged.
+
+Static gate
+-----------
+
+The focused Vulkan module graph passes. Production native split D0b changes:
+
+    SPIR-V bytes       356,180 -> 355,304 (-876)
+    SPIR-V operations   21,705 -> 21,765 (+60)
+    RayQuery sites           2 -> 2
+    whole light loads        0 -> 0
+
+The smaller binary but slightly larger operation count does not prove a win.
+Nsight must determine whether the staged source shortens SASS live ranges and
+reduces the 95-108-register regions.
+
+The exact full Vulkan release preset and all five PathTraceUnified contract
+tests pass. Twenty-six rebuilt Vulkan UPT artifacts and the verified executable
+were deployed with zero remaining source/destination hash mismatches. No DX12
+shader was compiled or deployed.
+
+Runtime gate
+------------
+
+Use the accepted native split, proposal parity 1, and light tiles disabled.
+Compare the complete D0a + barrier + D0b scope against the preceding build and
+inspect D0b registers, samples above 64 registers, No Instructions, active
+threads per warp, and both RayQuery dependency regions. Require fixed-sample
+image parity. Reject/default-off by rollback if registers and complete time are
+neutral or worse.
+
+Do not call this replay compaction. A later queue/compaction experiment requires
+an actual sparse work population and must include queue, barrier, and dispatch
+cost in the measured scope.
+
+Runtime result and rollback
+---------------------------
+
+Reject UPT-13. Nsight confirmed that registers decreased, but the complete pass
+slowed down and No Instructions increased from approximately 38 percent to 48
+percent. The staged source therefore traded register pressure for a worse
+instruction-availability/code-path result. The shader refactor was rolled back
+before UPT-14; do not retain or checkpoint it.

@@ -373,6 +373,31 @@ Packet index
         cleanup, independent T0/S0 migration gates, and an evidence-only split
         escalation while preserving one unified DI/GI reservoir.
 
+    25_upt11_light_tile_presampling.txt
+        Exact-PDF GPU light-tile A/B for the accepted split D0 path: separate
+        emissive-CDF and ordinal-stratified analytic domains, coherent 8x8
+        screen-tile selection, bounded resources, and total-cost gates.
+
+    26_upt12_native_direct_light_view.txt
+        Nsight warp/source evidence and the mechanical direct-side adoption of
+        the existing native112 uint4 light view, with whole-load and ray-ceiling
+        build gates plus the next indirect register/compaction boundary.
+
+    27_upt13_indirect_endpoint_lifetime.txt
+        Rejected UPT-12 runtime result, correction of the paper's replay-
+        compaction scope, and the bounded D0b endpoint-before-secondary-NEE
+        lifetime trial.
+
+    28_upt14_secondary_nee_inverse_square.txt
+        UPT-13 rollback and the paper-defined inverse-square NEE trial schedule:
+        primary unchanged, first secondary vertex reduced from 33 to 9 default
+        typed trials with matched D0/T0 PDF and replay contracts.
+
+    29_upt15_temporal_forced_nee_reconnection.txt
+        Section 6.2.3 forced selected-light reconnection for temporal secondary
+        NEE, including the estimator-equivalent raw-target representation,
+        stable remap/UV/PDF/visibility contract, and temporal performance gate.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

@@ -1413,6 +1413,12 @@ idCVar r_pathTracingUnifiedPtSplitInitial(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT unified D0 A/B: 0 runs the three-query RayQuery megakernel; 1 splits direct and indirect work into two 8x8 dispatches using one exact intermediate/final 64-byte reservoir page; requires unified RayQuery production with compact32 receiver and supports either native geometry/lights or the paired compact geometry+light path" );
 
+idCVar r_pathTracingUnifiedPtLightTiles(
+    "r_pathTracingUnifiedPtLightTiles",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT split native-light D0 A/B: presample exact-PDF emissive and ordinal-stratified analytic light identities into coherent 8x8 screen-tile domains before D0; requires proposal parity and adds no visibility candidates" );
+
 idCVar r_pathTracingUnifiedPtSplitContinuation(
     "r_pathTracingUnifiedPtSplitContinuation",
     "0",
@@ -1471,7 +1477,7 @@ idCVar r_pathTracingUnifiedPtTemporalIndirect(
     "r_pathTracingUnifiedPtTemporalIndirect",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT-07 bounded one-continuation temporal replay: reconstructs global endpoint/secondary-NEE samples from persisted PSS metadata and rejects any source replay mismatch; default off during temporal-only validation" );
+    "UPT-07 bounded one-continuation temporal replay: reconstructs global endpoints and force-reconnects stored secondary-NEE light vertices without rerunning light selection; rejects any identity, replay, target, or visibility mismatch; default off during temporal-only validation" );
 
 idCVar r_pathTracingUnifiedPtDuplication(
     "r_pathTracingUnifiedPtDuplication",

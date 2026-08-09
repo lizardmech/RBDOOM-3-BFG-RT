@@ -75,6 +75,7 @@ struct PathTraceUnifiedPtDispatchInputs
     bool splitInitial = false;
     bool splitContinuation = false;
     bool directProposalParity = false;
+    bool lightTiles = false;
     bool temporal = false;
     bool duplication = false;
     bool spatial = false;
@@ -141,6 +142,10 @@ private:
     bool EnsureCompactLightPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureCompactLightBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool ExecuteCompactLightPack(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureLightTileResources(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureLightTilePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureLightTileBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool ExecuteLightTilePresample(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureCompactMaterialResources(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureCompactMaterialPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureCompactMaterialBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -168,6 +173,7 @@ private:
     void ReleasePipeline();
     void ReleaseCompactGeometry();
     void ReleaseCompactLights();
+    void ReleaseLightTiles();
     void ReleaseCompactMaterials();
     void ReleaseContinuation();
     void ReleaseTemporal();
@@ -192,6 +198,7 @@ private:
     bool m_splitInitial = false;
     bool m_splitContinuation = false;
     bool m_directProposalParity = false;
+    bool m_lightTiles = false;
     bool m_temporalModeActive = false;
     bool m_initialPublishedThisFrame = false;
     bool m_spatialModeActive = false;
@@ -272,6 +279,15 @@ private:
     nvrhi::ShaderHandle m_compactLightShader;
     nvrhi::ComputePipelineHandle m_compactLightPipeline;
     bool m_compactLightPipelineAttempted = false;
+
+    nvrhi::BufferHandle m_lightTileBuffer;
+    nvrhi::BindingLayoutHandle m_lightTileBindingLayout;
+    nvrhi::BindingSetHandle m_lightTileBindingSet;
+    nvrhi::BindingSetDesc m_lightTileBindingSetDesc;
+    bool m_lightTileBindingSetDescValid = false;
+    nvrhi::ShaderHandle m_lightTileShader;
+    nvrhi::ComputePipelineHandle m_lightTilePipeline;
+    bool m_lightTilePipelineAttempted = false;
 
     uint32_t m_compactMaterialCapacity = 0;
     nvrhi::BufferHandle m_compactMaterialsBuffer;

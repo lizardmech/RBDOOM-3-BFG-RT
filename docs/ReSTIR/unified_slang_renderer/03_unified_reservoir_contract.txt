@@ -479,10 +479,13 @@ and is masked before RNG evaluation.
 
 The persisted seed owns primary lobe selection, continuation U/V, every
 secondary NEE identity and surface-coordinate draw, and every inner-RIS
-selection draw. A reuse pass can therefore rebuild the complete bounded PSS
-estimator, including its inner UCW, rather than treating the stored selected
-light as if it contained normalization state that was never packed. Direct D0
-random dimensions and the frozen 64-byte reservoir layout are unchanged.
+selection draw. D0 still uses all of those dimensions. UPT-15 no longer needs
+to rebuild inner RIS during reuse: secondary NEE stores raw contribution/target
+and carries the algebraically equivalent inner normalization in proposalPdf.
+Temporal can therefore force-reconnect the stored selected light and evaluate
+its physical target directly. Direct D0 random dimensions and the frozen
+64-byte reservoir layout are unchanged. See document 29 for the equivalence
+proof and history-generation boundary.
 
 Any future continuation/roulette dimension must be added to this same
 persisted-key namespace before the event may carry Replayable|NeedsShift.

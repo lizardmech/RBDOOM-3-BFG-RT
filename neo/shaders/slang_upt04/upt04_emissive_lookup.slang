@@ -112,13 +112,21 @@ public float Upt04ExactNeePdfForEmissiveHit<
     if (proposalParity != 0u && Upt04EmissiveDistributionValid(
             gUpt04Control.emissiveDistributionCountAndValid))
     {
-        const uint candidateCount = Upt04DirectRisCandidateCount(
-            ranges, proposalParity, configuredEmissiveTrials);
-        const uint emissiveTrials = Upt04DirectRisDomainTrialCount(
-            ranges,
-            kUpt04LightEmissiveTriangle,
-            proposalParity,
-            configuredEmissiveTrials);
+        const uint emissiveTrials = Upt04InverseSquareNeeTrialCount(
+            Upt04DirectRisDomainTrialCount(
+                ranges,
+                kUpt04LightEmissiveTriangle,
+                proposalParity,
+                configuredEmissiveTrials),
+            kUpt04SecondaryNeeBounceIndex);
+        const uint analyticTrials = Upt04InverseSquareNeeTrialCount(
+            Upt04DirectRisDomainTrialCount(
+                ranges,
+                kUpt04LightDoomAnalytic,
+                proposalParity,
+                configuredEmissiveTrials),
+            kUpt04SecondaryNeeBounceIndex);
+        const uint candidateCount = emissiveTrials + analyticTrials;
         selectionPdf = candidateCount != 0u
             ? conditionalIdentityPdf * float(emissiveTrials)
                 / float(candidateCount)
@@ -126,11 +134,25 @@ public float Upt04ExactNeePdfForEmissiveHit<
     }
     else
     {
-        selectionPdf = Upt04DirectRisIdentityPdf(
-            ranges,
-            kUpt04LightEmissiveTriangle,
-            proposalParity,
-            configuredEmissiveTrials);
+        const uint emissiveTrials = Upt04InverseSquareNeeTrialCount(
+            Upt04DirectRisDomainTrialCount(
+                ranges,
+                kUpt04LightEmissiveTriangle,
+                proposalParity,
+                configuredEmissiveTrials),
+            kUpt04SecondaryNeeBounceIndex);
+        const uint analyticTrials = Upt04InverseSquareNeeTrialCount(
+            Upt04DirectRisDomainTrialCount(
+                ranges,
+                kUpt04LightDoomAnalytic,
+                proposalParity,
+                configuredEmissiveTrials),
+            kUpt04SecondaryNeeBounceIndex);
+        const uint candidateCount = emissiveTrials + analyticTrials;
+        selectionPdf = ranges.emissiveCount != 0u && candidateCount != 0u
+            ? float(emissiveTrials)
+                / float(candidateCount * ranges.emissiveCount)
+            : 0.0f;
     }
     if (!Upt04FinitePositive(selectionPdf))
         return 0.0f;
@@ -157,8 +179,21 @@ public float Upt04ExactNeePdfForEmissiveHit<
     // Multi-sample balance heuristic density: selectionPdf is the normalized
     // per-draw typed mixture, so multiplying by the complete RIS trial count
     // yields sum_j n_j p_j for the heterogeneous NEE schedule.
-    const uint candidateCount = Upt04DirectRisCandidateCount(
-        ranges, proposalParity, configuredEmissiveTrials);
+    const uint candidateCount =
+        Upt04InverseSquareNeeTrialCount(
+            Upt04DirectRisDomainTrialCount(
+                ranges,
+                kUpt04LightEmissiveTriangle,
+                proposalParity,
+                configuredEmissiveTrials),
+            kUpt04SecondaryNeeBounceIndex)
+        + Upt04InverseSquareNeeTrialCount(
+            Upt04DirectRisDomainTrialCount(
+                ranges,
+                kUpt04LightDoomAnalytic,
+                proposalParity,
+                configuredEmissiveTrials),
+            kUpt04SecondaryNeeBounceIndex);
     const float neePdf = float(candidateCount)
         * selectionPdf * solidAnglePdf;
     if (!Upt04FinitePositive(neePdf))

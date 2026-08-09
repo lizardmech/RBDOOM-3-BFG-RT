@@ -1,0 +1,105 @@
+UPT-12 Native Direct-Light uint4 View
+=====================================
+
+Date: 2026-08-09
+
+Decision
+--------
+
+Reject UPT-11 light tiles after no measurable Nsight change. The next bounded
+slice mechanically enables the already implemented native uint4 current-light
+view in direct D0. It changes neither the light universe nor the estimator.
+
+Profiler evidence
+-----------------
+
+The advanced Nsight CSV exports separate the three live kernels:
+
+    direct D0a:
+        589,423 samples;
+        63.56 sample-weighted live registers, maximum 91;
+        51.34 percent of samples above 64 registers;
+        one RayQueryProceed site;
+        hot whole Upt04UnifiedLightRecord load:
+            39,264 samples;
+            129,523 dependency-attributed samples;
+            7,206-cycle average warp latency;
+            54-instruction mix;
+            32 active threads per warp.
+
+    indirect D0b:
+        1,173,747 samples;
+        80.56 sample-weighted live registers, maximum 108;
+        91.19 percent of samples above 64 registers;
+        two RayQueryProceed sites with 14 and 10 active threads per warp;
+        no whole Upt04UnifiedLightRecord load;
+        the three hot native light reads are uint4 loads.
+
+    resolve:
+        62,102 samples;
+        11.98 sample-weighted live registers, maximum 17;
+        no RayQuery site and no whole light-record load.
+
+This confirms two distinct bottlenecks. Direct has one fully converged scattered
+whole-record load. Indirect is primarily a large-kernel/register/traversal
+divergence problem; narrowing more record loads cannot solve its 40.5 percent
+No Instructions stall share.
+
+Implementation
+--------------
+
+`upt04_initial_bindings.slang` already owns the exact native112 uint4 view and
+field-specific helpers:
+
+    evaluation loads only type-dependent chunks;
+    selected identity loads chunks 4 and 5;
+    visibility ignore loads chunks 4 and 5;
+    complete replay loads all seven chunks only when the complete record is
+    actually required.
+
+UPT-12 enables `UPT04_NATIVE_LIGHT_UINT4_VIEW=1` for:
+
+    upt04_initial_split_direct_rayquery_compact32;
+    upt04_initial_direct_only_rayquery_compact32;
+    the rejected opt-in light-tile direct variant for ABI consistency.
+
+No shader logic, candidate count, random dimension, proposal/target PDF,
+reservoir convention, visibility rule, ray query, descriptor, or dispatch is
+changed. Native records remain authoritative and retain their 112-byte stride.
+
+Verification
+------------
+
+The build-time UPT-12 verifier rejects any eager
+`OpLoad %Upt04UnifiedLightRecord_natural` in the native direct split,
+compact32 direct-only, or native indirect split artifacts. Current results:
+
+    direct split:    whole loads 0, uint4 load sites 18, RayQuery sites 1;
+    direct-only:     whole loads 0, uint4 load sites 18, RayQuery sites 1;
+    indirect split:  whole loads 0, uint4 load sites 16, RayQuery sites 2.
+
+The full Vulkan release preset and all five PathTraceUnified CPU contract tests
+pass. No DX12 shader was compiled.
+
+Runtime gate
+------------
+
+Capture the native split with `r_pathTracingUnifiedPtLightTiles 0`. Compare D0a
+and the complete D0a + intermediate barrier + D0b unit against the preceding
+native split. The direct capture must no longer show the hot 54-instruction
+whole-record load. Accept only a measured time reduction with image parity.
+
+If the result is again negligible, stop pursuing current-light load width. The
+next evidence-backed lane is indirect D0b footprint/register reduction followed
+by bounded replay/traversal compaction; do not add more light candidates or
+change temporal/spatial reuse.
+
+Runtime result
+--------------
+
+The deployed UPT-12 build produced no visible or measurable change. The native
+direct-light view remains an exact, neutral load-shaping cleanup, but it is
+rejected as a performance solution. Stop widening this experiment into more
+current-light load work. D0b owns roughly twice the samples of D0a and its
+advanced capture places 91.19 percent of samples above 64 live registers; that
+is the next bounded target.
