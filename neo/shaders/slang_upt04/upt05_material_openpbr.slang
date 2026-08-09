@@ -210,18 +210,32 @@ public Upt05OpenPbrEvaluation Upt05OpenPbrEvaluate(
     float3 lightDirection,
     float3 viewDirection)
 {
-    Upt05OpenPbrEvaluation result = (Upt05OpenPbrEvaluation)0;
     normal = Upt05OpenPbrSafeNormalize(normal, float3(0.0f, 0.0f, 1.0f));
-    lightDirection = Upt05OpenPbrSafeNormalize(lightDirection, normal);
     viewDirection = Upt05OpenPbrSafeNormalize(viewDirection, normal);
+    material.baseColor = saturate(material.baseColor);
+    material.specularF0 = saturate(material.specularF0);
+    material.roughness = clamp(material.roughness, 0.02f, 1.0f);
+    return Upt05OpenPbrEvaluatePrepared(
+        material, normal, lightDirection, viewDirection);
+}
+
+// Evaluates direction-dependent terms for a receiver whose normal, view, and
+// material parameters were already normalized/clamped. This is the inner-loop
+// entry used by prepared direct receivers; the public wrapper above retains
+// the original defensive contract for all other callers.
+public Upt05OpenPbrEvaluation Upt05OpenPbrEvaluatePrepared(
+    Upt05OpenPbrParameters material,
+    float3 normal,
+    float3 lightDirection,
+    float3 viewDirection)
+{
+    Upt05OpenPbrEvaluation result = (Upt05OpenPbrEvaluation)0;
+    lightDirection = Upt05OpenPbrSafeNormalize(lightDirection, normal);
     const float noL = saturate(dot(normal, lightDirection));
     const float noV = saturate(dot(normal, viewDirection));
     if (noL <= 0.0f || noV <= 0.0f)
         return result;
 
-    material.baseColor = saturate(material.baseColor);
-    material.specularF0 = saturate(material.specularF0);
-    material.roughness = clamp(material.roughness, 0.02f, 1.0f);
     const float diffuseScale = saturate(
         1.0f - Upt05OpenPbrMaxComponent(material.specularF0));
     const float3 diffuse = Upt05OpenPbrEvaluateEonDiffuse(

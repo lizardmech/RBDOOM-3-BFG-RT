@@ -100,17 +100,13 @@ public Upt04MaterialEmissionEvaluation Upt04EvaluateEmissiveEndpoint(
         gUpt04Control.emissiveScale);
 }
 
-public Upt04MaterialEvaluation Upt04EvaluateSecondaryDirectProbe(
+public Upt04PreparedDirectMaterial Upt04PrepareSecondaryDirectProbe(
     Upt04GeometryHitSurface surface,
-    float3 viewDirection,
-    float3 lightDirection,
-    float3 incidentRadiance)
+    float3 viewDirection)
 {
-    Upt04MaterialEvaluation result = (Upt04MaterialEvaluation)0;
+    Upt04PreparedDirectMaterial result = (Upt04PreparedDirectMaterial)0;
     if (surface.valid == 0u
-        || surface.materialIndex >= gUpt04Control.materialCount
-        || !all(isfinite(lightDirection))
-        || !all(isfinite(incidentRadiance)))
+        || surface.materialIndex >= gUpt04Control.materialCount)
         return result;
 
     const Upt04SmokeMaterialRecord material = Upt04LoadMaterialRecord(surface.materialIndex);
@@ -190,30 +186,28 @@ public Upt04MaterialEvaluation Upt04EvaluateSecondaryDirectProbe(
         }
     }
 
-    const float3 normal = Upt05OpenPbrSafeNormalize(
+    result.normal = Upt05OpenPbrSafeNormalize(
         surface.shadingNormal,
         Upt05OpenPbrSafeNormalize(
             surface.geometricNormal,
             float3(0.0f, 0.0f, 1.0f)));
-    viewDirection = Upt05OpenPbrSafeNormalize(viewDirection, normal);
-    Upt05OpenPbrParameters parameters;
-    parameters.baseColor = saturate(baseColor);
-    parameters.roughness = roughness;
-    parameters.specularF0 = saturate(specularF0);
-    const Upt05OpenPbrEvaluation evaluated = Upt05OpenPbrEvaluate(
-        parameters,
-        normal,
-        lightDirection,
-        viewDirection);
-    if (evaluated.valid == 0u)
-        return result;
-    const float cosine = saturate(dot(normal, lightDirection));
-    result.weightedContribution = evaluated.brdf
-        * max(incidentRadiance, float3(0.0f)) * cosine;
-    result.target = max(result.weightedContribution.x,
-        max(result.weightedContribution.y, result.weightedContribution.z));
-    result.directionalPdf = evaluated.directionalPdf;
-    result.lobeMask = evaluated.lobeMask;
-    result.valid = all(isfinite(result.weightedContribution)) ? 1u : 0u;
+    result.viewDirection = Upt05OpenPbrSafeNormalize(
+        viewDirection, result.normal);
+    result.baseColor = saturate(baseColor);
+    result.roughness = clamp(roughness, 0.02f, 1.0f);
+    result.specularF0 = saturate(specularF0);
+    result.valid = 1u;
     return result;
+}
+
+public Upt04MaterialEvaluation Upt04EvaluateSecondaryDirectProbe(
+    Upt04GeometryHitSurface surface,
+    float3 viewDirection,
+    float3 lightDirection,
+    float3 incidentRadiance)
+{
+    return Upt04EvaluatePreparedDirectProbe(
+        Upt04PrepareSecondaryDirectProbe(surface, viewDirection),
+        lightDirection,
+        incidentRadiance);
 }

@@ -8,6 +8,18 @@ import upt04_primary_surface_live_contract;
 // cannot import Lambert, OpenPBR, texture decode, or Doom fallback formulas.
 public interface IUpt04MaterialSet
 {
+    static Upt04PreparedDirectMaterial PreparePrimaryDirect(
+        Upt04PrimarySurfaceRecord surface);
+
+    static Upt04PreparedDirectMaterial PrepareSecondaryDirect(
+        Upt04GeometryHitSurface surface,
+        float3 viewDirection);
+
+    static Upt04MaterialEvaluation EvaluatePreparedDirect(
+        Upt04PreparedDirectMaterial material,
+        float3 lightDirection,
+        float3 incidentRadiance);
+
     static Upt04MaterialEvaluation EvaluatePrimaryDirect(
         Upt04PrimarySurfaceRecord surface,
         float3 lightDirection,

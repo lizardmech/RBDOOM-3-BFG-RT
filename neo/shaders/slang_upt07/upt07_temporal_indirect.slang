@@ -27,6 +27,28 @@ public static const uint kUpt07IndirectReplayFlag = 1u << 25u;
 
 public struct Upt07IndirectMaterialSet : IUpt04MaterialSet
 {
+    static Upt04PreparedDirectMaterial PreparePrimaryDirect(
+        Upt04PrimarySurfaceRecord surface)
+    {
+        return Upt04PreparePrimaryDirectProbe(surface);
+    }
+
+    static Upt04PreparedDirectMaterial PrepareSecondaryDirect(
+        Upt04GeometryHitSurface surface,
+        float3 viewDirection)
+    {
+        return Upt07PrepareSecondaryDirect(surface, viewDirection);
+    }
+
+    static Upt04MaterialEvaluation EvaluatePreparedDirect(
+        Upt04PreparedDirectMaterial material,
+        float3 lightDirection,
+        float3 incidentRadiance)
+    {
+        return Upt04EvaluatePreparedDirectProbe(
+            material, lightDirection, incidentRadiance);
+    }
+
     static Upt04MaterialEvaluation EvaluatePrimaryDirect(
         Upt04PrimarySurfaceRecord surface,
         float3 lightDirection,

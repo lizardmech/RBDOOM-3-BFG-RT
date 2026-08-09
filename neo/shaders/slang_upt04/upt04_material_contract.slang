@@ -12,6 +12,22 @@ public struct Upt04MaterialEvaluation
     public uint valid;
 };
 
+// Receiver-invariant material state prepared once before a direct-light RIS
+// schedule. Light direction and incident radiance remain candidate inputs;
+// texture decode, Doom material conversion, and receiver normalization do not.
+// This is local shader state only and does not change a persistent GPU ABI.
+public struct Upt04PreparedDirectMaterial
+{
+    public float3 normal;
+    public float roughness;
+    public float3 viewDirection;
+    public uint valid;
+    public float3 baseColor;
+    public uint reserved0;
+    public float3 specularF0;
+    public uint reserved1;
+};
+
 // Material-owned endpoint emission. Geometry/ReSTIR code sees only the
 // evaluated radiance and validity; texture indices and Doom material policy
 // remain inside the selected MaterialSet.

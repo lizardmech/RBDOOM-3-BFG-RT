@@ -1,0 +1,235 @@
+UPT-10 Monolithic-First Unified DI/GI Optimization Plan
+=======================================================
+
+Date: 2026-08-09
+
+Purpose
+-------
+
+Reduce the cost of the working one-continuation unified DI/GI renderer without
+prematurely replacing its monolithic dispatches. ReSTIR PT Enhanced unifies the
+estimator, reservoir, temporal history, spatial history, and final shading. It
+does not require all work to reside in one shader, but neither does it justify
+a split until redundant work inside the current monolithic implementation has
+been removed and remeasured.
+
+The accepted functional baseline must remain unchanged:
+
+    one shared direct/global reservoir stream;
+    direct k=2 and indirect k>=3 path candidates in one outer RIS;
+    exact current emissive CDF and D0 previous-best reseed;
+    compact32 receiver and cold history sidecar;
+    proposal-parity, target-PDF-parity, and duplication contracts;
+    closest-hit continuation traversal and alpha-aware visibility;
+    no per-frame full-buffer clear;
+    bounded existing D0/T0/S0 ray ceilings;
+    Vulkan only.
+
+Measured starting point
+-----------------------
+
+At 2560x1440 with temporal and spatial disabled, the supplied Nsight captures
+reported:
+
+    proposal parity 1, family 0 unified        29.86 ms
+    proposal parity 1, family 1 direct-only     5.12 ms
+    proposal parity 1, family 2 indirect-only  11.77 ms
+    proposal parity 0, family 0 unified        29.96 ms
+    proposal parity 0, family 1 direct-only    14.38 ms
+    proposal parity 0, family 2 indirect-only  14.38 ms
+
+The parity-1 unified shader is 12.97 ms slower than its two specialized family
+times combined. Shader-source sampling attributes roughly 60.67 percent of
+stalls to No Instructions, 12.44 percent to Long Scoreboard, and 12.09 percent
+to Wait. This proves a serious current shader problem, but does not prove that
+direct and indirect execution must be split.
+
+The reference paper's approximately 2.74x average cost-reduction result is
+cumulative. For the present one-continuation renderer, the relevant structural
+gain is the removal of a separate ReSTIR DI initial/temporal/spatial/shading
+chain. Initial-only Russian roulette is deferred until multiple bounces exist.
+
+Primary hypothesis
+------------------
+
+The current unified shaders repeat receiver preparation and retain more
+material/candidate state than necessary inside the light-candidate loops.
+The strongest concrete instance is secondary NEE: every candidate currently
+reloads the same material and can resample the same diffuse and specular
+textures. The material is invariant for all light proposals at that secondary
+hit. The RTXDI path-tracer bridge instead resolves a secondary RAB surface once
+and reuses that prepared surface for its complete NEE schedule.
+
+The first optimization family therefore removes repeated work while retaining
+the monolithic dispatch and exact estimator. Dispatch splitting, work queues,
+and compacted replay lists remain later evidence-gated alternatives.
+
+Ordered work
+------------
+
+UPT-10A - Prepared direct receiver closure
+
+1. Add a transport-facing prepared-direct-material value to the existing
+   material-provider contract.
+2. Resolve and validate the primary receiver once before the direct RIS loop.
+3. Resolve the secondary material and its texture inputs once after the
+   continuation hit and before the secondary NEE RIS loop.
+4. Evaluate only direction- and radiance-dependent OpenPBR terms per light
+   candidate.
+5. Keep exact RGB contribution, scalar target, directional PDF, lobe mask,
+   MIS, UCW conversion, visibility selection, and reservoir ordering
+   unchanged.
+6. Preserve the old evaluator entry points as wrappers for temporal, spatial,
+   diagnostic, and deterministic callers until each is migrated deliberately.
+
+Static gates:
+
+    focused UPT-04 shader build and verification pass;
+    UPT-04 CPU contract harness passes unchanged;
+    64-byte reservoir and compact32 receiver reflection unchanged;
+    RayQuery count and D0 maximum ray ceiling unchanged;
+    no new descriptor, buffer, clear, barrier, or dispatch;
+    production shader closes over the same light/material resources.
+
+Runtime gates:
+
+    fixed-sample family-0 image has no energy or identity change;
+    emissive, analytic, endpoint, and secondary NEE debug views agree;
+    mirror geometry/material and alpha-cutout regression scenes remain fixed;
+    family 0/1/2 parity-1 and parity-0 D0 markers are recaptured;
+    shader-source stalls and live-register count are recorded.
+
+UPT-10B - Candidate live-range and repeated-math reduction
+
+Only after 10A evidence:
+
+1. Separate immutable receiver closure from selected-candidate state so the
+   full proposal record is not kept live across unrelated work.
+2. Hoist light-range, candidate-count, proposal-mixture, and material-invariant
+   OpenPBR terms out of loops where static inspection proves equivalence.
+3. Replace avoidable branches with selection operations only when generated
+   SPIR-V and fixed-sample output prove the change.
+4. Keep pHat = luminance/max of the exact F convention selected by the active
+   parity policy. Do not invent a cheaper approximate target in this slice.
+5. Keep selected-only visibility and never add visibility to every candidate.
+
+UPT-10C - Production specialization cleanup
+
+1. Confirm family specialization removes unreachable direct or indirect code
+   from family 1 and family 2 blobs.
+2. Remove production reachability of diagnostics, proof-only branches, and
+   inactive policy implementations where specialization constants already fix
+   their values.
+3. Compare blob size, instruction count, register attribution, and pass time.
+4. Do not remove accepted proposal-parity, compact32, duplication, or replay
+   variants; make them compile-time-specialized rather than dynamically live.
+
+UPT-10D - Temporal and spatial prepared replay
+
+After D0 is accepted, apply the same invariant-work rule independently to T0
+and S0:
+
+    prepare each current/history receiver once;
+    resolve each replayed secondary material once per shifted path;
+    do not repeat texture decode for the inner light schedule;
+    retain current-domain target evaluation and exact shift/Jacobian rules;
+    retain deferred BASIC reciprocal replay where selection allows it;
+    preserve rejection rather than admitting unsupported history.
+
+Each pass receives its own fixed-sample, energy, rejection-diagnostic, and
+Nsight gate. A D0 improvement does not authorize an unmeasured T0/S0 rewrite.
+
+UPT-10E - Monolithic acceptance or split escalation
+
+Re-evaluate the monolithic renderer only after 10A through 10D have removed
+proven redundant work. Keep it when:
+
+    unified time is close to shared setup plus useful direct/indirect work;
+    active threads, register pressure, and instruction availability are sane;
+    no full-frame intermediate traffic is needed;
+    fixed-sample output and estimator statistics remain exact.
+
+Escalate to a physical split only if the cleaned monolithic shader still shows
+an intrinsic fusion penalty such as instruction-cache pressure, excessive
+register allocation, or path-class divergence. First remeasure the existing
+r_pathTracingUnifiedPtSplitInitial implementation. Any accepted split must:
+
+    retain one outer unified reservoir, not separate DI and GI reservoirs;
+    preserve candidate order, M, weight sum, random dimensions, and MIS;
+    include intermediate barriers and traffic in its timing;
+    win on the complete D0a + barrier + D0b marker sum;
+    avoid a new full-frame queue unless compacted useful work repays it.
+
+Deferred work
+-------------
+
+The following are not part of the current one-bounce optimization sequence:
+
+    multi-bounce transport;
+    initial-only Russian roulette;
+    forced NEE reconnection for long replay paths;
+    generic wavefront path tracing;
+    approximate target functions;
+    broader portal/light filtering;
+    extra random candidates;
+    denoiser compensation.
+
+Build, deployment, and checkpoint
+---------------------------------
+
+Build from neo:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy only:
+
+    build-win64-pt-dev/Release/RBDoom3BFG.exe
+        -> E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+and Vulkan blobs actually rebuilt under:
+
+    base/renderprogs2/spirv/
+
+Do not build DX12 shaders. Preserve unrelated dirty work. Commit one checkpoint
+after a meaningful slice has passed static/build gates and, where available,
+runtime validation. Document measured results here, in the owning pass document,
+and in 23_handover_2026_08_08.txt.
+
+UPT-10A build checkpoint, 2026-08-09
+------------------------------------
+
+The first prepared-closure slice is implemented without changing a persistent
+buffer, descriptor, dispatch, barrier, candidate count, random dimension, ray
+ceiling, reservoir formula, or visibility rule.
+
+The material-provider boundary now exposes a local prepared-direct-material
+value. D0 prepares the primary receiver once before previous-best plus fresh
+direct RIS. After a continuation hit, it resolves the secondary Doom material,
+diffuse/specular textures, YCoCg conversion, GUI vertex-color policy, normal,
+view direction, roughness, and F0 once before the secondary NEE loop. Each
+candidate retains the exact direction-dependent OpenPBR evaluation, RGB F,
+target, directional PDF, MIS, and inner-RIS UCW conversion. Existing unprepared
+entry points remain wrappers for callers not yet migrated.
+
+Verified gates:
+
+    PathTraceSlangUpt04BackendClosure                 pass
+    PathTraceSlangUpt07TemporalOwnership              pass
+    cmake --build --preset win64-pt-dev-release       pass
+    UPT-04 static family/material/repeatability gates pass
+    UPT-07 temporal artifact gate                     pass
+    UPT-09 spatial artifact gate                      pass
+    PathTraceUnifiedPrimaryScheduleHarness            pass
+    PathTraceUnifiedTemporalContractHarness           pass
+
+The main compact32/geometry48/light64 D0 blob changed from 646,408 to
+640,616 bytes, a 5,792-byte reduction. Its Material48 and continuation32
+variants show the same 5,792-byte reduction. The temporal unified base artifact
+is 923,084 bytes versus the previously reported 925,792-byte runtime blob;
+T0 still uses its legacy evaluation call sites, so this is not yet a temporal
+performance claim. Reflection and generated verification retained the accepted
+64-byte reservoir, compact32 receiver, 48-byte material, and binding contracts.
+
+Runtime image, energy, family timing, and Nsight stall acceptance remain open.
+Do not advance to 10B from build evidence alone if the deployed fixed-sample
+image changes or if family-0 timing regresses.

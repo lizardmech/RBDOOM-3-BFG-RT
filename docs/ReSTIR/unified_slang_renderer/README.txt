@@ -367,6 +367,12 @@ Packet index
         runtime-accepted D0 previous-best/CDF repair, the remaining legacy-like
         portal hitch, evidence locations, and the next implementation sequence.
 
+    24_upt10_monolithic_first_optimization_plan.txt
+        Measured monolithic-first performance sequence: prepared primary and
+        secondary receiver closures, candidate live-range and specialization
+        cleanup, independent T0/S0 migration gates, and an evidence-only split
+        escalation while preserving one unified DI/GI reservoir.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

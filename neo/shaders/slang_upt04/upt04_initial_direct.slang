@@ -157,6 +157,7 @@ public float Upt04DirectTechniqueMis(
 public Upt04DirectRisProposal Upt04EvaluateDirectRisProposal<
     TMaterialSet : IUpt04MaterialSet>(
     Upt04PrimarySurfaceRecord surface,
+    Upt04PreparedDirectMaterial preparedMaterial,
     uint2 pixel,
     uint candidateOrdinal)
 {
@@ -183,8 +184,8 @@ public Upt04DirectRisProposal Upt04EvaluateDirectRisProposal<
     if (evaluated.valid == 0u)
         return proposal;
 
-    const Upt04MaterialEvaluation material = TMaterialSet.EvaluatePrimaryDirect(
-        surface,
+    const Upt04MaterialEvaluation material = TMaterialSet.EvaluatePreparedDirect(
+        preparedMaterial,
         evaluated.sample.direction,
         evaluated.sample.radiance);
     if (material.valid == 0u)
@@ -259,6 +260,7 @@ public Upt04DirectRisProposal Upt04EvaluatePreviousBestProposal<
     TMaterialSet : IUpt04MaterialSet>(
     Upt04D0PreviousBestSource source,
     Upt04PrimarySurfaceRecord receiver,
+    Upt04PreparedDirectMaterial preparedMaterial,
     inout uint diagnostics)
 {
     Upt04DirectRisProposal proposal = (Upt04DirectRisProposal)0;
@@ -375,8 +377,8 @@ public Upt04DirectRisProposal Upt04EvaluatePreviousBestProposal<
         return proposal;
     }
 
-    const Upt04MaterialEvaluation material = TMaterialSet.EvaluatePrimaryDirect(
-        receiver, sample.direction, sample.radiance);
+    const Upt04MaterialEvaluation material = TMaterialSet.EvaluatePreparedDirect(
+        preparedMaterial, sample.direction, sample.radiance);
     if (material.valid == 0u || !Upt04FinitePositive(material.target))
     {
         diagnostics |= kUpt04D0DiagPreviousTargetFailure;
@@ -463,12 +465,14 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial<
     Upt04PrimarySurfaceRecord surface,
     uint2 pixel)
 {
+    const Upt04PreparedDirectMaterial preparedMaterial =
+        TMaterialSet.PreparePrimaryDirect(surface);
     const Upt04D0PreviousBestSource previousSource =
         Upt04D0LoadPreviousBestSource(surface);
     uint directDiagnostics = previousSource.diagnostics;
     const Upt04DirectRisProposal previousBest =
         Upt04EvaluatePreviousBestProposal<TMaterialSet>(
-            previousSource, surface, directDiagnostics);
+            previousSource, surface, preparedMaterial, directDiagnostics);
 
     Upt04DirectRisProposal freshSelected = (Upt04DirectRisProposal)0;
     float weightSum = 0.0f;
@@ -491,7 +495,7 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial<
     {
         const Upt04DirectRisProposal proposal =
             Upt04EvaluateDirectRisProposal<TMaterialSet>(
-                surface, pixel, candidateOrdinal);
+                surface, preparedMaterial, pixel, candidateOrdinal);
         if (proposal.valid == 0u)
             continue;
         if (previousBest.valid != 0u

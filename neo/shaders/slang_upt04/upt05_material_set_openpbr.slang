@@ -10,6 +10,28 @@ import upt04_primary_surface_live_contract;
 // ReSTIR and transport modules see only IUpt04MaterialSet.
 public struct Upt05OpenPbrMaterialSet : IUpt04MaterialSet
 {
+    static Upt04PreparedDirectMaterial PreparePrimaryDirect(
+        Upt04PrimarySurfaceRecord surface)
+    {
+        return Upt04PreparePrimaryDirectProbe(surface);
+    }
+
+    static Upt04PreparedDirectMaterial PrepareSecondaryDirect(
+        Upt04GeometryHitSurface surface,
+        float3 viewDirection)
+    {
+        return Upt04PrepareSecondaryDirectProbe(surface, viewDirection);
+    }
+
+    static Upt04MaterialEvaluation EvaluatePreparedDirect(
+        Upt04PreparedDirectMaterial material,
+        float3 lightDirection,
+        float3 incidentRadiance)
+    {
+        return Upt04EvaluatePreparedDirectProbe(
+            material, lightDirection, incidentRadiance);
+    }
+
     static Upt04MaterialEvaluation EvaluatePrimaryDirect(
         Upt04PrimarySurfaceRecord surface,
         float3 lightDirection,

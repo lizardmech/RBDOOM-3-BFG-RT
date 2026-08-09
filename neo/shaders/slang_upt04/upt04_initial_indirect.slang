@@ -60,6 +60,7 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
     TMaterialSet : IUpt04MaterialSet>(
     Upt04InitialTraceWork work,
     Upt04GeometryHitSurface hitSurface,
+    Upt04PreparedDirectMaterial preparedMaterial,
     uint2 pixel,
     uint candidateOrdinal)
 {
@@ -93,9 +94,8 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
         return proposal;
     proposal.stage = 2u;
 
-    const Upt04MaterialEvaluation material = TMaterialSet.EvaluateSecondaryDirect(
-        hitSurface,
-        -work.ray.direction,
+    const Upt04MaterialEvaluation material = TMaterialSet.EvaluatePreparedDirect(
+        preparedMaterial,
         evaluated.sample.direction,
         evaluated.sample.radiance);
     if (material.valid == 0u)
@@ -350,6 +350,14 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     }
 
+    const Upt04PreparedDirectMaterial preparedMaterial =
+        TMaterialSet.PrepareSecondaryDirect(hitSurface, -work.ray.direction);
+    if (preparedMaterial.valid == 0u)
+    {
+        result.diagnostics |= kUpt04IndirectDiagSecondaryMaterialFailure;
+        return result;
+    }
+
     const uint proposalParity =
         (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
             ? 1u : 0u;
@@ -368,7 +376,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     {
         const Upt04SecondaryNeeProposal proposal =
             Upt04EvaluateSecondaryNeeProposal<TMaterialSet>(
-                work, hitSurface, pixel, candidateOrdinal);
+                work, hitSurface, preparedMaterial, pixel, candidateOrdinal);
         deepestStage = max(deepestStage, proposal.stage);
         if (proposal.valid == 0u)
             continue;

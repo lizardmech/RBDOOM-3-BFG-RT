@@ -4,35 +4,49 @@ import upt04_path_event_contract;
 import upt04_light_contract;
 import upt05_material_openpbr;
 
-public Upt04MaterialEvaluation Upt04EvaluatePrimaryDirectProbe(
-    Upt04PrimarySurfaceRecord surface,
-    float3 lightDirection,
-    float3 incidentRadiance)
+public Upt04PreparedDirectMaterial Upt04PreparePrimaryDirectProbe(
+    Upt04PrimarySurfaceRecord surface)
 {
-    Upt04MaterialEvaluation result = (Upt04MaterialEvaluation)0;
-    if (!Upt04PrimarySurfaceRecordValid(surface)
-        || !all(isfinite(lightDirection))
-        || !all(isfinite(incidentRadiance)))
+    Upt04PreparedDirectMaterial result = (Upt04PreparedDirectMaterial)0;
+    if (!Upt04PrimarySurfaceRecordValid(surface))
         return result;
-    const float3 normal = Upt05OpenPbrSafeNormalize(
+    result.normal = Upt05OpenPbrSafeNormalize(
         surface.shadingNormalAndOpacity.xyz,
         Upt05OpenPbrSafeNormalize(
             surface.geometricNormalAndRoughness.xyz,
             float3(0.0f, 0.0f, 1.0f)));
-    const float3 viewDirection = Upt05OpenPbrSafeNormalize(
-        surface.viewDirectionAndReserved.xyz, normal);
+    result.viewDirection = Upt05OpenPbrSafeNormalize(
+        surface.viewDirectionAndReserved.xyz, result.normal);
+    result.baseColor = saturate(surface.albedoAndAlphaCutoff.xyz);
+    result.roughness = clamp(
+        saturate(surface.geometricNormalAndRoughness.w), 0.02f, 1.0f);
+    result.specularF0 = saturate(surface.specularF0AndReserved.xyz);
+    result.valid = 1u;
+    return result;
+}
+
+public Upt04MaterialEvaluation Upt04EvaluatePreparedDirectProbe(
+    Upt04PreparedDirectMaterial prepared,
+    float3 lightDirection,
+    float3 incidentRadiance)
+{
+    Upt04MaterialEvaluation result = (Upt04MaterialEvaluation)0;
+    if (prepared.valid == 0u
+        || !all(isfinite(lightDirection))
+        || !all(isfinite(incidentRadiance)))
+        return result;
     Upt05OpenPbrParameters parameters;
-    parameters.baseColor = saturate(surface.albedoAndAlphaCutoff.xyz);
-    parameters.roughness = saturate(surface.geometricNormalAndRoughness.w);
-    parameters.specularF0 = saturate(surface.specularF0AndReserved.xyz);
-    const Upt05OpenPbrEvaluation evaluated = Upt05OpenPbrEvaluate(
+    parameters.baseColor = prepared.baseColor;
+    parameters.roughness = prepared.roughness;
+    parameters.specularF0 = prepared.specularF0;
+    const Upt05OpenPbrEvaluation evaluated = Upt05OpenPbrEvaluatePrepared(
         parameters,
-        normal,
+        prepared.normal,
         lightDirection,
-        viewDirection);
+        prepared.viewDirection);
     if (evaluated.valid == 0u)
         return result;
-    const float cosine = saturate(dot(normal, lightDirection));
+    const float cosine = saturate(dot(prepared.normal, lightDirection));
     result.weightedContribution = evaluated.brdf
         * max(incidentRadiance, float3(0.0f)) * cosine;
     result.target = max(result.weightedContribution.x,
@@ -41,6 +55,17 @@ public Upt04MaterialEvaluation Upt04EvaluatePrimaryDirectProbe(
     result.lobeMask = evaluated.lobeMask;
     result.valid = all(isfinite(result.weightedContribution)) ? 1u : 0u;
     return result;
+}
+
+public Upt04MaterialEvaluation Upt04EvaluatePrimaryDirectProbe(
+    Upt04PrimarySurfaceRecord surface,
+    float3 lightDirection,
+    float3 incidentRadiance)
+{
+    return Upt04EvaluatePreparedDirectProbe(
+        Upt04PreparePrimaryDirectProbe(surface),
+        lightDirection,
+        incidentRadiance);
 }
 
 public bool Upt04PrimaryContinuationAvailable(Upt04PrimarySurfaceRecord surface)
