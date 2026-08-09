@@ -30,7 +30,8 @@ public bool Upt04LocalLightProviderAvailable()
 
 public bool Upt04DirectFamilyAvailable()
 {
-    return (gUpt04Control.enabledFamilyMask & kUpt04FamilyLocalLight) != 0u
+    return (Upt04EnabledFamilyMask(gUpt04Control.enabledFamilyMask)
+            & kUpt04FamilyLocalLight) != 0u
         && Upt04LocalLightProviderAvailable();
 }
 
@@ -89,7 +90,8 @@ public Upt04InitialTraceWork Upt04PrepareIndirectPathTreeWorkFromSurface<
     if (!Upt04PrimarySurfaceRecordValid(surface))
         return work;
     const bool indirectAvailable =
-        (gUpt04Control.enabledFamilyMask & kUpt04FamilyIndirect) != 0u
+        (Upt04EnabledFamilyMask(gUpt04Control.enabledFamilyMask)
+            & kUpt04FamilyIndirect) != 0u
         && TMaterialSet.PrimaryContinuationAvailable(surface);
     return indirectAvailable
         ? Upt04PrepareIndirectTrial<TMaterialSet>(work, surface, pixel, transport)

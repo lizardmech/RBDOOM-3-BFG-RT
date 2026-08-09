@@ -15,6 +15,25 @@ public static const uint kUpt04TextureProbeDisabled = 0u;
 public static const uint kUpt04ControlMetadataValidBit = 0x80000000u;
 public static const uint kUpt04ControlMetadataCountMask = 0x7fffffffu;
 
+public uint Upt04EnabledFamilyMask(uint dynamicMask)
+{
+#ifdef UPT04_STATIC_ENABLED_FAMILY_MASK
+    return UPT04_STATIC_ENABLED_FAMILY_MASK;
+#else
+    return dynamicMask;
+#endif
+}
+
+public uint Upt04DirectProposalParityValue(uint availabilityFlags)
+{
+#ifdef UPT04_STATIC_DIRECT_PROPOSAL_PARITY
+    return UPT04_STATIC_DIRECT_PROPOSAL_PARITY;
+#else
+    return (availabilityFlags & kUpt04DirectProposalParity) != 0u
+        ? 1u : 0u;
+#endif
+}
+
 public uint Upt04ConfiguredEmissiveTrialCount(uint availabilityFlags)
 {
     return clamp(

@@ -874,3 +874,118 @@ face normal merely because of its material class: that destroys authored
 smoothing on grates, cables, foliage, and dynamic cards. Geometric-normal
 fallback is reserved for malformed or missing vertex normals only; there is no
 UPT-owned fixed smoothing angle.
+
+Unified D0 critical-path recapture (2026-08-09)
+------------------------------------------------
+
+Seven 2560x1440 Nsight GPU Trace reports were captured with temporal and
+spatial disabled after the indirect path became visually reliable. In capture
+order, the user supplied proposal-parity families 0/1/2, fallback families
+0/1/2, and one fallback family-0 run labelled candidateTrials=1. The exact D0
+markers are:
+
+    proposal parity 1, family 0 unified        29.86 ms
+    proposal parity 1, family 1 direct-only     5.12 ms
+    proposal parity 1, family 2 indirect-only  11.77 ms
+    proposal parity 0, family 0 unified        29.96 ms
+    proposal parity 0, family 1 direct-only    14.38 ms
+    proposal parity 0, family 2 indirect-only  14.38 ms
+    proposal parity 0, family 0, trials=1      22.39 ms
+
+The first six constitute the useful static-family comparison. Proposal-parity
+unified is 12.97 ms slower than the sum of its separately specialized direct
+and indirect shaders (29.86 versus 16.89 ms), a 1.77x combined-family penalty.
+This is a new measured critical path and materially differs from the earlier
+approximately 0.9 ms direct-scene result that rejected splitting.
+
+The corrected fallback batch is nearly additive: direct-only plus indirect-
+only is 28.76 ms versus 29.96 ms unified, only a 1.20 ms or 4.2 percent unified
+penalty. The pathological interaction is therefore specific to the proposal-
+parity direct implementation when it shares the unified shader with indirect
+transport. Proposal parity makes the specialized direct shader much faster
+(5.12 versus 14.38 ms), yet that 9.26 ms saving disappears entirely in the
+unified shader. This points at the combined parity-direct code footprint/live
+ranges, compiler lowering, or resulting occupancy rather than an unavoidable
+sum of direct and indirect transport.
+
+Likewise, the final trials=1 capture is not a valid candidate-count A/B while
+DirectProposalParity=0. The fallback branch always schedules the fixed eight
+trials and does not read configuredEmissiveTrials. Changing
+r_pathTracingReservoirCandidateTrials can change the carried control bits and
+history generation, but with T0/S0 disabled it cannot change D0 fallback work.
+The 7.57 ms difference from the earlier fallback unified capture therefore
+measures capture/scene/GPU-state variance, not a trial-count win. A candidate
+count sweep must use DirectProposalParity=1.
+
+The whole-trace counters support a large-kernel interaction rather than a
+simple additive ray count. The parity-1 unified report averaged 19.6 active
+threads/warp at 61.4 percent coherence and 37.0 percent compute-warp occupancy;
+direct-only measured 21.1 / 65.9 / 9.8 percent, and indirect-only measured
+19.0 / 59.4 / 21.4 percent. Unified D0 also retained substantial unallocated
+warp capacity (54.7 percent) while taking much longer than the two specialized
+dispatches combined. These summary counters are trace-wide, so they localize
+the family interaction but are not a register/spill proof by themselves.
+
+The next bounded A/B is to retest the already-implemented exact direct/indirect
+split with proposal parity 1 in this same heavy scene before designing another
+boundary. Hold family 0, resolution, view, compact receiver/geometry/lights,
+and all reuse controls fixed; compare monolithic D0 with the sum of D0a +
+barrier + D0b. Proposal parity 0 is the control: it already shows only 1.20 ms
+of unified overhead and is not the primary split target. The old 64-byte full-
+frame boundary remains expensive, but the parity-1 12.97 ms megakernel excess
+gives it a materially different break-even point. Do not promote the split or
+add a queue unless its complete marker sum wins and fixed-sample output remains
+exact.
+
+Shader-source stall export (2026-08-09)
+---------------------------------------
+
+The two user-exported Nsight shader-source CSV files are byte-identical
+(SHA-256 2003d6606b517121784dc71ba4f04db64e827fdf766fa2f2c6f451366076f360)
+and describe the same monolithic comp.10000.spv shader. Across 3,770,861
+sampled stalls, the top-three attribution aggregates to:
+
+    No Instructions       2,287,785   60.67 percent
+    Long Scoreboard         469,223   12.44 percent
+    Wait                    456,035   12.09 percent
+    Selected                177,487    4.71 percent
+    Short Scoreboard         78,368    2.08 percent
+    Branch Resolving         52,145    1.38 percent
+
+The selected full-frame D0 is about 29.48 ms, so NVIDIA's documented short-grid
+explanation for No Instructions does not fit. The state means a warp is waiting
+to be selected for instruction fetch or waiting on an instruction-cache miss;
+large dynamic jumps can increase it. The hottest No-Instructions locations are
+distributed across unified-light record loads, branch conditionals, and three
+OpRayQueryProceedKHR regions rather than one isolated data load. Sample-weighted
+live-register count is 68.47 and reaches 94 in several regions. This does not
+prove one isolated spill, but together with the user's direct/indirect/unified
+No-Instructions observations of approximately 0/40/60 percent, it supports a
+combined code-footprint/control-flow and latency-hiding failure.
+
+The two identical CSVs are not a comparison between split passes. A valid
+SplitInitial capture must visibly contain UPT.D0a Split Direct and UPT.D0b Split
+Indirect markers; compare their complete sum, including the intermediate
+barrier, against monolithic D0.
+
+Comparison-pipe follow-up, 2026-08-09
+-------------------------------------
+
+The next family 0/1/2 captures led to a second static instruction audit after
+the user observed unusually high FP32 comparison attribution. Production
+family 0 contained 545 OpIsNan and 542 OpIsInf instructions; family 1 contained
+244/243 and family 2 contained 308/305. The unified counts are essentially the
+sum of both families. A major repeated source was Upt04FinitePositive inside
+the inner RIS candidate loops.
+
+Replacing that predicate with the exactly equivalent binary32 bit-range test
+removes 72 expanded NaN/Inf/greater-than/short-circuit guard chains from family
+0, 40 from direct-only, and 32 from indirect-only. Family-0 SPIR-V drops from
+638,056 to 622,600 bytes and from 39,420 to 38,148 operations. This is static
+evidence that comparison validation was materially over-expanded, not yet a
+GPU-time result. The next capture must compare equivalent D0 marker scopes and
+confirm both image parity and the new instruction/stall distribution.
+
+The reuse-enabled family-0 report contains D0, unified T0, and U0 markers but
+no S0 marker. Current host code intentionally gates spatial to DirectOnly
+family 1, so that report cannot be used as a full D0+T0+S0 measurement.

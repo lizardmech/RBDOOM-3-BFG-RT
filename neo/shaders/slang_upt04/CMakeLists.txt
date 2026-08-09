@@ -64,6 +64,7 @@ set(UPT04_UNIFIED_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_work_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_random.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_replay_random.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_light_selection.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_previous_best.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect.slang"
@@ -157,6 +158,29 @@ path_tracing_declare_slang_spirv_module(
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS ${compact32_rayquery_outputs})
 
+# Production family-0 parity specialization for the currently profiled
+# compact32 / 112-byte light path.  The generic artifact remains the parity-0
+# route and the fallback for every other packing/continuation permutation.
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_rayquery_compact32_unified_parity1
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+    DEFINES
+        UPT04_PACKED_PRIMARY_RECEIVER=2
+        UPT04_STATIC_ENABLED_FAMILY_MASK=3
+        UPT04_STATIC_DIRECT_PROPOSAL_PARITY=1
+    OUT_VAR compact32_unified_parity1_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${compact32_unified_parity1_rayquery_outputs})
+
 path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_rayquery_compact32_geometry48
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_rayquery.slang"
@@ -244,6 +268,40 @@ list(APPEND UPT04_BACKEND_OUTPUTS
 # Experimental exact shared-reservoir split of unified D0. The direct pass
 # publishes an unnormalized intermediate reservoir into page 0; the indirect
 # pass loads, extends, and performs the sole final normalization.
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_direct_rayquery_compact32
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_SPLIT_INITIAL_DIRECT=1
+    OUT_VAR split_direct_native_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${split_direct_native_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_NATIVE_LIGHT_UINT4_VIEW=1
+    OUT_VAR split_indirect_native_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${split_indirect_native_rayquery_outputs})
+
 path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_split_direct_rayquery_compact32_geometry48_light64
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
@@ -850,11 +908,14 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_rayquery
     upt04_initial_rayquery_compact
     upt04_initial_rayquery_compact32
+    upt04_initial_rayquery_compact32_unified_parity1
     upt04_initial_rayquery_compact32_geometry48
     upt04_compact_geometry_pack
     upt04_initial_rayquery_compact32_geometry48_light64
     upt04_compact_light_pack
     upt04_initial_rayquery_compact32_geometry48_light64_material48
+    upt04_initial_split_direct_rayquery_compact32
+    upt04_initial_split_indirect_rayquery_compact32
     upt04_initial_split_direct_rayquery_compact32_geometry48_light64
     upt04_initial_split_indirect_rayquery_compact32_geometry48_light64
     upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_material48

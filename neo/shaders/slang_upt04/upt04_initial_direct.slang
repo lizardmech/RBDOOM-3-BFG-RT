@@ -36,56 +36,56 @@ public Upt04LocalLightSelection Upt04SelectInitialDirectLight(
     uint2 pixel,
     uint candidateOrdinal)
 {
+    return Upt04SelectInitialDirectLight(
+        Upt04MakeInitialLightSchedule(Upt04InitialDirectLightRanges()),
+        pixel,
+        candidateOrdinal);
+}
+
+public Upt04LocalLightSelection Upt04SelectInitialDirectLight(
+    Upt04InitialLightSchedule schedule,
+    uint2 pixel,
+    uint candidateOrdinal)
+{
     Upt04LocalLightSelection result = (Upt04LocalLightSelection)0;
-    const Upt04LocalLightRanges ranges = Upt04InitialDirectLightRanges();
-    const uint proposalParity =
-        (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
-            ? 1u : 0u;
-    const uint configuredEmissiveTrials = Upt04ConfiguredEmissiveTrialCount(
-        gUpt04Control.availabilityFlags);
-    const uint candidateCount = Upt04DirectRisCandidateCount(
-        ranges, proposalParity, configuredEmissiveTrials);
-    if (candidateOrdinal >= candidateCount)
+    if (candidateOrdinal >= schedule.candidateCount)
         return result;
-    const uint emissiveTrials = Upt04DirectRisDomainTrialCount(
-        ranges, kUpt04LightEmissiveTriangle, proposalParity,
-        configuredEmissiveTrials);
-    const bool selectEmissive = candidateOrdinal < emissiveTrials;
+    const bool selectEmissive = candidateOrdinal < schedule.emissiveTrials;
     const uint selectedType = selectEmissive
         ? kUpt04LightEmissiveTriangle : kUpt04LightDoomAnalytic;
     Upt04LocalLightRanges typedRanges = (Upt04LocalLightRanges)0;
     if (selectEmissive)
     {
-        typedRanges.emissiveStart = ranges.emissiveStart;
-        typedRanges.emissiveCount = ranges.emissiveCount;
+        typedRanges.emissiveStart = schedule.ranges.emissiveStart;
+        typedRanges.emissiveCount = schedule.ranges.emissiveCount;
     }
     else
     {
-        typedRanges.analyticStart = ranges.analyticStart;
-        typedRanges.analyticCount = ranges.analyticCount;
+        typedRanges.analyticStart = schedule.ranges.analyticStart;
+        typedRanges.analyticCount = schedule.ranges.analyticCount;
     }
     float identityRandom = Upt04WhiteHash(Upt04InitialRandomKeyAtVertex(
         pixel,
         candidateOrdinal,
         kUpt04StreamInitialLocalLightIdentity,
         kUpt04DimensionInitialLocalLightIdentity));
-    if (proposalParity != 0u && !selectEmissive)
+    if (schedule.proposalParity != 0u && !selectEmissive)
     {
         // Match the accepted clean-DI analytic schedule: cover disjoint
         // strata before repeating lights. Random sampling over the complete
         // Doom light universe left most real-map pixels without a positive D0
         // candidate even though their reprojected surfaces were valid.
-        const uint analyticOrdinal = candidateOrdinal - emissiveTrials;
-        const uint analyticTrials = Upt04DirectRisDomainTrialCount(
-            ranges, kUpt04LightDoomAnalytic, proposalParity,
-            configuredEmissiveTrials);
+        const uint analyticOrdinal = candidateOrdinal
+            - schedule.emissiveTrials;
         const float stride = max(
-            1.0f, float(ranges.analyticCount) / float(max(analyticTrials, 1u)));
+            1.0f,
+            float(schedule.ranges.analyticCount)
+                / float(max(schedule.analyticTrials, 1u)));
         const float lightIndexInRange = min(
             (float(analyticOrdinal) + identityRandom) * stride,
-            float(max(ranges.analyticCount, 1u) - 1u));
+            float(max(schedule.ranges.analyticCount, 1u) - 1u));
         identityRandom = (lightIndexInRange + 0.5f)
-            / float(max(ranges.analyticCount, 1u));
+            / float(max(schedule.ranges.analyticCount, 1u));
     }
     const float2 surfaceRandom = float2(
             Upt04WhiteHash(Upt04InitialRandomKeyAtVertex(
@@ -98,33 +98,30 @@ public Upt04LocalLightSelection Upt04SelectInitialDirectLight(
                 candidateOrdinal,
                 kUpt04StreamInitialLocalLightSurfaceV,
                 kUpt04DimensionInitialLocalLightSurfaceV)));
-    if (proposalParity != 0u && selectEmissive)
+    if (schedule.proposalParity != 0u && selectEmissive)
     {
         result = Upt04SelectInitialWeightedEmissive(
-            ranges,
+            schedule.ranges,
             identityRandom,
             surfaceRandom,
-            emissiveTrials,
-            candidateCount);
+            schedule.emissiveTrials,
+            schedule.candidateCount);
         if (result.valid != 0u)
             return result;
     }
 
     result = Upt04SelectUniformLocalLight(
         typedRanges, identityRandom, surfaceRandom);
-    result.selectionPdf = Upt04DirectRisIdentityPdf(
-        ranges, selectedType, proposalParity, configuredEmissiveTrials);
+    result.selectionPdf = Upt04InitialLightScheduleIdentityPdf(
+        schedule, selectedType);
     return result;
 }
 
 public struct Upt04DirectRisProposal
 {
     public uint valid;
-    public uint eventKind;
     public uint lobeMask;
     public uint candidateFlags;
-    public uint identity0;
-    public uint identity1;
     public uint replayKey;
     public uint replayIndex;
     public uint lightIndex;
@@ -133,7 +130,8 @@ public struct Upt04DirectRisProposal
     public float2 sampleCoordinates;
     public float3 contribution;
     public float target;
-    public Upt04TraceRequest visibilityRay;
+    public float3 sampleDirection;
+    public float sampleDistance;
 };
 
 public float Upt04DirectTechniqueMis(
@@ -147,7 +145,8 @@ public float Upt04DirectTechniqueMis(
     // emissive energy with no compensating sample.  Keep MIS for the unified
     // family, where the indirect/BSDF endpoint proposal is present.
     const bool bsdfEndpointCompetes =
-        (gUpt04Control.enabledFamilyMask & kUpt04FamilyIndirect) != 0u;
+        (Upt04EnabledFamilyMask(gUpt04Control.enabledFamilyMask)
+            & kUpt04FamilyIndirect) != 0u;
     return lightType == kUpt04LightEmissiveTriangle && bsdfEndpointCompetes
         ? Upt04BalanceHeuristic(
             physicalProposalPdf, alternateDirectionalPdf)
@@ -158,18 +157,20 @@ public Upt04DirectRisProposal Upt04EvaluateDirectRisProposal<
     TMaterialSet : IUpt04MaterialSet>(
     Upt04PrimarySurfaceRecord surface,
     Upt04PreparedDirectMaterial preparedMaterial,
+    Upt04InitialLightSchedule schedule,
     uint2 pixel,
     uint candidateOrdinal)
 {
     Upt04DirectRisProposal proposal = (Upt04DirectRisProposal)0;
     const Upt04LocalLightSelection selection =
-        Upt04SelectInitialDirectLight(pixel, candidateOrdinal);
+        Upt04SelectInitialDirectLight(schedule, pixel, candidateOrdinal);
     if (selection.valid == 0u
         || selection.denseIndex >= gUpt04Control.currentLightCount)
         return proposal;
 
     const Upt04UnifiedLightRecord light =
-        Upt04LoadCurrentLightRecord(selection.denseIndex);
+        Upt04LoadCurrentLightEvaluationRecord(
+            selection.denseIndex, selection.type);
     if (selection.type == kUpt04LightEmissiveTriangle
         && selection.reserved != 0u
         && light.sourceIndex != selection.reserved - 1u)
@@ -198,16 +199,7 @@ public Upt04DirectRisProposal Upt04EvaluateDirectRisProposal<
         || !Upt04FinitePositive(material.target))
         return proposal;
 
-    const Upt04LocalLightRanges ranges = Upt04InitialDirectLightRanges();
-    const uint proposalParity =
-        (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
-            ? 1u : 0u;
-    const uint candidateCount = Upt04DirectRisCandidateCount(
-        ranges,
-        proposalParity,
-        Upt04ConfiguredEmissiveTrialCount(
-            gUpt04Control.availabilityFlags));
-    const float multiSampleNeePdf = float(candidateCount)
+    const float multiSampleNeePdf = float(schedule.candidateCount)
         * physicalProposalPdf;
     const float techniqueMis = Upt04DirectTechniqueMis(
         selection.type, multiSampleNeePdf, material.directionalPdf);
@@ -228,30 +220,25 @@ public Upt04DirectRisProposal Upt04EvaluateDirectRisProposal<
         || !Upt04FinitePositive(reservoirSourcePdf))
         return (Upt04DirectRisProposal)0;
 
-    if (!Upt04BuildPrimaryVisibilityRequest(
+    if (!Upt04PrimaryVisibilityEndpointValid(
             surface.worldPositionAndViewDepth.xyz,
             surface.geometricNormalAndRoughness.xyz,
             surface.shadingNormalAndOpacity.xyz,
             evaluated.sample.direction,
-            evaluated.sample.distance,
-            proposal.visibilityRay))
+            evaluated.sample.distance))
         return (Upt04DirectRisProposal)0;
 
-    proposal.eventKind = selection.type == kUpt04LightEmissiveTriangle
-        ? 2u : 1u;
     proposal.lobeMask = material.lobeMask;
-    proposal.candidateFlags =
-        (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
-            ? kUpt04CandidateFlagDirectProposalParity : 0u;
-    proposal.identity0 = selection.denseIndex + 1u;
-    proposal.identity1 = Upt04StableLightIdentityFingerprint(light);
-    if (proposal.identity0 == 0u || proposal.identity1 == 0u)
-        return (Upt04DirectRisProposal)0;
+    proposal.candidateFlags = Upt04DirectProposalParityValue(
+            gUpt04Control.availabilityFlags) != 0u
+        ? kUpt04CandidateFlagDirectProposalParity : 0u;
     proposal.lightIndex = selection.denseIndex;
     proposal.lightType = selection.type;
     proposal.replayKey = Upt04InitialReplayKey(pixel);
     proposal.sourceProposalPdf = reservoirSourcePdf;
     proposal.sampleCoordinates = evaluated.storedSampleCoordinates;
+    proposal.sampleDirection = evaluated.sample.direction;
+    proposal.sampleDistance = evaluated.sample.distance;
     proposal.valid = 1u;
     return proposal;
 }
@@ -430,25 +417,21 @@ public Upt04DirectRisProposal Upt04EvaluatePreviousBestProposal<
         gUpt04Control.availabilityFlags);
     if (!Upt04FinitePositive(proposal.target)
         || !Upt04FinitePositive(proposal.sourceProposalPdf)
-        || !Upt04BuildPrimaryVisibilityRequest(
+        || !Upt04PrimaryVisibilityEndpointValid(
             receiver.worldPositionAndViewDepth.xyz,
             receiver.geometricNormalAndRoughness.xyz,
             receiver.shadingNormalAndOpacity.xyz,
             sample.direction,
-            sample.distance,
-            proposal.visibilityRay))
+            sample.distance))
     {
         diagnostics |= kUpt04D0DiagPreviousTargetFailure;
         return (Upt04DirectRisProposal)0;
     }
 
     proposal.valid = 1u;
-    proposal.eventKind = source.candidate.eventKind;
     proposal.lobeMask = material.lobeMask;
     proposal.candidateFlags = source.candidate.flags
         & kUpt04CandidateFlagDirectProposalParity;
-    proposal.identity0 = currentDenseIndex + 1u;
-    proposal.identity1 = Upt04StableLightIdentityFingerprint(light);
     proposal.replayKey = source.candidate.replayKey;
     proposal.replayIndex = source.candidate.replayIndex;
     proposal.lightIndex = currentDenseIndex;
@@ -456,6 +439,8 @@ public Upt04DirectRisProposal Upt04EvaluatePreviousBestProposal<
     proposal.sampleCoordinates = float2(
         source.candidate.sampleCoord0,
         source.candidate.sampleCoord1);
+    proposal.sampleDirection = sample.direction;
+    proposal.sampleDistance = sample.distance;
     return proposal;
 }
 
@@ -476,15 +461,10 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial<
 
     Upt04DirectRisProposal freshSelected = (Upt04DirectRisProposal)0;
     float weightSum = 0.0f;
-    const Upt04LocalLightRanges ranges = Upt04InitialDirectLightRanges();
-    const uint proposalParity =
-        (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
-            ? 1u : 0u;
-    const uint configuredEmissiveTrials = Upt04ConfiguredEmissiveTrialCount(
-        gUpt04Control.availabilityFlags);
-    const uint candidateCount = Upt04DirectRisCandidateCount(
-        ranges, proposalParity, configuredEmissiveTrials);
-    if (ranges.emissiveCount != 0u
+    const Upt04InitialLightSchedule schedule =
+        Upt04MakeInitialLightSchedule(Upt04InitialDirectLightRanges());
+    const uint candidateCount = schedule.candidateCount;
+    if (schedule.ranges.emissiveCount != 0u
         && !Upt04EmissiveDistributionValid(
             gUpt04Control.emissiveDistributionCountAndValid))
         directDiagnostics |= kUpt04D0DiagWeightedCdfUnavailable;
@@ -495,7 +475,11 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial<
     {
         const Upt04DirectRisProposal proposal =
             Upt04EvaluateDirectRisProposal<TMaterialSet>(
-                surface, preparedMaterial, pixel, candidateOrdinal);
+                surface,
+                preparedMaterial,
+                schedule,
+                pixel,
+                candidateOrdinal);
         if (proposal.valid == 0u)
             continue;
         if (previousBest.valid != 0u
@@ -578,11 +562,19 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial<
     }
 
     work.familyKind = kUpt04InitialFamilyDirect;
-    work.eventKind = selected.eventKind;
+    work.eventKind = selected.lightType == kUpt04LightEmissiveTriangle
+        ? 2u : 1u;
     work.lobeMask = selected.lobeMask;
     work.candidateFlags = selected.candidateFlags;
-    work.identity0 = selected.identity0;
-    work.identity1 = selected.identity1;
+    work.identity0 = selected.lightIndex + 1u;
+    if (work.identity0 == 0u
+        || selected.lightIndex >= gUpt04Control.currentLightCount)
+        return Upt04InvalidateInitialWork(work);
+    const Upt04UnifiedLightRecord selectedLight =
+        Upt04LoadCurrentLightIdentityRecord(selected.lightIndex);
+    work.identity1 = Upt04StableLightIdentityFingerprint(selectedLight);
+    if (work.identity1 == 0u)
+        return Upt04InvalidateInitialWork(work);
     work.replayKey = selected.replayKey;
     work.replayIndex = selected.replayIndex;
     work.lightIndex = selected.lightIndex;
@@ -602,7 +594,14 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial<
     if (!Upt04AdmitDirectVisibility(work.transport)
         || !Upt04RayBudgetWithinD0Ceiling(work.transport))
         return Upt04InvalidateInitialWork(work);
-    work.ray = selected.visibilityRay;
+    if (!Upt04BuildPrimaryVisibilityRequest(
+            surface.worldPositionAndViewDepth.xyz,
+            surface.geometricNormalAndRoughness.xyz,
+            surface.shadingNormalAndOpacity.xyz,
+            selected.sampleDirection,
+            selected.sampleDistance,
+            work.ray))
+        return Upt04InvalidateInitialWork(work);
     work.traceRequired = 1u;
     work.valid = 1u;
     return work;
@@ -616,7 +615,7 @@ public Upt04VisibilityIgnore Upt04DirectVisibilityIgnore(
         || work.lightIndex >= gUpt04Control.currentLightCount)
         return Upt04NoVisibilityIgnore();
     const Upt04UnifiedLightRecord light =
-        Upt04LoadCurrentLightRecord(work.lightIndex);
+        Upt04LoadCurrentLightVisibilityRecord(work.lightIndex);
     return light.type == kUpt04LightEmissiveTriangle
         ? Upt04MakeVisibilityIgnore(light.instanceId, light.primitiveIndex)
         : Upt04NoVisibilityIgnore();

@@ -73,6 +73,29 @@ public float3 Upt04VisibilitySafeNormalize(float3 value, float3 fallback)
         : float3(0.0f, 0.0f, 1.0f);
 }
 
+// Candidate-loop admission test for a primary-style shadow segment.  It keeps
+// the full 32-byte trace request out of the RIS winner state; the request is
+// materialized once, after reservoir selection.  Keep this predicate aligned
+// with Upt04BuildPrimaryVisibilityRequest.
+public bool Upt04PrimaryVisibilityEndpointValid(
+    float3 surfacePosition,
+    float3 geometricNormalInput,
+    float3 shadingNormalInput,
+    float3 sampleDirectionInput,
+    float sampleDistance)
+{
+    const float3 shadingNormal = Upt04VisibilitySafeNormalize(
+        shadingNormalInput, geometricNormalInput);
+    const float3 geometricNormal = Upt04VisibilitySafeNormalize(
+        geometricNormalInput, shadingNormal);
+    const float3 direction = Upt04VisibilitySafeNormalize(
+        sampleDirectionInput, geometricNormal);
+    return all(isfinite(surfacePosition)) && isfinite(sampleDistance)
+        && sampleDistance > 0.0f
+        && dot(shadingNormal, direction) > 0.0f
+        && dot(geometricNormal, direction) > 0.0f;
+}
+
 // Shared primary-direct shadow-ray contract. Doom world coordinates require
 // substantially more separation than the old 0.02-unit endpoint epsilon.
 // Both normals participate in the horizon test, matching the proven legacy DI

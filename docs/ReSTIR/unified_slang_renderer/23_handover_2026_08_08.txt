@@ -32,11 +32,21 @@ Enhanced path-tree design: direct light is a short selected path and indirect
 light is a longer selected path in one reservoir stream. Materials remain
 separate providers rather than being embedded in ReSTIR passes.
 
-The direct-only route is now useful and fast enough to move beyond D0/T0/S0
-micro-tuning. The next large unknown is the unified D0 path with indirect
-continuation/secondary NEE enabled. Do not begin that extension until the
-remaining UPT-only emissive acquisition loss is understood or fixed; otherwise
-the indirect comparison will be contaminated by a known direct-light defect.
+The earlier emissive-acquisition and indirect geometry/material/alpha replay
+failures are fixed. The indirect path is now functionally accepted. Current
+work is performance-only under UPT-10. The
+latest exact finite-predicate/candidate-state trial made family 1 and family 2
+slightly faster in isolation but did not materially improve family 0. Treat
+the monolithic fusion penalty as unresolved and continue with production
+specialization before considering a physical direct/indirect split.
+
+The native112 exact shared-reservoir split has since recovered approximately
+8 ms versus monolithic family 0, including both dispatches and their barrier.
+Treat split D0a/D0b as the current accepted performance direction. The next
+open measurement is D0b's scalar native-light view, introduced after Nsight
+identified its eager 112-byte StructuredBuffer record load as a high LSU
+global-memory dependency. It changes only the shader's view of the existing
+bytes; runtime image and timing acceptance are still pending.
 
 Accepted runtime shape
 ----------------------
@@ -699,3 +709,125 @@ register 23 for the unified variant; the direct variant retains register 23 in
 the same item position it had before indirect replay was added. The full Vulkan
 release build passes after this host-only correction. Runtime image validation
 remains pending.
+
+Runtime then reported the unified path mostly working, with an Nsight baseline
+of D0 34.51 ms and T0 43.32 ms. The first performance correction defers BASIC
+current-at-history global replay until the mass selection says the current
+sample wins; mature-history winners no longer pay a discarded second complete
+continuation/inner-RIS/visibility replay. Pairwise MIS remains eager. The ABI,
+selection random, merge math, and maximum ray ceiling are unchanged. Rebuilt
+UPT-07 Vulkan blobs are deployed; same-scene timing validation is the current
+gate before any spatial implementation.
+
+D0 family capture result, 2026-08-09
+------------------------------------
+
+The seven supplied Nsight reports were read as separate report windows, not as
+one active tab. With temporal/spatial off, exact D0 durations were:
+
+    parity=1  family 0/1/2        29.86 / 5.12 / 11.77 ms
+    parity=0  family 0/1/2        29.96 / 14.38 / 14.38 ms
+    parity=0  family 0 trials=1   22.39 ms
+
+The corrected parity-0 batch is almost additive: its 14.38 ms direct-only plus
+14.38 ms indirect-only total is 28.76 ms versus 29.96 ms unified. The large
+unified penalty is therefore parity-1-specific. Its specialized direct shader
+falls to 5.12 ms, but unified remains 29.86 ms; the expected direct saving is
+lost when parity-direct and indirect transport share the shader. The final
+trials=1 capture is also not a valid work-count comparison: the parity=0
+fallback shader always executes its fixed eight-trial schedule and ignores the
+configured emissive-trial count. Its 22.39 ms result is capture/scene/GPU-state
+variance, not evidence that trials=1 saved 7.57 ms.
+
+The valid parity=1 split is decisive: the 29.86 ms unified megakernel costs
+12.97 ms more than direct-only plus indirect-only (16.89 ms). This is the new
+measured D0 critical path. Candidate count alone cannot explain it, and broader
+light filtering or reuse changes are not justified. Before adding a new queue
+or shader boundary, remeasure the existing exact r_pathTracingUnifiedPtSplitInitial
+A/B in this same view and add D0a + barrier + D0b. The earlier split rejection
+was measured against an approximately 0.9 ms direct-scene monolithic D0; the
+current parity-1 12.97 ms family-interaction excess changes that break-even
+condition. Parity 0 is the control and currently has only 1.20 ms unified
+overhead.
+
+The subsequent Nsight shader-source CSV export confirms the parity-1
+monolithic symptom: 60.67 percent No Instructions, 12.44 percent Long
+Scoreboard, and 12.09 percent Wait across 3,770,861 samples. The user's
+specialized direct/indirect/unified comparison is approximately 0/40/60
+percent No Instructions. The two supplied CSV files are byte-identical and
+describe the same monolithic shader, not D0a versus D0b. Treat this as evidence
+for instruction-fetch/code-locality and latency-hiding failure in the combined
+shader; it is not evidence for an estimator requirement to fuse dispatches.
+
+Monolithic-first optimization authority, 2026-08-09
+---------------------------------------------------
+
+The current performance direction is now 24_upt10_monolithic_first_optimization_plan.txt.
+Do not infer from the current family-0 penalty that a split is required. First
+remove repeated receiver/material preparation, candidate live state, and
+production-reachable policy/debug work while retaining the monolithic unified
+reservoir path. The strongest first target is the secondary NEE loop, which
+currently reloads the same material and diffuse/specular textures for every
+light candidate instead of preparing the secondary receiver once.
+
+ReSTIR PT Enhanced's principal applicable structural saving is one unified
+DI/GI reservoir and one temporal/spatial history chain rather than parallel DI
+and PT pass families. Russian roulette is deferred because UPT currently has
+only one continuation. A physical D0/T0/S0 split remains legal, but only as an
+execution detail over the same reservoir and only after the cleaned monolithic
+path is reprofiled. The existing SplitInitial A/B is the first escalation gate;
+do not create separate DI/GI products or a new queue pre-emptively.
+
+UPT-10A now implements the first prepared receiver closure. Primary material
+state is prepared once before direct RIS, and secondary Doom material/texture
+decode is prepared once per continuation hit rather than once per secondary
+light candidate. All estimator, ray, ABI, binding, and dispatch contracts are
+unchanged. Focused UPT-04/UPT-07 builds, the full Vulkan release preset, static
+shader gates, and the UPT-04/UPT-07 CPU harnesses pass. The primary production
+D0 blob fell by 5,792 bytes to 640,616 bytes. Runtime image and timing validation
+is the next gate before UPT-10B.
+
+UPT-10A runtime and UPT-10B candidate-state result, 2026-08-09
+---------------------------------------------------------------
+
+The user reported no change at all in Nsight from the deployed UPT-10A build.
+Prepared material ownership remains correct, but it is not the dominant GPU
+stall source. No image regression was reported, so the next bounded 10B slice
+was implemented.
+
+D0 now constructs one immutable light schedule per receiver and passes it into
+the fresh direct and secondary NEE candidate loops. A candidate carries only
+the visibility endpoint rather than a full trace request; the request is built
+once for the selected winner. Event and stable identity fields are derived
+after selection. Candidate counts, random dimensions, proposal/target PDFs,
+fixed-M normalization, duplicate exclusion, visibility eligibility, ray
+ceilings, reservoir ABI, descriptors, and dispatches are unchanged.
+
+A selected-coordinate replay version was rejected because it grew the main
+blob to 703,144 bytes. The retained version reduces the main 10A blob from
+640,616 to 638,056 bytes and direct-only by 3,272 bytes, while indirect-only
+grows 784 bytes. The full Vulkan build and static/CPU gates pass. Do not call
+this a performance win until the deployed family 0/1/2 parity-1 markers are
+recaptured; if timings remain unchanged, proceed to UPT-10C specialization
+cleanup rather than adding more candidate math changes.
+
+UPT comparison-pressure trial, 2026-08-09
+-----------------------------------------
+
+The four newest GPU Trace files are family 0/1/2 followed by family 0 with
+reuse cvars enabled. The last report embeds D0, unified T0, and U0 markers but
+no S0. This is not a capture failure: current host policy only enables UPT-09
+spatial for DirectOnly family 1, so family 0 cannot execute spatial yet.
+
+Static family 0/1/2 SPIR-V contained 545/244/308 OpIsNan and 542/243/305
+OpIsInf instructions. The family-0 footprint is additive and comes largely
+from Upt04FinitePositive expanding inside the direct and indirect candidate
+loops. It now uses an exact binary32 bit-range predicate instead of floating
+isfinite plus greater-than. Invalid/zero samples remain rejected.
+
+The main D0 blob falls 15,456 bytes to 622,600 and loses 1,272 SPIR-V
+operations. Direct-only falls 8,560 bytes/705 ops; indirect-only falls 6,880
+bytes/566 ops. The 72 removed unified predicate expansions equal direct 40
+plus indirect 32. T0 unified base falls 22,720 bytes to 900,364; S0 direct base
+falls 15,104 bytes to 423,892. Full Vulkan/static/CPU gates pass. Treat these
+as static wins only until fixed-scene timing and image parity are reported.

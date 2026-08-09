@@ -13,6 +13,9 @@ import upt04_primary_history_sidecar;
 #ifndef UPT04_PACKED_MATERIAL_RECORD
 #define UPT04_PACKED_MATERIAL_RECORD 0
 #endif
+#ifndef UPT04_NATIVE_LIGHT_UINT4_VIEW
+#define UPT04_NATIVE_LIGHT_UINT4_VIEW 0
+#endif
 #if UPT04_PACKED_PRIMARY_RECEIVER == 1
 import upt04_packed_primary_surface;
 #elif UPT04_PACKED_PRIMARY_RECEIVER == 2
@@ -27,7 +30,9 @@ public [[vk::binding(1, 0)]] StructuredBuffer<Upt04PackedPrimarySurfaceRecord32>
 #else
 public [[vk::binding(1, 0)]] StructuredBuffer<Upt04PrimarySurfaceRecord> gUpt04PrimarySurfaces;
 #endif
-#if UPT04_PACKED_LIGHT_RECORD
+#if UPT04_NATIVE_LIGHT_UINT4_VIEW
+public [[vk::binding(2, 0)]] StructuredBuffer<uint4> gUpt04CurrentLights;
+#elif UPT04_PACKED_LIGHT_RECORD
 public [[vk::binding(2, 0)]] StructuredBuffer<Upt04CompactLightRecord> gUpt04CurrentLights;
 #else
 public [[vk::binding(2, 0)]] StructuredBuffer<Upt04UnifiedLightRecord> gUpt04CurrentLights;
@@ -78,7 +83,118 @@ public Upt04PrimarySurfaceRecord Upt04LoadPrimarySurfaceRecord(uint index)
 
 public Upt04UnifiedLightRecord Upt04LoadCurrentLightRecord(uint index)
 {
-#if UPT04_PACKED_LIGHT_RECORD
+#if UPT04_NATIVE_LIGHT_UINT4_VIEW
+    const uint chunkBase = index * 7u;
+    const uint4 chunk0 = gUpt04CurrentLights[chunkBase + 0u];
+    const uint4 chunk1 = gUpt04CurrentLights[chunkBase + 1u];
+    const uint4 chunk2 = gUpt04CurrentLights[chunkBase + 2u];
+    const uint4 chunk3 = gUpt04CurrentLights[chunkBase + 3u];
+    const uint4 chunk4 = gUpt04CurrentLights[chunkBase + 4u];
+    const uint4 chunk5 = gUpt04CurrentLights[chunkBase + 5u];
+    const uint4 chunk6 = gUpt04CurrentLights[chunkBase + 6u];
+    Upt04UnifiedLightRecord light = (Upt04UnifiedLightRecord)0;
+    light.positionAndRadius = asfloat(chunk0);
+    light.normalAndArea = asfloat(chunk1);
+    light.radianceAndLuminance = asfloat(chunk2);
+    light.uvOrDoomParams = asfloat(chunk3);
+    light.type = chunk4.x;
+    light.sourceIndex = chunk4.y;
+    light.flags = chunk4.z;
+    light.materialOrLightId = chunk4.w;
+    light.instanceId = chunk5.x;
+    light.primitiveIndex = chunk5.y;
+    light.identityA = chunk5.z;
+    light.identityB = chunk5.w;
+    light.sourcePdf = asfloat(chunk6.x);
+    light.sourceWeight = asfloat(chunk6.y);
+    light.previousIndex = chunk6.z;
+    light.padding0 = chunk6.w;
+    return light;
+#elif UPT04_PACKED_LIGHT_RECORD
+    return Upt04UnpackCompactLight(gUpt04CurrentLights[index]);
+#else
+    return gUpt04CurrentLights[index];
+#endif
+}
+
+// Native 112-byte records are authoritative, but returning the complete
+// structure makes Slang issue one eager whole-record load before it knows
+// whether the candidate is emissive or analytic.  Proposal parity evaluates
+// many analytic candidates after one emissive candidate, so build the exact
+// type-specific evaluation value from member loads instead.  The compact64
+// route already has one deliberately packed record and keeps its old decode.
+public Upt04UnifiedLightRecord Upt04LoadCurrentLightEvaluationRecord(
+    uint index,
+    uint selectedType)
+{
+#if UPT04_NATIVE_LIGHT_UINT4_VIEW
+    const uint chunkBase = index * 7u;
+    const uint4 chunk0 = gUpt04CurrentLights[chunkBase + 0u];
+    const uint4 chunk2 = gUpt04CurrentLights[chunkBase + 2u];
+    const uint4 chunk4 = gUpt04CurrentLights[chunkBase + 4u];
+    Upt04UnifiedLightRecord light = (Upt04UnifiedLightRecord)0;
+    light.positionAndRadius = asfloat(chunk0);
+    light.radianceAndLuminance = asfloat(chunk2);
+    light.type = chunk4.x;
+    light.sourceIndex = chunk4.y;
+    if (selectedType == kUpt04LightEmissiveTriangle)
+    {
+        const uint4 chunk1 = gUpt04CurrentLights[chunkBase + 1u];
+        const uint4 chunk5 = gUpt04CurrentLights[chunkBase + 5u];
+        const uint4 chunk6 = gUpt04CurrentLights[chunkBase + 6u];
+        light.normalAndArea = asfloat(chunk1);
+        light.materialOrLightId = chunk4.w;
+        light.instanceId = chunk5.x;
+        light.primitiveIndex = chunk5.y;
+        light.identityA = chunk5.z;
+        light.identityB = chunk5.w;
+        light.sourceWeight = asfloat(chunk6.y);
+    }
+    else
+    {
+        const uint4 chunk3 = gUpt04CurrentLights[chunkBase + 3u];
+        light.uvOrDoomParams = asfloat(chunk3);
+        light.flags = chunk4.z;
+    }
+    return light;
+#elif UPT04_PACKED_LIGHT_RECORD
+    return Upt04UnpackCompactLight(gUpt04CurrentLights[index]);
+#else
+    return gUpt04CurrentLights[index];
+#endif
+}
+
+public Upt04UnifiedLightRecord Upt04LoadCurrentLightIdentityRecord(uint index)
+{
+#if UPT04_NATIVE_LIGHT_UINT4_VIEW
+    const uint chunkBase = index * 7u;
+    const uint4 chunk4 = gUpt04CurrentLights[chunkBase + 4u];
+    const uint4 chunk5 = gUpt04CurrentLights[chunkBase + 5u];
+    Upt04UnifiedLightRecord light = (Upt04UnifiedLightRecord)0;
+    light.type = chunk4.x;
+    light.materialOrLightId = chunk4.w;
+    light.identityA = chunk5.z;
+    light.identityB = chunk5.w;
+    return light;
+#elif UPT04_PACKED_LIGHT_RECORD
+    return Upt04UnpackCompactLight(gUpt04CurrentLights[index]);
+#else
+    return gUpt04CurrentLights[index];
+#endif
+}
+
+public Upt04UnifiedLightRecord Upt04LoadCurrentLightVisibilityRecord(uint index)
+{
+#if UPT04_NATIVE_LIGHT_UINT4_VIEW
+    const uint chunkBase = index * 7u;
+    const uint4 chunk4 = gUpt04CurrentLights[chunkBase + 4u];
+    const uint4 chunk5 = gUpt04CurrentLights[chunkBase + 5u];
+    Upt04UnifiedLightRecord light = (Upt04UnifiedLightRecord)0;
+    light.type = chunk4.x;
+    light.instanceId = chunk5.x;
+    light.primitiveIndex = chunk5.y;
+    return light;
+#elif UPT04_PACKED_LIGHT_RECORD
     return Upt04UnpackCompactLight(gUpt04CurrentLights[index]);
 #else
     return gUpt04CurrentLights[index];

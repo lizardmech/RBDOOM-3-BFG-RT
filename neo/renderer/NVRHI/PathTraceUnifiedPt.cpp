@@ -138,13 +138,20 @@ static const char* Upt04InitialShaderPath(
     bool compactGeometry,
     bool compactLights,
     bool compactMaterials,
-    bool splitContinuation)
+    bool splitContinuation,
+    bool directProposalParity)
 {
     if (backend == PathTraceUnifiedPtBackend::RayQuery)
     {
         switch (family)
         {
         case PathTraceUnifiedPtFamily::Unified:
+            if (directProposalParity && primaryReceiverMode == 2u &&
+                !compactGeometry && !compactLights && !compactMaterials &&
+                !splitContinuation)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_unified_parity1.bin";
+            }
             return splitContinuation
                 ? (compactMaterials
                     ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_material48_continuation32.bin"
@@ -210,13 +217,21 @@ static const char* Upt04InitialShaderPath(
     }
 }
 
-static const char* Upt04SplitDirectShaderPath()
+static const char* Upt04SplitDirectShaderPath(bool compactGeometry)
 {
-    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_geometry48_light64.bin";
+    return compactGeometry
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_geometry48_light64.bin"
+        : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32.bin";
 }
 
-static const char* Upt04SplitIndirectShaderPath(bool compactMaterials)
+static const char* Upt04SplitIndirectShaderPath(
+    bool compactGeometry,
+    bool compactMaterials)
 {
+    if (!compactGeometry)
+    {
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32.bin";
+    }
     return compactMaterials
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_material48.bin"
         : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64.bin";
@@ -1210,6 +1225,7 @@ void PathTraceUnifiedPtState::Release()
     m_compactMaterials = false;
     m_splitInitial = false;
     m_splitContinuation = false;
+    m_directProposalParity = false;
     m_temporalModeActive = false;
     m_initialPublishedThisFrame = false;
     m_spatialModeActive = false;
@@ -1389,7 +1405,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_compactLights != inputs.compactLights ||
         m_compactMaterials != inputs.compactMaterials ||
         m_splitInitial != inputs.splitInitial ||
-        m_splitContinuation != inputs.splitContinuation)
+        m_splitContinuation != inputs.splitContinuation ||
+        m_directProposalParity != inputs.directProposalParity)
     {
         ReleasePipeline();
         m_backend = inputs.backend;
@@ -1402,6 +1419,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_compactMaterials = inputs.compactMaterials;
         m_splitInitial = inputs.splitInitial;
         m_splitContinuation = inputs.splitContinuation;
+        m_directProposalParity = inputs.directProposalParity;
         m_selectionValid = true;
         m_resourceFailureLogged = false;
     }
@@ -1507,7 +1525,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         : (liveTlasProbe
         ? Upt04LiveTlasProbePath(pipelineVariant)
         : (inputs.splitInitial
-        ? Upt04SplitDirectShaderPath()
+        ? Upt04SplitDirectShaderPath(inputs.compactGeometry)
         : Upt04InitialShaderPath(
             m_backend,
             m_family,
@@ -1515,7 +1533,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.compactGeometry,
             inputs.compactLights,
             inputs.compactMaterials,
-            inputs.splitContinuation)));
+            inputs.splitContinuation,
+            inputs.directProposalParity)));
     void* initialData = nullptr;
     int initialSize = 0;
     ID_TIME_T initialTimestamp = 0;
@@ -1567,7 +1586,9 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         {
             void* splitIndirectData = nullptr;
             if (!Upt04ReadShader(
-                    Upt04SplitIndirectShaderPath(inputs.compactMaterials),
+                    Upt04SplitIndirectShaderPath(
+                        inputs.compactGeometry,
+                        inputs.compactMaterials),
                     splitIndirectData,
                     splitIndirectSize,
                     splitIndirectTimestamp,

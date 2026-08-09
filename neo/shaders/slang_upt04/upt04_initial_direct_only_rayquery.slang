@@ -31,6 +31,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (pixel.y * gUpt04Control.renderWidth + pixel.x >= gUpt04Control.surfaceCount)
         return;
     const uint surfaceIndex = pixel.y * gUpt04Control.renderWidth + pixel.x;
+#if !UPT04_SPLIT_INITIAL_DIRECT
     if (gUpt04Control.shaderProofMode <= 1u)
     {
         gUpt04Reservoirs[surfaceIndex] = (Upt03PackedReservoir)0;
@@ -45,10 +46,19 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         gUpt04Reservoirs[surfaceIndex] = proof;
         return;
     }
+#endif
     Upt04InitialTraceWork work =
         Upt04PrepareStaticInitialFamilyTraceWork<Upt05OpenPbrMaterialSet>(
-        pixel,
-        kUpt04InitialFamilyDirect);
+            pixel,
+            kUpt04InitialFamilyDirect);
+#if UPT04_SPLIT_INITIAL_DIRECT
+    Upt04HitFacts hit = Upt04MissFacts(work.ray.tMax);
+    if (work.valid != 0u && work.traceRequired != 0u)
+        hit = Upt04TraceVisibilityRayQuery(
+            work.ray, Upt04DirectVisibilityIgnore(work));
+    work = Upt04AdvanceInitialTraceWork(work, hit);
+    Upt04FinishDirectPass(work);
+#else
     if (gUpt04Control.shaderProofMode == 3u)
     {
         Upt04FinishDirectPass(work);
@@ -82,4 +92,5 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     work = Upt04AdvanceInitialTraceWork(work, hit);
     Upt04FinishDirectPass(work);
+#endif
 }

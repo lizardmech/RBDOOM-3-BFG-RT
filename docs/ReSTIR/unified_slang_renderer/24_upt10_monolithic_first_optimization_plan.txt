@@ -233,3 +233,185 @@ performance claim. Reflection and generated verification retained the accepted
 Runtime image, energy, family timing, and Nsight stall acceptance remain open.
 Do not advance to 10B from build evidence alone if the deployed fixed-sample
 image changes or if family-0 timing regresses.
+
+UPT-10A runtime result and UPT-10B build checkpoint, 2026-08-09
+----------------------------------------------------------------
+
+The deployed 10A build produced no observable change at all in Nsight. Treat
+prepared material closure as a successful ownership/code-size cleanup, not as
+the dominant performance fix. The user did not report an image regression, so
+10B was authorized; no timing win is attributed to 10A.
+
+The first 10B slice now builds one immutable current-light schedule per direct
+or secondary receiver. Candidate count, emissive/analytic domain trial counts,
+proposal parity, and configured emissive trials are no longer reconstructed
+inside each proposal evaluation. The exact trial order, random keys, identity
+PDF, target, source PDF, fixed-M denominator, duplicate rejection, and
+selected-only visibility policy remain unchanged.
+
+Candidate winner state no longer retains a complete 32-byte trace request.
+Each valid proposal retains only its direction and distance; the accepted
+primary visibility request is materialized once after RIS selection. Stable
+identity words and event kind are derived from the selected current light and
+type rather than carried through every loop iteration. Eligibility is still
+checked before reservoir admission, so this does not admit a sample whose ray
+request would be invalid.
+
+One stronger replay-compaction variant removed direction/distance too and
+replayed the selected triangle or analytic sphere after RIS. It compiled and
+passed closure, but expanded the main production SPIR-V to 703,144 bytes.
+That variant was rejected before deployment. The retained endpoint-state
+variant produces:
+
+    compact32 geometry48 light64 unified         638,056 bytes (-2,560)
+    split direct compact32 geometry48 light64    275,284 bytes (-3,272)
+    split indirect compact32 geometry48 light64  394,808 bytes (+784)
+
+The deltas compare against the accepted 10A artifacts. The indirect-only size
+increase means this remains a runtime A/B, not an accepted performance win.
+Focused closure, the full Vulkan release preset, UPT-04/UPT-05/UPT-07/UPT-09
+static gates, and primary/temporal/duplication CPU harness execution pass.
+Runtime fixed-sample image and family 0/1/2 parity-1 timing are the next gate.
+
+UPT-10B capture audit and comparison-guard trial, 2026-08-09
+------------------------------------------------------------
+
+Four new GPU Trace reports were supplied in chronological family order 0/1/2,
+then family 0 with temporal and spatial cvars enabled. The report container is
+not headlessly exportable with the installed Nsight replay CLI, so exact marker
+durations still require the UI values or a CSV export. Embedded marker evidence
+does prove that the fourth report contains D0, unified T0, and U0 Fill SampleID,
+but no S0 marker. This is expected from the current host gate: UPT-09 spatial
+is direct-only and `inputs.spatial` is false unless family == DirectOnly.
+The fourth capture is therefore D0+T0, not D0+T0+S0.
+
+The user's instruction-mix observation is supported by static production
+SPIR-V. Before the next trial the family 0/1/2 permutations contained:
+
+    family 0  OpIsNan 545  OpIsInf 542
+    family 1  OpIsNan 244  OpIsInf 243
+    family 2  OpIsNan 308  OpIsInf 305
+
+The family-0 counts are essentially additive. The repeated source is strict
+`isfinite(value) && value > 0` validation in the candidate loops, not an extra
+unified-only estimator rule. NVIDIA also guards invalid final pixels, but much
+of that work is selected/final-shading work rather than an inner-RIS predicate.
+
+An exact IEEE-754 positive-finite classifier now replaces Upt04FinitePositive:
+
+    asuint(value) - 1u < 0x7f7fffffu
+
+Binary32 positive finite values occupy bit patterns 1 through 0x7f7fffff, so
+the expression accepts the same set and rejects +0, -0, negatives, infinities,
+and all NaNs. It changes no rejection policy. It replaces an inlined floating
+NaN/Inf/greater-than chain and its short-circuit branches with integer subtract
+and unsigned comparison.
+
+Static results versus the retained endpoint-state 10B build:
+
+    family 0  638,056 -> 622,600 bytes; 39,420 -> 38,148 SPIR-V ops
+    family 1  275,204 -> 266,644 bytes; 16,931 -> 16,226 SPIR-V ops
+    family 2  389,416 -> 382,536 bytes; 23,727 -> 23,161 SPIR-V ops
+
+Family 0 removes 72 instances each of OpIsNan, OpIsInf, floating greater-than,
+and two short-circuit selection merges. That equals family 1's 40 plus family
+2's 32 removed predicate expansions. Temporal unified base also falls from
+923,084 to 900,364 bytes, and spatial direct base from 438,996 to 423,892.
+Focused/full Vulkan builds and the primary/temporal/duplication CPU contracts
+pass. Runtime image and marker timing remain the acceptance gate.
+
+UPT-10B runtime result, 2026-08-09
+-----------------------------------
+
+The exact positive-finite predicate and retained candidate-state cleanup made
+the direct-only and indirect-only families slightly faster in isolation, but
+produced no real change in the unified family. Keep the predicate because it
+preserves the exact rejection set and measurably removes generated work; do
+not attribute a fusion fix to it. The large family-0 penalty remains.
+
+This result advances the next experiment to UPT-10C. The first specialization
+is intentionally limited to the actually profiled compact32 receiver with the
+native 112-byte light/material records, family 0, and proposal parity 1. It
+statically fixes the direct+indirect family mask and proposal-parity policy.
+Parity 0 and every compact-geometry/light/material or split-continuation path
+retain their existing generic artifacts, so the accepted variants are not
+removed and the existing parity cvar provides the runtime A/B boundary.
+
+UPT-10C static result and UPT-10E split trial, 2026-08-09
+---------------------------------------------------------
+
+The family-0 compact32/native112 proposal-parity specialization closes and
+reduces the production SPIR-V from 581,236 to 577,796 bytes (-3,440, 0.6%).
+That is too small to explain the measured fusion penalty, so it remains an
+exact runtime A/B rather than an accepted solution.
+
+The existing exact shared-reservoir split previously required the compact
+geometry and compact-light packing experiments, contaminating the comparison
+with their pack dispatches. UPT-10E now adds native112 split artifacts for the
+same compact32 receiver used by the supplied captures. D0a writes the exact
+unnormalized intermediate reservoir, a UAV barrier separates it from D0b, and
+D0b extends the same reservoir and performs the sole final normalization.
+There is no new queue or full-frame clear.
+
+The split-only direct shader no longer retains proof modes 1 through 6 or the
+generic proof traversal wrapper. Its production path uses the same selected
+visibility RayQuery as the monolith. Static native112 artifact sizes are:
+
+    D0a split direct     253,544 bytes
+    D0b split indirect   356,504 bytes
+    combined artifacts  610,048 bytes
+    monolithic parity1   577,796 bytes
+
+The combined code is larger, but each dispatch has a substantially smaller
+instruction working set. Runtime acceptance therefore depends strictly on
+the complete D0a + intermediate barrier + D0b sum versus monolithic D0; a win
+in either child marker alone is insufficient.
+
+Build and deployment gate:
+
+    PathTraceSlangUpt04BackendClosure              pass
+    PathTraceUnifiedPrimaryScheduleHarness         pass
+    PathTraceUnifiedTemporalContractHarness        pass
+    PathTraceUnifiedDuplicationContractHarness     pass (silent, exit 0)
+    cmake --build --preset win64-pt-dev-release    pass
+    monolithic/split ray-query sites               3 / (1 + 2)
+    deployed Vulkan blobs                          36 UPT-04, 0 mismatches
+    deployed RBDoom3BFG.exe SHA-256                5B54893346D6B294B872035982E3B08D6B9300AA0B1C499999F4C61D1AED585D
+
+No DX12 shader was compiled or deployed. Runtime image equivalence and the
+complete split-marker timing comparison remain open; do not checkpoint the
+UPT-10B/10C/10E work until those gates pass.
+
+UPT-10E runtime result and D0b native-light load trial, 2026-08-09
+------------------------------------------------------------------
+
+The complete native112 split saved approximately 8 ms relative to the
+monolithic family-0 dispatch, including D0a, the intermediate UAV barrier, and
+D0b. This is a material end-to-end win and accepts the physical split as the
+current production direction. The indirect D0b shader remains dominated by No
+Instructions. Nsight attributed 4.13 percent of sampled input dependency to:
+
+    OpLoad %Upt04UnifiedLightRecord_natural
+
+The instruction eagerly loaded nearly the complete 112-byte manager record in
+the secondary-NEE candidate loop. Under proposal parity 1, one emissive trial
+is followed by many analytic trials, but those analytic trials still paid for
+emissive-only replay identity, normal/area, and source-weight fields.
+
+A first field-member source rewrite was rejected: Slang retained the same
+whole-structure OpLoad and enlarged D0b by 320 bytes. The retained experiment
+instead gives only the native112 split-indirect specialization a uint4 view of
+the unchanged manager buffer. Its seven 16-byte chunks exactly cover one
+112-byte record. Analytic trials load chunks 0, 2, 4, and 3 (64 bytes), while
+the single emissive trial additionally loads the triangle identity/geometry
+chunks it actually consumes (96 bytes). Selected fingerprint and visibility
+reads use only their two required chunks.
+
+Static result:
+
+    whole Upt04UnifiedLightRecord loads       5 -> 0
+    D0b native split SPIR-V bytes        356,504 -> 356,180
+    buffer, descriptor slot, bytes and ABI    unchanged
+
+Runtime image equivalence and the D0b marker/Nsight dependency change remain
+the acceptance gate for this load-view experiment.

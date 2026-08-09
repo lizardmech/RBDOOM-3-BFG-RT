@@ -43,17 +43,15 @@ public struct Upt04SecondaryNeeProposal
 {
     public uint valid;
     public uint stage;
-    public uint eventKind;
     public uint lightIndex;
     public uint lightType;
     public uint lobeMask;
-    public uint identityFingerprint;
     public float2 sampleCoordinates;
     public float3 rawContribution;
     public float target;
     public float sourcePdf;
-    public float pathPdf;
-    public Upt04TraceRequest visibilityRay;
+    public float3 sampleDirection;
+    public float sampleDistance;
 };
 
 public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
@@ -61,12 +59,14 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
     Upt04InitialTraceWork work,
     Upt04GeometryHitSurface hitSurface,
     Upt04PreparedDirectMaterial preparedMaterial,
+    Upt04InitialLightSchedule schedule,
     uint2 pixel,
     uint candidateOrdinal)
 {
     Upt04SecondaryNeeProposal proposal = (Upt04SecondaryNeeProposal)0;
     const Upt04LocalLightSelection selection =
         Upt04SelectInitialLightFromReplay(
+            schedule,
             work.replayKey,
             work.replayIndex,
             1u,
@@ -77,7 +77,8 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
     proposal.stage = 1u;
 
     const Upt04UnifiedLightRecord light =
-        Upt04LoadCurrentLightRecord(selection.denseIndex);
+        Upt04LoadCurrentLightEvaluationRecord(
+            selection.denseIndex, selection.type);
     if (selection.type == kUpt04LightEmissiveTriangle
         && selection.reserved != 0u
         && light.sourceIndex != selection.reserved - 1u)
@@ -109,34 +110,29 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
         * material.weightedContribution;
     const float target = max(rawContribution.x,
         max(rawContribution.y, rawContribution.z));
-    Upt04TraceRequest visibilityRay;
     if (!Upt04FinitePositive(sourcePdf)
         || !Upt04FinitePositive(pathPdf)
         || !all(isfinite(rawContribution))
         || !Upt04FinitePositive(target)
-        || !Upt04BuildPrimaryVisibilityRequest(
+        || !Upt04PrimaryVisibilityEndpointValid(
             hitSurface.position,
             hitSurface.geometricNormal,
             hitSurface.shadingNormal,
             evaluated.sample.direction,
-            evaluated.sample.distance,
-            visibilityRay))
+            evaluated.sample.distance))
         return proposal;
 
     proposal.valid = 1u;
     proposal.stage = 4u;
-    proposal.eventKind = selection.type == kUpt04LightEmissiveTriangle
-        ? 2u : 1u;
     proposal.lightIndex = selection.denseIndex;
     proposal.lightType = selection.type;
     proposal.lobeMask = material.lobeMask;
-    proposal.identityFingerprint = Upt04StableLightIdentityFingerprint(light);
     proposal.sampleCoordinates = evaluated.storedSampleCoordinates;
     proposal.rawContribution = rawContribution;
     proposal.target = target;
     proposal.sourcePdf = sourcePdf;
-    proposal.pathPdf = pathPdf;
-    proposal.visibilityRay = visibilityRay;
+    proposal.sampleDirection = evaluated.sample.direction;
+    proposal.sampleDistance = evaluated.sample.distance;
     return proposal;
 }
 
@@ -215,7 +211,8 @@ public Upt04InitialTraceWork Upt04PrepareIndirectTrial<
     work.candidateFlags = kUpt04CandidateFlagGlobal
         | kUpt04CandidateFlagReplayable
         | kUpt04CandidateFlagNeedsShift
-        | ((gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
+        | (Upt04DirectProposalParityValue(
+                gUpt04Control.availabilityFlags) != 0u
             ? kUpt04CandidateFlagDirectProposalParity : 0u);
     work.proposalPdf = continuation.pdf;
     work.pathPdf = continuation.pdf;
@@ -358,14 +355,9 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     }
 
-    const uint proposalParity =
-        (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
-            ? 1u : 0u;
-    const uint candidateCount = Upt04DirectRisCandidateCount(
-        ranges,
-        proposalParity,
-        Upt04ConfiguredEmissiveTrialCount(
-            gUpt04Control.availabilityFlags));
+    const Upt04InitialLightSchedule schedule =
+        Upt04MakeInitialLightSchedule(ranges);
+    const uint candidateCount = schedule.candidateCount;
     Upt04SecondaryNeeProposal selected = (Upt04SecondaryNeeProposal)0;
     float weightSum = 0.0f;
     uint deepestStage = 0u;
@@ -376,7 +368,12 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     {
         const Upt04SecondaryNeeProposal proposal =
             Upt04EvaluateSecondaryNeeProposal<TMaterialSet>(
-                work, hitSurface, preparedMaterial, pixel, candidateOrdinal);
+                work,
+                hitSurface,
+                preparedMaterial,
+                schedule,
+                pixel,
+                candidateOrdinal);
         deepestStage = max(deepestStage, proposal.stage);
         if (proposal.valid == 0u)
             continue;
@@ -417,18 +414,23 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     }
 
     Upt04InitialTraceWork nee = work;
-    nee.eventKind = selected.eventKind;
+    nee.eventKind = selected.lightType == kUpt04LightEmissiveTriangle
+        ? 2u : 1u;
     nee.lightIndex = selected.lightIndex;
     nee.lightType = selected.lightType;
     nee.identity0 = selected.lightIndex + 1u;
     if (nee.identity0 == 0u)
         return result;
-    nee.identity1 = selected.identityFingerprint;
+    if (selected.lightIndex >= gUpt04Control.currentLightCount)
+        return result;
+    const Upt04UnifiedLightRecord selectedLight =
+        Upt04LoadCurrentLightIdentityRecord(selected.lightIndex);
+    nee.identity1 = Upt04StableLightIdentityFingerprint(selectedLight);
     nee.sampleCoordinates = selected.sampleCoordinates;
     nee.pathLength = 2u;
     nee.reconnectionVertexLength = 1u;
     nee.proposalPdf = 1.0f;
-    nee.pathPdf = selected.pathPdf;
+    nee.pathPdf = work.pathPdf * selected.sourcePdf;
     nee.lobeMask = work.lobeMask | selected.lobeMask;
     // Convert the inner NEE RIS UCW into one complete PSS estimator before it
     // enters the outer path-tree stream. Zero/malformed trials remain in the
@@ -449,7 +451,17 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         result.diagnostics |= kUpt04IndirectDiagSecondaryPdfRayFailure;
         return result;
     }
-    nee.ray = selected.visibilityRay;
+    if (!Upt04BuildPrimaryVisibilityRequest(
+            hitSurface.position,
+            hitSurface.geometricNormal,
+            hitSurface.shadingNormal,
+            selected.sampleDirection,
+            selected.sampleDistance,
+            nee.ray))
+    {
+        result.diagnostics |= kUpt04IndirectDiagSecondaryPdfRayFailure;
+        return result;
+    }
     nee.traceRequired = 1u;
     nee.candidateReady = 0u;
     result.neeWork = nee;
@@ -465,7 +477,7 @@ public Upt04VisibilityIgnore Upt04IndirectNeeVisibilityIgnore(
         || work.lightIndex >= gUpt04Control.currentLightCount)
         return Upt04NoVisibilityIgnore();
     const Upt04UnifiedLightRecord light =
-        Upt04LoadCurrentLightRecord(work.lightIndex);
+        Upt04LoadCurrentLightVisibilityRecord(work.lightIndex);
     return light.type == kUpt04LightEmissiveTriangle
         ? Upt04MakeVisibilityIgnore(light.instanceId, light.primitiveIndex)
         : Upt04NoVisibilityIgnore();

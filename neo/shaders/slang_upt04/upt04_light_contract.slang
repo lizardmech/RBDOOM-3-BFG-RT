@@ -202,7 +202,14 @@ public static const uint kUpt04EmissiveLookupMaxProbes = 16u;
 
 public bool Upt04FinitePositive(float value)
 {
-    return isfinite(value) && value > 0.0f;
+    // IEEE-754 binary32 ordering makes every strictly-positive finite value
+    // occupy bit patterns [1, 0x7f7fffff].  Subtracting one folds that interval
+    // into one unsigned comparison while rejecting +0, both signs of infinity,
+    // NaNs, negative values, and -0 exactly as isfinite(value) && value > 0.
+    // This predicate is hot inside every RIS candidate evaluation; keeping it
+    // off the FP32 comparison/classification pipe materially reduces repeated
+    // guard work without weakening invalid-sample rejection.
+    return asuint(value) - 1u < 0x7f7fffffu;
 }
 
 public float Upt04BalanceHeuristic(float selectedPdf, float alternatePdf)

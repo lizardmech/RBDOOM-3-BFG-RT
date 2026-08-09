@@ -2795,8 +2795,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
                 unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified &&
                 unifiedPtInputs.primaryReceiverMode == 2u &&
-                unifiedPtInputs.compactGeometry &&
-                unifiedPtInputs.compactLights &&
+                (unifiedPtInputs.compactGeometry ==
+                    unifiedPtInputs.compactLights) &&
                 !unifiedPtInputs.diagnostics &&
                 unifiedPtInputs.shaderProofMode == 6u;
             unifiedPtInputs.splitContinuation =

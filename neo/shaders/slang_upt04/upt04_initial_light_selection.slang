@@ -7,6 +7,57 @@ import upt04_random_contract;
 import upt04_random_white_hash;
 import upt04_replay_random;
 
+// Immutable per-receiver schedule.  Keep control-buffer loads and domain-count
+// arithmetic out of the candidate loop while preserving the exact proposal
+// ordering and PDFs used by the accepted parity paths.
+public struct Upt04InitialLightSchedule
+{
+    public Upt04LocalLightRanges ranges;
+    public uint proposalParity;
+    public uint configuredEmissiveTrials;
+    public uint emissiveTrials;
+    public uint analyticTrials;
+    public uint candidateCount;
+};
+
+public Upt04InitialLightSchedule Upt04MakeInitialLightSchedule(
+    Upt04LocalLightRanges ranges)
+{
+    Upt04InitialLightSchedule schedule;
+    schedule.ranges = ranges;
+    schedule.proposalParity = Upt04DirectProposalParityValue(
+        gUpt04Control.availabilityFlags);
+    schedule.configuredEmissiveTrials = Upt04ConfiguredEmissiveTrialCount(
+        gUpt04Control.availabilityFlags);
+    schedule.emissiveTrials = Upt04DirectRisDomainTrialCount(
+        ranges,
+        kUpt04LightEmissiveTriangle,
+        schedule.proposalParity,
+        schedule.configuredEmissiveTrials);
+    schedule.analyticTrials = Upt04DirectRisDomainTrialCount(
+        ranges,
+        kUpt04LightDoomAnalytic,
+        schedule.proposalParity,
+        schedule.configuredEmissiveTrials);
+    schedule.candidateCount = schedule.emissiveTrials
+        + schedule.analyticTrials;
+    return schedule;
+}
+
+public float Upt04InitialLightScheduleIdentityPdf(
+    Upt04InitialLightSchedule schedule,
+    uint lightType)
+{
+    const uint domainCount = lightType == kUpt04LightEmissiveTriangle
+        ? schedule.ranges.emissiveCount : schedule.ranges.analyticCount;
+    const uint domainTrials = lightType == kUpt04LightEmissiveTriangle
+        ? schedule.emissiveTrials : schedule.analyticTrials;
+    return domainCount != 0u && domainTrials != 0u
+            && schedule.candidateCount != 0u
+        ? float(domainTrials) / float(schedule.candidateCount * domainCount)
+        : 0.0f;
+}
+
 // Shared current-frame emissive identity selector. The publication's logical
 // count is authoritative because the structured allocation retains a stale
 // capacity tail across frames.
@@ -81,79 +132,82 @@ public Upt04LocalLightSelection Upt04SelectInitialWeightedEmissive(
 // fields. Secondary NEE streams this complete schedule through an inner RIS
 // and traces visibility only for its winner.
 public Upt04LocalLightSelection Upt04SelectInitialLightFromRandoms(
+    Upt04InitialLightSchedule schedule,
     uint candidateOrdinal,
     float identityRandom,
     float2 surfaceRandom)
 {
     Upt04LocalLightSelection result = (Upt04LocalLightSelection)0;
-    Upt04LocalLightRanges ranges;
-    ranges.emissiveStart = gUpt04Control.emissiveRangeStart;
-    ranges.emissiveCount = gUpt04Control.emissiveRangeCount;
-    ranges.analyticStart = gUpt04Control.analyticRangeStart;
-    ranges.analyticCount = gUpt04Control.analyticRangeCount;
-    const uint proposalParity =
-        (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
-            ? 1u : 0u;
-    const uint configuredEmissiveTrials = Upt04ConfiguredEmissiveTrialCount(
-        gUpt04Control.availabilityFlags);
-    const uint candidateCount = Upt04DirectRisCandidateCount(
-        ranges, proposalParity, configuredEmissiveTrials);
-    if (candidateOrdinal >= candidateCount)
+    if (candidateOrdinal >= schedule.candidateCount)
         return result;
 
-    const uint emissiveTrials = Upt04DirectRisDomainTrialCount(
-        ranges, kUpt04LightEmissiveTriangle, proposalParity,
-        configuredEmissiveTrials);
-    const bool selectEmissive = candidateOrdinal < emissiveTrials;
+    const bool selectEmissive = candidateOrdinal < schedule.emissiveTrials;
     const uint selectedType = selectEmissive
         ? kUpt04LightEmissiveTriangle : kUpt04LightDoomAnalytic;
     Upt04LocalLightRanges typedRanges = (Upt04LocalLightRanges)0;
     if (selectEmissive)
     {
-        typedRanges.emissiveStart = ranges.emissiveStart;
-        typedRanges.emissiveCount = ranges.emissiveCount;
+        typedRanges.emissiveStart = schedule.ranges.emissiveStart;
+        typedRanges.emissiveCount = schedule.ranges.emissiveCount;
     }
     else
     {
-        typedRanges.analyticStart = ranges.analyticStart;
-        typedRanges.analyticCount = ranges.analyticCount;
+        typedRanges.analyticStart = schedule.ranges.analyticStart;
+        typedRanges.analyticCount = schedule.ranges.analyticCount;
     }
-    if (proposalParity != 0u && !selectEmissive)
+    if (schedule.proposalParity != 0u && !selectEmissive)
     {
-        const uint analyticOrdinal = candidateOrdinal - emissiveTrials;
-        const uint analyticTrials = Upt04DirectRisDomainTrialCount(
-            ranges, kUpt04LightDoomAnalytic, proposalParity,
-            configuredEmissiveTrials);
+        const uint analyticOrdinal = candidateOrdinal
+            - schedule.emissiveTrials;
         const float stride = max(
-            1.0f, float(ranges.analyticCount) / float(max(analyticTrials, 1u)));
+            1.0f,
+            float(schedule.ranges.analyticCount)
+                / float(max(schedule.analyticTrials, 1u)));
         const float lightIndexInRange = min(
             (float(analyticOrdinal) + identityRandom) * stride,
-            float(max(ranges.analyticCount, 1u) - 1u));
+            float(max(schedule.ranges.analyticCount, 1u) - 1u));
         identityRandom = (lightIndexInRange + 0.5f)
-            / float(max(ranges.analyticCount, 1u));
+            / float(max(schedule.ranges.analyticCount, 1u));
     }
     if (!isfinite(identityRandom) || identityRandom < 0.0f
         || identityRandom >= 1.0f || !all(isfinite(surfaceRandom))
         || any(surfaceRandom < 0.0f) || any(surfaceRandom >= 1.0f))
         return result;
 
-    if (proposalParity != 0u && selectEmissive)
+    if (schedule.proposalParity != 0u && selectEmissive)
     {
         result = Upt04SelectInitialWeightedEmissive(
-            ranges,
+            schedule.ranges,
             identityRandom,
             surfaceRandom,
-            emissiveTrials,
-            candidateCount);
+            schedule.emissiveTrials,
+            schedule.candidateCount);
         if (result.valid != 0u)
             return result;
     }
 
     result = Upt04SelectUniformLocalLight(
         typedRanges, identityRandom, surfaceRandom);
-    result.selectionPdf = Upt04DirectRisIdentityPdf(
-        ranges, selectedType, proposalParity, configuredEmissiveTrials);
+    result.selectionPdf = Upt04InitialLightScheduleIdentityPdf(
+        schedule, selectedType);
     return result;
+}
+
+public Upt04LocalLightSelection Upt04SelectInitialLightFromRandoms(
+    uint candidateOrdinal,
+    float identityRandom,
+    float2 surfaceRandom)
+{
+    Upt04LocalLightRanges ranges;
+    ranges.emissiveStart = gUpt04Control.emissiveRangeStart;
+    ranges.emissiveCount = gUpt04Control.emissiveRangeCount;
+    ranges.analyticStart = gUpt04Control.analyticRangeStart;
+    ranges.analyticCount = gUpt04Control.analyticRangeCount;
+    return Upt04SelectInitialLightFromRandoms(
+        Upt04MakeInitialLightSchedule(ranges),
+        candidateOrdinal,
+        identityRandom,
+        surfaceRandom);
 }
 
 public Upt04LocalLightSelection Upt04SelectInitialLightAtVertex(
@@ -186,6 +240,7 @@ public Upt04LocalLightSelection Upt04SelectInitialLightAtVertex(
 }
 
 public Upt04LocalLightSelection Upt04SelectInitialLightFromReplay(
+    Upt04InitialLightSchedule schedule,
     uint replayKey,
     uint replayIndex,
     uint pathVertex,
@@ -215,5 +270,24 @@ public Upt04LocalLightSelection Upt04SelectInitialLightFromReplay(
             kUpt04StreamInitialLocalLightSurfaceV,
             kUpt04DimensionInitialLocalLightSurfaceV)));
     return Upt04SelectInitialLightFromRandoms(
-        candidateOrdinal, identityRandom, surfaceRandom);
+        schedule, candidateOrdinal, identityRandom, surfaceRandom);
+}
+
+public Upt04LocalLightSelection Upt04SelectInitialLightFromReplay(
+    uint replayKey,
+    uint replayIndex,
+    uint pathVertex,
+    uint candidateOrdinal)
+{
+    Upt04LocalLightRanges ranges;
+    ranges.emissiveStart = gUpt04Control.emissiveRangeStart;
+    ranges.emissiveCount = gUpt04Control.emissiveRangeCount;
+    ranges.analyticStart = gUpt04Control.analyticRangeStart;
+    ranges.analyticCount = gUpt04Control.analyticRangeCount;
+    return Upt04SelectInitialLightFromReplay(
+        Upt04MakeInitialLightSchedule(ranges),
+        replayKey,
+        replayIndex,
+        pathVertex,
+        candidateOrdinal);
 }

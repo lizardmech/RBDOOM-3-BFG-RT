@@ -104,9 +104,8 @@ public float Upt04ExactNeePdfForEmissiveHit<
             ranges, gUpt04Control.currentLightCount))
         return 0.0f;
 
-    const uint proposalParity =
-        (gUpt04Control.availabilityFlags & kUpt04DirectProposalParity) != 0u
-            ? 1u : 0u;
+    const uint proposalParity = Upt04DirectProposalParityValue(
+        gUpt04Control.availabilityFlags);
     const uint configuredEmissiveTrials = Upt04ConfiguredEmissiveTrialCount(
         gUpt04Control.availabilityFlags);
     float selectionPdf = 0.0f;

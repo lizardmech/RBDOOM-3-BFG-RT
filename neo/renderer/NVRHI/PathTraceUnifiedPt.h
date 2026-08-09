@@ -191,6 +191,7 @@ private:
     bool m_compactMaterials = false;
     bool m_splitInitial = false;
     bool m_splitContinuation = false;
+    bool m_directProposalParity = false;
     bool m_temporalModeActive = false;
     bool m_initialPublishedThisFrame = false;
     bool m_spatialModeActive = false;
