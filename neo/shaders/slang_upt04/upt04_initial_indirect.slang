@@ -277,6 +277,12 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     }
 
     Upt04InitialTraceWork endpoint = work;
+    // The continuation query reached this exact endpoint in the current TLAS.
+    // Preserve that proof through reservoir packing so T0 can keep a
+    // current-selected endpoint without treating it as an unverified shifted
+    // history sample and falling back to the raw D0 reservoir.
+    endpoint.candidateFlags |= kUpt04CandidateFlagVisibilityKnown
+        | kUpt04CandidateFlagVisibilityPassed;
     endpoint.identity0 = hit.instanceId + 1u;
     if (endpoint.identity0 == 0u)
         return result;

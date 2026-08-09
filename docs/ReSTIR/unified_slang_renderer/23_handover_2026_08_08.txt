@@ -1144,3 +1144,26 @@ classification and invalidation behavior are unchanged. The exact Vulkan
 release build passes with all SPIR-V already current; only the rebuilt
 16,314,368-byte executable needs deployment for this correction. Recheck CPU
 scene-build time before collecting GPU comparisons.
+
+UPT-18 fresh-endpoint visibility correction, 2026-08-10
+--------------------------------------------------------
+
+temptests.txt proved that maximum history age 1 reduced inferred indirect ray
+work by about 44 percent, while exact single-tap temporal search did not change
+the age-32 workload. It also exposed visibilityFallback rising from about 424k
+to 877k as BASIC selected more current samples.
+
+The cause was a narrow D0/T0 contract mismatch. A D0 BSDF continuation-hit
+endpoint is visible by construction, but Upt04PrepareIndirectHitTrials did not
+persist VisibilityKnown|VisibilityPassed. T0 therefore treated fresh endpoint
+winners as missing-proof indirect shifts, failed closed, and discarded the
+merged reservoir state. D0 now records the proof before packing; history replay
+and secondary-NEE visibility rules are unchanged. Re-run the age-1 reset with
+route diagnostics briefly enabled, then time the normal temporal blob with the
+diagnostic off.
+
+The exact Vulkan release build and the new static proof verifier pass. The 26
+rebuilt UPT-04 SPIR-V blobs were deployed with matching hashes. The executable
+remained the prior verified 16,314,368-byte build with SHA-256
+FAAB471E658CC8614366503365A3F4D8D722A14EC0B0B11487C2A8630ECACA2D and was
+redeployed as requested. No DX12 shader was compiled or deployed.

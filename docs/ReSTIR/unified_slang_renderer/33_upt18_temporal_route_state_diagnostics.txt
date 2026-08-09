@@ -97,3 +97,45 @@ RayQuery sites and no TraceRay. PathTraceUnifiedTemporalContractHarness passed:
     UPT-07 temporal contract tests passed; pages=2 taps=9 winnerVisibilityRaysMax=1
 
 No DX12 shader was compiled.
+
+Runtime finding: fresh endpoint visibility proof
+------------------------------------------------
+
+temptests.txt isolated two independent results in the same mc_underground
+view. Reducing maximum history age from 32 to 1 reduced the inferred indirect
+RayQuery population from about 3.57 million to 2.00 million per frame. Restoring
+age 32 and selecting exact single-tap reprojection left it at about 3.57
+million, so the nine-tap receiver search was not the source of the accumulated
+endpoint workload.
+
+The age-1 run also exposed a D0/T0 contract mismatch. Fresh D0 continuation-hit
+endpoints did not persist VisibilityKnown|VisibilityPassed even though their
+closest-hit continuation query is the complete current-frame visibility proof.
+When BASIC selected one of those current endpoints, T0 classified it as a
+missing-proof indirect winner, failed closed, and republished the raw D0
+reservoir. visibilityFallback consequently tracked merge-current selections:
+about 424k at age 32 and 877k at age 1.
+
+Upt04PrepareIndirectHitTrials now marks the continuation-hit endpoint known and
+passed before reservoir streaming. Secondary NEE retains its separate explicit
+visibility query and proof path. No history sample is trusted by this change;
+Upt07ReplayIndirectSample must still reconstruct history in the current TLAS.
+The static-specialization verifier owns a source contract preventing removal of
+the fresh-endpoint proof.
+
+Runtime recheck
+---------------
+
+Repeat the age-1 reset test first. Current endpoint selections should no longer
+inflate visibilityFallback, while history/reciprocal replay counts should remain
+within stochastic variance. Time only the production blob with route diagnostics
+disabled. Do not promote age 1 from this experiment; it remains a diagnostic for
+history-workload accumulation.
+
+Correction build and deployment
+-------------------------------
+
+The prescribed win64-pt-dev-release build passed. The static-specialization
+stamp reports continuation endpoint visibility proof=known+passed. The shared
+source rebuilt 26 Vulkan UPT-04 blobs; all deployed source/destination hashes
+match. No DX12 shader was compiled or deployed.

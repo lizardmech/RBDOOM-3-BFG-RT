@@ -3,11 +3,18 @@ foreach(required
         UPT04_DIRECT_RG_REFLECTION UPT04_DIRECT_RG_DISASSEMBLY UPT04_DIRECT_RG_SPV
         UPT04_INDIRECT_RQ_REFLECTION UPT04_INDIRECT_RQ_DISASSEMBLY UPT04_INDIRECT_RQ_SPV
         UPT04_INDIRECT_RG_REFLECTION UPT04_INDIRECT_RG_DISASSEMBLY UPT04_INDIRECT_RG_SPV
-        UPT04_UNIFIED_RQ_SPV UPT04_UNIFIED_RG_SPV UPT04_STAMP)
+        UPT04_UNIFIED_RQ_SPV UPT04_UNIFIED_RG_SPV UPT04_INDIRECT_SOURCE UPT04_STAMP)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "UPT-04 static-specialization verification missing ${required}")
     endif()
 endforeach()
+
+file(READ "${UPT04_INDIRECT_SOURCE}" indirect_source)
+if(NOT indirect_source MATCHES
+        "endpoint\\.candidateFlags[ \t\r\n]*\\|=[ \t\r\n]*kUpt04CandidateFlagVisibilityKnown[ \t\r\n]*\\|[ \t\r\n]*kUpt04CandidateFlagVisibilityPassed")
+    message(FATAL_ERROR
+        "UPT-04 continuation-hit endpoint does not preserve its current-frame visibility proof")
+endif()
 
 foreach(kind DIRECT_RQ DIRECT_RG INDIRECT_RQ INDIRECT_RG)
     file(READ "${UPT04_${kind}_REFLECTION}" reflection)
@@ -133,4 +140,4 @@ if(NOT direct_rq_bytes LESS unified_rq_bytes
 endif()
 
 file(WRITE "${UPT04_STAMP}"
-    "UPT-04 static specializations verified: direct rq/rg=${direct_rq_bytes}/${direct_rg_bytes}, indirect rq/rg=${indirect_rq_bytes}/${indirect_rg_bytes}, unified rq/rg=${unified_rq_bytes}/${unified_rg_bytes}\n")
+    "UPT-04 static specializations verified: direct rq/rg=${direct_rq_bytes}/${direct_rg_bytes}, indirect rq/rg=${indirect_rq_bytes}/${indirect_rg_bytes}, unified rq/rg=${unified_rq_bytes}/${unified_rg_bytes}, continuation endpoint visibility proof=known+passed\n")

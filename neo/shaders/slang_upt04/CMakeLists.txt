@@ -820,6 +820,7 @@ add_custom_command(
         -DUPT04_INDIRECT_RG_SPV=${UPT04_OUTPUT_DIR}/upt04_initial_indirect_only_raygen.slang.spv
         -DUPT04_UNIFIED_RQ_SPV=${UPT04_OUTPUT_DIR}/upt04_initial_rayquery.slang.spv
         -DUPT04_UNIFIED_RG_SPV=${UPT04_OUTPUT_DIR}/upt04_initial_raygen.slang.spv
+        -DUPT04_INDIRECT_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect.slang
         -DUPT04_STAMP=${UPT04_STATIC_VERIFY_STAMP}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt04StaticSpecializations.cmake"
     DEPENDS ${UPT04_STATIC_SPECIALIZATION_OUTPUTS} ${UPT04_BACKEND_OUTPUTS}
