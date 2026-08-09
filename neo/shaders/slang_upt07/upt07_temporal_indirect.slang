@@ -25,6 +25,16 @@ import upt07_temporal_reservoir;
 
 public static const uint kUpt07IndirectReplayFlag = 1u << 25u;
 
+// Transient T0 work only. Secondary-NEE replay reconstructs this request while
+// the secondary vertex and selected light are live, but traversal is deferred
+// until the temporal merge proves that the replayed history sample won.
+public struct Upt07PendingIndirectVisibility
+{
+    public uint valid;
+    public Upt04TraceRequest request;
+    public Upt04VisibilityIgnore ignore;
+};
+
 public struct Upt07IndirectMaterialSet : IUpt04MaterialSet
 {
     static Upt04PreparedDirectMaterial PreparePrimaryDirect(
@@ -498,10 +508,13 @@ public uint Upt07ReplayIndirectSample(
     Upt04PrimarySurfaceRecord receiver,
     uint sourceIsHistory,
     out uint failureReason,
-    out Upt03Candidate shifted)
+    out Upt03Candidate shifted,
+    out Upt07PendingIndirectVisibility pendingVisibility)
 {
     failureReason = kUpt07RejectIndirectStructure;
     shifted = (Upt03Candidate)0;
+    pendingVisibility = (Upt07PendingIndirectVisibility)0;
+    pendingVisibility.ignore = Upt04NoVisibilityIgnore();
     if ((gUpt07Control.geometryAvailabilityFlags
             & kUpt07IndirectReplayFlag) == 0u
         || source.replayKey == 0u
@@ -559,8 +572,6 @@ public uint Upt07ReplayIndirectSample(
     shifted.flags = kUpt04CandidateFlagGlobal
         | kUpt04CandidateFlagReplayable
         | kUpt04CandidateFlagNeedsShift
-        | kUpt04CandidateFlagVisibilityKnown
-        | kUpt04CandidateFlagVisibilityPassed
         | (source.flags & kUpt04CandidateFlagDirectProposalParity);
     shifted.replayKey = source.replayKey & 0x7fffffffu;
     shifted.replayIndex = source.replayIndex;
@@ -596,6 +607,10 @@ public uint Upt07ReplayIndirectSample(
         shifted.pathLength = 1u;
         shifted.reconnectionVertexLength = 1u;
         shifted.pathPdf = continuation.pdf;
+        // The continuation query reaches the sampled endpoint itself, so it
+        // is also the complete current-frame visibility proof for this event.
+        shifted.flags |= kUpt04CandidateFlagVisibilityKnown
+            | kUpt04CandidateFlagVisibilityPassed;
         shifted.contributionR = contribution.x;
         shifted.contributionG = contribution.y;
         shifted.contributionB = contribution.z;
@@ -651,23 +666,20 @@ public uint Upt07ReplayIndirectSample(
         return 0u;
 
     failureReason = kUpt07RejectIndirectVisibility;
-    Upt04TraceRequest visibility;
     if (!Upt04BuildPrimaryVisibilityRequest(
             hitSurface.position,
             hitSurface.geometricNormal,
             hitSurface.shadingNormal,
             selectedSample.direction,
             selectedSample.distance,
-            visibility))
+            pendingVisibility.request))
         return 0u;
-    Upt04VisibilityIgnore ignore = Upt04NoVisibilityIgnore();
     if (storedLightType == kUpt04LightEmissiveTriangle)
-        ignore = Upt04MakeVisibilityIgnore(
+        pendingVisibility.ignore = Upt04MakeVisibilityIgnore(
             storedLight.instanceId, storedLight.primitiveIndex);
     const uint storedFingerprint =
         Upt04StableLightIdentityFingerprint(storedLight);
-    const Upt04HitFacts occluder = Upt07TraceIndirect(
-        visibility, 1u, ignore);
+    pendingVisibility.valid = 1u;
     shifted.eventKind = storedLightType == kUpt04LightEmissiveTriangle
         ? 2u : 1u;
     shifted.lobeMask = continuation.lobeMask | selectedMaterial.lobeMask;
@@ -678,21 +690,10 @@ public uint Upt07ReplayIndirectSample(
     shifted.pathLength = 2u;
     shifted.reconnectionVertexLength = 1u;
     shifted.pathPdf = pathPdf;
-    if (occluder.status == kUpt04HitTriangle)
-    {
-        shifted.status = kUpt04SampleValidZero;
-        shifted.contributionR = 0.0f;
-        shifted.contributionG = 0.0f;
-        shifted.contributionB = 0.0f;
-        shifted.target = 0.0f;
-    }
-    else
-    {
-        shifted.contributionR = contribution.x;
-        shifted.contributionG = contribution.y;
-        shifted.contributionB = contribution.z;
-        shifted.target = target;
-    }
+    shifted.contributionR = contribution.x;
+    shifted.contributionG = contribution.y;
+    shifted.contributionB = contribution.z;
+    shifted.target = target;
     failureReason = 0u;
     return 1u;
 }

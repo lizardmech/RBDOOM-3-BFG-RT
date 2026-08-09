@@ -1,0 +1,108 @@
+UPT-16 Temporal Winner-Only Indirect Visibility
+================================================
+
+Date: 2026-08-09
+
+Measured trigger
+----------------
+
+UPT-15 forced selected-light reconnection is accepted. It reduced unified
+temporal from approximately 34 ms to 20 ms on a Doom 3 level and from 20 ms to
+7.85 ms on a small level. The smaller result was still roughly seven times the
+cost of direct temporal plus spatial, so the remaining replay work was audited
+before beginning spatial indirect reuse.
+
+That audit found a second multiplicative traversal. Every shifted secondary-
+NEE history proposal traced its light-visibility segment before the temporal
+merge knew whether history would win. Pairwise and the conditional BASIC cross-
+target route also called the same replay provider for current-at-history target
+evaluation, so target-only evaluation paid a visibility ray whose result was
+discarded. Direct T0 already traces visibility only for its final winner.
+
+Implemented contract
+--------------------
+
+Secondary-NEE replay still performs the exact UPT-15 work through current-
+receiver material and target evaluation. While the reconstructed secondary
+vertex and selected light are live, it builds a transient visibility request
+and emissive self-ignore identity, but performs no shadow traversal. The
+candidate is deliberately published without VisibilityKnown or
+VisibilityPassed.
+
+The request is local T0 state. It is not stored in the reservoir, a sidecar, or
+a work queue. Reciprocal current-at-history evaluation consumes only the
+unoccluded target and discards its transient request. This preserves the
+pairwise target convention and removes visibility from a target-only query.
+
+After temporal selection:
+
+    a fresh D0 indirect winner keeps its current-frame proof and pays no ray;
+    a replayed emissive endpoint keeps the continuation query as its proof;
+    a shifted secondary-NEE history winner traces its saved exact request once;
+    a missing or mismatched pending request fails closed to the original D0
+        reservoir;
+    an occluded indirect history winner also falls back to the untouched D0
+        reservoir, retaining none of the rejected history mass;
+    direct history continues through the established direct winner-only query.
+
+The indirect query uses Upt07TraceIndirect rather than the simpler direct
+visibility helper, preserving alpha-clip rejection, emissive self-ignore, and
+the accepted geometry decoder contract. The continuation is never replayed a
+second time.
+
+Work ceiling and static verification
+------------------------------------
+
+The unified T0 shader falls from five to four statically inlined RayQuery
+sites: two continuation sites for the two possible receiver domains, one final
+indirect winner visibility site, and the existing direct winner visibility
+site. A secondary-NEE history-at-current replay now costs one continuation ray
+when it loses and two rays only when it wins. Reciprocal target evaluation
+costs one continuation ray instead of continuation plus visibility.
+
+The base unified Vulkan blob shrinks from 815,444 to 793,796 bytes, removing
+21,648 bytes. All four unified full/compact and duplication variants shrink by
+the same amount. Direct-only T0 artifacts are unchanged. The frozen 30-binding
+layout, reservoir pages, compact32 path, proposal parity, duplication control,
+dispatch schedule, and estimator fields are unchanged. No buffer clear, new
+candidate, queue, dispatch, or DX12 route is introduced.
+
+The full win64-pt-dev-release Vulkan build passes the dedicated reflection and
+four-RayQuery disassembly gate. All five PathTraceUnified contract harnesses
+pass. Exactly the four rebuilt unified temporal Vulkan blobs are deployed with
+matching source/destination SHA-256 hashes. The executable was rebuilt but was
+byte-identical to the already deployed UPT-15 executable, so it was not copied.
+
+Runtime gate
+------------
+
+Repeat the accepted UPT-15 views with the deployed blobs. Record complete
+temporal elapsed milliseconds, not percentages alone:
+
+    Doom 3 level baseline: about 20 ms after UPT-15;
+    small-level baseline: 7.85 ms after UPT-15;
+    direct temporal plus spatial reference: about one seventh of the small-
+        level UPT-15 time;
+    image/energy parity at a fixed camera;
+    moving occluders, alpha-clipped covers, emissive triangles, analytic
+        lights, and portal crossings;
+    no history ghosting or leaked unshadowed indirect winner.
+
+Spatial indirect remains gated until this temporal change is visually accepted
+and its elapsed-time result is measured.
+
+Runtime result
+--------------
+
+UPT-16 reduced unified temporal by approximately another 1.5 ms and is retained.
+Playing across more of the same level also exposed a strong occupancy signal:
+moving outside roughly halved GI temporal cost, while areas with more nearby
+lights were substantially slower. UPT-15 removed all candidate-count and CDF
+loops from temporal replay, so this is not evidence of a remaining loop over
+nearby lights. The likely variable is the fraction of pixels whose selected
+history event is secondary NEE; each such event still executes one closest-hit
+continuation replay before merge.
+
+The next paper-alignment audit is document 31. UPT-16 must remain intact while
+that work is evaluated: even a true early reconnection still needs final winner
+visibility for the selected light segment.

@@ -71,8 +71,8 @@ foreach(kind unified unified_compact)
     endif()
     string(REGEX MATCHALL "OpRayQueryInitializeKHR" rayquery_initializers "${${kind}_disassembly}")
     list(LENGTH rayquery_initializers rayquery_initializer_count)
-    if(NOT rayquery_initializer_count EQUAL 5 OR ${kind}_disassembly MATCHES "OpTraceRayKHR")
-        message(FATAL_ERROR "UPT-07 ${kind} unified temporal must expose exactly five statically bounded RayQuery call sites and no TraceRay site")
+    if(NOT rayquery_initializer_count EQUAL 4 OR ${kind}_disassembly MATCHES "OpTraceRayKHR")
+        message(FATAL_ERROR "UPT-07 ${kind} unified temporal must expose exactly four statically bounded RayQuery call sites and no TraceRay site")
     endif()
     if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*1,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*0" OR
        NOT ${kind}_reflection MATCHES "\"array_stride\"[ \t]*:[ \t]*32" OR
@@ -91,4 +91,4 @@ if(NOT full_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt07CurrentLights\"" OR
 endif()
 
 file(WRITE "${UPT07_STAMP}"
-    "UPT-07 temporal verified: direct variants retain 28 bindings and one winner RayQuery; opt-in unified variants expose 30 bindings, exact selected-light forced reconnection, and five statically bounded RayQuery call sites; no TraceRay or native16\n")
+    "UPT-07 temporal verified: direct variants retain 28 bindings and one winner RayQuery; opt-in unified variants expose 30 bindings, exact selected-light forced reconnection, and four statically bounded RayQuery call sites with winner-only indirect visibility; no TraceRay or native16\n")

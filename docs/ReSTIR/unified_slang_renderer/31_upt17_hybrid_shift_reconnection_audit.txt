@@ -1,0 +1,91 @@
+UPT-17 Hybrid Shift Reconnection Audit
+=======================================
+
+Date: 2026-08-09
+
+Verdict
+-------
+
+The paper observation is correct and the optimization is not implemented in
+UPT. Current T0 always calls Upt07ReplayContinuation and traces a closest hit
+before its forced selected-light reconnection. That is random replay of the
+complete one-edge prefix for every eligible global history sample. UPT does
+not yet select an earlier rough/footprint-safe reconnection vertex and connect
+the new primary receiver directly to it.
+
+One supplied implementation claim is incorrect: the packed UPT candidate does
+not currently store both the secondary reconnection vertex and the selected
+light. Endpoint candidates store continuation-hit instance, primitive, and
+barycentrics, but secondary-NEE construction overwrites identity0, identity1,
+sampleCoord0, and sampleCoord1 with selected-light dense identity, fingerprint,
+and light sample coordinates. Those fields are required by UPT-15 forced light
+reconnection. reconnectionVertexLength is only a length tag and
+partialJacobian is always 1; neither reconstructs the lost secondary vertex.
+
+Existing sidecar boundary
+-------------------------
+
+There is an existing 32-byte Upt04HitFacts continuation buffer, but it is not a
+history reconnection store:
+
+    it exists only when the rejected/default-off split-continuation D0 A/B is
+        enabled;
+    it has one current-frame allocation, not current/history pages;
+    D0 overwrites it before T0;
+    its instance IDs are current TLAS route IDs, with no general previous-to-
+        current geometry remap contract;
+    the split was slower because its full-frame boundary serialized traversal
+        and added hundreds of MiB of traffic.
+
+Blindly ping-ponging that 32-byte buffer would therefore add roughly 63 MiB per
+1080p history page, revive a rejected full-frame traffic boundary, and risk
+aliasing stale geometry identities after portal or dynamic-universe changes.
+It is not an admissible shortcut.
+
+Required true shift
+-------------------
+
+For a one-continuation secondary-NEE path, the cheap branch must persist enough
+source state to identify and validate the base secondary vertex x2. When the
+source primary x1 satisfies the adopted roughness/footprint reconnection rule,
+T0 should:
+
+    reconstruct x2 without random continuation replay or a closest-hit query;
+    connect the current primary y1 to x2 with one bounded visibility query;
+    evaluate the primary and secondary material factors for the new directions;
+    evaluate the hybrid-shift Jacobian from directional PDFs and single-sided
+        geometry terms;
+    reuse UPT-15's remapped selected-light identity and exact stored light UV;
+    retain UPT-16's winner-only x2-to-light visibility;
+    reject missing, stale, incompatible, occluded, zero-target, or non-finite
+        mappings without admitting reservoir mass.
+
+Near-specular or footprint-ineligible primaries continue through the existing
+random-replay fallback. Thus early reconnection removes the closest-hit retrace
+from the common diffuse/rough route, but it does not mean zero traversal: the
+y1-to-x2 connection is still visibility-tested, and an admitted secondary-NEE
+winner later pays its selected-light visibility query.
+
+Next evidence gate
+------------------
+
+Before choosing a persistent encoding, add diagnostic-only route counts for:
+
+    temporal selected event: direct, endpoint, secondary NEE;
+    secondary NEE replay attempted;
+    early-reconnection eligible versus specular/footprint fallback;
+    closest-hit replay executed;
+    reconnect visibility executed/passed/failed;
+    final selected-light visibility executed/passed/failed.
+
+Correlate those counts with the reported indoor/outdoor temporal timing. The
+working hypothesis is that nearby-light density increases the fraction of
+secondary-NEE history winners rather than the cost of a hidden light loop. The
+hypothesis is accepted only if event counts track elapsed time.
+
+The storage design must then compare a compact secondary-vertex locator in the
+reservoir against a stamped compact sidecar. It must account for stable static,
+rigid, skinned, and dynamic geometry identity, portal publication, memory
+traffic, and current/history page rotation. No per-frame full-buffer clear is
+allowed. A static-only first route is acceptable only when explicitly tagged
+and all other geometry falls back to random replay.

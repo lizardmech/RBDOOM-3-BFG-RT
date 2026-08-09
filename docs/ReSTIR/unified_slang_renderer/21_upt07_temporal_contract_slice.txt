@@ -722,3 +722,23 @@ page schedule, and rejection rules are unchanged; only dynamically discarded
 replay work is bypassed. The eight rebuilt UPT-07 Vulkan variants pass static
 verification and both UPT-04/UPT-07 CPU contract harnesses. A same-scene GPU
 timing A/B against the 43.32 ms baseline is pending.
+
+Winner-only indirect visibility correction, 2026-08-09
+-------------------------------------------------------
+
+UPT-15 removed random light selection from secondary-NEE replay and reduced
+temporal from about 34 to 20 ms on a Doom 3 level and 20 to 7.85 ms on a small
+level. UPT-16 then removed the remaining eager selected-light visibility ray.
+
+History-at-current secondary-NEE replay now returns its exact reconstructed
+visibility request as transient local state and enters the merge without a
+visibility proof. Only a shifted history winner traces that request. Reciprocal
+current-at-history evaluation consumes the unoccluded target without tracing
+visibility. Endpoint replay remains proven by its continuation query, fresh D0
+winners retain their D0 proof, and direct history retains its existing winner-
+only query. Missing, invalid, or occluded indirect winner work fails back to
+the untouched D0 reservoir.
+
+Unified T0 now has four static RayQuery sites rather than five and the base
+blob is 793,796 bytes rather than 815,444. The 30-binding ABI and reservoir
+contract are unchanged. See document 30 for the exact runtime gate.

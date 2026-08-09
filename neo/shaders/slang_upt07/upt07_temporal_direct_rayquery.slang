@@ -540,6 +540,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #else
     const bool indirectHistoryEligible = false;
 #endif
+#if UPT07_INDIRECT_REPLAY
+    Upt07PendingIndirectVisibility shiftedIndirectVisibility =
+        (Upt07PendingIndirectVisibility)0;
+    shiftedIndirectVisibility.ignore = Upt04NoVisibilityIgnore();
+#endif
     if (directHistoryEligible)
     {
         historyFailureReason = kUpt07RejectShiftInvalid;
@@ -561,7 +566,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             receiver,
             1u,
             indirectFailureReason,
-            shifted);
+            shifted,
+            shiftedIndirectVisibility);
         if (shiftedValid == 0u)
             historyFailureReason = indirectFailureReason;
         if (shiftedValid != 0u)
@@ -677,12 +683,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             {
                 Upt03Candidate currentAtHistory;
                 uint currentShiftFailure;
+                Upt07PendingIndirectVisibility unusedCurrentVisibility;
                 if (Upt07ReplayIndirectSample(
                         currentCandidate,
                         historyReceiver,
                         0u,
                         currentShiftFailure,
-                        currentAtHistory) != 0u
+                        currentAtHistory,
+                        unusedCurrentVisibility) != 0u
                     && currentAtHistory.status == kUpt04SampleValidPositive)
                     currentTargetAtHistory = currentAtHistory.target;
             }
@@ -725,9 +733,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // re-establish final visibility after reuse. UPT-05 deliberately cannot
     // trace, so deleting the old T0 ray left history-selected radiance fully
     // unshadowed and allowed it to overwrite a correct D0 count-only result.
-    // Trace only a final winner without a current-frame visibility proof. If
-    // it is occluded (or cannot be reconstructed), publish the original D0
-    // reservoir rather than retaining any mass from the rejected history.
+    // Trace only a final winner without a current-frame visibility proof. The
+    // indirect replay provider already reconstructed its exact secondary-NEE
+    // request, but deliberately did not traverse it before selection. If the
+    // winner is occluded (or its request is unavailable), publish the original
+    // D0 reservoir rather than retaining any mass from rejected history.
     const uint visibilityProof = kUpt04CandidateFlagVisibilityKnown
         | kUpt04CandidateFlagVisibilityPassed;
     // A visibility bit carried by a history record is only proof for the old
@@ -736,6 +746,48 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // current candidate route that reaches T0 without D0 visibility proof.
     const bool mergedIndirect = merged.logical.hasSelectedSample != 0u
         && (merged.logical.selected.flags & kUpt04CandidateFlagGlobal) != 0u;
+#if UPT07_INDIRECT_REPLAY
+    if (merged.logical.hasSelectedSample != 0u
+        && ((merged.selectedHistory != 0u && !mergedIndirect)
+            || (merged.logical.selected.flags & visibilityProof) != visibilityProof))
+    {
+        bool visibilityPassed = false;
+        if (mergedIndirect)
+        {
+            // Only a shifted history secondary-NEE sample can own this
+            // transient request. Fresh D0 indirect winners already contain a
+            // current-frame proof; all other missing-proof routes fail closed.
+            if (merged.selectedHistory != 0u
+                && shiftedIndirectVisibility.valid != 0u)
+            {
+                visibilityPassed = Upt07TraceIndirect(
+                        shiftedIndirectVisibility.request,
+                        1u,
+                        shiftedIndirectVisibility.ignore).status
+                    != kUpt04HitTriangle;
+            }
+        }
+        else
+        {
+            Upt04TraceRequest visibility;
+            Upt04VisibilityIgnore visibilityIgnore;
+            visibilityPassed = Upt07BuildSelectedVisibility(
+                    merged.logical.selected,
+                    receiver,
+                    visibility,
+                    visibilityIgnore) != 0u
+                && Upt07VisibilityPassed(visibility, visibilityIgnore);
+        }
+        if (!visibilityPassed)
+        {
+            gUpt07CurrentReservoirs[index] = currentPacked;
+            return;
+        }
+        merged.logical.selected.flags =
+            (merged.logical.selected.flags & ~visibilityProof)
+            | visibilityProof;
+    }
+#else
     if (merged.logical.hasSelectedSample != 0u
         && ((merged.selectedHistory != 0u && !mergedIndirect)
             || (merged.logical.selected.flags & visibilityProof) != visibilityProof))
@@ -756,5 +808,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             (merged.logical.selected.flags & ~visibilityProof)
             | visibilityProof;
     }
+#endif
     gUpt07CurrentReservoirs[index] = Upt07PackTemporalResult(merged);
 }

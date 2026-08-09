@@ -398,6 +398,18 @@ Packet index
         NEE, including the estimator-equivalent raw-target representation,
         stable remap/UV/PDF/visibility contract, and temporal performance gate.
 
+    30_upt16_temporal_winner_only_indirect_visibility.txt
+        Defers secondary-NEE shadow traversal until the temporal history sample
+        wins, removes visibility from reciprocal target-only replay, preserves
+        fail-closed D0 fallback, and reduces unified T0 from five to four static
+        RayQuery sites.
+
+    31_upt17_hybrid_shift_reconnection_audit.txt
+        Confirms that T0 still replays every continuation, corrects the claim
+        that secondary-NEE reservoirs retain the secondary vertex, rejects the
+        current one-page 32-byte hit buffer as history storage, and defines the
+        diagnostic and stable-identity gate for true early reconnection.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

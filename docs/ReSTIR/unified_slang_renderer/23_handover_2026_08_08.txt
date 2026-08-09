@@ -969,3 +969,53 @@ transient indirect visibility request from history-at-current replay, omit the
 ray from target-only replay, and trace it only if shifted history wins. Do not
 reconstruct the continuation a second time and do not add a reservoir field or
 sidecar.
+
+UPT-16 implementation handover, 2026-08-09
+-------------------------------------------
+
+The audited winner-only visibility change is implemented. Secondary-NEE replay
+now returns an in-register request and no longer traces it eagerly. Reciprocal
+current-at-history replay discards that request after target evaluation. After
+merge, only a shifted indirect history winner lacking proof uses
+Upt07TraceIndirect, retaining alpha clipping and emissive self-ignore. Failure
+or occlusion publishes the original current D0 reservoir. Endpoint continuation
+proof and the established direct winner query are unchanged.
+
+Static unified T0 RayQuery sites fall from five to four. The base Vulkan blob
+falls from 815,444 to 793,796 bytes, with the same 21,648-byte reduction in all
+four unified temporal variants. The full Vulkan release build and all five
+PathTraceUnified tests pass. The executable is byte-identical to the deployed
+UPT-15 build. Exactly the four unified temporal Vulkan blobs are deployed with
+matching source/destination hashes; no DX12 artifact was compiled or copied.
+
+Runtime acceptance remains open. Compare against the accepted 20 ms Doom 3
+level and 7.85 ms small-level UPT-15 baselines, and verify fixed-camera energy,
+alpha-clipped occluders, moving doors, emissive/analytic lights, portal motion,
+and absence of leaked unshadowed history. Do not begin spatial indirect until
+UPT-16 is accepted or corrected. See document 30.
+
+UPT-16 runtime and hybrid-shift audit, 2026-08-09
+-------------------------------------------------
+
+UPT-16 is retained after measuring approximately another 1.5 ms temporal win.
+Within one level, moving outside also roughly halved GI temporal cost; denser
+nearby lighting correlated with higher cost. Since UPT-15 removed temporal
+candidate/CDF loops, the leading explanation is secondary-NEE event occupancy:
+more such selected history events execute more unconditional continuation
+closest-hit replays.
+
+The paper's true hybrid-shift observation is not implemented yet. Current T0
+replays and retraces to x2 for every eligible indirect sample, then reconnects
+only the stored light. However, the claim that the reservoir already contains
+x2 is false for secondary NEE: its four identity/coordinate fields contain the
+selected light, while reconnectionVertexLength is only a tag and
+partialJacobian remains 1. The existing 32-byte continuation-hit buffer is a
+single current-frame, split-D0 buffer from a rejected performance A/B and has no
+stable previous-geometry identity contract.
+
+Do not simply delete Upt07ReplayContinuation or ping-pong that full sidecar.
+First prove the indoor/outdoor event-occupancy hypothesis with diagnostic-only
+route counts, then design a compact stable secondary-vertex representation and
+an exact rough/footprint reconnection plus Jacobian evaluator. Preserve random
+replay as the specular/ineligible fallback and UPT-16 final winner visibility.
+See document 31.
