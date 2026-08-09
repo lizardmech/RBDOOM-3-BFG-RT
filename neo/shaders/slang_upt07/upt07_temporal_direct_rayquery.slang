@@ -110,17 +110,24 @@ public bool Upt07VisibilityPassed(
     RayQuery<0> query = RayQuery<0>();
     query.TraceRayInline(
         gUpt07Scene,
-        RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
         0xffu,
         ray);
     while (query.Proceed())
     {
         if (query.CandidateType() != CANDIDATE_NON_OPAQUE_TRIANGLE)
             continue;
+        uint candidatePrimitiveId;
+        if (!Upt04CanonicalizeHardwarePrimitive(
+                query.CandidateInstanceID(),
+                query.CandidateGeometryIndex(),
+                query.CandidatePrimitiveIndex(),
+                candidatePrimitiveId))
+            continue;
         if (Upt04VisibilityIgnoresCandidate(
                 ignore,
                 query.CandidateInstanceID(),
-                query.CandidatePrimitiveIndex()))
+                candidatePrimitiveId))
             continue;
         query.CommitNonOpaqueTriangleHit();
     }

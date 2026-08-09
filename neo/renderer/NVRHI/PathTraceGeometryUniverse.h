@@ -816,6 +816,8 @@ struct RtPathTraceStaticBucketBlasGpuStats
     int triangleCount = 0;
     int surfaceRecordCount = 0;
     int geometryDescCount = 0;
+    int opaqueGeometryDescCount = 0;
+    int programmableGeometryDescCount = 0;
     int multiGeometryBuckets = 0;
     int invalidSurfaceRecords = 0;
     int staticClassMetadataWordCount = 0;

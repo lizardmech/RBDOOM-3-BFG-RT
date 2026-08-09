@@ -537,6 +537,12 @@ idCVar r_pathTracingGeometryStaticBucketSecondaryProbeStage(
     CVAR_RENDERER | CVAR_INTEGER,
     "Default-off GEO-10 view-16 probe: stages 1-9 isolate setup/DI/bindings; 10 raygen without trace; 11 traversal without hit shaders; 12 rejected full any-hit baseline; 13 any-hit entry only; 14 one complete any-hit invocation; 15 rejected bounded repeated any-hit; 16 one decode-free IgnoreHit then accept; 17 bucket-resident bounded iterative resolve; 18 route-0 monolithic bounded iterative control; 19 initial only; 20 temporal diagnostic; 21 initial plus production presentation with temporal and spatial reuse off; 22 bucket hardware-hit versus packed-replay tuple diagnostic; 23 closest-hit versus raygen/replay position split; 24 admits material-feature composition then blocks later consumers" );
 
+idCVar r_pathTracingHardwareOpaqueGeometry(
+    "r_pathTracingHardwareOpaqueGeometry",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Partition PT BLAS triangle streams into fixed-size geometry ranges and mark proven opaque ranges for hardware hit commitment; set 0 for the legacy all-programmable rollback" );
+
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
     "1",

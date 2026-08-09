@@ -243,6 +243,8 @@ bool RegisterSmokeMaterialTextureVariant(uint32_t variantMaterialId, uint32_t ba
         existing->liquidFilmCoverageImageName = baseInfo->liquidFilmCoverageImageName;
         existing->liquidFilmOverrideReason = baseInfo->liquidFilmOverrideReason;
         existing->liquidFilmReason = baseInfo->liquidFilmReason;
+        existing->hardwareOpaqueGeometry =
+            ComputeSmokeMaterialHardwareOpaqueGeometry(*existing);
         if (liquidFilmFactsChanged)
         {
             ++g_smokeMaterialTextureRegistryGeneration;
@@ -399,6 +401,49 @@ RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, 
     missing.diffuseImageName = "<none>";
     missing.fallbackReason = "material metadata not seen this session";
     return missing;
+}
+
+bool ComputeSmokeMaterialHardwareOpaqueGeometry(
+    const RtSmokeMaterialTextureInfo& info)
+{
+    if (!SmokeMaterialTextureInfoHasMaterialMetadata(info) ||
+        info.coverage != MC_OPAQUE)
+    {
+        return false;
+    }
+
+    // Any material whose visibility can depend on authored coverage,
+    // transmission, or modifier semantics must remain programmable.  This is
+    // deliberately conservative: an uncertain material costs performance but
+    // can never turn into a false hardware-opaque blocker.
+    return !info.hasAlphaTest &&
+        !info.additiveDecal &&
+        !info.additiveDecalWhiteKey &&
+        !info.filterDecal &&
+        !info.filterDecalBlackKey &&
+        !info.detailDecal &&
+        !info.detailDecalDynamic &&
+        !info.detailDecalLiquidPool &&
+        !info.liquidFilmCandidate &&
+        !info.alphaFromDiffuseLuma &&
+        !info.alphaFromDiffuseDarkKey &&
+        !info.alphaFromDiffuseMagentaKey &&
+        !info.portalWindowFallback &&
+        !info.objectGlassFallback &&
+        !IsSmokeImageNameGuiLike(info.diffuseImageName.c_str()) &&
+        !IsSmokeImageNameGuiLike(info.alphaImageName.c_str());
+}
+
+bool SmokeMaterialCanUseHardwareOpaqueGeometry(uint32_t materialId)
+{
+    if (materialId == UINT32_MAX)
+    {
+        return false;
+    }
+
+    const RtSmokeMaterialTextureInfo* info =
+        FindSmokeMaterialTextureInfo(materialId);
+    return info && info->hardwareOpaqueGeometry;
 }
 
 bool SmokeMaterialTextureInfoHasMaterialMetadata(const RtSmokeMaterialTextureInfo& info)

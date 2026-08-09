@@ -77,6 +77,10 @@ void CleanGiTraceRayUnusedForProducerRayQueryCs(inout PathTraceCleanRestirGiPayl
 {
     payload.value = 0u;
 }
+void CleanGiTraceRayUnusedForProducerRayQueryCs(inout PathTraceCleanRestirGiShadowPayload payload)
+{
+    payload.value = 0u;
+}
 #define TraceRay(Accel, Flags, Mask, RayContributionToHitGroupIndex, MultiplierForGeometryContributionToHitGroupIndex, MissShaderIndex, Ray, Payload) CleanGiTraceRayUnusedForProducerRayQueryCs(Payload)
 #endif
 
@@ -5770,7 +5774,15 @@ bool CleanGiBuildProducerSurfaceRayQuery(
         {
             sawCandidate = true;
             const uint candidateInstanceId = query.CandidateInstanceID();
-            const uint candidatePrimitiveIndex = query.CandidatePrimitiveIndex();
+            uint candidatePrimitiveIndex = 0u;
+            if (!PathTraceTryCanonicalizeSmokeHardwarePrimitive(
+                    candidateInstanceId,
+                    query.CandidateGeometryIndex(),
+                    query.CandidatePrimitiveIndex(),
+                    candidatePrimitiveIndex))
+            {
+                continue;
+            }
             const float2 candidateBarycentrics = query.CandidateTriangleBarycentrics();
             const uint candidateMaterialIndex = CleanGiLoadTriangleMaterialIndex(
                 candidateInstanceId, candidatePrimitiveIndex);
@@ -5828,8 +5840,17 @@ bool CleanGiBuildProducerSurfaceRayQuery(
         return false;
     }
 
-    const uint hitPrimitiveIndex = query.CommittedPrimitiveIndex();
     const uint hitInstanceId = query.CommittedInstanceID();
+    uint hitPrimitiveIndex = 0u;
+    if (!PathTraceTryCanonicalizeSmokeHardwarePrimitive(
+            hitInstanceId,
+            query.CommittedGeometryIndex(),
+            query.CommittedPrimitiveIndex(),
+            hitPrimitiveIndex))
+    {
+        traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_METADATA_MISS;
+        return false;
+    }
 
     if (!CleanGiHitMetadataInRange(hitInstanceId, hitPrimitiveIndex))
     {
@@ -9031,7 +9052,16 @@ void ShadowMiss(inout PathTraceCleanRestirGiShadowPayload payload)
 void AnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
-    const uint primitiveIndex = PrimitiveIndex();
+    uint primitiveIndex = 0u;
+    if (!PathTraceTryCanonicalizeSmokeHardwarePrimitive(
+            instanceId,
+            GeometryIndex(),
+            PrimitiveIndex(),
+            primitiveIndex))
+    {
+        IgnoreHit();
+        return;
+    }
     const uint materialIndex = CleanGiLoadTriangleMaterialIndex(instanceId, primitiveIndex);
     if (CleanGiCollectLiquidPoolCandidate(
         payload.liquidPool,
@@ -9066,7 +9096,16 @@ void AnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersec
 void ShadowAnyHit(inout PathTraceCleanRestirGiShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
-    const uint primitiveIndex = PrimitiveIndex();
+    uint primitiveIndex = 0u;
+    if (!PathTraceTryCanonicalizeSmokeHardwarePrimitive(
+            instanceId,
+            GeometryIndex(),
+            PrimitiveIndex(),
+            primitiveIndex))
+    {
+        IgnoreHit();
+        return;
+    }
     const uint materialIndex = CleanGiLoadTriangleMaterialIndex(instanceId, primitiveIndex);
     if (CleanGiLiquidPoolCollectionEnabled() &&
         CleanGiMaterialIsSemanticLiquidPool(materialIndex))
@@ -9090,7 +9129,15 @@ void ClosestHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleInte
 {
     payload.value = 1u;
     payload.hitInstanceId = InstanceID();
-    payload.hitPrimitiveIndex = PrimitiveIndex();
+    if (!PathTraceTryCanonicalizeSmokeHardwarePrimitive(
+            payload.hitInstanceId,
+            GeometryIndex(),
+            PrimitiveIndex(),
+            payload.hitPrimitiveIndex))
+    {
+        payload.value = 0u;
+        return;
+    }
     payload.hitT = RayTCurrent();
     payload.hitBarycentrics = attributes.barycentrics;
 }

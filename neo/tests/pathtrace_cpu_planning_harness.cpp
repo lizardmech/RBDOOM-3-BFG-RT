@@ -514,6 +514,11 @@ void TestAccelerationPlanInputToken()
     previousHashChangedInput.staticCache.previousSignatureHash = 0x5678ull;
     Check(baseToken != BuildSmokeAccelerationPlanInputToken(previousHashChangedInput), "acceleration plan input token tracks reusable previous cache signatures");
 
+    RtSmokeAccelerationPlanInput opacityChangedInput = input;
+    opacityChangedInput.staticCache.opacitySignature = 0x9abcu;
+    Check(baseToken != BuildSmokeAccelerationPlanInputToken(opacityChangedInput),
+        "acceleration plan input token tracks hardware-opacity classification");
+
     RtSmokeAccelerationPlanInput invalidCacheInput = input;
     invalidCacheInput.staticCache.cacheValid = false;
     invalidCacheInput.staticCache.cacheResourcesReady = false;
@@ -2882,6 +2887,33 @@ void TestStaticBucketAssignmentPlan()
             secondBucketGeometryPlan.geometries[0].
                 triangleCount == 3,
         "static bucket BLAS geometry plan emits one contiguous range per bucket");
+    RtSmokeStaticBucketGeometryPack chunkBoundaryPack;
+    chunkBoundaryPack.exact = true;
+    chunkBoundaryPack.stats.packedVertices = 3;
+    chunkBoundaryPack.indexes.resize(257u * 3u);
+    chunkBoundaryPack.triangleClasses.resize(257u);
+    chunkBoundaryPack.triangleMaterials.resize(257u);
+    RtSmokeStaticBucketPackedRecord chunkBoundaryBucket;
+    chunkBoundaryBucket.range.vertexCount = 3;
+    chunkBoundaryBucket.range.indexCount = 257 * 3;
+    chunkBoundaryBucket.range.triangleCount = 257;
+    chunkBoundaryBucket.indexByteSize =
+        static_cast<uint64_t>(257u * 3u * sizeof(uint32_t));
+    const RtSmokeStaticBucketBlasGeometryPlan chunkBoundaryPlan =
+        BuildSmokeStaticBucketBlasGeometryPlan(
+            chunkBoundaryPack,
+            chunkBoundaryBucket);
+    Check(
+        chunkBoundaryPlan.exact &&
+            chunkBoundaryPlan.geometries.size() == 2 &&
+            chunkBoundaryPlan.geometries[0].triangleOffset == 0 &&
+            chunkBoundaryPlan.geometries[0].triangleCount == 256 &&
+            chunkBoundaryPlan.geometries[0].indexCount == 256 * 3 &&
+            chunkBoundaryPlan.geometries[1].triangleOffset == 256 &&
+            chunkBoundaryPlan.geometries[1].triangleCount == 1 &&
+            chunkBoundaryPlan.geometries[1].indexByteOffset ==
+                static_cast<uint64_t>(256u * 3u * sizeof(uint32_t)),
+        "static bucket BLAS geometry plan partitions the fixed 256-triangle identity stride");
     const RtSmokeStaticBucketResolvedGeometryAddress
         secondSurfaceResolvedAddress =
             BuildSmokeStaticBucketResolvedGeometryAddress(

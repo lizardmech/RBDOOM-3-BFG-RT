@@ -1,0 +1,179 @@
+UPT-19 Hardware-Opaque Geometry Partition
+==========================================
+
+Status
+------
+
+Implemented for Vulkan on 2026-08-10. UPT's Slang backend closure, the focused
+CPU planning harness and the prescribed win64-pt-dev-release build are verified.
+Deployment is verified below. Runtime image checks and matched Nsight
+measurements remain pending at the time of this entry.
+
+Verified root contract
+----------------------
+
+The reported low-level defect had two independent halves, both present in the
+live renderer:
+
+1. UPT production RayQuery and clean RTXDI visibility rays forced every
+   candidate non-opaque.
+2. The static and dynamic smoke BLAS builders never marked any geometry
+   opaque. NVRHI's default geometry flags therefore left every triangle on the
+   programmable candidate path even if the ray flag was corrected.
+
+The production visibility contracts already stop finite shadow segments at
+distance minus 0.5 Doom units. Removing the global force-nonopaque flag does
+not require admitting the sampled emissive endpoint. Alpha-tested and other
+coverage-dependent geometry still requires programmable candidate handling.
+
+Why the BLAS cannot simply be marked opaque
+--------------------------------------------
+
+The existing static and dynamic BLAS each used one geometry containing mixed
+materials. Marking that geometry opaque would bypass any-hit for alpha-tested,
+glass, decal, liquid and other coverage-dependent triangles. It would fix the
+profile by corrupting visibility.
+
+The accepted partition is fixed 256-triangle geometry chunks over the existing
+index order. A chunk receives GeometryFlags::Opaque only when every triangle's
+resolved material metadata proves it is MC_OPAQUE and has none of the authored
+coverage, transmission, decal, liquid, portal, object-glass or GUI fallback
+features. Missing or uncertain metadata fails closed to programmable geometry.
+
+No vertex/index reorder or per-frame remap buffer is added. The source triangle
+address is recovered exactly as:
+
+    canonicalPrimitive = GeometryIndex * 256 + PrimitiveIndex
+
+Static bucket BLAS use the same chunk ceiling. Their packed triangle base is
+then added to canonicalPrimitive through the established route. Rigid and
+skinned entity BLAS retain one geometry and their existing local primitive
+identity.
+
+Shader correction
+-----------------
+
+UPT D0, direct T0/S0 and indirect T0 no longer set
+RAY_FLAG_FORCE_NON_OPAQUE. Per-geometry opacity now decides whether traversal
+commits in hardware or exposes a candidate for alpha clipping. Hardware hit
+tuples are canonicalized before material lookup, emissive self-ignore,
+reservoir identity or replay publication.
+
+The same primitive-address correction is applied to the primary-surface
+producer, smoke path, clean RTXDI hit adapters and Vulkan debug/GI consumers so
+one shared TLAS cannot mean different triangle identities to different passes.
+Clean GI paths that still deliberately force non-opaque retain that behavior;
+only their address interpretation changes in this slice.
+
+Controls and diagnostics
+------------------------
+
+    r_pathTracingHardwareOpaqueGeometry 1
+        fixed-size partition and conservative per-chunk hardware opacity
+
+    r_pathTracingHardwareOpaqueGeometry 0
+        rollback to programmable chunks while preserving identical geometry
+        indexing and shader identity
+
+Changing the cvar invalidates the cached static BLAS. With
+r_pathTracingSmokeLog 1, static and periodic dynamic BLAS creation report total,
+opaque and programmable chunk counts. GEO10 bucket creation reports opaque and
+programmable descriptor counts when replacement BLAS are built.
+
+Runtime acceptance
+------------------
+
+1. Compare mode 0/1 with identical camera, clocks and UPT family settings.
+2. Confirm the log reports a nonzero opaque chunk population in the tested
+   scene; a zero count is a classification result, not a traversal win.
+3. Verify alpha-clipped light covers, doors, level brushes, rigid props,
+   mirrors and emissive self-visibility before accepting performance.
+4. Capture D0 and indirect T0. The expected signal is fewer programmable
+   candidate returns, higher RT-core dependency share and lower SM-side
+   RayQuery/texture dependency, especially in high-overdraw level views.
+5. Repeat the same check in clean RTXDI DI. Shared BLAS opacity benefits both
+   renderers; it is not an estimator change and must not alter reservoirs,
+   temporal/spatial admission or energy.
+
+No DX12 shader is part of this work.
+
+Build and deployment proof
+--------------------------
+
+The focused CPU planning harness passes the 257-triangle boundary case and
+proves two descriptors with 256 and 1 triangles at unchanged source offsets.
+The exact command from neo/ completed successfully:
+
+    cmake --build --preset win64-pt-dev-release
+
+The cache had BUILD_DXIL_SHADERS=OFF and
+PATH_TRACING_BUILD_DXIL_RT_SHADERS=OFF. All UPT-04/05/07/08/09 Vulkan artifact
+verifiers passed and RBDoom3BFG.exe linked at 16,312,832 bytes.
+
+One already-dirty clean-GI producer source was pulled into the exact build. Its
+ray-query compile shim lacked the shadow-payload overload. The stale affected
+producer Vulkan blob was deleted before the minimal overload correction; the
+replacement changed from 361,960 bytes dated 2026-08-02 to 363,016 bytes dated
+2026-08-10 03:03 local time. The full rebuild then completed cleanly.
+
+Deployment copied the executable plus the 105 Vulkan SPIR-V artifacts rebuilt
+between 02:16 and 03:08 local time. Source/destination sizes and SHA-256 hashes
+were checked after copying. No DX12 shader was compiled or deployed.
+
+Follow-up: opacity invalidation and alpha ordering, 2026-08-10
+--------------------------------------------------------------
+
+The first implementation correctly changed the geometry layout when the
+hardware-opacity cvar changed, but its long-lived monolithic static BLAS cache
+still used the geometry-only signature. A material registry entry can acquire
+or lose alpha/coverage metadata without changing the triangle material ID.
+That transition changes GeometryFlags::Opaque and therefore must recreate the
+BLAS even though vertex and index bytes remain identical.
+
+The static cache now stores a separate hardware-opacity signature. It hashes
+the cvar mode, triangle count, and the proven opaque/programmed result of each
+fixed 256-triangle chunk. The signature is recomputed after material metadata
+hydration, participates in the async acceleration-plan token, and invalidates
+only when descriptor opacity would change. General material-only edits remain
+outside the geometry signature. Static bucket BLAS input signatures include
+the same classification result, so registry-only coverage changes cannot keep
+a stale bucket descriptor either. With r_pathTracingSmokeLog 1, a monolithic
+classification transition reports both old and new signatures.
+
+UPT alpha traversal also no longer fetches a complete triangle before asking
+whether alpha testing applies. The candidate route first resolves only the
+material index, then reads only the flags member. Non-alpha candidates return
+solid at that point. Only proven alpha candidates fetch indices, three vertex
+records, the full material, and textures. Malformed, missing, out-of-range or
+inconsistent routes still fail closed; this is a load-order correction, not a
+new visibility admission path.
+
+The CPU planning harness proves that the async acceleration token changes when
+the opacity classification changes while preserving the existing rule that
+ordinary material payload edits do not enter the geometry signature. The full
+win64-pt-dev-release build and every UPT Vulkan verifier pass. The shared Slang
+edit rebuilt 21 Vulkan SPIR-V artifacts and linked a 16,313,856-byte
+executable; no DX12 shader was compiled.
+
+Follow-up: CPU opacity-signature regression, 2026-08-10
+-------------------------------------------------------
+
+Runtime logging exposed a CPU regression after the invalidation fix: total
+scene build was 169--189 ms while capture, material construction, buffer work,
+BLAS and TLAS accounted for only a small fraction of that time. The opacity
+signature walked every triangle, and SmokeMaterialCanUseHardwareOpaqueGeometry
+resolved the material by value. Each query therefore copied the complete
+RtSmokeMaterialTextureInfo, including its strings and resource handles. Static
+bucket readiness called the signature from several validation paths, turning
+that record copy into the dominant per-frame CPU cost.
+
+The conservative hardware-opacity decision is now computed once when material
+metadata is derived and stored as one CPU-only boolean in the registry record.
+Resident metadata and variants preserve or recompute the bit. Per-triangle
+signature walks now perform only the material-ID lookup and boolean read; the
+classification inputs and fail-closed result are unchanged. This does not
+weaken the opacity invalidation signature or change any shader ABI.
+
+The exact win64-pt-dev-release build passes and links a 16,314,368-byte
+executable. All Vulkan SPIR-V artifacts were already up to date, so this
+follow-up deploys only RBDoom3BFG.exe and compiles no DX12 shader.

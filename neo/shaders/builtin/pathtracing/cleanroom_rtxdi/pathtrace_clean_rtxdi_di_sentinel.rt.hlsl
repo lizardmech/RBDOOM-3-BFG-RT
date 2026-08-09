@@ -1505,7 +1505,7 @@ float PathTraceCleanRoomTraceVisibilityWithIgnore(
     shadowPayload.ignoreInstanceId = ignoreInstanceId;
     shadowPayload.ignorePrimitiveIndex = ignorePrimitiveIndex;
     shadowPayload.ignoreMaterialIndex = ignoreMaterialIndex;
-    const uint rayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE;
+    const uint rayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
     TraceRay(
         SmokeScene,
         rayFlags,

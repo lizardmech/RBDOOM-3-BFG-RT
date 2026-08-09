@@ -7553,6 +7553,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeStaticTriangleMaterialIndexUploadSignatureValid = false;
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
+        m_smokeStaticBlasOpacitySignature = 0;
         m_smokeStaticBlasGeometryGeneration = 0;
         m_smokeSceneUniverseStaticBuildGeneration = 0;
         m_smokeSceneRebuildLogged = false;
@@ -7584,6 +7585,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeStaticTriangleMaterialIndexUploadSignatureValid = false;
             m_smokeStaticBlasCacheValid = false;
             m_smokeStaticBlasSignature = 0;
+            m_smokeStaticBlasOpacitySignature = 0;
             m_smokeStaticBlasGeometryGeneration = 0;
             m_smokeSceneUniverseStaticBuildGeneration = 0;
             m_smokeSceneRebuildLogged = false;
@@ -7606,6 +7608,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeStaticTriangleMaterialIndexUploadSignatureValid = false;
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
+        m_smokeStaticBlasOpacitySignature = 0;
         m_smokeStaticBlasGeometryGeneration = 0;
         m_smokeSceneUniverseStaticBuildGeneration = 0;
     }
@@ -11325,6 +11328,31 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         idMath::ClampInt(0, 2, r_pathTracingStaticBlasForceRebuild.GetInteger());
     const bool forceStaticBlasRebuild = forceStaticBlasRebuildMode != 0;
     const bool forceStaticBlasRebuildWithoutUpload = forceStaticBlasRebuildMode == 2;
+    const bool hardwareOpaqueGeometryModeChanged =
+        r_pathTracingHardwareOpaqueGeometry.IsModified();
+    const bool hardwareOpaqueGeometryEnabled =
+        r_pathTracingHardwareOpaqueGeometry.GetInteger() != 0;
+    const uint64 staticBlasOpacitySignature =
+        ComputeSmokeBlasOpacitySignature(
+            staticTriangleMaterialCache.empty()
+                ? nullptr
+                : staticTriangleMaterialCache.data(),
+            static_cast<int>(staticTriangleMaterialCache.size()),
+            hardwareOpaqueGeometryEnabled);
+    const bool staticBlasOpacityMismatch =
+        m_smokeStaticBlasCacheValid &&
+        m_smokeStaticBlasOpacitySignature !=
+            staticBlasOpacitySignature;
+    if (staticBlasOpacityMismatch &&
+        r_pathTracingSmokeLog.GetInteger() != 0)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: static BLAS hardware-opacity classification invalidated cache previous=%llu current=%llu\n",
+            static_cast<unsigned long long>(
+                m_smokeStaticBlasOpacitySignature),
+            static_cast<unsigned long long>(
+                staticBlasOpacitySignature));
+    }
     const uint64 cachedStaticBlasGeometryGeneration = m_smokeStaticBlasGeometryGeneration;
     const bool staticBlasGenerationMismatch =
         r_pathTracingStaticBlasGenerationGuard.GetBool() &&
@@ -11365,8 +11393,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeStaticTriangleMaterialBuffer &&
             m_smokeStaticTriangleMaterialIndexBuffer;
         accelerationPlanInput.staticCache.staticCacheChanged =
-            staticCacheChanged || forceStaticBlasRebuild || staticBlasGenerationMismatch;
+            staticCacheChanged || forceStaticBlasRebuild ||
+            staticBlasGenerationMismatch ||
+            hardwareOpaqueGeometryModeChanged ||
+            staticBlasOpacityMismatch;
         accelerationPlanInput.staticCache.previousSignatureHash = m_smokeStaticBlasSignature;
+        accelerationPlanInput.staticCache.opacitySignature =
+            staticBlasOpacitySignature;
         accelerationPlanInput.staticVertexCount = staticVertexCount;
         accelerationPlanInput.staticIndexCount = staticIndexCount;
         accelerationPlanInput.dynamicVertexCount = dynamicVertexCount;
@@ -11549,6 +11582,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticBlasCreateDesc.indexBuffer = smokeStaticIndexBuffer;
             staticBlasCreateDesc.vertexCount = accelerationPlan.staticBlas.vertexCount;
             staticBlasCreateDesc.indexCount = accelerationPlan.staticBlas.indexCount;
+            staticBlasCreateDesc.triangleMaterialIds =
+                staticTriangleMaterialCache.empty()
+                    ? nullptr
+                    : staticTriangleMaterialCache.data();
+            staticBlasCreateDesc.triangleMaterialCount =
+                static_cast<int>(staticTriangleMaterialCache.size());
+            staticBlasCreateDesc.enableOpaqueGeometry =
+                r_pathTracingHardwareOpaqueGeometry.GetInteger() != 0;
             staticBlasCreateDesc.debugName = accelerationPlan.staticBlas.debugName;
             RtSmokeBlasCreateResult staticBlasCreateResult;
             {
@@ -11562,6 +11603,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
             smokeStaticBlasDesc = staticBlasCreateResult.accelStructDesc;
             smokeStaticBlas = staticBlasCreateResult.accelStruct;
+            if (r_pathTracingSmokeLog.GetInteger() != 0)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: static BLAS geometry chunks=%d opaque=%d programmable=%d hardwareOpaqueMode=%d\n",
+                    staticBlasCreateResult.geometryCount,
+                    staticBlasCreateResult.opaqueGeometryCount,
+                    staticBlasCreateResult.nonOpaqueGeometryCount,
+                    staticBlasCreateDesc.enableOpaqueGeometry ? 1 : 0);
+            }
             ++m_smokeStaticBlasCacheMissCount;
         }
     }
@@ -11576,6 +11626,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         dynamicBlasCreateDesc.indexBuffer = smokeDynamicIndexBuffer;
         dynamicBlasCreateDesc.vertexCount = accelerationPlan.dynamicBlas.vertexCount;
         dynamicBlasCreateDesc.indexCount = accelerationPlan.dynamicBlas.indexCount;
+        dynamicBlasCreateDesc.triangleMaterialIds =
+            dynamicTriangleMaterialData.empty()
+                ? nullptr
+                : dynamicTriangleMaterialData.data();
+        dynamicBlasCreateDesc.triangleMaterialCount =
+            static_cast<int>(dynamicTriangleMaterialData.size());
+        dynamicBlasCreateDesc.enableOpaqueGeometry =
+            r_pathTracingHardwareOpaqueGeometry.GetInteger() != 0;
         dynamicBlasCreateDesc.debugName = accelerationPlan.dynamicBlas.debugName;
         RtSmokeBlasCreateResult dynamicBlasCreateResult;
         {
@@ -11589,7 +11647,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         smokeDynamicBlasDesc = dynamicBlasCreateResult.accelStructDesc;
         smokeDynamicBlas = dynamicBlasCreateResult.accelStruct;
+        if (r_pathTracingSmokeLog.GetInteger() != 0 &&
+            (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+        {
+            common->Printf(
+                "PathTracePrimaryPass: dynamic BLAS geometry chunks=%d opaque=%d programmable=%d hardwareOpaqueMode=%d\n",
+                dynamicBlasCreateResult.geometryCount,
+                dynamicBlasCreateResult.opaqueGeometryCount,
+                dynamicBlasCreateResult.nonOpaqueGeometryCount,
+                dynamicBlasCreateDesc.enableOpaqueGeometry ? 1 : 0);
+        }
     }
+    r_pathTracingHardwareOpaqueGeometry.ClearModified();
 
     const bool staticGeometryBuffersReused =
         smokeStaticVertexBuffer && smokeStaticVertexBuffer == m_smokeStaticVertexBuffer &&
@@ -14915,6 +14984,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.tlas = m_smokeTlas;
     resourceCommitBuildDesc.hasStaticBlas = hasStaticBlas;
     resourceCommitBuildDesc.staticBlasSignature = staticSignature.hash;
+    resourceCommitBuildDesc.staticBlasOpacitySignature =
+        staticBlasOpacitySignature;
     resourceCommitBuildDesc.staticBlasGeometryGeneration =
         staticBlasCacheHit
             ? cachedStaticBlasGeometryGeneration

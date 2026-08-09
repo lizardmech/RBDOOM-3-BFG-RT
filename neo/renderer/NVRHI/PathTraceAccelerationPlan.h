@@ -11,6 +11,11 @@
 #include <limits>
 #include <vector>
 
+// BLAS geometry is partitioned without reordering indexes. Hardware hit
+// GeometryIndex therefore contributes this fixed stride to the established
+// source-triangle identity.
+static constexpr uint32_t RT_SMOKE_BLAS_GEOMETRY_TRIANGLE_CHUNK = 256u;
+
 struct RtSmokePlanGeometryRange
 {
     int vertexOffset = 0;
@@ -60,6 +65,7 @@ struct RtSmokePlanStaticCacheInput
     bool cacheResourcesReady = false;
     bool staticCacheChanged = false;
     uint64_t previousSignatureHash = 0;
+    uint64_t opacitySignature = 0;
 };
 
 struct RtSmokePlanBlasCreate

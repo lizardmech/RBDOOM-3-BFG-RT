@@ -19,6 +19,9 @@ struct RtSmokeBlasCreateDesc
     nvrhi::BufferHandle indexBuffer;
     int vertexCount = 0;
     int indexCount = 0;
+    const uint32_t* triangleMaterialIds = nullptr;
+    int triangleMaterialCount = 0;
+    bool enableOpaqueGeometry = false;
     const char* debugName = nullptr;
 };
 
@@ -27,6 +30,9 @@ struct RtSmokeBlasCreateResult
     nvrhi::rt::AccelStructDesc accelStructDesc;
     nvrhi::rt::AccelStructHandle accelStruct;
     const char* errorMessage = nullptr;
+    int geometryCount = 0;
+    int opaqueGeometryCount = 0;
+    int nonOpaqueGeometryCount = 0;
 
     bool Succeeded() const { return accelStruct && errorMessage == nullptr; }
 };
@@ -84,6 +90,10 @@ struct RtSmokeBufferUploadBatchDesc
 
 void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, nvrhi::IBuffer* vertexBuffer, nvrhi::IBuffer* indexBuffer, int totalVertexCount, int indexOffset, int indexCount);
 RtSmokeBlasCreateResult CreateSmokeBlas(const RtSmokeBlasCreateDesc& desc);
+uint64 ComputeSmokeBlasOpacitySignature(
+    const uint32_t* triangleMaterialIds,
+    int triangleMaterialCount,
+    bool enableOpaqueGeometry);
 int UploadSmokeAccelerationBuffers(const RtSmokeBufferUploadBatchDesc& desc);
 bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAccelSubmitTiming& timing);
 uint64 HashSmokeBytes(uint64 hash, const void* data, size_t size);

@@ -319,6 +319,87 @@ public bool Upt04ResolveTriangle(Upt04HitFacts hit, out Upt04ResolvedTriangle tr
     return Upt04LoadRigidTriangle(hit.instanceId, hit.primitiveId, triangle);
 }
 
+// Resolve the material indirection without fetching triangle indices or
+// vertices. Alpha traversal calls this before the expensive full decode; any
+// malformed or stale route fails closed and remains solid.
+public bool Upt04ResolveTriangleMaterialIndex(
+    Upt04HitFacts hit,
+    out uint materialIndex)
+{
+    materialIndex = kUpt04InvalidIdentity;
+    if (hit.status != kUpt04HitTriangle || hit.geometryId != 0u)
+        return false;
+
+    const bool staticBucket =
+        Upt04StaticBucketRouteAvailable()
+        && (hit.instanceId & ~kUpt04ShaderInstanceMask) == 0u
+        && (hit.instanceId & kUpt04StaticBucketInstanceBit) != 0u;
+    if (staticBucket)
+    {
+        const uint triangleBase =
+            hit.instanceId & kUpt04StaticBucketTriangleMask;
+        if (triangleBase >= Upt04StaticTriangleCount()
+            || hit.primitiveId >=
+                Upt04StaticTriangleCount() - triangleBase)
+            return false;
+        materialIndex = gUpt04StaticTriangleMaterialIndices[
+            triangleBase + hit.primitiveId];
+        return true;
+    }
+    if (hit.instanceId == 0u)
+    {
+        if (hit.primitiveId >= Upt04StaticTriangleCount())
+            return false;
+        materialIndex =
+            gUpt04StaticTriangleMaterialIndices[hit.primitiveId];
+        return true;
+    }
+    if (hit.instanceId == 1u)
+    {
+        if (hit.primitiveId >= Upt04DynamicTriangleCount())
+            return false;
+        materialIndex =
+            gUpt04DynamicTriangleMaterialIndices[hit.primitiveId];
+        return true;
+    }
+
+    uint skinnedRouteIndex;
+    if (Upt04SkinnedInstanceInRange(
+            hit.instanceId, skinnedRouteIndex))
+    {
+        const Upt04SkinnedRouteRecord route =
+            gUpt04SkinnedRoutes[skinnedRouteIndex];
+        if (route.shaderInstanceId != hit.instanceId
+            || route.routeCount != Upt04SkinnedRouteRecordCount()
+            || route.triangleMetadataCount !=
+                Upt04SkinnedRouteTriangleCount()
+            || hit.primitiveId >= route.triangleCount
+            || route.triangleMetadataOffset >
+                Upt04SkinnedRouteTriangleCount()
+            || hit.primitiveId >=
+                Upt04SkinnedRouteTriangleCount()
+                    - route.triangleMetadataOffset)
+            return false;
+        const Upt04SkinnedRouteTriangle metadata =
+            gUpt04SkinnedTriangles[
+                route.triangleMetadataOffset + hit.primitiveId];
+        if (metadata.sourcePrimitiveIndex != hit.primitiveId)
+            return false;
+        materialIndex = metadata.materialIndex;
+        return true;
+    }
+
+    if (hit.instanceId < 2u
+        || hit.instanceId - 2u >= Upt04RigidInstanceCount())
+        return false;
+    const Upt04RigidRouteInstance rigidRoute =
+        gUpt04RigidInstances[hit.instanceId - 2u];
+    if (hit.primitiveId >= rigidRoute.triangleCount)
+        return false;
+    materialIndex = rigidRoute.materialIndex;
+    return true;
+}
+
 public Upt04GeometryHitSurface Upt04BuildGeometryHitSurface(
     Upt04ResolvedTriangle triangle,
     float2 hitBarycentrics,

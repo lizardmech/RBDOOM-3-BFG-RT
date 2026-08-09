@@ -4,7 +4,36 @@ import upt04_binary16;
 public static const uint kUpt04RigidSurfaceClass = 1u;
 public static const uint kUpt04StaticBucketInstanceBit = 0x00800000u;
 public static const uint kUpt04StaticBucketTriangleMask = 0x007fffffu;
+public static const uint kUpt04BlasGeometryTriangleChunk = 256u;
 public static const uint kUpt04ShaderInstanceMask = 0x00ffffffu;
+
+public bool Upt04CanonicalizeHardwarePrimitive(
+    uint instanceId,
+    uint geometryIndex,
+    uint primitiveIndex,
+    out uint canonicalPrimitiveIndex)
+{
+    canonicalPrimitiveIndex = kUpt04InvalidIdentity;
+    const bool chunkedRoute =
+        instanceId <= 1u ||
+        ((instanceId & ~kUpt04ShaderInstanceMask) == 0u &&
+            (instanceId & kUpt04StaticBucketInstanceBit) != 0u);
+    if (!chunkedRoute)
+    {
+        if (geometryIndex != 0u)
+            return false;
+        canonicalPrimitiveIndex = primitiveIndex;
+        return true;
+    }
+    if (primitiveIndex >= kUpt04BlasGeometryTriangleChunk ||
+        geometryIndex >
+            (0xffffffffu - primitiveIndex) /
+                kUpt04BlasGeometryTriangleChunk)
+        return false;
+    canonicalPrimitiveIndex =
+        geometryIndex * kUpt04BlasGeometryTriangleChunk + primitiveIndex;
+    return true;
+}
 
 public struct Upt04SmokeVertex
 {

@@ -236,21 +236,25 @@ bool CleanTryResolveStaticBucketHardwareHit(
 {
     address = (PathTraceStaticGeometryAddress)0;
     uint triangleBase = 0u;
+    uint canonicalPrimitiveIndex = 0u;
     if (!PathTraceStaticBucketInstanceInPublishedRange(
             instanceId,
             CleanRtxdiDiStaticBucketRouteInfo,
             triangleBase) ||
-        geometryIndex != 0u ||
+        !PathTraceTryCanonicalizeBlasPrimitive(
+            geometryIndex,
+            primitiveIndex,
+            canonicalPrimitiveIndex) ||
         triangleBase >= CleanRtxdiDiStaticTriangleCount ||
-        primitiveIndex >=
+        canonicalPrimitiveIndex >=
             CleanRtxdiDiStaticTriangleCount - triangleBase)
     {
         return false;
     }
 
     address.triangleBase = triangleBase;
-    address.triangleIndex = triangleBase + primitiveIndex;
-    address.sourceTriangleIndex = primitiveIndex;
+    address.triangleIndex = triangleBase + canonicalPrimitiveIndex;
+    address.sourceTriangleIndex = canonicalPrimitiveIndex;
     address.triangleCount =
         CleanRtxdiDiStaticTriangleCount - triangleBase;
     return true;
@@ -1502,7 +1506,7 @@ float CleanTraceVisibility(RAB_Surface surface, RAB_LightInfo lightInfo, RAB_Lig
         payload.ignoreMaterialIndex = tri.materialIndex;
     }
 
-    TraceRay(SmokeScene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 1, 0, 1, ray, payload);
+    TraceRay(SmokeScene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff, 1, 0, 1, ray, payload);
     return payload.value == 0u ? 1.0 : 0.0;
 }
 
@@ -1769,8 +1773,18 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
 {
     const uint hardwareInstanceId = InstanceID();
     const uint hardwarePrimitiveIndex = PrimitiveIndex();
+    uint canonicalHardwarePrimitiveIndex = 0u;
+    if (!PathTraceTryCanonicalizeSmokeHardwarePrimitive(
+            hardwareInstanceId,
+            GeometryIndex(),
+            hardwarePrimitiveIndex,
+            canonicalHardwarePrimitiveIndex))
+    {
+        IgnoreHit();
+        return;
+    }
     uint instanceId = hardwareInstanceId;
-    uint primitiveIndex = hardwarePrimitiveIndex;
+    uint primitiveIndex = canonicalHardwarePrimitiveIndex;
     PathTraceStaticGeometryAddress staticBucketAddress =
         (PathTraceStaticGeometryAddress)0;
     const bool staticBucketHardwareHit =
@@ -1805,8 +1819,18 @@ void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleInter
 {
     const uint hardwareInstanceId = InstanceID();
     const uint hardwarePrimitiveIndex = PrimitiveIndex();
+    uint canonicalHardwarePrimitiveIndex = 0u;
+    if (!PathTraceTryCanonicalizeSmokeHardwarePrimitive(
+            hardwareInstanceId,
+            GeometryIndex(),
+            hardwarePrimitiveIndex,
+            canonicalHardwarePrimitiveIndex))
+    {
+        IgnoreHit();
+        return;
+    }
     uint instanceId = hardwareInstanceId;
-    uint primitiveIndex = hardwarePrimitiveIndex;
+    uint primitiveIndex = canonicalHardwarePrimitiveIndex;
     PathTraceStaticGeometryAddress staticBucketAddress =
         (PathTraceStaticGeometryAddress)0;
     const bool staticBucketHardwareHit =

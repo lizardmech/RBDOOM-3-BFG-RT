@@ -204,6 +204,7 @@ struct RtSmokeSceneResourceCommitDesc
     nvrhi::rt::AccelStructHandle tlas;
     bool hasStaticBlas = false;
     uint64 staticBlasSignature = 0;
+    uint64 staticBlasOpacitySignature = 0;
     uint64 staticBlasGeometryGeneration = 0;
     uint64 skinnedOutputStorageGeneration = 0;
     nvrhi::BindingSetHandle bindingSet;
@@ -242,6 +243,7 @@ struct RtSmokeSceneResourceCommitBuildDesc
     nvrhi::rt::AccelStructHandle tlas;
     bool hasStaticBlas = false;
     uint64 staticBlasSignature = 0;
+    uint64 staticBlasOpacitySignature = 0;
     uint64 staticBlasGeometryGeneration = 0;
     uint64 skinnedOutputStorageGeneration = 0;
     nvrhi::BindingSetHandle bindingSet;

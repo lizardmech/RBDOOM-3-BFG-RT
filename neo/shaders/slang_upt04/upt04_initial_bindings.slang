@@ -218,6 +218,18 @@ public Upt04SmokeMaterialRecord Upt04LoadMaterialRecord(uint index)
 #endif
 }
 
+// Alpha traversal usually needs only the classification bit. Keep this as a
+// member load so natural records do not inflate into an eager 112-byte read,
+// and compact records touch only their flags-containing uint4.
+public uint Upt04LoadMaterialFlags(uint index)
+{
+#if UPT04_PACKED_MATERIAL_RECORD
+    return gUpt04Materials[index].textureIndicesAndFlags.w;
+#else
+    return gUpt04Materials[index].flags;
+#endif
+}
+
 public Upt04PrimarySurfaceRecord Upt04LoadPreviousPrimarySurface(uint index)
 {
 #if UPT04_PACKED_PRIMARY_RECEIVER == 1

@@ -96,6 +96,7 @@ extern idCVar r_pathTracingGeometryStaticBucketPortalSteps;
 extern idCVar r_pathTracingGeometryStaticBucketReflectionPortalSteps;
 extern idCVar r_pathTracingGeometryStaticBucketRoute;
 extern idCVar r_pathTracingGeometryStaticBucketSecondaryProbeStage;
+extern idCVar r_pathTracingHardwareOpaqueGeometry;
 extern idCVar r_pathTracingGeometryResidencyV2;
 extern idCVar r_pathTracingEntityFeed;
 extern idCVar r_pathTracingEntityFeedDump;

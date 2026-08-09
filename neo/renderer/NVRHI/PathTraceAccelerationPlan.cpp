@@ -1,5 +1,4 @@
 #include "PathTraceAccelerationPlan.h"
-
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -218,6 +217,10 @@ uint64_t BuildSmokeAccelerationPlanInputToken(const RtSmokeAccelerationPlanInput
         (staticSignatureReused ? 1u : 0u) |
         (staticSignatureReused && input.staticCache.cacheResourcesReady ? 2u : 0u);
     hash = HashSmokePlanBytes(hash, &cacheBits, sizeof(cacheBits));
+    hash = HashSmokePlanBytes(
+        hash,
+        &input.staticCache.opacitySignature,
+        sizeof(input.staticCache.opacitySignature));
     if (staticSignatureReused)
     {
         hash = HashSmokePlanBytes(hash, &input.staticCache.previousSignatureHash, sizeof(input.staticCache.previousSignatureHash));
@@ -1897,15 +1900,27 @@ BuildSmokeStaticBucketBlasGeometryPlan(
         return plan;
     }
 
-    RtSmokeStaticBucketBlasGeometryRange geometry;
-    geometry.indexByteOffset = bucket.indexByteOffset;
-    geometry.indexCount =
-        static_cast<uint32_t>(bucket.range.indexCount);
-    geometry.triangleOffset =
-        static_cast<uint32_t>(bucket.range.triangleOffset);
-    geometry.triangleCount =
-        static_cast<uint32_t>(bucket.range.triangleCount);
-    plan.geometries.push_back(geometry);
+    for (uint32_t localTriangleOffset = 0;
+         localTriangleOffset <
+            static_cast<uint32_t>(bucket.range.triangleCount);
+         localTriangleOffset +=
+            RT_SMOKE_BLAS_GEOMETRY_TRIANGLE_CHUNK)
+    {
+        RtSmokeStaticBucketBlasGeometryRange geometry;
+        geometry.triangleCount = std::min(
+            RT_SMOKE_BLAS_GEOMETRY_TRIANGLE_CHUNK,
+            static_cast<uint32_t>(bucket.range.triangleCount) -
+                localTriangleOffset);
+        geometry.triangleOffset =
+            static_cast<uint32_t>(bucket.range.triangleOffset) +
+            localTriangleOffset;
+        geometry.indexByteOffset =
+            bucket.indexByteOffset +
+            static_cast<uint64_t>(localTriangleOffset) *
+                3u * sizeof(uint32_t);
+        geometry.indexCount = geometry.triangleCount * 3u;
+        plan.geometries.push_back(geometry);
+    }
     plan.exact = true;
     return plan;
 }

@@ -55,6 +55,7 @@ struct RtSmokeMaterialTextureInfo
     bool hasSafeEmissiveTexture = false;
     bool hasSkyTextureHandle = false;
     bool hasSafeSkyTexture = false;
+    bool hardwareOpaqueGeometry = false;
     bool hasAlphaTest = false;
     bool additiveDecal = false;
     bool additiveDecalWhiteKey = false;
@@ -118,6 +119,9 @@ int ClearSmokeMaterialTextureVariants();
 int ClearSmokeMaterialTextureRegistry();
 bool RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info);
 RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex);
+bool ComputeSmokeMaterialHardwareOpaqueGeometry(
+    const RtSmokeMaterialTextureInfo& info);
+bool SmokeMaterialCanUseHardwareOpaqueGeometry(uint32_t materialId);
 bool SmokeMaterialTextureInfoHasMaterialMetadata(const RtSmokeMaterialTextureInfo& info);
 const idStr& SmokeBestSafeTextureName(const RtSmokeMaterialTextureInfo& info);
 int SmokeMaterialTextureRegistrySize();

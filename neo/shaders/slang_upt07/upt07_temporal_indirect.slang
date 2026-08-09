@@ -196,24 +196,30 @@ public Upt04HitFacts Upt07TraceIndirect(
     ray.TMax = request.tMax;
     RayQuery<0> query = RayQuery<0>();
     const uint flags = visibility != 0u
-        ? (RAY_FLAG_FORCE_NON_OPAQUE
-            | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH)
-        : RAY_FLAG_FORCE_NON_OPAQUE;
+        ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
+        : RAY_FLAG_NONE;
     query.TraceRayInline(gUpt07Scene, flags, 0xffu, ray);
     while (query.Proceed())
     {
         if (query.CandidateType() != CANDIDATE_NON_OPAQUE_TRIANGLE)
             continue;
+        uint candidatePrimitiveId;
+        if (!Upt04CanonicalizeHardwarePrimitive(
+                query.CandidateInstanceID(),
+                query.CandidateGeometryIndex(),
+                query.CandidatePrimitiveIndex(),
+                candidatePrimitiveId))
+            continue;
         if (visibility != 0u && Upt04VisibilityIgnoresCandidate(
                 ignore,
                 query.CandidateInstanceID(),
-                query.CandidatePrimitiveIndex()))
+                candidatePrimitiveId))
             continue;
         Upt04HitFacts candidate = (Upt04HitFacts)0;
         candidate.status = kUpt04HitTriangle;
         candidate.instanceId = query.CandidateInstanceID();
-        candidate.geometryId = query.CandidateGeometryIndex();
-        candidate.primitiveId = query.CandidatePrimitiveIndex();
+        candidate.geometryId = 0u;
+        candidate.primitiveId = candidatePrimitiveId;
         candidate.barycentrics = query.CandidateTriangleBarycentrics();
         candidate.hitT = query.CandidateTriangleRayT();
         candidate.frontFace = 1u;
@@ -225,8 +231,13 @@ public Upt04HitFacts Upt07TraceIndirect(
     {
         result.status = kUpt04HitTriangle;
         result.instanceId = query.CommittedInstanceID();
-        result.geometryId = query.CommittedGeometryIndex();
-        result.primitiveId = query.CommittedPrimitiveIndex();
+        result.geometryId = 0u;
+        if (!Upt04CanonicalizeHardwarePrimitive(
+                result.instanceId,
+                query.CommittedGeometryIndex(),
+                query.CommittedPrimitiveIndex(),
+                result.primitiveId))
+            return Upt04MissFacts(request.tMax);
         result.barycentrics = query.CommittedTriangleBarycentrics();
         result.hitT = query.CommittedRayT();
         result.frontFace = query.CommittedTriangleFrontFace() ? 1u : 0u;

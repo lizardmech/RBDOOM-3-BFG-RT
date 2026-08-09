@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceAcceleration.h"
+#include "PathTraceTextureRegistry.h"
 #include "PathTraceAccelerationPlan.h"
 
 #include <algorithm>
@@ -60,22 +61,103 @@ RtSmokeBlasCreateResult CreateSmokeBlas(const RtSmokeBlasCreateDesc& desc)
         return result;
     }
 
-    nvrhi::rt::GeometryTriangles triangleGeometry;
-    InitSmokeTriangleGeometry(triangleGeometry, desc.vertexBuffer, desc.indexBuffer, desc.vertexCount, 0, desc.indexCount);
-
-    nvrhi::rt::GeometryDesc geometryDesc;
-    geometryDesc.setTriangles(triangleGeometry);
-
     result.accelStructDesc = nvrhi::rt::AccelStructDesc()
-        .addBottomLevelGeometry(geometryDesc)
         .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
         .setDebugName(desc.debugName);
+
+    const int triangleCount = desc.indexCount / 3;
+    const bool partitionGeometry =
+        desc.indexCount % 3 == 0 &&
+        desc.triangleMaterialIds &&
+        desc.triangleMaterialCount >= triangleCount;
+    const int geometryTriangleLimit = partitionGeometry
+        ? static_cast<int>(RT_SMOKE_BLAS_GEOMETRY_TRIANGLE_CHUNK)
+        : triangleCount;
+    for (int triangleOffset = 0;
+         triangleOffset < triangleCount;
+         triangleOffset += geometryTriangleLimit)
+    {
+        const int geometryTriangleCount = Min(
+            geometryTriangleLimit,
+            triangleCount - triangleOffset);
+        nvrhi::rt::GeometryTriangles triangleGeometry;
+        InitSmokeTriangleGeometry(
+            triangleGeometry,
+            desc.vertexBuffer,
+            desc.indexBuffer,
+            desc.vertexCount,
+            triangleOffset * 3,
+            geometryTriangleCount * 3);
+
+        bool hardwareOpaque =
+            desc.enableOpaqueGeometry && partitionGeometry;
+        for (int triangleIndex = 0;
+             hardwareOpaque && triangleIndex < geometryTriangleCount;
+             ++triangleIndex)
+        {
+            hardwareOpaque = SmokeMaterialCanUseHardwareOpaqueGeometry(
+                desc.triangleMaterialIds[triangleOffset + triangleIndex]);
+        }
+
+        nvrhi::rt::GeometryDesc geometryDesc;
+        geometryDesc.setTriangles(triangleGeometry);
+        if (hardwareOpaque)
+        {
+            geometryDesc.setFlags(nvrhi::rt::GeometryFlags::Opaque);
+            ++result.opaqueGeometryCount;
+        }
+        else
+        {
+            ++result.nonOpaqueGeometryCount;
+        }
+        result.accelStructDesc.addBottomLevelGeometry(geometryDesc);
+        ++result.geometryCount;
+    }
     result.accelStruct = desc.device->createAccelStruct(result.accelStructDesc);
     if (!result.accelStruct)
     {
         result.errorMessage = "failed to create RT smoke BLAS";
     }
     return result;
+}
+
+uint64 ComputeSmokeBlasOpacitySignature(
+    const uint32_t* triangleMaterialIds,
+    int triangleMaterialCount,
+    bool enableOpaqueGeometry)
+{
+    uint64 hash = 14695981039346656037ull;
+    const uint32_t contractVersion = 1u;
+    const uint32_t enabled = enableOpaqueGeometry ? 1u : 0u;
+    const uint32_t triangleCount = static_cast<uint32_t>(Max(0, triangleMaterialCount));
+    hash = HashSmokeBytes(hash, &contractVersion, sizeof(contractVersion));
+    hash = HashSmokeBytes(hash, &enabled, sizeof(enabled));
+    hash = HashSmokeBytes(hash, &triangleCount, sizeof(triangleCount));
+
+    if (enableOpaqueGeometry && triangleMaterialIds && triangleMaterialCount > 0)
+    {
+        for (int triangleOffset = 0;
+             triangleOffset < triangleMaterialCount;
+             triangleOffset += static_cast<int>(RT_SMOKE_BLAS_GEOMETRY_TRIANGLE_CHUNK))
+        {
+            const int geometryTriangleCount = Min(
+                static_cast<int>(RT_SMOKE_BLAS_GEOMETRY_TRIANGLE_CHUNK),
+                triangleMaterialCount - triangleOffset);
+            uint32_t hardwareOpaque = 1u;
+            for (int triangleIndex = 0;
+                 hardwareOpaque != 0u && triangleIndex < geometryTriangleCount;
+                 ++triangleIndex)
+            {
+                hardwareOpaque = SmokeMaterialCanUseHardwareOpaqueGeometry(
+                    triangleMaterialIds[triangleOffset + triangleIndex])
+                        ? 1u
+                        : 0u;
+            }
+            hash = HashSmokeBytes(hash, &hardwareOpaque, sizeof(hardwareOpaque));
+        }
+    }
+
+    return hash != 0 ? hash : 1;
 }
 
 int UploadSmokeAccelerationBuffers(const RtSmokeBufferUploadBatchDesc& desc)

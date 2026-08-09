@@ -19,6 +19,18 @@
 #endif
 
 static const uint RT_STATIC_CONTRACT_REJECT_NONE = 0u;
+static const uint RT_SMOKE_BLAS_GEOMETRY_TRIANGLE_CHUNK = 256u;
+
+uint SmokeCanonicalHardwarePrimitive(
+    uint instanceId,
+    uint geometryIndex,
+    uint primitiveIndex)
+{
+    return instanceId <= 1u
+        ? geometryIndex * RT_SMOKE_BLAS_GEOMETRY_TRIANGLE_CHUNK +
+            primitiveIndex
+        : primitiveIndex;
+}
 static const uint RT_STATIC_CONTRACT_REJECT_GUI_ALPHA = 1u;
 static const uint RT_STATIC_CONTRACT_REJECT_PARTICLE_DITHER = 2u;
 static const uint RT_STATIC_CONTRACT_REJECT_GLASS_FALLBACK = 3u;
@@ -3780,7 +3792,8 @@ void ShadowMiss(inout PathTraceSmokeShadowPayload payload)
 void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
-    const uint primitiveIndex = PrimitiveIndex();
+    const uint primitiveIndex = SmokeCanonicalHardwarePrimitive(
+        instanceId, GeometryIndex(), PrimitiveIndex());
     if (payload.value == 2u &&
         instanceId == payload.shadowIgnoreInstanceId)
     {
@@ -3807,7 +3820,8 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
 void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
-    const uint primitiveIndex = PrimitiveIndex();
+    const uint primitiveIndex = SmokeCanonicalHardwarePrimitive(
+        instanceId, GeometryIndex(), PrimitiveIndex());
     payload.hit = 1u;
     if (payload.rayMode == 2u &&
         instanceId == payload.ignoreInstanceId)
@@ -3838,9 +3852,10 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
 {
     const uint instanceId = InstanceID();
     const uint geometryIndex = GeometryIndex();
-    const uint primitiveIndex = PrimitiveIndex();
+    const uint primitiveIndex = SmokeCanonicalHardwarePrimitive(
+        instanceId, geometryIndex, PrimitiveIndex());
     payload.instanceId = instanceId;
-    payload.geometryIndex = geometryIndex;
+    payload.geometryIndex = 0u;
     payload.primitiveIndex = primitiveIndex;
     if (PathTraceIsRigidHitRouteInstance(instanceId) ||
         PathTraceIsSkinnedHitRouteInstance(instanceId))

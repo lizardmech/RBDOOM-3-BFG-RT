@@ -422,6 +422,7 @@ private:
     int m_smokeSceneLogCooldownFrames;
     bool m_smokeStaticBlasCacheValid;
     uint64 m_smokeStaticBlasSignature;
+    uint64 m_smokeStaticBlasOpacitySignature;
     uint64 m_smokeStaticBlasGeometryGeneration;
     int m_smokeStaticBlasCacheHitCount;
     int m_smokeStaticBlasCacheMissCount;

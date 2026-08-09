@@ -421,6 +421,12 @@ Packet index
         and light-payload remap effect, and adds isolated baseline counters and
         a controlled reset protocol.
 
+    34_upt19_hardware_opaque_geometry_partition.txt
+        Corrects the shared all-programmable BLAS/ray contract with conservative
+        fixed-size opaque geometry chunks, exact hardware-to-source primitive
+        remapping, Vulkan UPT/legacy ray-flag changes, rollback control and
+        chunk-opacity diagnostics.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

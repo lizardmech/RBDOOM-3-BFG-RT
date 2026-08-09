@@ -1809,6 +1809,11 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
             info->fallbackReason = va("%s; rejected texture desc", reason.c_str());
         }
     }
+    // Cache the complete conservative classification once when metadata is
+    // derived. BLAS signature walks are per triangle and must never copy the
+    // large metadata record or repeat string classification.
+    info->hardwareOpaqueGeometry =
+        ComputeSmokeMaterialHardwareOpaqueGeometry(*info);
     if (PathTraceMaterialClassifierRequested())
     {
         RegisterPathTraceMaterialRecord(material, *info);

@@ -2,6 +2,8 @@
 #define RB_PT_RIGID_HIT_ROUTE_INSTANCE_COUNT() \
     PathTraceReGIRRigidRouteInstanceCount()
 #include "PathTraceSkinnedHitRoute.hlsli"
+#define PATH_TRACE_ENABLE_MONOLITHIC_CHUNK_HELPERS 1
+#include "PathTraceStaticBucketRoute.hlsli"
 #include "RtxdiBridge/RAB_ReGIR.hlsli"
 #include "Rtxdi/Utils/Math.hlsli"
 
@@ -1558,7 +1560,16 @@ void ClosestHit(inout PathTraceReGIRPayload payload, BuiltInTriangleIntersection
     }
 
     const uint instanceId = InstanceID();
-    const uint primitiveIndex = PrimitiveIndex();
+    uint primitiveIndex = 0u;
+    if (!PathTraceTryCanonicalizeSmokeHardwarePrimitive(
+            instanceId,
+            GeometryIndex(),
+            PrimitiveIndex(),
+            primitiveIndex))
+    {
+        payload.value = 0u;
+        return;
+    }
     payload.instanceId = instanceId;
     payload.primitiveIndex = primitiveIndex;
 

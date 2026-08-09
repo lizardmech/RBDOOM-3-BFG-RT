@@ -1574,10 +1574,14 @@ bool PathTraceTryResolvePrimaryStaticBucketHit(
     address = (PathTraceStaticGeometryAddress)0;
     uint triangleBase = 0u;
     uint triangleIndex = 0u;
-    if (geometryIndex != 0u ||
+    uint canonicalPrimitiveIndex = 0u;
+    if (!PathTraceTryCanonicalizeBlasPrimitive(
+            geometryIndex,
+            primitiveIndex,
+            canonicalPrimitiveIndex) ||
         !PathTraceTryResolvePrimaryStaticBucketTriangleIndex(
             instanceId,
-            primitiveIndex,
+            canonicalPrimitiveIndex,
             triangleBase,
             triangleIndex))
     {
@@ -1586,7 +1590,7 @@ bool PathTraceTryResolvePrimaryStaticBucketHit(
 
     address.triangleBase = triangleBase;
     address.triangleIndex = triangleIndex;
-    address.sourceTriangleIndex = primitiveIndex;
+    address.sourceTriangleIndex = canonicalPrimitiveIndex;
     address.triangleCount =
         PathTraceStaticTriangleCount() - triangleBase;
     return true;
@@ -1609,10 +1613,19 @@ bool PathTraceResolvePrimaryHit(
     out PathTracePrimaryResolvedHit resolved)
 {
     resolved = (PathTracePrimaryResolvedHit)0;
+    uint canonicalPrimitiveIndex = 0u;
+    if (!PathTraceTryCanonicalizeSmokeHardwarePrimitive(
+            instanceId,
+            geometryIndex,
+            primitiveIndex,
+            canonicalPrimitiveIndex))
+    {
+        return false;
+    }
     resolved.lookupInstanceId = instanceId;
-    resolved.lookupPrimitiveIndex = primitiveIndex;
+    resolved.lookupPrimitiveIndex = canonicalPrimitiveIndex;
     resolved.identityInstanceId = instanceId;
-    resolved.identityPrimitiveIndex = primitiveIndex;
+    resolved.identityPrimitiveIndex = canonicalPrimitiveIndex;
 
     if (!PathTraceIsStaticBucketRouteInstance(
             instanceId,
@@ -4100,6 +4113,9 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     {
         return;
     }
+    payload.instanceId = resolved.identityInstanceId;
+    payload.geometryIndex = 0u;
+    payload.primitiveIndex = resolved.identityPrimitiveIndex;
     const uint lookupInstanceId = resolved.lookupInstanceId;
     const uint lookupPrimitiveIndex =
         resolved.lookupPrimitiveIndex;

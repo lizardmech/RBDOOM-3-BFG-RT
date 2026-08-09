@@ -1064,3 +1064,83 @@ aggregate route line, then disable it before timing. Compare slow, fast, and a
 temporal off-for-one-frame/on reset state as specified in document 33. The
 diagnostic uses separate Vulkan blobs; production temporal remains untouched.
 Do not begin spatial-indirect work until this variance is explained.
+
+UPT-19 hardware-opacity correction handover, 2026-08-10
+--------------------------------------------------------
+
+The unexplained temporal variance led to a lower shared traversal defect.
+Production UPT and clean RTXDI rays forced non-opaque, while the smoke and
+static-bucket BLAS never supplied GeometryFlags::Opaque. Every triangle was
+therefore exposed to programmable candidate handling, including material and
+alpha work, and scene overlap could multiply SM round trips.
+
+The correction partitions the existing index order into fixed 256-triangle
+geometries and marks a chunk opaque only if all resolved materials are proven
+hardware-safe. Uncertain, alpha-tested, glass, decal, liquid and fallback
+materials remain programmable. Shaders recover the unchanged source identity
+as GeometryIndex * 256 + PrimitiveIndex; no reorder, remap buffer or full clear
+is introduced. UPT production rays and clean RTXDI visibility stop forcing
+non-opaque, relying on the existing distance-minus-0.5 endpoint shortening.
+
+Use r_pathTracingHardwareOpaqueGeometry 0/1 for the rollback A/B and
+r_pathTracingSmokeLog 1 briefly to prove opaque/programmed chunk populations.
+The next gate is runtime alpha/geometry identity plus matched Nsight captures,
+not further UPT reservoir optimization. See document 34.
+
+UPT-19 build and deployment closure, 2026-08-10
+------------------------------------------------
+
+The focused CPU planning harness passes the 257-triangle 256+1 chunk boundary.
+The prescribed win64-pt-dev-release build completes with all UPT Vulkan
+verifiers passing and a 16,312,832-byte executable. DXIL shader generation was
+disabled in the preset cache.
+
+The exact build also exposed an already-dirty clean-GI producer shim that
+accepted only the main payload while parsing a shadow-payload TraceRay. After
+deleting its stale Vulkan blob, a minimal shadow-payload overload rebuilt it at
+363,016 bytes and the full build passed. Deployment contains the executable and
+the 105 SPIR-V artifacts actually rebuilt in this session, with matching
+source/destination sizes and SHA-256 hashes; no DX12 artifact was copied.
+
+Runtime validation remains the acceptance gate. Compare
+r_pathTracingHardwareOpaqueGeometry 0/1 in identical states, prove nonzero
+opaque/programmed chunk counts with r_pathTracingSmokeLog 1, then inspect alpha
+clips, glass, decals, doors, mirrors, rigid/skinned geometry and emissive
+self-visibility before recording matched UPT and clean-RTXDI Nsight captures.
+
+UPT-19 downstream correction before runtime testing, 2026-08-10
+----------------------------------------------------------------
+
+Do not test the earlier UPT-19 deployment: two downstream contracts were
+corrected first. Static and static-bucket BLAS reuse now includes a separate
+per-chunk hardware-opacity signature, so a registry-only alpha/coverage change
+cannot leave stale GeometryFlags::Opaque on an otherwise unchanged mesh.
+This preserves the geometry-only cache rule for material edits that do not
+alter opacity classification.
+
+UPT alpha traversal now resolves the material index and loads its flags before
+indices, vertices, the full material record or textures. Ordinary opaque
+candidates therefore stop at the narrow classification load; only proven
+alpha candidates run the full fail-closed coverage test. The canonical
+GeometryIndex * 256 + PrimitiveIndex normalization remains unchanged.
+
+The focused CPU planning harness passes, including the new opacity-token case.
+The exact Vulkan release build passes all UPT verifiers and links a
+16,313,856-byte executable. The follow-up rebuilt 21 Vulkan SPIR-V artifacts;
+DXIL generation remained disabled. Deploy this follow-up before the first
+runtime correctness/performance A/B.
+
+UPT-19 CPU regression correction, 2026-08-10
+---------------------------------------------
+
+The first downstream build must not be used for timing. opaqueissue.txt proved
+169--189 ms CPU scene builds with only about 20 ms of GPU activity. The new
+opacity signature was copying the large material metadata record once per
+triangle, multiplied by repeated static-bucket readiness checks.
+
+Hardware-opacity eligibility is now precomputed once per derived registry
+record and consumed as a one-bit lookup by signature walks. The conservative
+classification and invalidation behavior are unchanged. The exact Vulkan
+release build passes with all SPIR-V already current; only the rebuilt
+16,314,368-byte executable needs deployment for this correction. Recheck CPU
+scene-build time before collecting GPU comparisons.

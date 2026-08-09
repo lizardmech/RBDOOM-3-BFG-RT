@@ -353,21 +353,25 @@ bool PathTraceCleanRtxdiDiTryResolveStaticBucketHardwareHit(
 {
     address = (PathTraceStaticGeometryAddress)0;
     uint triangleBase = 0u;
+    uint canonicalPrimitiveIndex = 0u;
     if (!PathTraceStaticBucketInstanceInPublishedRange(
             instanceId,
             CleanRtxdiDiStaticBucketRouteInfo,
             triangleBase) ||
-        geometryIndex != 0u ||
+        !PathTraceTryCanonicalizeBlasPrimitive(
+            geometryIndex,
+            primitiveIndex,
+            canonicalPrimitiveIndex) ||
         triangleBase >= CleanRtxdiDiStaticTriangleCount ||
-        primitiveIndex >=
+        canonicalPrimitiveIndex >=
             CleanRtxdiDiStaticTriangleCount - triangleBase)
     {
         return false;
     }
 
     address.triangleBase = triangleBase;
-    address.triangleIndex = triangleBase + primitiveIndex;
-    address.sourceTriangleIndex = primitiveIndex;
+    address.triangleIndex = triangleBase + canonicalPrimitiveIndex;
+    address.sourceTriangleIndex = canonicalPrimitiveIndex;
     address.triangleCount =
         CleanRtxdiDiStaticTriangleCount - triangleBase;
     return true;

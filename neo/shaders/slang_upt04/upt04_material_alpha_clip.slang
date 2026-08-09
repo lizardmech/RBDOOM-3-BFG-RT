@@ -60,8 +60,16 @@ public bool Upt04AlphaClipDiffuseTexel(
 // texture state remains solid so traversal cannot manufacture geometry holes.
 public bool Upt04MaterialRejectsAlphaClipCandidate(Upt04HitFacts candidate)
 {
+    uint materialIndex;
+    if (!Upt04ResolveTriangleMaterialIndex(candidate, materialIndex)
+        || materialIndex >= gUpt04Control.materialCount
+        || (Upt04LoadMaterialFlags(materialIndex)
+            & kUpt04AlphaClipTest) == 0u)
+        return false;
+
     Upt04ResolvedTriangle triangle;
     if (!Upt04ResolveTriangle(candidate, triangle)
+        || triangle.materialIndex != materialIndex
         || triangle.materialIndex >= gUpt04Control.materialCount)
         return false;
 
