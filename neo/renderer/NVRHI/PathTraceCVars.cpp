@@ -1479,6 +1479,18 @@ idCVar r_pathTracingUnifiedPtTemporalIndirect(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-07 bounded one-continuation temporal replay: reconstructs global endpoints and force-reconnects stored secondary-NEE light vertices without rerunning light selection; rejects any identity, replay, target, or visibility mismatch; default off during temporal-only validation" );
 
+idCVar r_pathTracingUnifiedPtTemporalEarlyReconnect(
+    "r_pathTracingUnifiedPtTemporalEarlyReconnect",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-17 static secondary-vertex hybrid shift A/B: apply the paper footprint gate, reconnect the current receiver directly to stored x2, and use exact random replay for unsupported paths; pairwise MIS remains on replay" );
+
+idCVar r_pathTracingUnifiedPtTemporalReconnectDiagnostics(
+    "r_pathTracingUnifiedPtTemporalReconnectDiagnostics",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-17 one-frame-delayed aggregate counters for static locator, footprint, reconnect visibility, Jacobian, replay fallback, and admission stages" );
+
 idCVar r_pathTracingUnifiedPtDuplication(
     "r_pathTracingUnifiedPtDuplication",
     "1",

@@ -159,6 +159,8 @@ private:
     bool EnsureResolveBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureTemporalDiagnosticBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
+    void DrainTemporalDiagnosticReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureDuplicationResources(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureDuplicationPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureDuplicationBindingSets(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -308,6 +310,7 @@ private:
     bool m_temporalCompactLights = false;
     bool m_temporalDuplication = false;
     bool m_temporalIndirect = false;
+    bool m_temporalEarlyReconnect = false;
     bool m_temporalPipelineAttempted = false;
     nvrhi::BindingLayoutHandle m_temporalBindingLayout;
     std::array<nvrhi::BindingSetHandle, 2> m_temporalBindingSets;
@@ -315,6 +318,10 @@ private:
     std::array<bool, 2> m_temporalBindingSetDescValid = { false, false };
     nvrhi::ShaderHandle m_temporalShader;
     nvrhi::ComputePipelineHandle m_temporalPipeline;
+    nvrhi::BufferHandle m_temporalDiagnosticCounters;
+    nvrhi::BufferHandle m_temporalDiagnosticReadback;
+    bool m_temporalDiagnosticReadbackPending = false;
+    int m_temporalDiagnosticReadbackDelayFrames = 0;
 
     uint32_t m_duplicationWidth = 0;
     uint32_t m_duplicationHeight = 0;

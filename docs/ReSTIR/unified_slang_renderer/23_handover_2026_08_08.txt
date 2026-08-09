@@ -1019,3 +1019,28 @@ route counts, then design a compact stable secondary-vertex representation and
 an exact rough/footprint reconnection plus Jacobian evaluator. Preserve random
 replay as the specular/ineligible fallback and UPT-16 final winner visibility.
 See document 31.
+
+UPT-17 static hybrid reconnection implementation, 2026-08-10
+-------------------------------------------------------------
+
+The bounded static route is implemented without a sidecar or page growth.
+Secondary-NEE reservoirs event-union dormant words 13..15 into static x2
+instance/front-face, primitive, and UNORM16 barycentrics; ABI 10 invalidates
+older pages. Dynamic, rigid, and skinned paths retain exact random replay.
+
+The dedicated reconnect temporal blobs apply roughness 0.2 and footprint
+constant 0.02 percent, visibility-test y1-to-x2, evaluate source/target OpenPBR
+directional PDFs and the hybrid-shift Jacobian, scale BASIC history mass by the
+Jacobian, then retain UPT-15 stored-light replay and UPT-16 winner-only final
+visibility. Pairwise remains on replay. The off blobs retain the UPT-16
+30-binding/four-query code shape; reconnect blobs use 31 bindings and six
+static branch-dependent query sites. A 16-counter diagnostic readback reports
+locator, footprint, reconnect visibility, fallback, evaluation/Jacobian, and
+history-selection stages.
+
+The exact Vulkan release build and shader verifiers pass. Runtime A/B remains
+open: compare r_pathTracingUnifiedPtTemporalEarlyReconnect 0/1 with pairwise
+off, first indoors and outdoors on the same level, then enable
+r_pathTracingUnifiedPtTemporalReconnectDiagnostics briefly to explain coverage.
+Do not begin spatial indirect until image, energy, and timing evidence accepts
+or rejects this slice. See document 32.

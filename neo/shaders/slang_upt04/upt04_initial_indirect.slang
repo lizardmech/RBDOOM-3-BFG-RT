@@ -1,3 +1,4 @@
+import upt03_reservoir_contract;
 import upt04_initial_work_contract;
 import upt04_initial_random;
 import upt04_initial_bindings;
@@ -38,6 +39,18 @@ public static const uint kUpt04IndirectDiagReversePdfPositive = 1u << 8u;
 public static const uint kUpt04IndirectDiagSecondarySelectionFailure = 1u << 9u;
 public static const uint kUpt04IndirectDiagSecondaryMaterialFailure = 1u << 10u;
 public static const uint kUpt04IndirectDiagSecondaryPdfRayFailure = 1u << 11u;
+
+public bool Upt04IndirectHitHasStableStaticLocator(Upt04HitFacts hit)
+{
+    if (hit.status != kUpt04HitTriangle || hit.geometryId != 0u
+        || hit.instanceId > kUpt03PackedReconnectInstanceMask)
+        return false;
+    if (hit.instanceId == 0u)
+        return true;
+    return (gUpt04Control.availabilityFlags & kUpt04RouteStaticBuckets) != 0u
+        && (hit.instanceId & kUpt04StaticBucketInstanceBit) != 0u
+        && (hit.instanceId & ~kUpt04ShaderInstanceMask) == 0u;
+}
 
 public struct Upt04SecondaryNeeProposal
 {
@@ -429,7 +442,20 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     nee.identity1 = Upt04StableLightIdentityFingerprint(selectedLight);
     nee.sampleCoordinates = selected.sampleCoordinates;
     nee.pathLength = 2u;
-    nee.reconnectionVertexLength = 1u;
+    if (Upt04IndirectHitHasStableStaticLocator(hit))
+    {
+        nee.reconnectionVertexLength = 2u;
+        nee.reconnectionInstanceId = hit.instanceId;
+        nee.reconnectionPrimitiveId = hit.primitiveId;
+        nee.reconnectionFrontFace = hit.frontFace;
+        nee.reconnectionBarycentrics = hit.barycentrics;
+    }
+    else
+    {
+        // No stable previous-to-current geometry identity exists yet for
+        // dynamic, rigid, or skinned routes. Keep exact random replay.
+        nee.reconnectionVertexLength = 1u;
+    }
     nee.proposalPdf = effectiveProposalPdf;
     nee.pathPdf = work.pathPdf * selected.sourcePdf;
     nee.lobeMask = work.lobeMask | selected.lobeMask;

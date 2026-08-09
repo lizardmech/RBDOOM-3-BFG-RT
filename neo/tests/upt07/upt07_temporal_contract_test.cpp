@@ -310,6 +310,27 @@ void TestSaturatedAgeRemainsReusable() {
 		"six-bit age 63 must saturate rather than expire coherent history");
 }
 
+void TestHybridShiftJacobianScalesHistoryMassOnly() {
+	constexpr uint32_t generation = 0x10203040u;
+	LogicalReservoir current = Finalized(81, generation, 1, 2.0);
+	LogicalReservoir history = Finalized(82, generation, 1, 2.0);
+	Candidate shifted = history.selected;
+	const TemporalMergeResult choseHistory = MergeFinalizedTemporalCandidate(
+		current, history, shifted, true, true, true, 2.0, 0.5,
+		generation, 32u, 63u, 2.0);
+	Check(choseHistory.historyAccepted && choseHistory.selectedHistory &&
+		choseHistory.reservoir.selected.identity0 == 82u &&
+		Near(choseHistory.reservoir.weightSum, 3.0),
+		"hybrid-shift Jacobian must scale history selection mass without being stored in the physical target");
+
+	const TemporalMergeResult rejectedJacobian = MergeFinalizedTemporalCandidate(
+		current, history, shifted, true, true, true, 2.0, 0.0,
+		generation, 32u, 63u, 0.0);
+	Check(!rejectedJacobian.historyAccepted &&
+		rejectedJacobian.reservoir.selected.identity0 == 81u,
+		"non-positive hybrid-shift Jacobian must reject history without mutating the current reservoir");
+}
+
 void TestPreviousBestBecomesCurrentProposal() {
 	constexpr uint32_t generation = 0x10203040u;
 	Candidate shifted = Positive(71, generation, 3.0);
@@ -347,6 +368,7 @@ int main() {
 	TestZeroTrialAndRescueState();
 	TestStationaryRecurrenceDoesNotAccumulateEnergy();
 	TestSaturatedAgeRemainsReusable();
+	TestHybridShiftJacobianScalesHistoryMassOnly();
 	TestPreviousBestBecomesCurrentProposal();
 
 	if (gFailures != 0) {

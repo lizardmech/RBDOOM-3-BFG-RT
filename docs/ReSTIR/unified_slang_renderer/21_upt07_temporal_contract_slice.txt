@@ -742,3 +742,13 @@ the untouched D0 reservoir.
 Unified T0 now has four static RayQuery sites rather than five and the base
 blob is 793,796 bytes rather than 815,444. The 30-binding ABI and reservoir
 contract are unchanged. See document 30 for the exact runtime gate.
+
+UPT-17 static hybrid-shift extension, 2026-08-10
+------------------------------------------------
+
+Secondary-NEE history may now carry a tagged static x2 locator in an event
+union over packed words 13..15. BASIC correction multiplies shifted-history
+proposal mass by the freshly evaluated hybrid Jacobian while retaining the
+physical current target in the selected candidate. Pairwise MIS and all non-
+static geometry remain on exact replay. The feature is isolated behind
+r_pathTracingUnifiedPtTemporalEarlyReconnect and documented in file 32.

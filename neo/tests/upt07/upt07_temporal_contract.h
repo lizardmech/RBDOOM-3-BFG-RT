@@ -293,7 +293,8 @@ inline TemporalMergeResult MergeFinalizedTemporalCandidate(
 	double selectionRandom,
 	uint32_t expectedGeneration,
 	uint32_t maximumHistoryM = 32u,
-	uint8_t maximumHistoryAge = 63u) {
+	uint8_t maximumHistoryAge = 63u,
+	double shiftJacobian = 1.0) {
 	TemporalMergeResult result = {};
 	result.reservoir = current;
 	const bool currentSelected = current.hasSelectedSample && current.effectiveM != 0u &&
@@ -310,6 +311,7 @@ inline TemporalMergeResult MergeFinalizedTemporalCandidate(
 		shiftedHistoryValid && historySelected &&
 		historyAgeUsable &&
 		shiftedStructurallyValid &&
+		IsFinitePositive(shiftJacobian) &&
 		std::isfinite(selectionRandom) && selectionRandom >= 0.0 && selectionRandom < 1.0;
 	if (!historyUsable) {
 		if (!currentSelected) {
@@ -334,7 +336,7 @@ inline TemporalMergeResult MergeFinalizedTemporalCandidate(
 		shiftedHistory.status == upt02::CandidateStatus::ValidPositive;
 	const double historyMass = shiftedPositive
 		? history.weightSum * static_cast<double>(historyM) *
-			(shiftedHistory.target / history.selected.target)
+			(shiftedHistory.target / history.selected.target) * shiftJacobian
 		: 0.0;
 	const uint32_t outputM = current.effectiveM + historyM;
 	const double totalMass = currentMass + historyMass;

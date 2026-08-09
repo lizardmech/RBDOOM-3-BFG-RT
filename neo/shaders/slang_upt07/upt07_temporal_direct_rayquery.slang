@@ -18,6 +18,9 @@ import upt07_emissive_material;
 #ifndef UPT07_INDIRECT_REPLAY
 #define UPT07_INDIRECT_REPLAY 0
 #endif
+#ifndef UPT07_EARLY_RECONNECT
+#define UPT07_EARLY_RECONNECT 0
+#endif
 #if UPT07_INDIRECT_REPLAY
 import upt07_temporal_indirect;
 #endif
@@ -544,6 +547,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     Upt07PendingIndirectVisibility shiftedIndirectVisibility =
         (Upt07PendingIndirectVisibility)0;
     shiftedIndirectVisibility.ignore = Upt04NoVisibilityIgnore();
+    float historyShiftJacobian = 1.0f;
+#else
+    const float historyShiftJacobian = 1.0f;
 #endif
     if (directHistoryEligible)
     {
@@ -563,11 +569,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         uint indirectFailureReason = kUpt07RejectIndirectStructure;
         shiftedValid = Upt07ReplayIndirectSample(
             history.logical.selected,
+            historyReceiver,
             receiver,
             1u,
             indirectFailureReason,
             shifted,
-            shiftedIndirectVisibility);
+            shiftedIndirectVisibility,
+            historyShiftJacobian);
         if (shiftedValid == 0u)
             historyFailureReason = indirectFailureReason;
         if (shiftedValid != 0u)
@@ -647,7 +655,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             shifted,
             confidenceShiftedValid,
             temporalSelectionRandom,
-            adaptiveMaximumHistoryM);
+            adaptiveMaximumHistoryM,
+            historyShiftJacobian);
 
     float currentTargetAtHistory = 0.0f;
     float currentTargetAtCurrent = 0.0f;
@@ -683,14 +692,17 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             {
                 Upt03Candidate currentAtHistory;
                 uint currentShiftFailure;
+                float unusedCurrentJacobian;
                 Upt07PendingIndirectVisibility unusedCurrentVisibility;
                 if (Upt07ReplayIndirectSample(
                         currentCandidate,
+                        receiver,
                         historyReceiver,
                         0u,
                         currentShiftFailure,
                         currentAtHistory,
-                        unusedCurrentVisibility) != 0u
+                        unusedCurrentVisibility,
+                        unusedCurrentJacobian) != 0u
                     && currentAtHistory.status == kUpt04SampleValidPositive)
                     currentTargetAtHistory = currentAtHistory.target;
             }
@@ -727,7 +739,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         adaptiveMaximumHistoryM,
         max(gUpt07Control.maximumHistoryAge, 1u),
         float(gUpt07Control.maximumHistoryContributionRatio),
-        pairwiseMis);
+        pairwiseMis,
+        historyShiftJacobian);
+#if UPT07_INDIRECT_REPLAY && UPT07_EARLY_RECONNECT
+    if (merged.selectedHistory != 0u && indirectHistoryEligible)
+        Upt07ReconnectDiag(kUpt07ReconnectDiagHistorySelected);
+#endif
 
     // Regression guard: both RTXDI FullSample and the accepted legacy DI lane
     // re-establish final visibility after reuse. UPT-05 deliberately cannot

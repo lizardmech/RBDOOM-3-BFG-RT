@@ -52,6 +52,10 @@ public struct Upt04InitialTraceWork
     public float pathPdf;
     public float partialJacobian;
     public float accumulatedRouletteProbability;
+    public uint reconnectionInstanceId;
+    public uint reconnectionPrimitiveId;
+    public uint reconnectionFrontFace;
+    public float2 reconnectionBarycentrics;
     public float2 sampleCoordinates;
     public float3 contribution;
     public float target;

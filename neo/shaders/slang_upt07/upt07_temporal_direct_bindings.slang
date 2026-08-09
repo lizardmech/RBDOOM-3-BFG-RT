@@ -11,6 +11,12 @@ import upt07_temporal_surface_contract;
 #ifndef UPT07_DUPLICATION_MAP
 #define UPT07_DUPLICATION_MAP 0
 #endif
+#ifndef UPT07_EARLY_RECONNECT
+#define UPT07_EARLY_RECONNECT 0
+#endif
+#ifndef UPT07_INDIRECT_REPLAY
+#define UPT07_INDIRECT_REPLAY 0
+#endif
 
 public struct Upt07TemporalDirectControl
 {
@@ -56,6 +62,9 @@ public [[vk::binding(24, 0)]] StructuredBuffer<uint> gUpt07HistoryDuplication;
 public [[vk::binding(25, 0)]] StructuredBuffer<Upt04PrimaryHistorySidecar> gUpt07CurrentSurfaceSidecars;
 public [[vk::binding(26, 0)]] StructuredBuffer<Upt04PrimaryHistorySidecar> gUpt07PreviousSurfaceSidecars;
 public [[vk::binding(29, 0)]] StructuredBuffer<Upt04EmissiveDistributionEntry> gUpt07EmissiveDistribution;
+#if UPT07_INDIRECT_REPLAY && UPT07_EARLY_RECONNECT
+public [[vk::binding(30, 0)]] RWStructuredBuffer<uint> gUpt07ReconnectDiagnostics;
+#endif
 public [[vk::push_constant]] ConstantBuffer<Upt07TemporalDirectControl> gUpt07Control;
 
 public Upt04UnifiedLightRecord Upt07LoadLight(uint index)

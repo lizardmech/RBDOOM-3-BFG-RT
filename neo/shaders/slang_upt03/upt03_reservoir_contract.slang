@@ -11,6 +11,8 @@ public static const uint kUpt03ReplayKeyRescueBit = 0x80000000u;
 public static const uint kUpt03PackedSelectedTag = 1u;
 public static const uint kUpt03PackedCountOnlyTag = 2u;
 public static const uint kUpt03PackedNeedsRescueBit = 4u;
+public static const uint kUpt03PackedReconnectFrontFaceBit = 0x80000000u;
+public static const uint kUpt03PackedReconnectInstanceMask = 0x00ffffffu;
 
 public struct Upt03Candidate
 {
@@ -36,6 +38,13 @@ public struct Upt03Candidate
     public float pathPdf;
     public float partialJacobian;
     public float accumulatedRouletteProbability;
+    // Secondary-NEE event union.  A reconnectionVertexLength of two means
+    // packed words 13..15 contain this static x2 locator instead of the
+    // currently unused pathPdf/Jacobian/roulette tuple.
+    public uint reconnectionInstanceId;
+    public uint reconnectionPrimitiveId;
+    public uint reconnectionFrontFace;
+    public float2 reconnectionBarycentrics;
     public float selectionRandom;
     public uint padding;
 };
@@ -110,6 +119,40 @@ public bool Upt03FiniteNonNegative(float value)
     return isfinite(value) && value >= 0.0f;
 }
 
+public bool Upt03HasStaticReconnectionLocator(Upt03Candidate candidate)
+{
+    return (candidate.eventKind == 1u || candidate.eventKind == 2u)
+        && candidate.pathLength == 2u
+        && candidate.reconnectionVertexLength == 2u;
+}
+
+public bool Upt03StaticReconnectionLocatorValid(Upt03Candidate candidate)
+{
+    if (!Upt03HasStaticReconnectionLocator(candidate))
+        return false;
+    const float2 barycentrics = candidate.reconnectionBarycentrics;
+    return candidate.reconnectionInstanceId
+            <= kUpt03PackedReconnectInstanceMask
+        && candidate.reconnectionPrimitiveId != 0xffffffffu
+        && candidate.reconnectionFrontFace <= 1u
+        && all(isfinite(barycentrics))
+        && all(barycentrics >= 0.0f)
+        && all(barycentrics <= 1.0f)
+        && barycentrics.x + barycentrics.y <= 1.0001f;
+}
+
+public uint Upt03PackReconnectBarycentrics(float2 barycentrics)
+{
+    const uint2 encoded = uint2(round(saturate(barycentrics) * 65535.0f));
+    return (encoded.x & 0xffffu) | (encoded.y << 16u);
+}
+
+public float2 Upt03UnpackReconnectBarycentrics(uint packed)
+{
+    return float2(float(packed & 0xffffu), float(packed >> 16u))
+        / 65535.0f;
+}
+
 public bool Upt03SampleCoordinatesValid(Upt03Candidate candidate)
 {
     if (!isfinite(candidate.sampleCoord0) || !isfinite(candidate.sampleCoord1))
@@ -139,10 +182,13 @@ public bool Upt03StructurallyValid(Upt03Candidate candidate)
         || candidate.age > 63u || candidate.pathLength > 15u
         || candidate.reconnectionVertexLength > candidate.pathLength
         || !Upt03FinitePositive(candidate.proposalPdf)
-        || !Upt03FinitePositive(candidate.pathPdf)
-        || !Upt03FinitePositive(candidate.partialJacobian)
-        || !Upt03FinitePositive(candidate.accumulatedRouletteProbability)
-        || candidate.accumulatedRouletteProbability > 1.0f
+        || (Upt03HasStaticReconnectionLocator(candidate)
+            ? !Upt03StaticReconnectionLocatorValid(candidate)
+            : (!Upt03FinitePositive(candidate.pathPdf)
+                || !Upt03FinitePositive(candidate.partialJacobian)
+                || !Upt03FinitePositive(
+                    candidate.accumulatedRouletteProbability)
+                || candidate.accumulatedRouletteProbability > 1.0f))
         || !Upt03FiniteNonNegative(candidate.contributionR)
         || !Upt03FiniteNonNegative(candidate.contributionG)
         || !Upt03FiniteNonNegative(candidate.contributionB))
@@ -238,8 +284,20 @@ public Upt03PackedReservoir Upt03PackReservoir(Upt03LogicalReservoir reservoir)
     packed.word10 = asuint(candidate.target);
     packed.word11 = asuint(reservoir.weightSum);
     packed.word12 = asuint(candidate.proposalPdf);
-    packed.word13 = asuint(candidate.pathPdf);
-    packed.word14 = asuint(candidate.partialJacobian);
-    packed.word15 = asuint(candidate.accumulatedRouletteProbability);
+    if (Upt03HasStaticReconnectionLocator(candidate))
+    {
+        packed.word13 = candidate.reconnectionInstanceId
+            | (candidate.reconnectionFrontFace != 0u
+                ? kUpt03PackedReconnectFrontFaceBit : 0u);
+        packed.word14 = candidate.reconnectionPrimitiveId;
+        packed.word15 = Upt03PackReconnectBarycentrics(
+            candidate.reconnectionBarycentrics);
+    }
+    else
+    {
+        packed.word13 = asuint(candidate.pathPdf);
+        packed.word14 = asuint(candidate.partialJacobian);
+        packed.word15 = asuint(candidate.accumulatedRouletteProbability);
+    }
     return packed;
 }

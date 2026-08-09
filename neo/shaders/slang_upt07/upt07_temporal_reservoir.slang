@@ -117,9 +117,25 @@ public Upt07DecodedReservoir Upt07DecodeReservoir(
     candidate.contributionB = asfloat(packed.word9);
     candidate.target = asfloat(packed.word10);
     candidate.proposalPdf = asfloat(packed.word12);
-    candidate.pathPdf = asfloat(packed.word13);
-    candidate.partialJacobian = asfloat(packed.word14);
-    candidate.accumulatedRouletteProbability = asfloat(packed.word15);
+    if (Upt03HasStaticReconnectionLocator(candidate))
+    {
+        candidate.reconnectionInstanceId = packed.word13
+            & kUpt03PackedReconnectInstanceMask;
+        candidate.reconnectionFrontFace = (packed.word13
+            & kUpt03PackedReconnectFrontFaceBit) != 0u ? 1u : 0u;
+        candidate.reconnectionPrimitiveId = packed.word14;
+        candidate.reconnectionBarycentrics =
+            Upt03UnpackReconnectBarycentrics(packed.word15);
+        candidate.pathPdf = 1.0f;
+        candidate.partialJacobian = 1.0f;
+        candidate.accumulatedRouletteProbability = 1.0f;
+    }
+    else
+    {
+        candidate.pathPdf = asfloat(packed.word13);
+        candidate.partialJacobian = asfloat(packed.word14);
+        candidate.accumulatedRouletteProbability = asfloat(packed.word15);
+    }
     result.logical.hasSelectedSample = 1u;
     result.logical.effectiveM = packed.word1;
     result.logical.weightSum = asfloat(packed.word11);
@@ -219,7 +235,8 @@ public bool Upt07BasicTemporalWouldSelectHistory(
     Upt03Candidate shiftedHistory,
     uint shiftedValid,
     float selectionRandom,
-    uint maximumHistoryM)
+    uint maximumHistoryM,
+    float shiftJacobian)
 {
     const bool currentSelected = current.valid != 0u
         && current.logical.hasSelectedSample != 0u;
@@ -240,6 +257,7 @@ public bool Upt07BasicTemporalWouldSelectHistory(
     const float historyMass = shiftedPositive
         ? history.logical.weightSum * float(historyM)
             * (shiftedHistory.target / history.logical.selected.target)
+            * shiftJacobian
         : 0.0f;
     const float totalMass = currentMass + historyMass;
     return shiftedPositive && isfinite(historyMass) && historyMass > 0.0f
@@ -260,7 +278,8 @@ public Upt07TemporalMergeResult Upt07MergeTemporal(
     uint maximumHistoryM,
     uint maximumHistoryAge,
     float maximumHistoryContributionRatio,
-    uint pairwiseMis)
+    uint pairwiseMis,
+    float shiftJacobian)
 {
     Upt07TemporalMergeResult result = (Upt07TemporalMergeResult)0;
     if (current.valid != 0u)
@@ -277,6 +296,7 @@ public Upt07TemporalMergeResult Upt07MergeTemporal(
     const bool historyUsable = shiftedValid != 0u && historySelected
         && historyAgeUsable
         && Upt03StructurallyValid(shiftedHistory)
+        && isfinite(shiftJacobian) && shiftJacobian > 0.0f
         && isfinite(selectionRandom) && selectionRandom >= 0.0f
         && selectionRandom < 1.0f;
     if (!historyUsable)
@@ -306,6 +326,7 @@ public Upt07TemporalMergeResult Upt07MergeTemporal(
     const float historyMass = shiftedPositive
         ? history.logical.weightSum * float(historyM)
             * (shiftedHistory.target / history.logical.selected.target)
+            * (pairwiseMis == 0u ? shiftJacobian : 1.0f)
         : 0.0f;
     // Match the accepted legacy DI history gate.  A mature history sample
     // whose current-receiver contribution scale is an extreme outlier must
@@ -315,7 +336,9 @@ public Upt07TemporalMergeResult Upt07MergeTemporal(
     const float currentContributionScale = currentSelected
         ? current.logical.selected.target * current.logical.weightSum : 0.0f;
     const float historyContributionScale = shiftedPositive
-        ? shiftedHistory.target * history.logical.weightSum : 0.0f;
+        ? shiftedHistory.target * history.logical.weightSum
+            * (pairwiseMis == 0u ? shiftJacobian : 1.0f)
+        : 0.0f;
     if (maximumHistoryContributionRatio > 0.0f
         && history.logical.selected.age != 0u
         && isfinite(currentContributionScale)

@@ -1,0 +1,110 @@
+UPT-17 Static Hybrid Reconnection A/B
+=====================================
+
+Date: 2026-08-10
+
+Implemented scope
+-----------------
+
+UPT-17 implements the bounded static-geometry branch defined by document 31.
+It does not begin spatial indirect reuse and does not claim a stable history
+identity for dynamic, rigid, or skinned geometry.
+
+For secondary-NEE events only, the existing 64-byte reservoir uses an event
+union:
+
+    word 13    static shader instance plus committed front-face bit;
+    word 14    primitive index;
+    word 15    two UNORM16 triangle barycentrics.
+
+The selected light identity/fingerprint and light sample coordinates remain in
+words 2, 3, and 6 exactly as required by UPT-15. No page, sidecar, full-frame
+clear, or per-pixel byte was added. reconnectionVertexLength == 2 identifies
+the union. Dynamic, rigid, and skinned secondary hits retain length 1 and use
+the established random-replay path. ABI version 10 uniformly invalidates old
+pages.
+
+Shift contract
+--------------
+
+The opt-in temporal shader reconstructs static x2 directly and applies the
+paper defaults:
+
+    primary roughness floor     0.2
+    footprint constant c        0.02 percent, encoded as 0.0002
+    dual forward/inverse test   inverse omitted only for pure diffuse x2
+
+An accepted branch connects y1 to x2 with one bounded visibility RayQuery,
+evaluates the OpenPBR marginal directional PDFs and material factors at source
+and target, and evaluates the hybrid-shift Jacobian from the directional-PDF
+and single-sided geometry-term ratio. The Jacobian scales history proposal
+mass in BASIC temporal correction; it is never folded into the physical target
+or persisted as recursive radiance. Pairwise MIS deliberately remains on the
+previous replay implementation until its reciprocal Jacobian contract is
+derived and tested.
+
+Once the shift reaches x2, UPT-15 still remaps and exactly replays the stored
+light vertex, and UPT-16 still defers x2-to-light visibility until the shifted
+history sample wins. Occluded y1-to-x2 connections produce a valid-zero shift;
+they do not fall through to a different random mapping. Invalid locators,
+source evaluation failures, roughness/footprint rejection, and unsupported
+geometry fall back to exact random replay.
+
+Performance-isolated A/B
+------------------------
+
+    r_pathTracingUnifiedPtTemporalEarlyReconnect 0/1
+
+The default is 0. This is a shader specialization, not only a runtime branch.
+The off path retains the UPT-16 30-binding/four-static-RayQuery code shape. The
+on path selects one of four dedicated *_reconnect Vulkan blobs with one tiny
+diagnostic UAV and six static, branch-dependent RayQuery sites. The added
+reconnect visibility replaces the continuation closest-hit query on the cheap
+history route; reciprocal evaluation accounts for the second specialized site.
+
+Diagnostics
+-----------
+
+    r_pathTracingUnifiedPtTemporalReconnectDiagnostics 0/1
+
+When enabled with early reconnect, one 64-byte counter buffer is cleared only
+for a capture frame and copied to a delayed 64-byte readback. It reports:
+
+    attempted;
+    locator decoded, invalid, or unavailable;
+    footprint accepted or rejected;
+    reconnect visibility executed, passed, or failed;
+    positive or valid-zero shift;
+    replay fallback;
+    source or target evaluation failure;
+    Jacobian failure;
+    indirect history selected.
+
+This is aggregate proof, not a screenshot classifier. The counts distinguish
+whether indoor cost remains dominated by missing static coverage, footprint
+fallback, reconnect visibility, or final history admission.
+
+Build proof
+-----------
+
+The exact Vulkan release command succeeds:
+
+    cd neo
+    cmake --build --preset win64-pt-dev-release
+
+Verified contracts include:
+
+    unchanged baseline unified layout: 30 bindings and 4 RayQuery sites;
+    reconnect layout: 31 bindings and 6 bounded branch-dependent sites;
+    no TraceRay and no native 16-bit SPIR-V;
+    64-byte reservoir page unchanged;
+    CPU temporal oracle verifies Jacobian history-mass scaling and rejects a
+        non-positive Jacobian without mutating current D0.
+
+Runtime acceptance remains open. Deploy the rebuilt executable and the rebuilt
+UPT-04/UPT-05/UPT-07 Vulkan blobs, then compare early reconnect 0/1 in the same
+indoor and outdoor camera positions. Keep pairwise off for this test. Enable
+diagnostics for a short capture, record the aggregate line, then disable them
+for timing. Check energy, alpha-clipped blockers, doors, portal transitions,
+emissive/analytic light identity, and temporal/spatial-off D0 parity. Stop here;
+spatial indirect remains a later task.

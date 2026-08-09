@@ -410,6 +410,11 @@ Packet index
         current one-page 32-byte hit buffer as history storage, and defines the
         diagnostic and stable-identity gate for true early reconnection.
 
+    32_upt17_static_hybrid_reconnection.txt
+        Implements an ABI-neutral static x2 locator, paper-default footprint
+        gate and BASIC-shift Jacobian, exact replay fallback, isolated Vulkan
+        shader A/B, and aggregate route/visibility/admission diagnostics.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

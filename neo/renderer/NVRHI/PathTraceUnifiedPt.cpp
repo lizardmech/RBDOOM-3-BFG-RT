@@ -54,7 +54,7 @@ static constexpr uint32_t UPT04_NEE_RIS_BASELINE_CANDIDATE_COUNT = 8u;
 static constexpr uint32_t UPT04_NEE_RIS_PARITY_ANALYTIC_CANDIDATE_COUNT = 32u;
 static constexpr uint32_t UPT04_NEE_RIS_MAX_EMISSIVE_CANDIDATE_COUNT = 16u;
 static constexpr uint32_t UPT04_SECONDARY_NEE_BOUNCE_INDEX = 2u;
-static constexpr uint32_t UPT04_ABI_VERSION = 9u;
+static constexpr uint32_t UPT04_ABI_VERSION = 10u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 107u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
@@ -77,6 +77,11 @@ static constexpr uint32_t UPT07_GEOMETRY_FLAG_PREVIOUS_BEST_SEED = 1u << 31u;
 static constexpr uint32_t UPT07_GEOMETRY_FLAG_PAIRWISE_MIS = 1u << 27u;
 static constexpr uint32_t UPT07_GEOMETRY_FLAG_DUPLICATION_MAP = 1u << 26u;
 static constexpr uint32_t UPT07_GEOMETRY_FLAG_INDIRECT_REPLAY = 1u << 25u;
+static constexpr uint32_t UPT07_GEOMETRY_FLAG_EARLY_RECONNECT = 1u << 24u;
+static constexpr uint32_t UPT07_GEOMETRY_FLAG_RECONNECT_DIAGNOSTICS = 1u << 23u;
+static constexpr uint32_t UPT07_RECONNECT_DIAGNOSTIC_COUNT = 16u;
+static constexpr uint32_t UPT07_RECONNECT_DIAGNOSTIC_BYTES =
+    UPT07_RECONNECT_DIAGNOSTIC_COUNT * sizeof(uint32_t);
 static constexpr uint32_t UPT08_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT09_PUSH_CONSTANT_BYTES = 88u;
 static constexpr uint32_t UPT09_MAXIMUM_INPUT_M = 32u;
@@ -1297,6 +1302,10 @@ void PathTraceUnifiedPtState::Release()
     m_diagnosticProbeFromHistory = false;
     m_diagnosticProbeFrameSerial = 0;
     m_diagnosticReadbackFamily = PathTraceUnifiedPtFamily::DirectOnly;
+    m_temporalDiagnosticCounters = nullptr;
+    m_temporalDiagnosticReadback = nullptr;
+    m_temporalDiagnosticReadbackPending = false;
+    m_temporalDiagnosticReadbackDelayFrames = 0;
     m_pipelineVariant = 0;
     m_selectionValid = false;
     m_diagnostics = false;
@@ -4075,20 +4084,25 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
     const bool indirect = r_pathTracingUnifiedPtTemporalIndirect.GetBool();
+    const bool earlyReconnect = indirect
+        && r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool();
     if (m_temporalPipeline && m_temporalCompactLights == inputs.compactLights
         && m_temporalDuplication == inputs.duplication
-        && m_temporalIndirect == indirect)
+        && m_temporalIndirect == indirect
+        && m_temporalEarlyReconnect == earlyReconnect)
     {
         return true;
     }
     if (m_temporalCompactLights != inputs.compactLights
         || m_temporalDuplication != inputs.duplication
-        || m_temporalIndirect != indirect)
+        || m_temporalIndirect != indirect
+        || m_temporalEarlyReconnect != earlyReconnect)
     {
         ReleaseTemporal();
         m_temporalCompactLights = inputs.compactLights;
         m_temporalDuplication = inputs.duplication;
         m_temporalIndirect = indirect;
+        m_temporalEarlyReconnect = earlyReconnect;
     }
     if (m_temporalPipelineAttempted)
     {
@@ -4133,6 +4147,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(28));
     if (indirect)
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
+    if (earlyReconnect)
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT07_PUSH_CONSTANT_BYTES));
     m_temporalBindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -4146,11 +4162,19 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
     const char* path = indirect
         ? (inputs.duplication
             ? (inputs.compactLights
-                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication.bin"
-                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_duplication.bin")
+                ? (earlyReconnect
+                    ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_reconnect.bin"
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication.bin")
+                : (earlyReconnect
+                    ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_duplication_reconnect.bin"
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_duplication.bin"))
             : (inputs.compactLights
-                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64.bin"
-                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery.bin"))
+                ? (earlyReconnect
+                    ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_reconnect.bin"
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64.bin")
+                : (earlyReconnect
+                    ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_reconnect.bin"
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery.bin")))
         : (inputs.duplication
             ? (inputs.compactLights
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery_light64_duplication.bin"
@@ -4202,9 +4226,71 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         inputs.duplication ? 1u : 0u,
         indirect ? 1u : 0u,
         indirect ? 4u : 0u,
-        indirect ? "unified" : "direct-basic",
+        indirect ? (earlyReconnect ? "unified-reconnect" : "unified")
+            : "direct-basic",
         static_cast<unsigned long long>(pipelineUs));
     return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureTemporalDiagnosticBuffers(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_temporalDiagnosticCounters)
+    {
+        nvrhi::BufferDesc desc;
+        desc.debugName = "PathTraceUnifiedPtTemporalReconnectCounters";
+        desc.byteSize = UPT07_RECONNECT_DIAGNOSTIC_BYTES;
+        desc.structStride = sizeof(uint32_t);
+        desc.canHaveUAVs = true;
+        desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        desc.keepInitialState = true;
+        m_temporalDiagnosticCounters = inputs.device->createBuffer(desc);
+    }
+    if (r_pathTracingUnifiedPtTemporalReconnectDiagnostics.GetBool()
+        && !m_temporalDiagnosticReadback)
+    {
+        nvrhi::BufferDesc desc;
+        desc.debugName = "PathTraceUnifiedPtTemporalReconnectReadback";
+        desc.byteSize = UPT07_RECONNECT_DIAGNOSTIC_BYTES;
+        desc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        desc.initialState = nvrhi::ResourceStates::CopyDest;
+        desc.keepInitialState = true;
+        m_temporalDiagnosticReadback = inputs.device->createBuffer(desc);
+    }
+    return m_temporalDiagnosticCounters
+        && (!r_pathTracingUnifiedPtTemporalReconnectDiagnostics.GetBool()
+            || m_temporalDiagnosticReadback);
+}
+
+void PathTraceUnifiedPtState::DrainTemporalDiagnosticReadback(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_temporalDiagnosticReadbackPending
+        || !m_temporalDiagnosticReadback || !inputs.device)
+        return;
+    if (m_temporalDiagnosticReadbackDelayFrames > 0)
+    {
+        --m_temporalDiagnosticReadbackDelayFrames;
+        return;
+    }
+    const uint32_t* counters = static_cast<const uint32_t*>(
+        inputs.device->mapBuffer(
+            m_temporalDiagnosticReadback, nvrhi::CpuAccessMode::Read));
+    if (!counters)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: temporal reconnect diagnostic readback map failed\n");
+        m_temporalDiagnosticReadbackPending = false;
+        return;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: temporal reconnect attempted=%u locator(decoded/invalid/noStatic)=%u/%u/%u footprint(accepted/rejected)=%u/%u visibility(executed/passed/failed)=%u/%u/%u shift(positive/zero/jacobianFailure)=%u/%u/%u replayFallback=%u evaluationFailure(source/target)=%u/%u historySelected=%u\n",
+        counters[0], counters[1], counters[11], counters[10],
+        counters[2], counters[3], counters[4], counters[5], counters[6],
+        counters[7], counters[8], counters[14], counters[9],
+        counters[12], counters[13], counters[15]);
+    inputs.device->unmapBuffer(m_temporalDiagnosticReadback);
+    m_temporalDiagnosticReadbackPending = false;
 }
 
 bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
@@ -4300,6 +4386,9 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
     if (indirect)
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
             29, lights.emissiveDistributionBuffer));
+    if (m_temporalEarlyReconnect)
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            30, m_temporalDiagnosticCounters));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT07_PUSH_CONSTANT_BYTES));
     if (m_temporalBindingSets[pageIndex] &&
@@ -4324,6 +4413,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
 bool PathTraceUnifiedPtState::ExecuteTemporal(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
+    DrainTemporalDiagnosticReadback(inputs);
     if (!inputs.temporal)
     {
         m_reportedTemporalSkipReason = -1;
@@ -4363,6 +4453,10 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
         return reportSkip(4, "current-page-epoch-mismatch");
     if (inputs.duplication && !EnsureDuplicationResources(inputs))
         return reportSkip(8, "duplication-resources-unavailable");
+    if (r_pathTracingUnifiedPtTemporalIndirect.GetBool()
+        && r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
+        && !EnsureTemporalDiagnosticBuffers(inputs))
+        return reportSkip(9, "reconnect-diagnostics-unavailable");
     if (!EnsureTemporalPipeline(inputs))
         return reportSkip(5, "pipeline-unavailable");
     if (!EnsureTemporalBindingSet(inputs))
@@ -4457,6 +4551,10 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             ? UPT07_GEOMETRY_FLAG_DUPLICATION_MAP : 0u)
         | (r_pathTracingUnifiedPtTemporalIndirect.GetBool()
             ? UPT07_GEOMETRY_FLAG_INDIRECT_REPLAY : 0u)
+        | (r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
+            ? UPT07_GEOMETRY_FLAG_EARLY_RECONNECT : 0u)
+        | (r_pathTracingUnifiedPtTemporalReconnectDiagnostics.GetBool()
+            ? UPT07_GEOMETRY_FLAG_RECONNECT_DIAGNOSTICS : 0u)
         | (r_pathTracingUnifiedPtDirectTargetPdfParity.GetBool()
             ? UPT04_DIRECT_TARGET_PDF_PARITY : 0u)
         | (r_pathTracingUnifiedPtAnalyticPortalDomain.GetBool()
@@ -4502,6 +4600,9 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
     const nvrhi::BufferHandle lightBuffer = inputs.compactLights
         ? m_compactLightsBuffer
         : lights.restirLightManagerCurrentPayloadBuffer;
+    const bool captureReconnectDiagnostics = m_temporalEarlyReconnect
+        && r_pathTracingUnifiedPtTemporalReconnectDiagnostics.GetBool()
+        && !m_temporalDiagnosticReadbackPending;
     {
         Upt04MarkerScope marker(
             inputs.commandList,
@@ -4580,7 +4681,18 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
         inputs.commandList->setBufferState(
             inputs.sceneInputs->materials.materialTableBuffer,
             nvrhi::ResourceStates::ShaderResource);
+        if (m_temporalEarlyReconnect)
+            inputs.commandList->setBufferState(
+                m_temporalDiagnosticCounters,
+                nvrhi::ResourceStates::UnorderedAccess);
         inputs.commandList->commitBarriers();
+        if (captureReconnectDiagnostics)
+        {
+            inputs.commandList->clearBufferUInt(
+                m_temporalDiagnosticCounters, 0u);
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_temporalDiagnosticCounters);
+        }
 
         nvrhi::ComputeState state;
         state.pipeline = m_temporalPipeline;
@@ -4594,6 +4706,26 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             (inputs.height + 7u) / 8u,
             1u);
         nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
+        if (captureReconnectDiagnostics)
+        {
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_temporalDiagnosticCounters);
+            inputs.commandList->setBufferState(
+                m_temporalDiagnosticCounters,
+                nvrhi::ResourceStates::CopySource);
+            inputs.commandList->setBufferState(
+                m_temporalDiagnosticReadback,
+                nvrhi::ResourceStates::CopyDest);
+            inputs.commandList->commitBarriers();
+            inputs.commandList->copyBuffer(
+                m_temporalDiagnosticReadback,
+                0,
+                m_temporalDiagnosticCounters,
+                0,
+                UPT07_RECONNECT_DIAGNOSTIC_BYTES);
+            m_temporalDiagnosticReadbackPending = true;
+            m_temporalDiagnosticReadbackDelayFrames = 2;
+        }
     }
     m_reportedTemporalSkipReason = -1;
     return true;

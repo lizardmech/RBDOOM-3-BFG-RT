@@ -2,6 +2,8 @@ foreach(required UPT07_FULL_REFLECTION UPT07_FULL_DISASSEMBLY
         UPT07_COMPACT_REFLECTION UPT07_COMPACT_DISASSEMBLY
         UPT07_UNIFIED_REFLECTION UPT07_UNIFIED_DISASSEMBLY
         UPT07_UNIFIED_COMPACT_REFLECTION UPT07_UNIFIED_COMPACT_DISASSEMBLY
+        UPT07_RECONNECT_REFLECTION UPT07_RECONNECT_DISASSEMBLY
+        UPT07_RECONNECT_COMPACT_REFLECTION UPT07_RECONNECT_COMPACT_DISASSEMBLY
         UPT07_STAMP)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "UPT-07 direct temporal verification missing ${required}")
@@ -16,6 +18,10 @@ file(READ "${UPT07_UNIFIED_REFLECTION}" unified_reflection)
 file(READ "${UPT07_UNIFIED_DISASSEMBLY}" unified_disassembly)
 file(READ "${UPT07_UNIFIED_COMPACT_REFLECTION}" unified_compact_reflection)
 file(READ "${UPT07_UNIFIED_COMPACT_DISASSEMBLY}" unified_compact_disassembly)
+file(READ "${UPT07_RECONNECT_REFLECTION}" reconnect_reflection)
+file(READ "${UPT07_RECONNECT_DISASSEMBLY}" reconnect_disassembly)
+file(READ "${UPT07_RECONNECT_COMPACT_REFLECTION}" reconnect_compact_reflection)
+file(READ "${UPT07_RECONNECT_COMPACT_DISASSEMBLY}" reconnect_compact_disassembly)
 
 foreach(kind full compact)
     foreach(binding 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 23 25 26 27 28)
@@ -85,10 +91,26 @@ foreach(kind unified unified_compact)
     endif()
 endforeach()
 
+foreach(kind reconnect reconnect_compact)
+    if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*30")
+        message(FATAL_ERROR "UPT-17 ${kind} temporal lacks the aggregate diagnostic UAV")
+    endif()
+    string(REGEX MATCHALL "\"binding\"[ \t]*:" bindings "${${kind}_reflection}")
+    list(LENGTH bindings binding_count)
+    if(NOT binding_count EQUAL 31)
+        message(FATAL_ERROR "UPT-17 ${kind} temporal must expose exactly thirty-one bindings")
+    endif()
+    string(REGEX MATCHALL "OpRayQueryInitializeKHR" rayquery_initializers "${${kind}_disassembly}")
+    list(LENGTH rayquery_initializers rayquery_initializer_count)
+    if(NOT rayquery_initializer_count EQUAL 6 OR ${kind}_disassembly MATCHES "OpTraceRayKHR")
+        message(FATAL_ERROR "UPT-17 ${kind} temporal must expose six bounded branch-dependent RayQuery sites and no TraceRay site")
+    endif()
+endforeach()
+
 if(NOT full_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt07CurrentLights\"" OR
    NOT compact_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt07CurrentLights\"")
     message(FATAL_ERROR "UPT-07 direct temporal lacks its selected full/compact light stream")
 endif()
 
 file(WRITE "${UPT07_STAMP}"
-    "UPT-07 temporal verified: direct variants retain 28 bindings and one winner RayQuery; opt-in unified variants expose 30 bindings, exact selected-light forced reconnection, and four statically bounded RayQuery call sites with winner-only indirect visibility; no TraceRay or native16\n")
+    "UPT-07 temporal verified: direct variants retain 28 bindings/one winner RayQuery; baseline unified variants retain 30 bindings/four RayQuery sites; UPT-17 reconnect variants expose 31 bindings/six bounded branch-dependent sites; no TraceRay or native16\n")

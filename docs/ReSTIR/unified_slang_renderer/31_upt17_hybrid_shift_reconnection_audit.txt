@@ -89,3 +89,11 @@ rigid, skinned, and dynamic geometry identity, portal publication, memory
 traffic, and current/history page rotation. No per-frame full-buffer clear is
 allowed. A static-only first route is acceptable only when explicitly tagged
 and all other geometry falls back to random replay.
+
+Implementation resolution, 2026-08-10
+--------------------------------------
+
+The event-unioned static locator, footprint/Jacobian evaluator, isolated shader
+A/B, and aggregate diagnostics are implemented as described in document 32.
+The 64-byte reservoir and two-page ownership remain unchanged. Runtime evidence
+is now the only acceptance gate; spatial indirect has not begun.
