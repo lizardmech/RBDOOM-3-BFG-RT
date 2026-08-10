@@ -1457,3 +1457,24 @@ ladder cuts by design. Previous probe-12 camera comparisons do not prove that
 production executed work was stable and must be repeated with the corrected
 artifact. Counter readback now waits for 16 valid-history frames so the captured
 work is steady-state rather than the first post-pipeline-switch history frame.
+
+UPT-29 temporal ray-site attribution, 2026-08-11
+-------------------------------------------------
+
+The corrected production-feedback probe pair measured 13.486 ms slow versus
+12.845 ms fast. The slow pose executes about 20 percent more RayQuery Proceed
+iterations and 13 percent more geometry/material work, while light-record loads
+are lower. With alpha-clipped surfaces hidden, the remaining programmable work
+is glass/translucency or mixed non-opaque BLAS content. The pair is only a
+0.641 ms delta, so it does not yet reproduce the larger camera discontinuity.
+
+Probe 12 now attributes ray, Proceed, geometry and material counts separately
+to history replay, reciprocal replay, final indirect visibility and final
+direct visibility. Four packed site words extend the per-pixel ABI to 13 dwords;
+the CPU derives 8x8 infected-group counts and Proceed-active lane thresholds.
+The path remains observer-only, uses no atomics or full-buffer clear and leaves
+the estimator and production temporal feedback unchanged. Document 44 owns the
+capture and interpretation contract. The full Vulkan release build and UPT-07
+artifact verifier pass. The rebuilt executable and five content-changed Vulkan
+SPIR-V blobs were deployed with matching SHA-256 hashes; no DX12 shader was
+compiled. Runtime site distributions remain the next acceptance evidence.

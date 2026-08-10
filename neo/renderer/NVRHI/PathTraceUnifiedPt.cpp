@@ -85,8 +85,14 @@ static constexpr uint32_t UPT07_TEMPORAL_DIAGNOSTIC_COUNT = 32u;
 static constexpr uint32_t UPT07_TEMPORAL_DIAGNOSTIC_BYTES =
     UPT07_TEMPORAL_DIAGNOSTIC_COUNT * sizeof(uint32_t);
 static constexpr uint32_t UPT07_WORK_BUDGET_COUNTER_COUNT = 8u;
+static constexpr uint32_t UPT07_WORK_BUDGET_SITE_COUNT = 4u;
+static constexpr uint32_t UPT07_WORK_BUDGET_SITE_METRIC_COUNT = 4u;
+static constexpr uint32_t UPT07_WORK_BUDGET_SITE_WORD_OFFSET =
+    UPT07_WORK_BUDGET_COUNTER_COUNT;
+static constexpr uint32_t UPT07_WORK_BUDGET_VIOLATION_WORD =
+    UPT07_WORK_BUDGET_SITE_WORD_OFFSET + UPT07_WORK_BUDGET_SITE_COUNT;
 static constexpr uint32_t UPT07_WORK_BUDGET_WORDS_PER_PIXEL =
-    UPT07_WORK_BUDGET_COUNTER_COUNT + 1u;
+    UPT07_WORK_BUDGET_VIOLATION_WORD + 1u;
 static constexpr uint32_t UPT08_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT09_PUSH_CONSTANT_BYTES = 88u;
 static constexpr uint32_t UPT09_MAXIMUM_INPUT_M = 32u;
@@ -4629,12 +4635,22 @@ void PathTraceUnifiedPtState::DrainTemporalWorkBudgetReadback(
         "rays", "proceed", "remapLoads", "emissiveHashLoads",
         "lightLoads", "geometryResolves", "materialLoads", "textureSamples"
     };
+    static const char* siteNames[UPT07_WORK_BUDGET_SITE_COUNT] = {
+        "historyReplay", "reciprocalReplay",
+        "finalIndirectVisibility", "finalDirectVisibility"
+    };
     std::array<uint64_t, UPT07_WORK_BUDGET_COUNTER_COUNT> totals = {};
     std::array<uint32_t, UPT07_WORK_BUDGET_COUNTER_COUNT> maxima = {};
     std::array<uint32_t, UPT07_WORK_BUDGET_COUNTER_COUNT> nonzero = {};
     std::array<std::array<uint32_t, 257>,
         UPT07_WORK_BUDGET_COUNTER_COUNT> histograms = {};
     std::array<uint32_t, 4> violationCounts = {};
+    std::array<std::array<uint64_t, UPT07_WORK_BUDGET_SITE_METRIC_COUNT>,
+        UPT07_WORK_BUDGET_SITE_COUNT> siteTotals = {};
+    std::array<std::array<uint32_t, UPT07_WORK_BUDGET_SITE_METRIC_COUNT>,
+        UPT07_WORK_BUDGET_SITE_COUNT> siteActivePixels = {};
+    std::array<std::array<uint32_t, UPT07_WORK_BUDGET_SITE_METRIC_COUNT>,
+        UPT07_WORK_BUDGET_SITE_COUNT> siteSaturatedPixels = {};
     uint32_t anyViolationCount = 0u;
     uint64_t logicalDependentLoads = 0u;
     for (uint32_t pixel = 0u; pixel < m_temporalBottleneckCapacity; ++pixel)
@@ -4651,7 +4667,21 @@ void PathTraceUnifiedPtState::DrainTemporalWorkBudgetReadback(
             if (counter >= 2u)
                 logicalDependentLoads += value;
         }
-        const uint32_t violationMask = words[base + 8u];
+        for (uint32_t site = 0u; site < UPT07_WORK_BUDGET_SITE_COUNT; ++site)
+        {
+            const uint32_t packed = words[
+                base + UPT07_WORK_BUDGET_SITE_WORD_OFFSET + site];
+            for (uint32_t metric = 0u;
+                metric < UPT07_WORK_BUDGET_SITE_METRIC_COUNT; ++metric)
+            {
+                const uint32_t value = (packed >> (metric * 8u)) & 0xffu;
+                siteTotals[site][metric] += value;
+                siteActivePixels[site][metric] += value != 0u ? 1u : 0u;
+                siteSaturatedPixels[site][metric] += value == 0xffu ? 1u : 0u;
+            }
+        }
+        const uint32_t violationMask =
+            words[base + UPT07_WORK_BUDGET_VIOLATION_WORD];
         anyViolationCount += violationMask != 0u ? 1u : 0u;
         for (uint32_t bit = 0u; bit < violationCounts.size(); ++bit)
             violationCounts[bit] += (violationMask & (1u << bit)) != 0u
@@ -4693,6 +4723,105 @@ void PathTraceUnifiedPtState::DrainTemporalWorkBudgetReadback(
                 : 0.0,
             percentile(counter, 50u), percentile(counter, 90u),
             percentile(counter, 99u), maxima[counter], nonzero[counter]);
+    }
+
+    static const uint32_t proceedLaneThresholds[] = { 1u, 2u, 4u, 8u, 16u, 32u };
+    std::array<uint32_t, UPT07_WORK_BUDGET_SITE_COUNT> rayActiveGroups = {};
+    std::array<uint32_t, UPT07_WORK_BUDGET_SITE_COUNT> proceedActiveGroups = {};
+    std::array<uint32_t, UPT07_WORK_BUDGET_SITE_COUNT> maxProceedLanes = {};
+    std::array<uint32_t, UPT07_WORK_BUDGET_SITE_COUNT> maxProceedIterations = {};
+    std::array<uint64_t, UPT07_WORK_BUDGET_SITE_COUNT> totalProceedLanes = {};
+    std::array<std::array<uint32_t, 6>,
+        UPT07_WORK_BUDGET_SITE_COUNT> proceedLaneGroups = {};
+    const uint32_t groupCountX = (inputs.width + 7u) / 8u;
+    const uint32_t groupCountY = (inputs.height + 7u) / 8u;
+    const uint32_t totalGroupCount = groupCountX * groupCountY;
+    for (uint32_t groupY = 0u; groupY < groupCountY; ++groupY)
+    {
+        for (uint32_t groupX = 0u; groupX < groupCountX; ++groupX)
+        {
+            std::array<uint32_t, UPT07_WORK_BUDGET_SITE_COUNT> rayLanes = {};
+            std::array<uint32_t, UPT07_WORK_BUDGET_SITE_COUNT> proceedLanes = {};
+            std::array<uint32_t,
+                UPT07_WORK_BUDGET_SITE_COUNT> proceedIterations = {};
+            for (uint32_t localY = 0u; localY < 8u; ++localY)
+            {
+                const uint32_t y = groupY * 8u + localY;
+                if (y >= inputs.height)
+                    continue;
+                for (uint32_t localX = 0u; localX < 8u; ++localX)
+                {
+                    const uint32_t x = groupX * 8u + localX;
+                    if (x >= inputs.width)
+                        continue;
+                    const uint32_t pixel = y * inputs.width + x;
+                    if (pixel >= m_temporalBottleneckCapacity)
+                        continue;
+                    const uint32_t base =
+                        pixel * UPT07_WORK_BUDGET_WORDS_PER_PIXEL;
+                    for (uint32_t site = 0u;
+                        site < UPT07_WORK_BUDGET_SITE_COUNT; ++site)
+                    {
+                        const uint32_t packed = words[
+                            base + UPT07_WORK_BUDGET_SITE_WORD_OFFSET + site];
+                        const uint32_t rays = packed & 0xffu;
+                        const uint32_t proceed = (packed >> 8u) & 0xffu;
+                        rayLanes[site] += rays != 0u ? 1u : 0u;
+                        proceedLanes[site] += proceed != 0u ? 1u : 0u;
+                        proceedIterations[site] += proceed;
+                    }
+                }
+            }
+            for (uint32_t site = 0u;
+                site < UPT07_WORK_BUDGET_SITE_COUNT; ++site)
+            {
+                rayActiveGroups[site] += rayLanes[site] != 0u ? 1u : 0u;
+                proceedActiveGroups[site] += proceedLanes[site] != 0u ? 1u : 0u;
+                maxProceedLanes[site] = Max(
+                    maxProceedLanes[site], proceedLanes[site]);
+                maxProceedIterations[site] = Max(
+                    maxProceedIterations[site], proceedIterations[site]);
+                totalProceedLanes[site] += proceedLanes[site];
+                for (uint32_t threshold = 0u;
+                    threshold < proceedLaneGroups[site].size(); ++threshold)
+                {
+                    proceedLaneGroups[site][threshold] +=
+                        proceedLanes[site] >= proceedLaneThresholds[threshold]
+                            ? 1u : 0u;
+                }
+            }
+        }
+    }
+    for (uint32_t site = 0u; site < UPT07_WORK_BUDGET_SITE_COUNT; ++site)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: temporal site %-24s mean(rays/proceed/geometry/material)=%.3f/%.3f/%.3f/%.3f activePixels=%u/%u/%u/%u groups(ray/proceed/total)=%u/%u/%u proceedLaneGroups(1+/2+/4+/8+/16+/32+)=%u/%u/%u/%u/%u/%u meanLanesPerProceedGroup=%.2f max(lanes/iterations)=%u/%u saturatedPixels=%u/%u/%u/%u\n",
+            siteNames[site],
+            m_temporalBottleneckCapacity != 0u
+                ? double(siteTotals[site][0]) / double(m_temporalBottleneckCapacity)
+                : 0.0,
+            m_temporalBottleneckCapacity != 0u
+                ? double(siteTotals[site][1]) / double(m_temporalBottleneckCapacity)
+                : 0.0,
+            m_temporalBottleneckCapacity != 0u
+                ? double(siteTotals[site][2]) / double(m_temporalBottleneckCapacity)
+                : 0.0,
+            m_temporalBottleneckCapacity != 0u
+                ? double(siteTotals[site][3]) / double(m_temporalBottleneckCapacity)
+                : 0.0,
+            siteActivePixels[site][0], siteActivePixels[site][1],
+            siteActivePixels[site][2], siteActivePixels[site][3],
+            rayActiveGroups[site], proceedActiveGroups[site], totalGroupCount,
+            proceedLaneGroups[site][0], proceedLaneGroups[site][1],
+            proceedLaneGroups[site][2], proceedLaneGroups[site][3],
+            proceedLaneGroups[site][4], proceedLaneGroups[site][5],
+            proceedActiveGroups[site] != 0u
+                ? double(totalProceedLanes[site])
+                    / double(proceedActiveGroups[site])
+                : 0.0,
+            maxProceedLanes[site], maxProceedIterations[site],
+            siteSaturatedPixels[site][0], siteSaturatedPixels[site][1],
+            siteSaturatedPixels[site][2], siteSaturatedPixels[site][3]);
     }
     inputs.device->unmapBuffer(m_temporalWorkBudgetReadback);
     m_temporalWorkBudgetReadbackPending = false;

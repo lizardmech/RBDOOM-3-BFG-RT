@@ -68,3 +68,14 @@ result intact. The cumulative timing stages 1--11 intentionally retain their
 D0-republish behavior. Host readback now also waits through 16 valid-history
 frames before copying probe 12, matching the timestamp warm-up instead of
 capturing the first newly rebuilt history frame.
+
+UPT-29 refinement
+-----------------
+
+The production-shaped aggregate capture showed the slow pose performing more
+Proceed, geometry and material work but fewer light loads. Probe 12 now packs
+those traversal metrics separately for history replay, reciprocal replay,
+final indirect visibility and final direct visibility. CPU readback derives
+8x8 workgroup infection and Proceed-active lane thresholds. This is still an
+observer-only probe with production temporal feedback, no atomics and no full-
+buffer clear. Document 44 owns the ABI and comparison protocol.

@@ -104,7 +104,9 @@ foreach(contract
         "kUpt07BudgetRayQueriesPerPixel = 3u"
         "kUpt07BudgetStableRemapLoadsPerPixel = 2u"
         "kUpt07BudgetEmissiveHashLoadsPerPixel = 32u"
-        "kUpt07BudgetLightRecordLoadsPerPixel = 8u")
+        "kUpt07BudgetLightRecordLoadsPerPixel = 8u"
+        "kUpt07WorkSiteCount = 4u"
+        "kUpt07WorkRecordWordCount")
     if(NOT work_budget_source MATCHES "${contract}")
         message(FATAL_ERROR
             "UPT temporal work-budget contract lost declaration: ${contract}")
@@ -176,4 +178,4 @@ if(NOT full_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt07CurrentLights\"" OR
 endif()
 
 file(WRITE "${UPT07_STAMP}"
-    "UPT-07 temporal verified: direct variants retain 28 bindings/one winner RayQuery; baseline unified variants retain 29 bindings/four RayQuery sites; route diagnostics expose 30 bindings while retaining four sites; UPT-17 reconnect variants expose 30 bindings/six bounded branch-dependent sites; probe12 retains four RayQuery sites, no CDF search, one declared emissive-hash call, and per-pixel work budgets; no TraceRay or native16\n")
+    "UPT-07 temporal verified: direct variants retain 28 bindings/one winner RayQuery; baseline unified variants retain 29 bindings/four RayQuery sites; route diagnostics expose 30 bindings while retaining four sites; UPT-17 reconnect variants expose 30 bindings/six bounded branch-dependent sites; probe12 retains four RayQuery sites, no CDF search, one declared emissive-hash call, and 13-word aggregate/site work budgets; no TraceRay or native16\n")

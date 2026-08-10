@@ -1,0 +1,82 @@
+UPT-29: temporal ray-site and workgroup attribution
+===================================================
+
+Trigger
+-------
+
+Corrected production-shaped captures still changed materially with small
+camera movement even after alpha-clipped geometry was hidden. The aggregate
+probe could prove that the slow view performed more programmable traversal,
+but it could not identify which temporal ray owned that work or whether the
+cost was broad or caused by a few divergent lanes per workgroup.
+
+The latest comparable probe-12 pair measured:
+
+    slow median                 13.486 ms
+    fast median                 12.845 ms
+    slow/fast Proceed mean      0.122 / 0.102 per pixel
+    slow/fast geometry mean     0.304 / 0.270 per pixel
+    slow/fast material mean     0.301 / 0.266 per pixel
+    slow/fast light-load mean   3.639 / 3.727 per pixel
+
+The slow view therefore has about 20 percent more Proceed work and 13 percent
+more geometry/material work while performing fewer light loads. Remaining
+programmable candidates are glass/translucent surfaces or mixed non-opaque
+BLAS chunks, not the hidden alpha-clipped surfaces. The pair is a 0.641 ms
+difference, not the earlier reported 20--30 percent discontinuity, so the next
+capture must attribute work rather than infer from camera content.
+
+Implementation
+--------------
+
+Probe 12 now attributes four metrics to four bounded ray sites:
+
+    site 0 history indirect replay
+    site 1 reciprocal indirect replay
+    site 2 final indirect visibility
+    site 3 final direct visibility
+
+Each site is one packed dword with saturated 8-bit ray, Proceed, geometry and
+material counts. Aggregate 32-bit counters remain unchanged. The violation
+word moves from 8 to 12, producing a 13-dword record per pixel.
+
+The GPU path uses thread-owned stores only. It adds no atomics, full-buffer
+clear or estimator work. Site attribution begins immediately around the four
+existing ray-owning regions, so helper work such as an early reconnect ray is
+charged to the replay site that requested it.
+
+The delayed CPU readback reconstructs the native 8x8 dispatch groups. For each
+site it prints total and active-pixel metrics, ray/Proceed-active group counts,
+the number of groups with at least 1/2/4/8/16/32 Proceed-active lanes, mean
+active lanes per infected group, and maximum active lanes/Proceed iterations.
+Packed-byte saturation is printed and invalidates quantitative interpretation
+if nonzero.
+
+Acceptance protocol
+-------------------
+
+Use the UPT-28 production gates and capture probe 12 at the slow and fast poses.
+Do not compare the absolute probe-12 time with probe 0 because the site stores
+are intentionally additional observer work. Compare the four site distributions
+and group infection between poses.
+
+Interpretation is decisive:
+
+* historyReplay growth identifies the shifted history path;
+* reciprocalReplay growth identifies current-at-history cross evaluation;
+* finalIndirectVisibility growth identifies shifted indirect winner proof;
+* finalDirectVisibility growth identifies the direct winner proof;
+* similar totals but more low-lane infected groups identifies traversal
+  divergence rather than additional logical work;
+* saturation requires a wider diagnostic ABI before drawing conclusions.
+
+No renderer correction should be attempted until this capture names the site.
+
+Verification 2026-08-11
+-----------------------
+
+The requested full Vulkan release build passes. Static verification retains
+four RayQuery sites, no TraceRay, no temporal CDF search and the declared
+13-word aggregate/site ABI. The executable and five content-changed Vulkan
+SPIR-V blobs were deployed with matching SHA-256 hashes. No DX12 shader was
+compiled. Runtime slow/fast site captures remain open.

@@ -15,6 +15,14 @@ public static const uint kUpt07WorkGeometryResolves = 5u;
 public static const uint kUpt07WorkMaterialRecordLoads = 6u;
 public static const uint kUpt07WorkTextureSamples = 7u;
 public static const uint kUpt07WorkCounterCount = 8u;
+public static const uint kUpt07WorkSiteHistoryReplay = 0u;
+public static const uint kUpt07WorkSiteReciprocalReplay = 1u;
+public static const uint kUpt07WorkSiteFinalIndirectVisibility = 2u;
+public static const uint kUpt07WorkSiteFinalDirectVisibility = 3u;
+public static const uint kUpt07WorkSiteCount = 4u;
+public static const uint kUpt07WorkInvalidSite = 0xffffffffu;
+public static const uint kUpt07WorkRecordWordCount =
+    kUpt07WorkCounterCount + kUpt07WorkSiteCount + 1u;
 
 // Diagnostic T0 ceilings. They are intentionally strict for the accepted
 // baseline unified route. Alpha-tested traversal is scene-dependent and is
@@ -34,7 +42,92 @@ public struct Upt07WorkCounters
     public uint geometryResolves;
     public uint materialRecordLoads;
     public uint textureSamples;
+#if UPT07_BOTTLENECK_STAGE == 12
+    public uint currentSite;
+    public uint historyReplayPacked;
+    public uint reciprocalReplayPacked;
+    public uint finalIndirectVisibilityPacked;
+    public uint finalDirectVisibilityPacked;
+#endif
 };
+
+public uint Upt07WorkIncrementPackedByte(uint packed, uint shift)
+{
+    const uint oldValue = (packed >> shift) & 0xffu;
+    const uint newValue = min(oldValue + 1u, 0xffu);
+    return (packed & ~(0xffu << shift)) | (newValue << shift);
+}
+
+public void Upt07WorkInitialize(inout Upt07WorkCounters counters)
+{
+#if UPT07_BOTTLENECK_STAGE == 12
+    counters.currentSite = kUpt07WorkInvalidSite;
+#endif
+}
+
+public void Upt07WorkBeginSite(
+    inout Upt07WorkCounters counters,
+    uint site)
+{
+#if UPT07_BOTTLENECK_STAGE == 12
+    counters.currentSite = site;
+#endif
+}
+
+public void Upt07WorkEndSite(inout Upt07WorkCounters counters)
+{
+#if UPT07_BOTTLENECK_STAGE == 12
+    counters.currentSite = kUpt07WorkInvalidSite;
+#endif
+}
+
+public uint Upt07WorkMetricShift(uint slot)
+{
+    if (slot == kUpt07WorkRayQueries) return 0u;
+    if (slot == kUpt07WorkProceedIterations) return 8u;
+    if (slot == kUpt07WorkGeometryResolves) return 16u;
+    return 24u;
+}
+
+public void Upt07WorkAddSite(inout Upt07WorkCounters counters, uint slot)
+{
+#if UPT07_BOTTLENECK_STAGE == 12
+    if (counters.currentSite >= kUpt07WorkSiteCount
+        || (slot != kUpt07WorkRayQueries
+            && slot != kUpt07WorkProceedIterations
+            && slot != kUpt07WorkGeometryResolves
+            && slot != kUpt07WorkMaterialRecordLoads))
+        return;
+    const uint shift = Upt07WorkMetricShift(slot);
+    if (counters.currentSite == kUpt07WorkSiteHistoryReplay)
+        counters.historyReplayPacked = Upt07WorkIncrementPackedByte(
+            counters.historyReplayPacked, shift);
+    else if (counters.currentSite == kUpt07WorkSiteReciprocalReplay)
+        counters.reciprocalReplayPacked = Upt07WorkIncrementPackedByte(
+            counters.reciprocalReplayPacked, shift);
+    else if (counters.currentSite == kUpt07WorkSiteFinalIndirectVisibility)
+        counters.finalIndirectVisibilityPacked = Upt07WorkIncrementPackedByte(
+            counters.finalIndirectVisibilityPacked, shift);
+    else
+        counters.finalDirectVisibilityPacked = Upt07WorkIncrementPackedByte(
+            counters.finalDirectVisibilityPacked, shift);
+#endif
+}
+
+public uint Upt07WorkSitePacked(Upt07WorkCounters counters, uint site)
+{
+#if UPT07_BOTTLENECK_STAGE == 12
+    if (site == kUpt07WorkSiteHistoryReplay)
+        return counters.historyReplayPacked;
+    if (site == kUpt07WorkSiteReciprocalReplay)
+        return counters.reciprocalReplayPacked;
+    if (site == kUpt07WorkSiteFinalIndirectVisibility)
+        return counters.finalIndirectVisibilityPacked;
+    return counters.finalDirectVisibilityPacked;
+#else
+    return 0u;
+#endif
+}
 
 public void Upt07WorkAdd(inout Upt07WorkCounters counters, uint slot)
 {
@@ -47,6 +140,7 @@ public void Upt07WorkAdd(inout Upt07WorkCounters counters, uint slot)
     else if (slot == kUpt07WorkGeometryResolves) ++counters.geometryResolves;
     else if (slot == kUpt07WorkMaterialRecordLoads) ++counters.materialRecordLoads;
     else if (slot == kUpt07WorkTextureSamples) ++counters.textureSamples;
+    Upt07WorkAddSite(counters, slot);
 #endif
 }
 

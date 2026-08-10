@@ -512,7 +512,7 @@ void Upt07PublishWorkBudget(
     uint index,
     Upt07WorkCounters work)
 {
-    const uint base = index * (kUpt07WorkCounterCount + 1u);
+    const uint base = index * kUpt07WorkRecordWordCount;
     gUpt07BottleneckProbe[base + 0u] = work.rayQueries;
     gUpt07BottleneckProbe[base + 1u] = work.proceedIterations;
     gUpt07BottleneckProbe[base + 2u] = work.stableRemapLoads;
@@ -521,7 +521,12 @@ void Upt07PublishWorkBudget(
     gUpt07BottleneckProbe[base + 5u] = work.geometryResolves;
     gUpt07BottleneckProbe[base + 6u] = work.materialRecordLoads;
     gUpt07BottleneckProbe[base + 7u] = work.textureSamples;
-    gUpt07BottleneckProbe[base + 8u] = Upt07WorkBudgetViolationMask(work);
+    [unroll]
+    for (uint site = 0u; site < kUpt07WorkSiteCount; ++site)
+        gUpt07BottleneckProbe[base + kUpt07WorkCounterCount + site] =
+            Upt07WorkSitePacked(work, site);
+    gUpt07BottleneckProbe[base + kUpt07WorkCounterCount
+        + kUpt07WorkSiteCount] = Upt07WorkBudgetViolationMask(work);
 }
 #endif
 #endif
@@ -538,12 +543,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
 
     Upt07WorkCounters work = (Upt07WorkCounters)0;
+    Upt07WorkInitialize(work);
 #if UPT07_BOTTLENECK_STAGE == 12
     // Initialize this pixel's complete record. No full-buffer clear is needed,
     // including when an invalid receiver returns before any expensive work.
-    const uint workBase = index * (kUpt07WorkCounterCount + 1u);
+    const uint workBase = index * kUpt07WorkRecordWordCount;
     [unroll]
-    for (uint workSlot = 0u; workSlot < kUpt07WorkCounterCount + 1u;
+    for (uint workSlot = 0u; workSlot < kUpt07WorkRecordWordCount;
         ++workSlot)
         gUpt07BottleneckProbe[workBase + workSlot] = 0u;
 #endif
@@ -741,6 +747,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #endif
         historyFailureReason = kUpt07RejectShiftInvalid;
         uint indirectFailureReason = kUpt07RejectIndirectStructure;
+        Upt07WorkBeginSite(work, kUpt07WorkSiteHistoryReplay);
         shiftedValid = Upt07ReplayIndirectSample(
             history.logical.selected,
             historyReceiver,
@@ -751,6 +758,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             shiftedIndirectVisibility,
             historyShiftJacobian,
             work);
+        Upt07WorkEndSite(work);
 #if UPT07_ROUTE_DIAGNOSTICS
         Upt07RouteDiag(shiftedValid != 0u ? 10u : 11u);
 #endif
@@ -921,6 +929,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 uint currentShiftFailure;
                 float unusedCurrentJacobian;
                 Upt07PendingIndirectVisibility unusedCurrentVisibility;
+                Upt07WorkBeginSite(work, kUpt07WorkSiteReciprocalReplay);
                 const uint currentAtHistoryValid = Upt07ReplayIndirectSample(
                         currentCandidate,
                         receiver,
@@ -931,6 +940,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                         unusedCurrentVisibility,
                         unusedCurrentJacobian,
                         work);
+                Upt07WorkEndSite(work);
 #if UPT07_ROUTE_DIAGNOSTICS
                 Upt07RouteDiag(currentAtHistoryValid != 0u ? 13u : 14u);
 #endif
@@ -1084,11 +1094,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             if (merged.selectedHistory != 0u
                 && shiftedIndirectVisibility.valid != 0u)
             {
-                visibilityPassed = Upt07TraceIndirect(
-                        shiftedIndirectVisibility.request,
-                        1u,
-                        shiftedIndirectVisibility.ignore,
-                        work).status
+                Upt07WorkBeginSite(
+                    work, kUpt07WorkSiteFinalIndirectVisibility);
+                const Upt04HitFacts indirectVisibilityHit = Upt07TraceIndirect(
+                    shiftedIndirectVisibility.request,
+                    1u,
+                    shiftedIndirectVisibility.ignore,
+                    work);
+                Upt07WorkEndSite(work);
+                visibilityPassed = indirectVisibilityHit.status
                     != kUpt04HitTriangle;
             }
         }
@@ -1096,13 +1110,16 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         {
             Upt04TraceRequest visibility;
             Upt04VisibilityIgnore visibilityIgnore;
-            visibilityPassed = Upt07BuildSelectedVisibility(
-                    merged.logical.selected,
-                    receiver,
-                    visibility,
-                    visibilityIgnore,
-                    work) != 0u
+            Upt07WorkBeginSite(work, kUpt07WorkSiteFinalDirectVisibility);
+            const uint directVisibilityBuilt = Upt07BuildSelectedVisibility(
+                merged.logical.selected,
+                receiver,
+                visibility,
+                visibilityIgnore,
+                work);
+            visibilityPassed = directVisibilityBuilt != 0u
                 && Upt07VisibilityPassed(visibility, visibilityIgnore, work);
+            Upt07WorkEndSite(work);
         }
 #if UPT07_BOTTLENECK_STAGE == 5
         bottleneckVisibilityResult = visibilityPassed ? 2u : 3u;
@@ -1136,13 +1153,17 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         Upt04TraceRequest visibility;
         Upt04VisibilityIgnore visibilityIgnore;
-        if (Upt07BuildSelectedVisibility(
+        Upt07WorkBeginSite(work, kUpt07WorkSiteFinalDirectVisibility);
+        const uint directVisibilityBuilt = Upt07BuildSelectedVisibility(
                 merged.logical.selected,
                 receiver,
                 visibility,
                 visibilityIgnore,
-                work) == 0u
-            || !Upt07VisibilityPassed(visibility, visibilityIgnore, work))
+                work);
+        const bool directVisibilityPassed = directVisibilityBuilt != 0u
+            && Upt07VisibilityPassed(visibility, visibilityIgnore, work);
+        Upt07WorkEndSite(work);
+        if (!directVisibilityPassed)
         {
 #if UPT07_BOTTLENECK_STAGE == 12
             Upt07PublishWorkBudget(index, work);

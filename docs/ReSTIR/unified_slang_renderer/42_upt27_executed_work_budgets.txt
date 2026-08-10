@@ -30,7 +30,7 @@ checks the emitted Vulkan SPIR-V and source closure for:
 
 Executed work is scene dependent and cannot honestly fail an ordinary shader
 compile.  Probe 12 executes one deterministic diagnostic T0 frame, writes one
-nine-dword record per pixel, copies it asynchronously, and prints PASS/FAIL plus
+13-dword record per pixel, copies it asynchronously, and prints PASS/FAIL plus
 mean, p50, p90, p99, maximum and active-pixel counts.  No global atomics and no
 per-frame full-buffer clear are used: each valid dispatch thread owns and
 initializes only its own record.
@@ -49,7 +49,21 @@ Words 0--7 are logical hot-path operations:
     6 material-record loads on programmable traversal/secondary evaluation
     7 texture samples on programmable alpha traversal
 
-Word 8 is the declared-ceiling violation mask:
+Words 8--11 are packed ray-site records. Each byte saturates at 255:
+
+    byte 0 RayQuery initializations
+    byte 1 RayQuery Proceed iterations
+    byte 2 geometry resolves
+    byte 3 material-record loads
+
+The four words identify history replay, reciprocal replay, final indirect
+visibility and final direct visibility respectively. The CPU readback also
+groups these per-pixel records into the shader's 8x8 workgroups. It reports
+infected groups, Proceed-active lane thresholds 1/2/4/8/16/32, mean lanes per
+infected group and maximum lanes/iterations. This distinguishes a uniformly
+expensive ray site from a few divergent lanes that hold an entire warp open.
+
+Word 12 is the declared-ceiling violation mask:
 
     bit 0 rays > 3 per pixel
     bit 1 stable remaps > 2 per pixel
