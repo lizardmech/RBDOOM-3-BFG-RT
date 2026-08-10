@@ -258,6 +258,7 @@ extern idCVar r_pathTracingUnifiedPtTemporalPreviousBest;
 extern idCVar r_pathTracingUnifiedPtTemporalPairwise;
 extern idCVar r_pathTracingUnifiedPtTemporalIndirect;
 extern idCVar r_pathTracingUnifiedPtSharedReuseAdapter;
+extern idCVar r_pathTracingUnifiedPtCommonGrisMerge;
 extern idCVar r_pathTracingUnifiedPtTemporalEarlyReconnect;
 extern idCVar r_pathTracingUnifiedPtTemporalReconnectDiagnostics;
 extern idCVar r_pathTracingUnifiedPtTemporalRouteDiagnostics;

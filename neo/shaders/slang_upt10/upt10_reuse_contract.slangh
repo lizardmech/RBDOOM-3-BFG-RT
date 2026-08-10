@@ -82,14 +82,22 @@ Upt10MappedProposal Upt10MapProposal(Upt10MappedProposalInput input)
         return result;
 
     if (!Upt10FiniteNonNegative(input.sourceScaledWeight) ||
-        !Upt10FinitePositive(input.sourceTarget) ||
+        !Upt10FiniteNonNegative(input.sourceTarget) ||
         !Upt10FiniteNonNegative(input.targetTarget) ||
         !Upt10FinitePositive(input.shiftJacobian) ||
         !Upt10FiniteNonNegative(input.pairwiseMis))
         return result;
 
-    if ((input.status == kUpt10ShiftValidZero && input.targetTarget != 0.0f) ||
-        (input.status == kUpt10ShiftValidPositive && input.targetTarget <= 0.0f))
+    if (input.status == kUpt10ShiftValidZero)
+    {
+        if (input.targetTarget != 0.0f)
+            return result;
+        result.confidence = input.sourceConfidence;
+        result.valid = 1u;
+        return result;
+    }
+    if (!Upt10FinitePositive(input.sourceTarget) ||
+        !Upt10FinitePositive(input.targetTarget))
         return result;
 
     const float sourceUcw = input.sourceScaledWeight / input.sourceTarget;

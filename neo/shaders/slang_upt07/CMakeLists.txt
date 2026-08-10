@@ -202,6 +202,25 @@ path_tracing_declare_slang_spirv_module(
         UPT10_SHARED_REUSE_ADAPTER=1
     OUT_VAR temporal_unified_shared_adapter_outputs)
 
+# T30.3 opt-in estimator specialization. Keep the accepted T30.2 adapter as a
+# separate runtime A/B while the common GRIS merge is validated in game.
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64_duplication_common_gris
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1
+        UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
+        UPT10_SHARED_REUSE_ADAPTER=1 UPT10_COMMON_GRIS_MERGE=1
+    OUT_VAR temporal_unified_common_gris_outputs)
+
 set(UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP
     "${UPT07_OUTPUT_DIR}/upt10_temporal_shared_adapter_verified.txt")
 add_custom_command(
@@ -214,6 +233,21 @@ add_custom_command(
     DEPENDS ${temporal_unified_shared_adapter_outputs}
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10TemporalAdapter.cmake"
     COMMENT "UPT-30 verifying compile-only temporal shared adapter ceiling"
+    VERBATIM)
+
+set(UPT10_TEMPORAL_COMMON_GRIS_VERIFY_STAMP
+    "${UPT07_OUTPUT_DIR}/upt10_temporal_common_gris_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT10_TEMPORAL_COMMON_GRIS_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT10_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris.slang.spirv-reflection.json
+        -DUPT10_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris.slang.spvasm
+        -DUPT10_STAMP=${UPT10_TEMPORAL_COMMON_GRIS_VERIFY_STAMP}
+        -DUPT10_LABEL=common-GRIS
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10TemporalAdapter.cmake"
+    DEPENDS ${temporal_unified_common_gris_outputs}
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10TemporalAdapter.cmake"
+    COMMENT "UPT-30 verifying common GRIS temporal ceiling"
     VERBATIM)
 
 function(upt07_declare_frozen_factor_variant variant_name)
@@ -490,6 +524,18 @@ add_custom_command(
         "${UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP}"
     COMMENT "UPT-30 Vulkan opt-in temporal shared-adapter artifact"
     VERBATIM)
+set(UPT10_TEMPORAL_COMMON_GRIS_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris.bin")
+add_custom_command(
+    OUTPUT "${UPT10_TEMPORAL_COMMON_GRIS_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT07_RUNTIME_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris.slang.spv"
+        "${UPT10_TEMPORAL_COMMON_GRIS_RUNTIME_OUTPUT}"
+    DEPENDS ${temporal_unified_common_gris_outputs}
+        "${UPT10_TEMPORAL_COMMON_GRIS_VERIFY_STAMP}"
+    COMMENT "UPT-30 Vulkan opt-in temporal common-GRIS artifact"
+    VERBATIM)
 set(UPT07_LAMBERT_RUNTIME_OUTPUTS)
 foreach(lambert_module
         upt07_temporal_unified_rayquery_lambert
@@ -671,7 +717,10 @@ add_custom_target(PathTraceSlangUpt07TemporalOwnership
         ${UPT07_BOTTLENECK_RUNTIME_OUTPUTS}
         ${temporal_unified_shared_adapter_outputs}
         "${UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP}"
-        "${UPT10_TEMPORAL_SHARED_ADAPTER_RUNTIME_OUTPUT}")
+        "${UPT10_TEMPORAL_SHARED_ADAPTER_RUNTIME_OUTPUT}"
+        ${temporal_unified_common_gris_outputs}
+        "${UPT10_TEMPORAL_COMMON_GRIS_VERIFY_STAMP}"
+        "${UPT10_TEMPORAL_COMMON_GRIS_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
     FOLDER "Shaders/UPT-07")
 if(TARGET RBDoom3BFG)

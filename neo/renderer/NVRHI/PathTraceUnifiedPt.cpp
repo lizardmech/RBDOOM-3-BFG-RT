@@ -4263,10 +4263,16 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         && !inputs.frozenStaticDiagnostic
         && !inputs.frozenLightDiagnostic
         && inputs.temporalBottleneckProbe == 0u;
+    const bool commonGrisMergeRequested =
+        r_pathTracingUnifiedPtCommonGrisMerge.GetBool();
+    const bool commonGrisMerge = sharedReuseAdapter
+        && commonGrisMergeRequested
+        && r_pathTracingUnifiedPtTemporalPairwise.GetBool();
     if (m_temporalPipeline && m_temporalCompactLights == inputs.compactLights
         && m_temporalDuplication == inputs.duplication
         && m_temporalIndirect == indirect
         && m_temporalSharedReuseAdapter == sharedReuseAdapter
+        && m_temporalCommonGrisMerge == commonGrisMerge
         && m_temporalEarlyReconnect == earlyReconnect
         && m_temporalRouteDiagnostics == routeDiagnostics
         && m_temporalLambertDiagnostic == inputs.lambertDiagnostic
@@ -4282,6 +4288,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         || m_temporalDuplication != inputs.duplication
         || m_temporalIndirect != indirect
         || m_temporalSharedReuseAdapter != sharedReuseAdapter
+        || m_temporalCommonGrisMerge != commonGrisMerge
         || m_temporalEarlyReconnect != earlyReconnect
         || m_temporalRouteDiagnostics != routeDiagnostics
         || m_temporalLambertDiagnostic != inputs.lambertDiagnostic
@@ -4291,11 +4298,25 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
             inputs.frozenLightDiagnostic
         || m_temporalBottleneckProbe != inputs.temporalBottleneckProbe)
     {
+        if (m_temporalCommonGrisMerge != commonGrisMerge)
+        {
+            // The accepted pairwise path and the common GRIS path persist
+            // different mapped-weight conventions. Never let either consume a
+            // history page written by the other; metadata invalidation makes
+            // this frame use fresh D0 without a full-buffer clear.
+            HistoryPageMetadata().Invalidate();
+            m_duplicationMetadata[m_historyPageIndex].Invalidate();
+            m_reportedTemporalHistoryAvailable = -1;
+            common->Printf(
+                "PathTraceUnifiedPt: common GRIS merge transition effective=%u historyInvalidated=1 pageClear=none\n",
+                commonGrisMerge ? 1u : 0u);
+        }
         ReleaseTemporal();
         m_temporalCompactLights = inputs.compactLights;
         m_temporalDuplication = inputs.duplication;
         m_temporalIndirect = indirect;
         m_temporalSharedReuseAdapter = sharedReuseAdapter;
+        m_temporalCommonGrisMerge = commonGrisMerge;
         m_temporalEarlyReconnect = earlyReconnect;
         m_temporalRouteDiagnostics = routeDiagnostics;
         m_temporalLambertDiagnostic = inputs.lambertDiagnostic;
@@ -4374,9 +4395,11 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe11.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe12.bin"
     };
-    const char* path = sharedReuseAdapter
+    const char* path = commonGrisMerge
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_common_gris.bin"
+        : (sharedReuseAdapter
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_shared_adapter.bin"
-        : nullptr;
+        : nullptr);
     if (!path)
         path = inputs.temporalBottleneckProbe != 0u
         ? bottleneckPaths[inputs.temporalBottleneckProbe - 1u]
@@ -4461,7 +4484,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u family=%s sharedReuseAdapter(requested/effective)=%u/%u shading=%s bottleneckProbe=%u createUs=%llu\n",
+        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u family=%s sharedReuseAdapter(requested/effective)=%u/%u commonGrisMerge(requested/effective)=%u/%u shading=%s bottleneckProbe=%u createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -4474,6 +4497,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
             : "direct-basic",
         sharedReuseAdapterRequested ? 1u : 0u,
         sharedReuseAdapter ? 1u : 0u,
+        commonGrisMergeRequested ? 1u : 0u,
+        commonGrisMerge ? 1u : 0u,
         (inputs.frozenStaticDiagnostic || inputs.frozenLightDiagnostic)
             ? (inputs.lambertDiagnostic
                 ? "frozen-factor-lambert"

@@ -1509,6 +1509,12 @@ idCVar r_pathTracingUnifiedPtSharedReuseAdapter(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-30 temporal mechanical-parity A/B: route direct and global cross-receiver shifts through one source-target/target-target/Jacobian result contract; currently effective only for unified indirect compact64-light duplication production shading" );
 
+idCVar r_pathTracingUnifiedPtCommonGrisMerge(
+    "r_pathTracingUnifiedPtCommonGrisMerge",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-30 temporal estimator A/B: merge direct and global proposals through one target-scaled GRIS core with source-UCW conversion, pairwise MIS, and one forward shift Jacobian; requires the shared reuse adapter and temporal pairwise mode" );
+
 idCVar r_pathTracingUnifiedPtTemporalEarlyReconnect(
     "r_pathTracingUnifiedPtTemporalEarlyReconnect",
     "0",

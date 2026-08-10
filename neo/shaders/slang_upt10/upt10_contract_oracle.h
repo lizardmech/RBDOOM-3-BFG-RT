@@ -66,12 +66,18 @@ inline Mapped Map(const Proposal& input) {
 	Mapped result;
 	if (input.status != ValidZero && input.status != ValidPositive) return result;
 	if (!FiniteNonNegative(input.sourceScaledWeight) ||
-		!FinitePositive(input.sourceTarget) ||
+		!FiniteNonNegative(input.sourceTarget) ||
 		!FiniteNonNegative(input.targetTarget) ||
 		!FinitePositive(input.shiftJacobian) ||
 		!FiniteNonNegative(input.pairwiseMis)) return result;
-	if ((input.status == ValidZero && input.targetTarget != 0.0f) ||
-		(input.status == ValidPositive && input.targetTarget <= 0.0f)) return result;
+	if (input.status == ValidZero) {
+		if (input.targetTarget != 0.0f) return result;
+		result.confidence = input.sourceConfidence;
+		result.valid = 1u;
+		return result;
+	}
+	if (!FinitePositive(input.sourceTarget) ||
+		!FinitePositive(input.targetTarget)) return result;
 	const float sourceUcw = input.sourceScaledWeight / input.sourceTarget;
 	const float mass = input.pairwiseMis * input.targetTarget * sourceUcw * input.shiftJacobian;
 	if (!FiniteNonNegative(sourceUcw) || !FiniteNonNegative(mass)) return result;
@@ -142,6 +148,8 @@ inline Corpus MakeCorpus() {
 
 	Proposal zero = direct;
 	zero.status = ValidZero;
+	zero.sourceScaledWeight = 0.0f;
+	zero.sourceTarget = 0.0f;
 	zero.targetTarget = 0.0f;
 	set(3u, zero, invalid, 0.5f);
 

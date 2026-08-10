@@ -290,3 +290,63 @@ prints a separate shared-reuse requested/effective line whenever either value
 changes, before temporal execution. Ten gate bits identify temporal, indirect,
 unified family, compact lights, duplication, OpenPBR, non-frozen, no probe,
 no early reconnect and no route diagnostics independently.
+
+T30.2 runtime acceptance and T30.3 opt-in merge, 2026-08-11
+-----------------------------------------------------------
+
+The shared adapter became effective after split initial was enabled, which made
+compact64 lights effective with native geometry. Runtime inspection found no
+correctness regression. The previously troublesome view also improved, but
+that timing change is treated only as a compiler/control-flow side effect until
+a repeatable capture attributes it. T30.2 therefore passes its runtime parity
+gate.
+
+T30.3 is now available behind a second default-off specialization:
+
+    r_pathTracingUnifiedPtSharedReuseAdapter 1
+    r_pathTracingUnifiedPtTemporalPairwise 1
+    r_pathTracingUnifiedPtCommonGrisMerge 0 / 1
+
+The new merge converts each stored target-scaled weight back to source UCW,
+applies the destination target, pairwise MIS weight and forward Jacobian once,
+then persists the sum as target-scaled output weight. Direct primary NEE uses
+the same core with Jacobian one. History remains proposal zero so deterministic
+winner intervals match the accepted temporal pairwise implementation. Invalid
+proposals add no mass or confidence; a structurally valid count-only proposal
+may add confidence with exactly zero mass and can never win.
+
+The old production T0 and accepted T30.2 adapter artifacts remain distinct.
+The common merge is effective only when the shared adapter and temporal
+pairwise cvars are both effective. A separate requested/effective line reports
+the shared-adapter and pairwise gates. A transition between common and accepted
+weight conventions invalidates only the previous page metadata and duplication
+sidecar metadata. The next T0 frame therefore starts from fresh D0 without a
+buffer clear or mixed-estimator feedback.
+
+Verified offline evidence:
+
+* the eight-pair CPU/Vulkan contract corpus still matches all 128 bytes with
+  hash 0x302f95d704cf624f;
+* the common-GRIS Vulkan artifact has 30 bindings, four static RayQuery sites
+  and no TraceRay site;
+* the complete win64-pt-dev-release Vulkan build passes;
+* the deployed executable SHA-256 is
+  3DB79C5B65710B52E5EE4772C5C87F27740A987211B2B4DBF7A68A66138926BF;
+* the sole newly deployed SPIR-V blob SHA-256 is
+  169C01540C1183B2C30A31E0EE89530035218DE77C4DB31AF8C948F27CA8C60B.
+
+Runtime acceptance is still required before T30.3 is promoted or S30.1 begins.
+Compare common merge 0/1 at a fixed pose, then inspect portal crossings,
+emissive door panels, mirrors, alpha blockers and rigid/skinned motion. Any
+ghosting, color corruption, persistent brightness step or recursive energy
+growth rejects this specialization. D0 with temporal/spatial disabled must be
+unchanged.
+
+T30.3 runtime acceptance, 2026-08-11
+-------------------------------------
+
+The common temporal merge ran for approximately twenty minutes with no visible
+correctness issue, ghosting, color corruption or energy instability. Runtime
+performance was also less erratic in general. This is sufficient to accept the
+T30.3 estimator and begin S30.1. It is not yet a fixed-pose quantitative timing
+claim; the important result is stable combined direct/global temporal reuse.

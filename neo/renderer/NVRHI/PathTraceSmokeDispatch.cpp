@@ -2960,6 +2960,31 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 reportedSharedReuseAdapterRequest = sharedReuseAdapterRequest;
                 reportedSharedReuseAdapterEffective = sharedReuseAdapterEffective;
             }
+            const bool requestedCommonGrisMerge =
+                r_pathTracingUnifiedPtCommonGrisMerge.GetBool();
+            const bool effectiveCommonGrisMerge =
+                requestedCommonGrisMerge
+                && effectiveSharedReuseAdapter
+                && r_pathTracingUnifiedPtTemporalPairwise.GetBool();
+            static int reportedCommonGrisMergeRequest = -1;
+            static int reportedCommonGrisMergeEffective = -1;
+            const int commonGrisMergeRequest =
+                requestedCommonGrisMerge ? 1 : 0;
+            const int commonGrisMergeEffective =
+                effectiveCommonGrisMerge ? 1 : 0;
+            if (reportedCommonGrisMergeRequest != commonGrisMergeRequest
+                || reportedCommonGrisMergeEffective !=
+                    commonGrisMergeEffective)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: common GRIS merge requested/effective=%d/%d gate(sharedAdapter/pairwise)=%u/%u\n",
+                    commonGrisMergeRequest,
+                    commonGrisMergeEffective,
+                    effectiveSharedReuseAdapter ? 1u : 0u,
+                    r_pathTracingUnifiedPtTemporalPairwise.GetBool() ? 1u : 0u);
+                reportedCommonGrisMergeRequest = commonGrisMergeRequest;
+                reportedCommonGrisMergeEffective = commonGrisMergeEffective;
+            }
             unifiedPtInputs.spatial =
                 r_pathTracingUnifiedPtSpatial.GetBool() &&
                 unifiedPtInputs.family == PathTraceUnifiedPtFamily::DirectOnly;

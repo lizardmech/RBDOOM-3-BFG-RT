@@ -47,6 +47,9 @@ import upt07_work_budget;
 #ifndef UPT10_SHARED_REUSE_ADAPTER
 #define UPT10_SHARED_REUSE_ADAPTER 0
 #endif
+#ifndef UPT10_COMMON_GRIS_MERGE
+#define UPT10_COMMON_GRIS_MERGE 0
+#endif
 #if UPT10_SHARED_REUSE_ADAPTER
 #include "../slang_upt10/upt10_reuse_contract.slangh"
 #endif
@@ -563,6 +566,173 @@ public uint Upt07ShiftThroughSharedAdapter<
         ? 0u : kUpt07RejectShiftedValidZero;
     return 1u;
 }
+
+#if UPT10_COMMON_GRIS_MERGE
+float Upt10PairwiseBalanceWeight(float sourceTarget, float targetTarget,
+    uint sourceConfidence, uint targetConfidence)
+{
+    const float sourceTerm = isfinite(sourceTarget) && sourceTarget > 0.0f
+        ? float(sourceConfidence) * sourceTarget : 0.0f;
+    const float targetTerm = isfinite(targetTarget) && targetTarget > 0.0f
+        ? float(targetConfidence) * targetTarget : 0.0f;
+    const float denominator = sourceTerm + targetTerm;
+    return sourceTerm > 0.0f && isfinite(denominator) && denominator > 0.0f
+        ? sourceTerm / denominator : 0.0f;
+}
+
+Upt07TemporalMergeResult Upt10MergeTemporalSharedGris(
+    Upt07DecodedReservoir current,
+    Upt07DecodedReservoir history,
+    Upt10ShiftResult historyToCurrent,
+    uint historyShiftValid,
+    Upt10ShiftResult currentToHistory,
+    uint currentShiftValid,
+    float currentTargetAtCurrent,
+    float historyTargetAtHistory,
+    uint historyFailureReason,
+    float selectionRandom,
+    uint maximumHistoryM,
+    uint maximumHistoryAge,
+    float maximumHistoryContributionRatio)
+{
+    Upt07TemporalMergeResult result = (Upt07TemporalMergeResult)0;
+    if (current.valid != 0u)
+        result.logical = current.logical;
+    const bool currentSelected = current.valid != 0u
+        && current.logical.hasSelectedSample != 0u;
+    const bool historySelected = history.valid != 0u
+        && history.logical.hasSelectedSample != 0u;
+    const bool historyAgeUsable = maximumHistoryAge >= 63u
+        || history.logical.selected.age < maximumHistoryAge;
+    const bool historyUsable = historyShiftValid != 0u
+        && historySelected
+        && historyAgeUsable
+        && Upt03StructurallyValid(historyToCurrent.shifted)
+        && Upt10FinitePositive(historyToCurrent.shiftJacobian)
+        && isfinite(selectionRandom) && selectionRandom >= 0.0f
+        && selectionRandom < 1.0f;
+    if (!historyUsable)
+    {
+        result.rejectionReason = historyFailureReason != 0u
+            ? historyFailureReason : kUpt07RejectMergeMath;
+        result.needsRescue = currentSelected ? 0u : 1u;
+        if (!currentSelected)
+        {
+            result.logical.hasSelectedSample = 0u;
+            result.logical.weightSum = 0.0f;
+        }
+        return result;
+    }
+
+    const uint historyM = min(history.logical.effectiveM, maximumHistoryM);
+    const uint currentM = current.valid != 0u
+        ? current.logical.effectiveM : 0u;
+    if (historyM == 0u || currentM > 0xffffffffu - historyM)
+    {
+        result.rejectionReason = kUpt07RejectMergeMath;
+        result.needsRescue = currentSelected ? 0u : 1u;
+        return result;
+    }
+
+    const bool shiftedHistoryPositive =
+        historyToCurrent.mappingStatus == kUpt10ShiftValidPositive;
+    const float currentContributionScale = currentSelected
+        ? current.logical.selected.target * current.logical.weightSum : 0.0f;
+    const float historyContributionScale = shiftedHistoryPositive
+        ? historyToCurrent.targetTarget * history.logical.weightSum
+            * historyToCurrent.shiftJacobian
+        : 0.0f;
+    if (maximumHistoryContributionRatio > 0.0f
+        && history.logical.selected.age != 0u
+        && Upt10FinitePositive(currentContributionScale)
+        && Upt10FinitePositive(historyContributionScale)
+        && historyContributionScale > currentContributionScale
+            * max(maximumHistoryContributionRatio, 1.0f))
+    {
+        result.rejectionReason = kUpt07RejectHistoryOutlier;
+        result.needsRescue = currentSelected ? 0u : 1u;
+        return result;
+    }
+
+    const float currentTargetAtHistory = currentShiftValid != 0u
+            && currentToHistory.mappingStatus == kUpt10ShiftValidPositive
+        ? currentToHistory.targetTarget : 0.0f;
+    const float currentMis = Upt10PairwiseBalanceWeight(
+        currentTargetAtCurrent,
+        currentTargetAtHistory,
+        currentM,
+        historyM);
+    const float historyMis = Upt10PairwiseBalanceWeight(
+        historyTargetAtHistory,
+        historyToCurrent.targetTarget,
+        historyM,
+        currentM);
+
+    Upt10MappedProposalInput historyProposal =
+        (Upt10MappedProposalInput)0;
+    historyProposal.status = historyToCurrent.mappingStatus;
+    historyProposal.routeLabel = historyToCurrent.routeLabel;
+    historyProposal.sourceConfidence = historyM;
+    historyProposal.sourceScaledWeight = history.logical.weightSum;
+    historyProposal.sourceTarget = historyTargetAtHistory;
+    historyProposal.targetTarget = historyToCurrent.targetTarget;
+    historyProposal.shiftJacobian = historyToCurrent.shiftJacobian;
+    historyProposal.pairwiseMis = historyMis;
+
+    Upt10MappedProposalInput currentProposal =
+        (Upt10MappedProposalInput)0;
+    currentProposal.status = currentSelected
+            && Upt10FinitePositive(currentTargetAtCurrent)
+        ? kUpt10ShiftValidPositive
+        : (current.valid != 0u && currentM > 0u
+            ? kUpt10ShiftValidZero : kUpt10ShiftInvalid);
+    currentProposal.routeLabel = currentShiftValid != 0u
+        ? currentToHistory.routeLabel : kUpt10RouteNone;
+    currentProposal.sourceConfidence = currentM;
+    currentProposal.sourceScaledWeight = currentSelected
+        ? current.logical.weightSum : 0.0f;
+    currentProposal.sourceTarget = currentSelected
+        ? currentTargetAtCurrent : 0.0f;
+    currentProposal.targetTarget = currentSelected
+        ? currentTargetAtCurrent : 0.0f;
+    currentProposal.shiftJacobian = 1.0f;
+    currentProposal.pairwiseMis = currentMis;
+
+    Upt10MergeControl mergeControl = (Upt10MergeControl)0;
+    mergeControl.winnerRandom = selectionRandom;
+    // History is proposal zero so the deterministic selection interval remains
+    // identical to the accepted temporal pairwise implementation.
+    const Upt10MergeResult merge = Upt10MergeMappedPair(
+        historyProposal, currentProposal, mergeControl);
+    if ((merge.validMask & 1u) == 0u
+        || !Upt10FiniteNonNegative(merge.totalMappedMass))
+    {
+        result.rejectionReason = kUpt07RejectMergeMath;
+        result.needsRescue = currentSelected ? 0u : 1u;
+        return result;
+    }
+
+    result.logical.hasSelectedSample = merge.totalMappedMass > 0.0f ? 1u : 0u;
+    result.logical.effectiveM = merge.outputConfidence;
+    result.logical.weightSum = merge.totalMappedMass;
+    if (merge.selectedOrdinal == 0u)
+    {
+        result.logical.selected = historyToCurrent.shifted;
+        result.logical.selected.age = min(
+            history.logical.selected.age + 1u, 63u);
+        result.selectedHistory = 1u;
+    }
+    else if (merge.selectedOrdinal == 1u && currentSelected)
+    {
+        result.logical.selected.target = currentTargetAtCurrent;
+    }
+    result.historyAccepted = 1u;
+    if (result.logical.hasSelectedSample == 0u)
+        result.rejectionReason = kUpt07RejectShiftedValidZero;
+    result.needsRescue = result.logical.hasSelectedSample != 0u ? 0u : 1u;
+    return result;
+}
+#endif
 #endif
 
 #if UPT07_BOTTLENECK_STAGE > 0
@@ -804,9 +974,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     const float historyShiftJacobian = 1.0f;
 #endif
 #if UPT10_SHARED_REUSE_ADAPTER
+    Upt10ShiftResult sharedHistoryShift = (Upt10ShiftResult)0;
+    Upt10ShiftResult sharedCurrentShift = (Upt10ShiftResult)0;
+    uint sharedCurrentShiftValid = 0u;
     if (directHistoryEligible || indirectHistoryEligible)
     {
-        Upt10ShiftResult sharedHistoryShift;
         shiftedValid = Upt07ShiftThroughSharedAdapter<
             UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
                 history.logical.selected,
@@ -1003,11 +1175,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             && Upt04PrimarySurfaceRecordValid(historyReceiver)
             && (pairwiseMis != 0u || !basicSelectsHistory))
         {
-            Upt10ShiftResult sharedCurrentShift;
             Upt07PendingIndirectVisibility unusedCurrentVisibility;
             uint currentShiftFailure;
             Upt07WorkBeginSite(work, kUpt07WorkSiteReciprocalReplay);
-            const uint currentAtHistoryValid =
+            sharedCurrentShiftValid =
                 Upt07ShiftThroughSharedAdapter<
                     UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
                         currentCandidate,
@@ -1020,7 +1191,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                         unusedCurrentVisibility,
                         work);
             Upt07WorkEndSite(work);
-            if (currentAtHistoryValid != 0u
+            if (sharedCurrentShiftValid != 0u
                 && sharedCurrentShift.mappingStatus
                     == kUpt10ShiftValidPositive)
                 currentTargetAtHistory = sharedCurrentShift.targetTarget;
@@ -1142,6 +1313,22 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     return;
 #endif
 
+#if UPT10_COMMON_GRIS_MERGE
+    Upt07TemporalMergeResult merged = Upt10MergeTemporalSharedGris(
+        seededCurrent,
+        confidenceHistory,
+        sharedHistoryShift,
+        confidenceShiftedValid,
+        sharedCurrentShift,
+        sharedCurrentShiftValid,
+        currentTargetAtCurrent,
+        historyTargetAtHistory,
+        historyFailureReason,
+        temporalSelectionRandom,
+        adaptiveMaximumHistoryM,
+        max(gUpt07Control.maximumHistoryAge, 1u),
+        float(gUpt07Control.maximumHistoryContributionRatio));
+#else
     Upt07TemporalMergeResult merged = Upt07MergeTemporal(
         seededCurrent,
         confidenceHistory,
@@ -1157,6 +1344,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         float(gUpt07Control.maximumHistoryContributionRatio),
         pairwiseMis,
         historyShiftJacobian);
+#endif
 #if UPT07_INDIRECT_REPLAY && UPT07_ROUTE_DIAGNOSTICS
     if (merged.logical.hasSelectedSample == 0u)
         Upt07RouteDiag(19u);

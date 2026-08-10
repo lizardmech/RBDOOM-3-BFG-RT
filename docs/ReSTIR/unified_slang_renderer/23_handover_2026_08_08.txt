@@ -1527,3 +1527,38 @@ gate before the common GRIS merge replaces event-specific temporal algebra.
 The executable hash above includes the corrected activation reporter. It emits
 the shared-reuse requested/effective pair and all ten individual gate bits when
 state changes, even if temporal never reaches pipeline creation.
+
+T30.2 passed its runtime parity check once split initial made compact64 lights
+effective. No image regression was found; the troublesome test view also became
+faster, but that improvement is not yet attributed and is not used as estimator
+evidence.
+
+T30.3 is deployed as another default-off Vulkan specialization selected by
+r_pathTracingUnifiedPtCommonGrisMerge. It requires both the accepted shared
+adapter and r_pathTracingUnifiedPtTemporalPairwise 1. The common core maps the
+current and history proposals through explicit source UCW, destination target,
+pairwise MIS and exactly one forward Jacobian, with count-only valid-zero
+confidence handled separately from selectable mass. The accepted adapter and
+old production shaders remain available for rollback.
+
+Switching into or out of the common merge invalidates the previous reservoir
+and duplication metadata only. This prevents cross-convention history feedback;
+the first frame after a toggle uses fresh D0 and performs no buffer clear.
+
+Offline gates pass: the CPU/Vulkan oracle remains byte-identical with hash
+0x302f95d704cf624f; the new artifact preserves 30 bindings, four RayQuery sites
+and no TraceRay; and the full Vulkan release build passes. The deployed EXE is
+3DB79C5B65710B52E5EE4772C5C87F27740A987211B2B4DBF7A68A66138926BF and the
+only newly deployed blob is the common-GRIS T0 specialization with SHA-256
+169C01540C1183B2C30A31E0EE89530035218DE77C4DB31AF8C948F27CA8C60B.
+
+The next gate is runtime A/B with shared adapter 1, temporal pairwise 1 and
+common GRIS merge 0/1. Check fixed-pose brightness/noise, temporal stability,
+portal crossings, nearby emissives, mirrors, alpha blockers and moving rigid or
+skinned geometry. Stop on ghosting, color corruption or accumulating energy.
+Do not begin S30.1 until this common temporal estimator is accepted.
+
+T30.3 passed that runtime gate after approximately twenty minutes of play. No
+image, ghosting, color or energy issue was observed, and temporal performance
+was less erratic overall. Proceed with S30.1 selected-center combined spatial
+admission while retaining the accepted T30.3 artifact as its temporal oracle.
