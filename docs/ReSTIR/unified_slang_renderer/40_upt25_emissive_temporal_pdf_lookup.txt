@@ -1,0 +1,102 @@
+UPT-25: Remove redundant emissive PDF lookup from temporal replay
+==================================================================
+
+Field trigger
+-------------
+
+At the representative heavy Doom view, setting
+r_pathTracingToyEmissiveScale from 4 to 0 reduced T0 from about 20 ms to
+7.43 ms. The PBR test room also became faster while facing an apparently
+non-emissive wall. UPT-24's rigid/skinned narrow-load change produced no
+measurable improvement. Visible rigid content was therefore a correlate of
+the expensive indirect workload, not its root mechanism.
+
+Scale zero does not remove the emissive buffers or their shader declarations.
+It makes emissive material evaluations return zero, preventing positive
+emissive primary/secondary candidates from occupying the D0 reservoir. The
+large T0 reduction consequently identifies work executed only when stored
+emissive paths are replayed.
+
+Verified redundant work
+-----------------------
+
+Secondary analytic and emissive NEE share event kinds 1 and 2 in the unified
+reservoir, but their temporal replay closures differ materially. Analytic
+replay loads the remapped dense record and samples its sphere. Emissive replay
+previously did all of the following after the same dense remap:
+
+    validate the stable light fingerprint;
+    hash instance/primitive identity with up to 16 dependent probes;
+    reload the same dense light from the lookup entry;
+    recover conditionalIdentityPdf from the lookup;
+    replay the triangle and evaluate its exact material emission.
+
+The hash search was redundant. PathTraceUnifiedLightRecord.sourcePdf already
+contains the exact conditional identity probability used to build the current
+emissive CDF. The remapped dense index, typed range, dynamic-emissive rejection
+and stable fingerprint already prove the record is the stored selected light.
+The lookup added no identity evidence and T0 can execute this closure for both
+history-to-current replay and reciprocal current-at-history evaluation.
+
+Implemented correction
+----------------------
+
+The 112-byte light ABI is unchanged. The 64-byte compact light pack now uses
+its type-dependent third word as:
+
+    analytic: uvOrDoomParams.x influence radius;
+    emissive: sourcePdf conditional CDF probability.
+
+No consumer needs analytic influence radius for emissive triangles or
+emissive sourcePdf for analytic spheres. Full and compact T0 therefore expose
+the same sourcePdf without increasing stride or adding storage.
+
+Upt07ResolveStoredSecondaryLight now reads light.sourcePdf after its existing
+remap, range, type, dynamic and fingerprint validation. It applies the same
+emissive-trial mixture fraction and preserves the existing source-PDF/weight
+convention. Invalid or zero PDFs still reject the sample. The geometry-to-
+emissive lookup remains bound for endpoint reverse-NEE PDF evaluation, where
+the input genuinely begins as an arbitrary geometry hit rather than a stored
+dense light.
+
+The temporal emissive-distribution SRV became statically dead and was removed
+from the T0 shader declaration, host layout, binding set, resource transition
+and input requirement. D0 retains the distribution buffer because initial
+weighted emissive candidate generation still consumes the CDF.
+
+Build and deployment proof, 2026-08-10
+--------------------------------------
+
+The prescribed Vulkan release build passes. Unified T0 reflection contains 29
+resources instead of 30; route/reconnect diagnostic variants contain 30
+instead of 31. The existing four-RayQuery unified ceiling and six-RayQuery
+reconnect diagnostic ceiling remain unchanged. Compact32, duplication,
+Lambert, bottleneck and frozen variants pass their existing closure tests. No
+DX12 shader was compiled.
+
+RBDoom3BFG.exe and the 58 Vulkan SPIR-V files rebuilt through the shared light
+contract/T0 binding change were deployed. Source/destination shader hashes all
+match. The executable SHA-256 is
+A2BF5798DE875811438BDEFB2602415BED32154E0CF01D645D2B4BC67A50E85F.
+
+Runtime acceptance
+------------------
+
+Keep r_pathTracingToyEmissiveScale at the normal value 4 and retest the exact
+20 ms heavy view and the PBR wall/orb pair. Re-arm
+r_pathTracingUnifiedPtTemporalGpuTiming by setting it to 0 and then 1 for each
+camera. No new cvar is required.
+
+Acceptance requires:
+
+    identical emissive geometry, color, masking and energy;
+    no ghost, white or stale-remap emitters;
+    stable analytic-light behavior;
+    a material T0 reduction at scale 4;
+    no regression with compact lights disabled;
+    scale 0 remains the lower bound, not the production solution.
+
+If the gain is small, collect one r_pathTracingUnifiedPtDiagnostics readback
+and one r_pathTracingUnifiedPtTemporalRouteDiagnostics readback at scale 4.
+The next split is stored secondary emissive replay (event 2) versus emissive
+BSDF endpoints (event 4), not broader portal filtering or extra candidates.

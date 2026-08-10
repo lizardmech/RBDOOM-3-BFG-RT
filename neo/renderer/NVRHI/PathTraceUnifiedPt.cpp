@@ -4313,8 +4313,6 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(28));
-    if (indirect)
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
     if (earlyReconnect || routeDiagnostics)
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
     if (inputs.temporalBottleneckProbe != 0u)
@@ -4749,8 +4747,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
         || !Upt04SkinnedIndexBuffer(*inputs.sceneInputs)
         || !geometry.skinnedHitRouteRecordBuffer
         || !geometry.skinnedHitRouteTriangleBuffer
-        || (indirect && (!lights.unifiedPtEmissiveLookupBuffer
-            || !lights.emissiveDistributionBuffer))
+        || (indirect && !lights.unifiedPtEmissiveLookupBuffer)
         || !materials.materialTableBuffer || !materials.textureSampler
         || !materials.textureBindlessLayout || !materials.textureDescriptorTable)
     {
@@ -4797,9 +4794,6 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         27, materials.materialTableBuffer));
     desc.addItem(nvrhi::BindingSetItem::Sampler(28, materials.textureSampler));
-    if (indirect)
-        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-            29, lights.emissiveDistributionBuffer));
     if (m_temporalEarlyReconnect || m_temporalRouteDiagnostics)
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
             30, m_temporalDiagnosticCounters));
@@ -5112,8 +5106,6 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             geometry.skinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
         inputs.commandList->setBufferState(
             lights.unifiedPtEmissiveLookupBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            lights.emissiveDistributionBuffer, nvrhi::ResourceStates::ShaderResource);
         inputs.commandList->setBufferState(
             inputs.sceneInputs->materials.materialTableBuffer,
             nvrhi::ResourceStates::ShaderResource);

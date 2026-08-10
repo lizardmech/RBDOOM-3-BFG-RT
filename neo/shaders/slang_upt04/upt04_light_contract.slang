@@ -114,7 +114,16 @@ public Upt04UnifiedLightRecord Upt04UnpackCompactLight(
     light.radianceAndLuminance = float4(
         Upt04UnpackLightHalf2(packed.normalAreaInfluenceRadiance.w),
         Upt04UnpackLightHalf2(packed.radianceAndHeader.x));
-    light.uvOrDoomParams.x = asfloat(packed.normalAreaInfluenceRadiance.z);
+    // Word z is type-specific. Analytic lights need their influence radius;
+    // emissive lights need the exact current CDF identity probability during
+    // temporal replay. Keeping sourcePdf in the compact record avoids a
+    // redundant geometry-identity hash probe after dense-index remap and the
+    // stable fingerprint have already proved which light was selected.
+    if (signedArea > 0.0f)
+        light.sourcePdf = asfloat(packed.normalAreaInfluenceRadiance.z);
+    else
+        light.uvOrDoomParams.x = asfloat(
+            packed.normalAreaInfluenceRadiance.z);
     // Analytic spheres do not consume a surface normal. Preserve the current
     // portal-selection depth in that otherwise-dead compact word so the 64 B
     // route and the authoritative 112 B route make identical domain choices.
@@ -299,7 +308,8 @@ public Upt04CompactLightRecord Upt04PackCompactLight(
             ? asuint(light.uvOrDoomParams.z)
             : Upt04EncodeLightOctahedral(light.normalAndArea.xyz),
         asuint(signedArea),
-        asuint(light.uvOrDoomParams.x),
+        asuint(light.type == kUpt04LightEmissiveTriangle
+            ? light.sourcePdf : light.uvOrDoomParams.x),
         Upt04PackLightHalf2(light.radianceAndLuminance.xy));
     packed.radianceAndHeader = uint4(
         Upt04PackLightHalf2(light.radianceAndLuminance.zw),

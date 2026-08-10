@@ -1406,3 +1406,29 @@ geometry/TLAS counts and async rigid-route, rigid-TLAS, BVH and acceleration
 cache/queue state. The prescribed Vulkan build passes and all SPIR-V is up to
 date. The executable deployment remains pending while the running game holds
 the destination file open.
+
+UPT-25 build-ready emissive temporal PDF correction, 2026-08-10
+----------------------------------------------------------------
+
+The decisive field A/B is emissive population rather than rigid decode:
+r_pathTracingToyEmissiveScale 0 reduced the representative T0 dispatch from
+about 20 ms to 7.43 ms and also accelerated the apparently non-emissive PBR
+wall view. Scale zero leaves the light universe resident but prevents positive
+emissive candidates from occupying D0, proving that stored emissive replay is
+amplifying the temporal cost.
+
+Source audit found a redundant serialized lookup. Secondary-emissive T0 first
+remapped the stored dense index, validated its range/type and stable fingerprint,
+then performed up to 16 hash probes on instance/primitive merely to recover the
+same light's CDF probability. The authoritative 112-byte light already carries
+that exact value in sourcePdf. The compact 64-byte pack now preserves sourcePdf
+in a word used by analytic influence radius only for analytic records, and T0
+uses it after the existing identity checks. Endpoint reverse-NEE retains the
+lookup because arbitrary geometry hits still require geometry-to-light mapping.
+
+The now-dead temporal emissive-distribution SRV was removed from shader and
+host bindings; D0 still owns it for weighted candidate generation. The Vulkan
+release build passes with unified T0 reduced from 30 to 29 resources and the
+four-RayQuery ceiling unchanged. The executable and exactly 58 rebuilt Vulkan
+SPIR-V files were deployed with matching hashes; no DX12 shader was compiled.
+Document 40 owns the scale-4 image/performance acceptance.

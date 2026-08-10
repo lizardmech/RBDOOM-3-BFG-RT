@@ -501,24 +501,14 @@ public uint Upt07ResolveStoredSecondaryLight(
         && Upt04EmissiveDistributionValid(
             gUpt07Control.emissiveDistributionCountAndValid))
     {
-        uint physicalDistributionCount;
-        uint distributionStride;
-        gUpt07EmissiveDistribution.GetDimensions(
-            physicalDistributionCount, distributionStride);
-        const uint logicalDistributionCount = Upt04EmissiveDistributionCount(
-            gUpt07Control.emissiveDistributionCountAndValid);
-        if (logicalDistributionCount == 0u
-            || logicalDistributionCount > physicalDistributionCount
-            || distributionStride != 16u)
-            return 0u;
-        uint lookupDenseIndex;
-        float conditionalIdentityPdf;
-        if (!Upt07FindEmissiveDenseLight(
-                light.instanceId,
-                light.primitiveIndex,
-                lookupDenseIndex,
-                conditionalIdentityPdf)
-            || lookupDenseIndex != denseIndex)
+        // The current light payload is built from the same exact CDF and
+        // publishes its conditional identity probability in sourcePdf. Dense
+        // remap, range/type checks and the stable fingerprint above already
+        // prove this record is the stored light. Hashing instance/primitive
+        // again only to rediscover the same dense index adds up to sixteen
+        // serialized global reads for every secondary-emissive replay.
+        const float conditionalIdentityPdf = light.sourcePdf;
+        if (!Upt04FinitePositive(conditionalIdentityPdf))
             return 0u;
         selectionPdf = conditionalIdentityPdf
             * float(emissiveTrials) / float(candidateCount);

@@ -67,7 +67,6 @@ public [[vk::binding(24, 0)]] StructuredBuffer<uint> gUpt07HistoryDuplication;
 #endif
 public [[vk::binding(25, 0)]] StructuredBuffer<Upt04PrimaryHistorySidecar> gUpt07CurrentSurfaceSidecars;
 public [[vk::binding(26, 0)]] StructuredBuffer<Upt04PrimaryHistorySidecar> gUpt07PreviousSurfaceSidecars;
-public [[vk::binding(29, 0)]] StructuredBuffer<Upt04EmissiveDistributionEntry> gUpt07EmissiveDistribution;
 #if UPT07_INDIRECT_REPLAY && (UPT07_EARLY_RECONNECT || UPT07_ROUTE_DIAGNOSTICS)
 public [[vk::binding(30, 0)]] RWStructuredBuffer<uint> gUpt07ReconnectDiagnostics;
 #endif
