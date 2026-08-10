@@ -96,7 +96,55 @@ public bool Upt04LoadIndexedTriangle(
     return true;
 }
 
-public float3 Upt04RigidTransformPoint(Upt04RigidRouteInstance route, float3 point)
+public Upt04RigidResolveRoute Upt04LoadRigidResolveRoute(uint routeIndex)
+{
+    Upt04RigidResolveRoute route = (Upt04RigidResolveRoute)0;
+    const uint wordBase = routeIndex * kUpt04RigidRouteUint4Stride;
+    const uint4 offsets = gUpt04RigidInstanceWords[wordBase + 0u];
+    const uint4 counts = gUpt04RigidInstanceWords[wordBase + 1u];
+    route.vertexOffset = offsets.x;
+    route.indexOffset = offsets.y;
+    route.triangleOffset = offsets.z;
+    route.materialIndex = counts.x;
+    route.vertexCount = counts.y;
+    route.indexCount = counts.z;
+    route.triangleCount = counts.w;
+    route.currentObjectToWorld0 = asfloat(
+        gUpt04RigidInstanceWords[wordBase + 3u]);
+    route.currentObjectToWorld1 = asfloat(
+        gUpt04RigidInstanceWords[wordBase + 4u]);
+    route.currentObjectToWorld2 = asfloat(
+        gUpt04RigidInstanceWords[wordBase + 5u]);
+    return route;
+}
+
+public uint2 Upt04LoadRigidMaterialAndTriangleCount(uint routeIndex)
+{
+    const uint wordBase = routeIndex * kUpt04RigidRouteUint4Stride;
+    const uint4 counts = gUpt04RigidInstanceWords[wordBase + 1u];
+    return uint2(counts.x, counts.w);
+}
+
+public Upt04SkinnedResolveRoute Upt04LoadSkinnedResolveRoute(uint routeIndex)
+{
+    Upt04SkinnedResolveRoute route = (Upt04SkinnedResolveRoute)0;
+    const uint wordBase = routeIndex * kUpt04SkinnedRouteUint4Stride;
+    const uint4 offsets = gUpt04SkinnedRouteWords[wordBase + 0u];
+    const uint4 counts = gUpt04SkinnedRouteWords[wordBase + 1u];
+    const uint4 tableCounts = gUpt04SkinnedRouteWords[wordBase + 4u];
+    route.shaderInstanceId = offsets.x;
+    route.sourceIndexOffset = offsets.y;
+    route.outputVertexOffset = offsets.z;
+    route.triangleMetadataOffset = counts.x;
+    route.vertexCount = counts.y;
+    route.indexCount = counts.z;
+    route.triangleCount = counts.w;
+    route.routeCount = tableCounts.y;
+    route.triangleMetadataCount = tableCounts.z;
+    return route;
+}
+
+public float3 Upt04RigidTransformPoint(Upt04RigidResolveRoute route, float3 point)
 {
     return float3(
         dot(route.currentObjectToWorld0, float4(point, 1.0f)),
@@ -104,7 +152,7 @@ public float3 Upt04RigidTransformPoint(Upt04RigidRouteInstance route, float3 poi
         dot(route.currentObjectToWorld2, float4(point, 1.0f)));
 }
 
-public float3 Upt04RigidTransformVector(Upt04RigidRouteInstance route, float3 vector)
+public float3 Upt04RigidTransformVector(Upt04RigidResolveRoute route, float3 vector)
 {
     return float3(
         dot(route.currentObjectToWorld0.xyz, vector),
@@ -113,7 +161,7 @@ public float3 Upt04RigidTransformVector(Upt04RigidRouteInstance route, float3 ve
 }
 
 public Upt04SmokeVertex Upt04RigidTransformVertex(
-    Upt04RigidRouteInstance route,
+    Upt04RigidResolveRoute route,
     Upt04SmokeVertex vertex)
 {
     vertex.position.xyz = Upt04RigidTransformPoint(route, vertex.position.xyz);
@@ -185,7 +233,8 @@ public bool Upt04LoadRigidTriangle(
     triangle = (Upt04ResolvedTriangle)0;
     if (instanceId < 2u || instanceId - 2u >= Upt04RigidInstanceCount())
         return false;
-    const Upt04RigidRouteInstance route = gUpt04RigidInstances[instanceId - 2u];
+    const Upt04RigidResolveRoute route =
+        Upt04LoadRigidResolveRoute(instanceId - 2u);
     if (primitiveIndex >= route.triangleCount
         || route.triangleOffset > Upt04RigidTriangleCount()
         || primitiveIndex >= Upt04RigidTriangleCount() - route.triangleOffset
@@ -227,15 +276,12 @@ public bool Upt04LoadRigidTriangle(
 public bool Upt04SkinnedInstanceInRange(uint instanceId, out uint routeIndex)
 {
     routeIndex = 0u;
-    if (Upt04SkinnedRouteRecordCount() == 0u)
+    const uint routeCount = Upt04SkinnedRouteRecordCount();
+    const uint firstInstanceId = 2u + Upt04RigidInstanceCount();
+    if (routeCount == 0u || instanceId < firstInstanceId
+        || instanceId - firstInstanceId >= routeCount)
         return false;
-    const Upt04SkinnedRouteRecord header = gUpt04SkinnedRoutes[0];
-    if (header.routeCount != Upt04SkinnedRouteRecordCount()
-        || header.triangleMetadataCount != Upt04SkinnedRouteTriangleCount()
-        || instanceId < header.shaderInstanceId
-        || instanceId - header.shaderInstanceId >= header.routeCount)
-        return false;
-    routeIndex = instanceId - header.shaderInstanceId;
+    routeIndex = instanceId - firstInstanceId;
     return true;
 }
 
@@ -248,7 +294,8 @@ public bool Upt04LoadSkinnedTriangle(
     uint routeIndex;
     if (!Upt04SkinnedInstanceInRange(instanceId, routeIndex))
         return false;
-    const Upt04SkinnedRouteRecord route = gUpt04SkinnedRoutes[routeIndex];
+    const Upt04SkinnedResolveRoute route =
+        Upt04LoadSkinnedResolveRoute(routeIndex);
     if (route.shaderInstanceId != instanceId
         || route.routeCount != Upt04SkinnedRouteRecordCount()
         || route.triangleMetadataCount != Upt04SkinnedRouteTriangleCount()
@@ -395,8 +442,8 @@ public bool Upt04ResolveTriangleMaterialIndex(
     if (Upt04SkinnedInstanceInRange(
             hit.instanceId, skinnedRouteIndex))
     {
-        const Upt04SkinnedRouteRecord route =
-            gUpt04SkinnedRoutes[skinnedRouteIndex];
+        const Upt04SkinnedResolveRoute route =
+            Upt04LoadSkinnedResolveRoute(skinnedRouteIndex);
         if (route.shaderInstanceId != hit.instanceId
             || route.routeCount != Upt04SkinnedRouteRecordCount()
             || route.triangleMetadataCount !=
@@ -420,11 +467,11 @@ public bool Upt04ResolveTriangleMaterialIndex(
     if (hit.instanceId < 2u
         || hit.instanceId - 2u >= Upt04RigidInstanceCount())
         return false;
-    const Upt04RigidRouteInstance rigidRoute =
-        gUpt04RigidInstances[hit.instanceId - 2u];
-    if (hit.primitiveId >= rigidRoute.triangleCount)
+    const uint2 rigidMaterialAndTriangleCount =
+        Upt04LoadRigidMaterialAndTriangleCount(hit.instanceId - 2u);
+    if (hit.primitiveId >= rigidMaterialAndTriangleCount.y)
         return false;
-    materialIndex = rigidRoute.materialIndex;
+    materialIndex = rigidMaterialAndTriangleCount.x;
     return true;
 #endif
 }

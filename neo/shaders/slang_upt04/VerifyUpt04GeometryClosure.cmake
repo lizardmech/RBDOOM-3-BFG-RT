@@ -31,13 +31,13 @@ if(NOT descriptor_binding_count EQUAL 22)
     message(FATAL_ERROR "UPT-04 geometry probe must expose exactly 22 descriptor bindings")
 endif()
 
-foreach(stride 4 36 64 80 112 144 176)
+foreach(stride 4 16 36 64 112 144 176)
     string(REGEX MATCHALL "\"array_stride\"[ \t]*:[ \t]*${stride}" stride_matches "${reflection}")
     list(LENGTH stride_matches stride_count)
     if(stride EQUAL 112)
         set(expected_count 3)
-    elseif(stride EQUAL 144)
-        set(expected_count 2)
+    elseif(stride EQUAL 16)
+        set(expected_count 1)
     else()
         set(expected_count 1)
     endif()
@@ -51,4 +51,4 @@ if(NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\
 endif()
 
 file(WRITE "${UPT04_STAMP}"
-    "UPT-04 geometry closure verified: trace-free, bindings=set0[1..21]+set1[0], strides=4/36/64/80/112/144x2/176, push=208\n")
+    "UPT-04 geometry closure verified: trace-free, bindings=set0[1..21]+set1[0], strides=4/16/36/64/112/144/176, route bindings 17+20 word-addressed, push=208\n")

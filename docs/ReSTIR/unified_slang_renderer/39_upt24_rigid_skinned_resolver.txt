@@ -1,0 +1,137 @@
+UPT-24: Rigid/skinned resolver narrowing
+=========================================
+
+Problem statement
+-----------------
+
+The frozen-scene ladder and subsequent view tests identify two additive costs.
+Freezing the complete production package recovers roughly 4 ms in the tested
+heavy view. Replacing that package with the monolithic static TLAS and direct
+static decode reduces T0 to roughly 6 ms. In the PBR test room, the same larger
+reduction occurs when mode 3 removes the rigid-static spheres; looking at an
+empty wall is as fast as mode 3 even though the live TLAS is unchanged. A
+constant Lambert specialization did not remove the heavy Doom-level cost.
+
+This excludes a material-only explanation and makes visible rigid/skinned hit
+routing, plus its interaction with divergent replay, the next bounded lane. It
+does not prove that indexed vertex fetch itself can be removed.
+
+Reference correction
+--------------------
+
+RTXDI FullSample's SceneGeometry.hlsli retains the inherent dependency chain:
+
+    instanceBuffer[instanceIndex];
+    geometryBuffer[instance.firstGeometryIndex + geometryIndex];
+    indexBuffer[geometry.indexOffset + primitiveIndex * 12];
+    vertexBuffer[geometry.positionOffset + index];
+
+Its relevant advantages are a common instance/geometry layout, attribute-
+masked fetches and pre-skinned vertices that resolve like other geometry. The
+compute resolver also reads its instance transform; hardware traversal does not
+make that transform load universally free. The UPT plan must therefore target
+extra route loads, validation and unused attributes before attempting to erase
+the common indexed chain.
+
+Verified local excess work
+--------------------------
+
+The CPU assigns skinned shader instance IDs from exactly
+`2 + rigidRouteBuild.instances.size()`. Before UPT-24,
+Upt04SkinnedInstanceInRange nevertheless loaded the first 80-byte route record
+to rediscover that base and validate table-wide counts on every classification.
+
+PathTraceRigidRouteInstance is 144 bytes. Current-hit resolution used a natural
+whole-struct load even though it consumes only offsets/counts, materialIndex and
+the current 3x4 transform. Persistent identity, flags and the previous transform
+are not current-hit inputs. Material-only resolution consumed only
+materialIndex and triangleCount but still loaded the same full record.
+
+T0 alpha traversal also called Upt04ResolveTriangle before checking the
+material's alpha-test flag. Therefore an ordinary opaque candidate paid route,
+index and three-vertex resolution only to discover that no texture coverage
+test was required. D0 already used the correct material-first shape.
+
+Implemented slice
+-----------------
+
+The uploaded CPU byte ABIs and descriptor bindings are unchanged. Vulkan
+shaders bind rigid and skinned route tables as shared uint4 streams and compute
+record word addresses from the frozen 144/80-byte strides.
+
+    rigid current-hit view: 80 bytes instead of 144;
+    rigid material-only view: 16 bytes instead of 144;
+    skinned current-hit view: 48 bytes instead of 80;
+    skinned classification: zero route-buffer loads.
+
+The skinned range is derived from the producer contract:
+
+    firstSkinnedInstance = 2 + rigidInstanceCount;
+    routeIndex = instanceId - firstSkinnedInstance;
+
+Per-route shaderInstanceId and table-count validation remains after selection.
+T0 alpha traversal now resolves material identity and flags first. Opaque
+candidates return before index/vertex fetch; only proven alpha-test materials
+perform the full triangle decode needed for interpolated texture coordinates.
+Missing or malformed state remains solid, so the accepted no-hole rule is
+unchanged.
+
+Build and static proof, 2026-08-10
+----------------------------------
+
+The prescribed Vulkan release preset passes all UPT-04/05/07/08/09 artifact,
+binding, trace-count and geometry-closure checks and links RBDoom3BFG.exe. The
+closure tests now require both route bindings to use the shared 16-byte word
+type and reject restoration of the 80-byte skinned declaration or the second
+144-byte declaration. No DX12 shader was compiled.
+
+Production T0 SPIR-V contains both gUpt04RigidInstanceWords and
+gUpt04SkinnedRouteWords at the existing bindings 17 and 20. It contains zero
+Upt04RigidRouteInstance_natural and zero Upt04SkinnedRouteRecord_natural loads;
+the live accesses are v4uint OpLoad instructions. Descriptor count, compact32,
+duplication, Lambert, frozen-factor and four-RayQuery ceilings all pass their
+existing checks.
+
+Runtime acceptance
+------------------
+
+Use the same heavy Doom view, PBR-orb view and empty-wall view used for UPT-23.
+Keep frozenScene=0, compactGeometry=1, compactLights=1, temporal/spatial policy
+and resolution fixed. Re-arm r_pathTracingUnifiedPtTemporalGpuTiming for every
+row and compare against the last production binary.
+
+Required image checks:
+
+    rigid-static and moving props retain exact placement and materials;
+    skinned characters remain complete and animated;
+    alpha-clipped grilles/panels still reject the same texels;
+    emissive geometry, replay color and temporal energy remain unchanged.
+
+Required timing interpretation:
+
+    rigid-heavy improvement with flat wall unchanged:
+        admit the narrowed resolver and continue common-layout work;
+
+    alpha-heavy improvement only:
+        admit the alpha material-first change, then profile full resolve;
+
+    no improvement with correct image:
+        indexed vertex fetch/traversal or divergent route mixing dominates;
+
+    regression or geometry corruption:
+        revert UPT-24; do not weaken validation or admit stale routes.
+
+Next architecture gate
+----------------------
+
+If UPT-24 is correct but insufficient, build one CPU-published current-hit route
+descriptor indexed by the hardware instance ID for ordinary static, dynamic,
+rigid and skinned instances. Static-bucket encoded IDs remain a distinct fast
+case. The descriptor should select a common geometry pool/range and material
+source; persistent identity and previous-frame transforms remain in cold
+sidecars. Then add position/UV/full-surface attribute masks, with skinned output
+already published into the common current-vertex shape.
+
+That larger change requires an isolated A/B and producer/consumer validation.
+Do not change the estimator, reservoir, temporal/spatial policy, ray ceiling or
+visibility rules as part of it.

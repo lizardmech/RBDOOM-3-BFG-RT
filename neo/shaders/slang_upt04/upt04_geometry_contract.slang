@@ -6,6 +6,11 @@ public static const uint kUpt04StaticBucketInstanceBit = 0x00800000u;
 public static const uint kUpt04StaticBucketTriangleMask = 0x007fffffu;
 public static const uint kUpt04BlasGeometryTriangleChunk = 256u;
 public static const uint kUpt04ShaderInstanceMask = 0x00ffffffu;
+// The CPU ABI remains 144/80 bytes respectively.  Ray shaders bind both
+// tables as uint4 streams so hot consumers can fetch only the words they use
+// instead of materializing persistent identity and previous-frame metadata.
+public static const uint kUpt04RigidRouteUint4Stride = 9u;
+public static const uint kUpt04SkinnedRouteUint4Stride = 5u;
 
 public bool Upt04CanonicalizeHardwarePrimitive(
     uint instanceId,
@@ -193,6 +198,22 @@ public struct Upt04RigidRouteInstance
     public float4 previousObjectToWorld2;
 };
 
+// Current-hit view of PathTraceRigidRouteInstance.  Deliberately excludes the
+// material ID, persistent identity, flags, and previous transform.
+public struct Upt04RigidResolveRoute
+{
+    public uint vertexOffset;
+    public uint indexOffset;
+    public uint triangleOffset;
+    public uint materialIndex;
+    public uint vertexCount;
+    public uint indexCount;
+    public uint triangleCount;
+    public float4 currentObjectToWorld0;
+    public float4 currentObjectToWorld1;
+    public float4 currentObjectToWorld2;
+};
+
 public struct Upt04SkinnedRouteRecord
 {
     public uint shaderInstanceId;
@@ -215,6 +236,22 @@ public struct Upt04SkinnedRouteRecord
     public uint routeCount;
     public uint triangleMetadataCount;
     public uint previousPositionCount;
+};
+
+// Current-hit subset of PathTraceSkinnedHitRouteGpuRecord.  Identity,
+// generation and motion-history fields are producer/replay metadata and must
+// not inflate the closest-hit working set.
+public struct Upt04SkinnedResolveRoute
+{
+    public uint shaderInstanceId;
+    public uint sourceIndexOffset;
+    public uint outputVertexOffset;
+    public uint triangleMetadataOffset;
+    public uint vertexCount;
+    public uint indexCount;
+    public uint triangleCount;
+    public uint routeCount;
+    public uint triangleMetadataCount;
 };
 
 public struct Upt04SkinnedRouteTriangle

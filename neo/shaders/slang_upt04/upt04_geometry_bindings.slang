@@ -45,14 +45,17 @@ public [[vk::binding(15, 0)]] StructuredBuffer<Upt04CompactVertex> gUpt04RigidVe
 public [[vk::binding(15, 0)]] StructuredBuffer<Upt04SmokeVertex> gUpt04RigidVertices;
 #endif
 public [[vk::binding(16, 0)]] StructuredBuffer<uint> gUpt04RigidIndices;
-public [[vk::binding(17, 0)]] StructuredBuffer<Upt04RigidRouteInstance> gUpt04RigidInstances;
+// Word-address the large route records. Vulkan storage-buffer bindings do not
+// encode a structured stride, so this preserves the CPU byte ABI while letting
+// the shader avoid whole-record OpLoad instructions.
+public [[vk::binding(17, 0)]] StructuredBuffer<uint4> gUpt04RigidInstanceWords;
 #if UPT04_PACKED_GEOMETRY_VERTEX
 public [[vk::binding(18, 0)]] StructuredBuffer<Upt04CompactVertex> gUpt04SkinnedCurrentVertices;
 #else
 public [[vk::binding(18, 0)]] StructuredBuffer<Upt04SmokeVertex> gUpt04SkinnedCurrentVertices;
 #endif
 public [[vk::binding(19, 0)]] StructuredBuffer<uint> gUpt04SkinnedSourceIndices;
-public [[vk::binding(20, 0)]] StructuredBuffer<Upt04SkinnedRouteRecord> gUpt04SkinnedRoutes;
+public [[vk::binding(20, 0)]] StructuredBuffer<uint4> gUpt04SkinnedRouteWords;
 public [[vk::binding(21, 0)]] StructuredBuffer<Upt04SkinnedRouteTriangle> gUpt04SkinnedTriangles;
 public [[vk::binding(22, 0)]] StructuredBuffer<Upt04EmissiveLookupEntry> gUpt04EmissiveLookup;
 
@@ -155,7 +158,8 @@ public uint Upt04RigidTriangleCount()
 public uint Upt04RigidInstanceCount()
 {
 #if UPT07_TEMPORAL_GEOMETRY_REPLAY || UPT09_SPATIAL_GEOMETRY_REPLAY
-    return Upt04GeometryBufferCount(gUpt04RigidInstances);
+    return Upt04GeometryBufferCount(gUpt04RigidInstanceWords)
+        / kUpt04RigidRouteUint4Stride;
 #else
     return gUpt04Control.rigidInstanceCount;
 #endif
@@ -164,7 +168,8 @@ public uint Upt04RigidInstanceCount()
 public uint Upt04SkinnedRouteRecordCount()
 {
 #if UPT07_TEMPORAL_GEOMETRY_REPLAY || UPT09_SPATIAL_GEOMETRY_REPLAY
-    return Upt04GeometryBufferCount(gUpt04SkinnedRoutes);
+    return Upt04GeometryBufferCount(gUpt04SkinnedRouteWords)
+        / kUpt04SkinnedRouteUint4Stride;
 #else
     return gUpt04Control.skinnedRouteRecordCount;
 #endif

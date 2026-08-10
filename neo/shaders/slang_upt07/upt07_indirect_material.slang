@@ -77,8 +77,18 @@ public bool Upt07MaterialTexture(
 // remains solid, matching the accepted D0 no-hole traversal rule.
 public bool Upt07MaterialRejectsAlphaClipCandidate(Upt04HitFacts candidate)
 {
+    uint materialIndex;
+    if (!Upt04ResolveTriangleMaterialIndex(candidate, materialIndex)
+        || materialIndex >= gUpt07Control.materialCount)
+        return false;
+    const uint materialFlags =
+        gUptDirectEmitterMaterials[materialIndex].flags;
+    if ((materialFlags & kUpt07MaterialAlphaClipTest) == 0u)
+        return false;
+
     Upt04ResolvedTriangle triangle;
     if (!Upt04ResolveTriangle(candidate, triangle)
+        || triangle.materialIndex != materialIndex
         || triangle.materialIndex >= gUpt07Control.materialCount)
         return false;
     const Upt04SmokeMaterialRecord material =
