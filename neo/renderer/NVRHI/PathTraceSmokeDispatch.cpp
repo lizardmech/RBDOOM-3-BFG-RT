@@ -2916,6 +2916,50 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 reportedTemporalBottleneckEffective =
                     unifiedPtInputs.temporalBottleneckProbe;
             }
+            const bool requestedSharedReuseAdapter =
+                r_pathTracingUnifiedPtSharedReuseAdapter.GetBool();
+            const bool effectiveSharedReuseAdapter =
+                requestedSharedReuseAdapter
+                && unifiedPtInputs.temporal
+                && r_pathTracingUnifiedPtTemporalIndirect.GetBool()
+                && unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified
+                && unifiedPtInputs.compactLights
+                && unifiedPtInputs.duplication
+                && !unifiedPtInputs.lambertDiagnostic
+                && !frozenAnyDiagnostic
+                && unifiedPtInputs.temporalBottleneckProbe == 0u
+                && !r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
+                && !r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool();
+            static int reportedSharedReuseAdapterRequest = -1;
+            static int reportedSharedReuseAdapterEffective = -1;
+            const int sharedReuseAdapterRequest =
+                requestedSharedReuseAdapter ? 1 : 0;
+            const int sharedReuseAdapterEffective =
+                effectiveSharedReuseAdapter ? 1 : 0;
+            if (reportedSharedReuseAdapterRequest != sharedReuseAdapterRequest
+                || reportedSharedReuseAdapterEffective !=
+                    sharedReuseAdapterEffective)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: shared reuse adapter requested/effective=%d/%d gate(temporal/indirect/unified/compactLights/duplication/openPbr/noFrozen/noProbe/noEarlyReconnect/noRouteDiag)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
+                    sharedReuseAdapterRequest,
+                    sharedReuseAdapterEffective,
+                    unifiedPtInputs.temporal ? 1u : 0u,
+                    r_pathTracingUnifiedPtTemporalIndirect.GetBool() ? 1u : 0u,
+                    unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified
+                        ? 1u : 0u,
+                    unifiedPtInputs.compactLights ? 1u : 0u,
+                    unifiedPtInputs.duplication ? 1u : 0u,
+                    unifiedPtInputs.lambertDiagnostic ? 0u : 1u,
+                    frozenAnyDiagnostic ? 0u : 1u,
+                    unifiedPtInputs.temporalBottleneckProbe == 0u ? 1u : 0u,
+                    r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
+                        ? 0u : 1u,
+                    r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool()
+                        ? 0u : 1u);
+                reportedSharedReuseAdapterRequest = sharedReuseAdapterRequest;
+                reportedSharedReuseAdapterEffective = sharedReuseAdapterEffective;
+            }
             unifiedPtInputs.spatial =
                 r_pathTracingUnifiedPtSpatial.GetBool() &&
                 unifiedPtInputs.family == PathTraceUnifiedPtFamily::DirectOnly;

@@ -1518,8 +1518,12 @@ duplication layout remains 30 bindings and four RayQuery sites. The cvar is
 default off and reports requested/effective state in the temporal creation line.
 
 The full Vulkan release build passes. The deployed executable SHA-256 is
-0490AACD26EAAA09F8834DABA741A41FE9D1D08BDDDABCC805D63C82328BF4CA;
+BF0DD5197E36F7E0A8D448C93ACDE38B45EC86F4FBA7604CF927AAC32AA6C8FE;
 the sole new deployed Vulkan blob is the shared-adapter T0 specialization with
 SHA-256 37317C7018946C26E95AC3BECB676247115F1DF36B431A49A791E240C7ECF1B3.
 No DX12 shader was compiled. Runtime image/timing parity is the remaining T30.2
 gate before the common GRIS merge replaces event-specific temporal algebra.
+
+The executable hash above includes the corrected activation reporter. It emits
+the shared-reuse requested/effective pair and all ten individual gate bits when
+state changes, even if temporal never reaches pipeline creation.

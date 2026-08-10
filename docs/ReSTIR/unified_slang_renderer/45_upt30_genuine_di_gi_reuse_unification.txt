@@ -283,3 +283,10 @@ The temporal creation line must report sharedReuseAdapter(requested/effective)
 as 1/1 for the second run. Images, reservoir behavior and dispatch timing should
 match within run noise because this stage changes ownership shape, not estimator
 algebra. Any visible or energy difference is an adapter defect and blocks T30.3.
+
+The first deployed host only printed that state after successful temporal
+pipeline creation, which made a failed outer gate silent. The renderer now
+prints a separate shared-reuse requested/effective line whenever either value
+changes, before temporal execution. Ten gate bits identify temporal, indirect,
+unified family, compact lights, duplication, OpenPBR, non-frozen, no probe,
+no early reconnect and no route diagnostics independently.

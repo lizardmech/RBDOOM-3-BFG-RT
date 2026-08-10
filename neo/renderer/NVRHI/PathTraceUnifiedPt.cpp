@@ -4256,6 +4256,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         && sharedReuseAdapterRequested
         && inputs.compactLights
         && inputs.duplication
+        && inputs.family == PathTraceUnifiedPtFamily::Unified
         && !earlyReconnect
         && !routeDiagnostics
         && !inputs.lambertDiagnostic
