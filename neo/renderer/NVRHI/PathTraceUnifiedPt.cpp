@@ -10,6 +10,7 @@
 
 #include <nvrhi/utils.h>
 
+#include <algorithm>
 #include <cstring>
 #include <limits>
 
@@ -1305,6 +1306,18 @@ void PathTraceUnifiedPtState::Release()
     ReleaseDuplication();
     ReleaseSpatial();
     ReleaseResolve();
+    for (TemporalGpuTimerSlot& slot : m_temporalGpuTimers)
+    {
+        slot.query = nullptr;
+        slot.pending = false;
+    }
+    m_temporalGpuTimerCursor = 0u;
+    m_temporalGpuTimingMode = UINT32_MAX;
+    m_temporalGpuTimingWarmupRemaining = 0u;
+    m_temporalGpuTimingSubmitted = 0u;
+    m_temporalGpuTimingCompleted = 0u;
+    m_temporalGpuTimingBatchComplete = false;
+    m_temporalGpuTimingQueryFailureLogged = false;
     m_page0 = nullptr;
     m_page1 = nullptr;
     m_page0Metadata.Invalidate();
@@ -4424,6 +4437,151 @@ void PathTraceUnifiedPtState::DrainTemporalDiagnosticReadback(
     m_temporalDiagnosticReadbackPending = false;
 }
 
+void PathTraceUnifiedPtState::UpdateTemporalGpuTiming(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    const uint32_t requestedMode =
+        r_pathTracingUnifiedPtTemporalGpuTiming.GetBool() && inputs.temporal
+            ? inputs.temporalBottleneckProbe
+            : UINT32_MAX;
+    if (requestedMode == m_temporalGpuTimingMode)
+        return;
+
+    m_temporalGpuTimingMode = requestedMode;
+    m_temporalGpuTimingWarmupRemaining = requestedMode == UINT32_MAX
+        ? 0u
+        : TEMPORAL_GPU_TIMING_WARMUP_FRAMES;
+    m_temporalGpuTimingSubmitted = 0u;
+    m_temporalGpuTimingCompleted = 0u;
+    m_temporalGpuTimingBatchComplete = false;
+    m_temporalGpuTimingSamples.fill(0.0);
+    if (requestedMode != UINT32_MAX)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: temporal GPU timing armed probe=%u warmup=%u samples=%u scope=dispatch-only\n",
+            requestedMode,
+            TEMPORAL_GPU_TIMING_WARMUP_FRAMES,
+            TEMPORAL_GPU_TIMING_SAMPLE_COUNT);
+    }
+}
+
+void PathTraceUnifiedPtState::PollTemporalGpuTiming(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.device)
+        return;
+
+    const int currentFrame = idLib::frameNumber;
+    for (TemporalGpuTimerSlot& slot : m_temporalGpuTimers)
+    {
+        if (!slot.pending || !slot.query
+            || currentFrame < slot.earliestPollFrame
+            || !inputs.device->pollTimerQuery(slot.query))
+        {
+            continue;
+        }
+
+        if (slot.collect
+            && slot.probeMode == m_temporalGpuTimingMode
+            && slot.sampleIndex < TEMPORAL_GPU_TIMING_SAMPLE_COUNT
+            && !m_temporalGpuTimingBatchComplete)
+        {
+            m_temporalGpuTimingSamples[slot.sampleIndex] =
+                static_cast<double>(inputs.device->getTimerQueryTime(slot.query))
+                * 1000.0;
+            ++m_temporalGpuTimingCompleted;
+        }
+        slot.pending = false;
+    }
+
+    if (m_temporalGpuTimingBatchComplete
+        || m_temporalGpuTimingCompleted != TEMPORAL_GPU_TIMING_SAMPLE_COUNT)
+    {
+        return;
+    }
+
+    std::array<double, TEMPORAL_GPU_TIMING_SAMPLE_COUNT> sorted =
+        m_temporalGpuTimingSamples;
+    std::sort(sorted.begin(), sorted.end());
+    double sum = 0.0;
+    for (const double sample : sorted)
+        sum += sample;
+    const double median = 0.5 * (sorted[31] + sorted[32]);
+    const double mean = sum / double(TEMPORAL_GPU_TIMING_SAMPLE_COUNT);
+    const double p90 = sorted[57];
+    common->Printf(
+        "PathTraceUnifiedPt: temporal GPU timing probe=%u samples=%u resolution=%ux%u medianMs=%.3f meanMs=%.3f minMs=%.3f p90Ms=%.3f maxMs=%.3f scope=dispatch-only\n",
+        m_temporalGpuTimingMode,
+        TEMPORAL_GPU_TIMING_SAMPLE_COUNT,
+        inputs.width,
+        inputs.height,
+        median,
+        mean,
+        sorted.front(),
+        p90,
+        sorted.back());
+    m_temporalGpuTimingBatchComplete = true;
+}
+
+nvrhi::TimerQueryHandle PathTraceUnifiedPtState::BeginTemporalGpuTiming(
+    const PathTraceUnifiedPtDispatchInputs& inputs,
+    bool historyAvailable)
+{
+    if (m_temporalGpuTimingMode == UINT32_MAX
+        || m_temporalGpuTimingBatchComplete
+        || !historyAvailable || !inputs.device || !inputs.commandList)
+    {
+        return nullptr;
+    }
+
+    if (m_temporalGpuTimingWarmupRemaining == 0u
+        && m_temporalGpuTimingSubmitted >= TEMPORAL_GPU_TIMING_SAMPLE_COUNT)
+    {
+        return nullptr;
+    }
+
+    for (uint32_t slotOffset = 0u;
+        slotOffset < TEMPORAL_GPU_TIMER_SLOT_COUNT;
+        ++slotOffset)
+    {
+        const uint32_t slotIndex =
+            (m_temporalGpuTimerCursor + slotOffset)
+            % TEMPORAL_GPU_TIMER_SLOT_COUNT;
+        TemporalGpuTimerSlot& slot = m_temporalGpuTimers[slotIndex];
+        if (slot.pending)
+            continue;
+        if (!slot.query)
+            slot.query = inputs.device->createTimerQuery();
+        if (!slot.query)
+        {
+            if (!m_temporalGpuTimingQueryFailureLogged)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: temporal GPU timing query creation failed\n");
+                m_temporalGpuTimingQueryFailureLogged = true;
+            }
+            return nullptr;
+        }
+
+        slot.pending = true;
+        slot.probeMode = m_temporalGpuTimingMode;
+        slot.collect = m_temporalGpuTimingWarmupRemaining == 0u;
+        if (slot.collect)
+            slot.sampleIndex = m_temporalGpuTimingSubmitted++;
+        else
+        {
+            slot.sampleIndex = UINT32_MAX;
+            --m_temporalGpuTimingWarmupRemaining;
+        }
+        slot.earliestPollFrame = idLib::frameNumber + int(NUM_FRAME_DATA);
+        m_temporalGpuTimerCursor =
+            (slotIndex + 1u) % TEMPORAL_GPU_TIMER_SLOT_COUNT;
+        inputs.commandList->beginTimerQuery(slot.query);
+        return slot.query;
+    }
+    return nullptr;
+}
+
 bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
@@ -4547,6 +4705,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
 bool PathTraceUnifiedPtState::ExecuteTemporal(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
+    UpdateTemporalGpuTiming(inputs);
+    PollTemporalGpuTiming(inputs);
     DrainTemporalDiagnosticReadback(inputs);
     if (!inputs.temporal)
     {
@@ -4845,10 +5005,14 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             inputs.sceneInputs->materials.textureDescriptorTable };
         inputs.commandList->setComputeState(state);
         inputs.commandList->setPushConstants(&control, sizeof(control));
+        const nvrhi::TimerQueryHandle temporalGpuTimer =
+            BeginTemporalGpuTiming(inputs, historyAvailable);
         inputs.commandList->dispatch(
             (inputs.width + 7u) / 8u,
             (inputs.height + 7u) / 8u,
             1u);
+        if (temporalGpuTimer)
+            inputs.commandList->endTimerQuery(temporalGpuTimer);
         nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
         if (captureTemporalDiagnostics)
         {

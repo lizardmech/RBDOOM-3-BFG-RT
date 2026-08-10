@@ -164,6 +164,11 @@ private:
     bool EnsureTemporalBottleneckBuffer(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalDiagnosticBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
     void DrainTemporalDiagnosticReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
+    void UpdateTemporalGpuTiming(const PathTraceUnifiedPtDispatchInputs& inputs);
+    void PollTemporalGpuTiming(const PathTraceUnifiedPtDispatchInputs& inputs);
+    nvrhi::TimerQueryHandle BeginTemporalGpuTiming(
+        const PathTraceUnifiedPtDispatchInputs& inputs,
+        bool historyAvailable);
     bool EnsureDuplicationResources(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureDuplicationPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureDuplicationBindingSets(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -332,6 +337,30 @@ private:
     bool m_temporalDiagnosticReadbackPending = false;
     bool m_temporalDiagnosticReadbackIsRoute = false;
     int m_temporalDiagnosticReadbackDelayFrames = 0;
+
+    static constexpr uint32_t TEMPORAL_GPU_TIMER_SLOT_COUNT = 8u;
+    static constexpr uint32_t TEMPORAL_GPU_TIMING_WARMUP_FRAMES = 16u;
+    static constexpr uint32_t TEMPORAL_GPU_TIMING_SAMPLE_COUNT = 64u;
+    struct TemporalGpuTimerSlot
+    {
+        nvrhi::TimerQueryHandle query;
+        bool pending = false;
+        bool collect = false;
+        uint32_t probeMode = UINT32_MAX;
+        uint32_t sampleIndex = UINT32_MAX;
+        int earliestPollFrame = 0;
+    };
+    std::array<TemporalGpuTimerSlot, TEMPORAL_GPU_TIMER_SLOT_COUNT>
+        m_temporalGpuTimers;
+    std::array<double, TEMPORAL_GPU_TIMING_SAMPLE_COUNT>
+        m_temporalGpuTimingSamples = {};
+    uint32_t m_temporalGpuTimerCursor = 0u;
+    uint32_t m_temporalGpuTimingMode = UINT32_MAX;
+    uint32_t m_temporalGpuTimingWarmupRemaining = 0u;
+    uint32_t m_temporalGpuTimingSubmitted = 0u;
+    uint32_t m_temporalGpuTimingCompleted = 0u;
+    bool m_temporalGpuTimingBatchComplete = false;
+    bool m_temporalGpuTimingQueryFailureLogged = false;
 
     uint32_t m_duplicationWidth = 0;
     uint32_t m_duplicationHeight = 0;

@@ -83,11 +83,28 @@ Capture procedure
 -----------------
 
 Use one fixed heavy Doom-level camera, fixed resolution and otherwise identical
-cvars. Disable unrelated diagnostics. For each stage 1 through 5, wait until the
-pipeline log has printed the requested stage and at least two subsequent frames
-have run, then capture the T0 marker. Record a median of several frames if the
-marker is visibly noisy. Do not compare image quality: probe stages deliberately
-show D0-only output.
+cvars. Disable unrelated diagnostics. The preferred measurement route does not
+require Nsight:
+
+    r_pathTracingUnifiedPtTemporalGpuTiming 1
+
+The host waits for 16 valid-history warm-up dispatches, records 64 Vulkan
+timestamp-query samples around the compute dispatch only, then prints median,
+mean, minimum, p90 and maximum milliseconds. It automatically discards the old
+batch and rearms when the effective probe mode changes. The timing cvar is off
+by default and does not allocate, submit or poll queries while disabled.
+
+For each stage 0 through 5, require the `timing armed probe=N` line, leave the
+camera fixed, and wait for the corresponding `temporal GPU timing probe=N`
+result before selecting the next stage. The 16-frame warm-up removes the
+history-invalid mode-switch frame and PSO/cache startup from the 64-sample
+batch. Do not compare image quality: probe stages deliberately show D0-only
+output.
+
+Nsight remains useful for instruction/dependency attribution, but its marker
+time and capture overhead are no longer required for this ladder. If it is used
+as a cross-check, compare its dispatch action rather than barriers surrounding
+the marker.
 
 Let the measured temporal times be T1..T5. Attribute work by subtraction:
 
