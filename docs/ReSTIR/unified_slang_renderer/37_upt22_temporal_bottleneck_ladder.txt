@@ -43,6 +43,7 @@ The host clamps the cvar to 0..5 and admits a nonzero stage only with:
     r_pathTracingUnifiedPtFamily 0
     r_pathTracingUnifiedPtBackend 0
     r_pathTracingUnifiedPtCompactReceiver 2
+    r_pathTracingUnifiedPtCompactGeometry 1
     r_pathTracingUnifiedPtCompactLights 1
     r_pathTracingUnifiedPtLambertDiagnostic 1
     r_pathTracingUnifiedPtTemporal 1
@@ -56,7 +57,9 @@ The host clamps the cvar to 0..5 and admits a nonzero stage only with:
 
 The temporal pipeline log must print shading=lambert-diagnostic and
 bottleneckProbe=N. A missing or zero label means the requested stage was gated
-off and the timing is invalid.
+off and the timing is invalid. CompactLights is subordinate to CompactGeometry;
+the D0 pipeline must report geometry=compact48 lights=compact64 before any probe
+can engage.
 
 SPIR-V proof
 ------------

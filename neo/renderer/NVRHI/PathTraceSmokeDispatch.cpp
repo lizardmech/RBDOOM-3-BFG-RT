@@ -2834,16 +2834,39 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.duplication =
                 r_pathTracingUnifiedPtDuplication.GetBool() &&
                 unifiedPtInputs.temporal;
+            const uint32_t requestedTemporalBottleneckProbe =
+                static_cast<uint32_t>(idMath::ClampInt(
+                    0, 5,
+                    r_pathTracingUnifiedPtTemporalBottleneckProbe.GetInteger()));
             unifiedPtInputs.temporalBottleneckProbe =
                 unifiedPtInputs.lambertDiagnostic &&
                 unifiedPtInputs.compactLights &&
                 unifiedPtInputs.duplication &&
                 unifiedPtInputs.temporal &&
                 r_pathTracingUnifiedPtTemporalIndirect.GetBool()
-                    ? static_cast<uint32_t>(idMath::ClampInt(
-                        0, 5,
-                        r_pathTracingUnifiedPtTemporalBottleneckProbe.GetInteger()))
+                    ? requestedTemporalBottleneckProbe
                     : 0u;
+            static uint32_t reportedTemporalBottleneckRequest = UINT32_MAX;
+            static uint32_t reportedTemporalBottleneckEffective = UINT32_MAX;
+            if (reportedTemporalBottleneckRequest != requestedTemporalBottleneckProbe
+                || reportedTemporalBottleneckEffective !=
+                    unifiedPtInputs.temporalBottleneckProbe)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: temporal bottleneck probe requested/effective=%u/%u gate(lambert/compactGeometry/compactLights/duplication/temporal/indirect)=%u/%u/%u/%u/%u/%u\n",
+                    requestedTemporalBottleneckProbe,
+                    unifiedPtInputs.temporalBottleneckProbe,
+                    unifiedPtInputs.lambertDiagnostic ? 1u : 0u,
+                    unifiedPtInputs.compactGeometry ? 1u : 0u,
+                    unifiedPtInputs.compactLights ? 1u : 0u,
+                    unifiedPtInputs.duplication ? 1u : 0u,
+                    unifiedPtInputs.temporal ? 1u : 0u,
+                    r_pathTracingUnifiedPtTemporalIndirect.GetBool() ? 1u : 0u);
+                reportedTemporalBottleneckRequest =
+                    requestedTemporalBottleneckProbe;
+                reportedTemporalBottleneckEffective =
+                    unifiedPtInputs.temporalBottleneckProbe;
+            }
             unifiedPtInputs.spatial =
                 r_pathTracingUnifiedPtSpatial.GetBool() &&
                 unifiedPtInputs.family == PathTraceUnifiedPtFamily::DirectOnly;
