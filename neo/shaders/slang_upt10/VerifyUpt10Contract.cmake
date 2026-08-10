@@ -1,0 +1,27 @@
+if(NOT DEFINED UPT10_REFLECTION OR NOT DEFINED UPT10_DISASSEMBLY OR NOT DEFINED UPT10_STAMP)
+    message(FATAL_ERROR "UPT-30 verification requires reflection, disassembly, and stamp paths")
+endif()
+
+file(READ "${UPT10_REFLECTION}" reflection)
+file(READ "${UPT10_DISASSEMBLY}" disassembly)
+
+if(NOT reflection MATCHES "\"array_stride\"[ \t]*:[ \t]*48")
+    message(FATAL_ERROR "UPT-30 mapped proposal input stride is not 48 bytes")
+endif()
+if(NOT reflection MATCHES "\"array_stride\"[ \t]*:[ \t]*16")
+    message(FATAL_ERROR "UPT-30 merge control/result stride is not 16 bytes")
+endif()
+if(NOT reflection MATCHES "\"workgroup_size\"[ \t\r\n]*:[ \t\r\n]*\[[ \t\r\n]*64")
+    message(FATAL_ERROR "UPT-30 workgroup size is not 64")
+endif()
+string(REGEX MATCHALL "\"binding\"[ \t]*:" descriptor_bindings "${reflection}")
+list(LENGTH descriptor_bindings descriptor_binding_count)
+if(NOT descriptor_binding_count EQUAL 3)
+    message(FATAL_ERROR "UPT-30 probe must expose exactly two SRVs and one UAV")
+endif()
+if(disassembly MATCHES "OpTraceRay|OpRayQuery|RayTracingKHR|RayQueryKHR")
+    message(FATAL_ERROR "UPT-30 pure reuse contract contains ray instructions or capabilities")
+endif()
+
+file(WRITE "${UPT10_STAMP}"
+    "UPT-30 SPIR-V contract verified: proposal=48, control/result=16, threads=64, rays=0\n")

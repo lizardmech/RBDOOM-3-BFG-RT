@@ -1,0 +1,248 @@
+UPT-30: genuine DI/GI temporal and spatial reuse unification
+============================================================
+
+Decision
+--------
+
+Stop optimizing the current branch-heavy indirect temporal implementation as
+a final architecture. Preserve it as a parity and performance oracle while
+building one path-shift and GRIS contract used by short direct paths and longer
+global paths in both temporal and spatial reuse.
+
+Temporal and spatial remain separate logical passes because spatial consumes
+the completed temporal page. "Unified" does not require one combined GPU
+dispatch. It requires one reservoir domain, one shift-result contract and one
+resampling algebra for DI and GI path lengths.
+
+Reference authority
+-------------------
+
+ReSTIR PT Enhanced section 6.1 admits the primary NEE path into the same
+initial path tree as longer paths and removes the separate ReSTIR DI chain.
+The short path then benefits from ReSTIR PT's shift mapping and pairwise MIS.
+Section 2.3 defines hybrid shift as random replay only until a precomputed
+reconnection vertex, followed by reconnection and a separate Jacobian.
+Supplemental section 5 defines RIS-based NEE as a black box in primary sample
+space: multi-sample NEE changes the technique MIS term and the selected
+sample's UCW, not the common reuse estimator.
+
+The public paper and supplemental document are algorithm authorities. Existing
+UPT output is a regression oracle, not authority for its current direct/global
+branching. Repo-owned clean GI pairwise code may cross-check algebraic test
+vectors but is not copied into this implementation.
+
+Verified current state
+----------------------
+
+Initial sampling is already structurally unified. D0 streams primary NEE,
+secondary NEE and continuation endpoints into one 64-byte reservoir and gives
+the finalized initial reservoir confidence one. Direct-only and indirect-only
+families are diagnostic compositions.
+
+Reuse is not yet genuinely unified:
+
+* T0 classifies a direct history sample and calls Upt07ShiftPrimaryDirect, or
+  classifies a global sample and calls Upt07ReplayIndirectSample. Cross-target
+  evaluation, Jacobian handling and visibility ownership differ by that branch.
+* T0 pairwise mode explicitly suppresses the reconnect Jacobian for global
+  samples because the reciprocal contract was never completed.
+* S0's Upt09DirectReservoirEligible rejects every global candidate, and the
+  host skips S0 unless the selected family is direct-only.
+* S0's pairwise proof therefore validates only direct-light target replay. It
+  is not a combined path-space spatial estimator.
+* UPT-05 can resolve either selected event from the shared page. Its event-kind
+  routing is reconstruction/output classification, not reuse algebra.
+
+Unified shift-result contract
+-----------------------------
+
+Every source sample, regardless of path length, must be mapped through one
+logical provider:
+
+    Shift(source sample, source receiver, target receiver, source domain)
+
+The provider returns:
+
+    mapping status          INVALID / VALID_ZERO / VALID_POSITIVE
+    shifted candidate       identity, coordinates and contribution at target
+    source target           target in the supplying receiver's domain
+    target target           target in the destination receiver's domain
+    shift Jacobian          finite positive and kept outside physical RGB
+    mapping visibility      validity already consumed by replay/reconnection
+    deferred visibility     final NEE/light connection, tested winner-only
+    route classification    diagnostic only: reconnect/replay/endpoint
+
+Route classification may select the mechanical mapping needed to construct the
+result. It must not select a different reservoir formula. Local pathLength 1
+primary NEE maps directly to its stored light vertex with Jacobian one. Longer
+paths use the same result contract after hybrid replay/reconnection. Unsupported
+or stale locators fail closed or use the already-defined random-replay fallback;
+they never become a direct-light approximation.
+
+Estimator invariants
+--------------------
+
+UPT persists target-scaled UCW, not raw UCW. Every reuse candidate therefore
+crosses one explicit conversion boundary:
+
+    sourceUcw = storedScaledWeight / sourceTarget
+    mapped mass = pairwiseMis * targetTarget * sourceUcw * shiftJacobian
+
+The selected output again persists targetTarget * outputUcw. The exact pairwise
+MIS terms and confidence factors must first pass a CPU oracle derived from GRIS
+Equation 1. No shader is allowed to hide a target ratio, Jacobian or technique
+MIS factor in RGB contribution merely because a same-domain case cancels it.
+
+Required invariants:
+
+* the current pixel is always the canonical proposal;
+* INVALID shifts add neither confidence nor mass;
+* VALID_ZERO shifts preserve only the confidence defined by the chosen GRIS
+  policy and can never be selected;
+* sourceTarget belongs to the source page's receiver and targetTarget belongs
+  to the destination receiver;
+* direct and global samples with identical synthetic shift results produce
+  byte-identical merge results;
+* Jacobian is applied exactly once to mapped proposal mass;
+* final NEE visibility is excluded from the target and tested only for the
+  selected winner;
+* replay/reconnection visibility required for mapping validity is not deferred;
+* selected target is updated to the output page's receiver before packing;
+* age, confidence cap, duplication cap and rescue policy operate after mapping
+  validity and do not depend on direct/global classification.
+
+Temporal build sequence
+-----------------------
+
+T30.1 Add a resource-free Slang shift-result/GRIS contract plus a CPU oracle.
+Test direct and global labels against the same synthetic mapping results,
+including invalid, zero, positive, asymmetric Jacobian and extreme target cases.
+
+T30.2 Wrap the existing direct and indirect T0 mapping implementations behind
+one temporal adapter. This is a mechanical parity stage: separate internal
+routes may remain, but the caller consumes only the unified result. A dedicated
+shader specialization retains the current T0 artifact unchanged as oracle.
+
+T30.3 Replace the two temporal merge paths with the common GRIS/pairwise core.
+Both history-to-current and reciprocal current-to-history evaluations call the
+same adapter. Restore Jacobian ownership in pairwise global reuse. Keep BASIC
+only as an explicit comparison specialization; do not mix formulas by event.
+
+T30.4 Preserve winner-only final light visibility and the static four-query
+ceiling for the existing one-continuation path. The common mapping provider may
+use one replay/reconnect query in each direction; only the selected output may
+use the final NEE query. Diagnostics must report mapping route, failure, source
+target, target target, Jacobian and final visibility separately.
+
+Spatial build sequence
+----------------------
+
+S30.1 Replace Upt09DirectReservoirEligible with structural shared-reservoir
+admission. Initially use one selected-center/one-neighbor reciprocal pair and
+the unified shift adapter. This bounds correctness before adding three pairs.
+
+S30.2 Shift neighbor-to-center and center-to-neighbor through the same provider
+and stream them through the common pairwise core. Direct primary NEE therefore
+uses the same path-space machinery as secondary NEE and continuation endpoints;
+only the mapping route differs.
+
+S30.3 Expand to the configured bounded neighbor count, then implement Enhanced
+reciprocal pairing. A pre-pass computes the two shifts for each paired pixel
+once; the resampling pass consumes those results in both directions. Random
+disk selection remains only as a correctness/performance oracle.
+
+S30.4 Re-admit empty-center rescue only after selected-center combined reuse is
+stable. Rescue output remains one-frame/non-donating unless a complete support
+proof replaces that policy. Count-only and invalid reservoirs retain their
+existing explicit semantics.
+
+Performance work order
+----------------------
+
+Do not compact the current temporal implementation first. Genuine unification,
+reconnection and paired spatial reuse change which pairs require replay. Once
+T30/S30 route counters measure the surviving replay population:
+
+1. compact random-replay pixel-neighbor pairs shared by T0 and S0;
+2. apply branch-to-conditional-move cleanup to the common merge core;
+3. narrow loads and persistent state only where Nsight still proves dependency;
+4. introduce Russian roulette only with multi-bounce initial sampling.
+
+The existing UPT-20 queue design remains useful as an execution sketch, but its
+record must carry the new shared shift request and it must serve both temporal
+and spatial rather than preserve today's event-specific temporal branches.
+
+Resource and ABI boundaries
+---------------------------
+
+The first implementation retains:
+
+* one 64-byte shared reservoir ABI and its target-scaled-UCW convention;
+* two full-resolution reservoir pages;
+* compact32 receiver plus history sidecar;
+* current stable light remapping and exact emissive UV replay;
+* proposal parity, previous-best D0 reseed and duplication maps;
+* no per-frame full-buffer or full-texture clears;
+* Vulkan-only build and deployment.
+
+The existing event-unioned static x2 locator supports the current bounded
+reconnection proof. Dynamic/rigid/skinned samples without a stable locator use
+random replay. No full-frame reconnection sidecar or reservoir expansion is
+admitted without measured coverage and a lifetime-safe identity design.
+
+Validation ladder
+-----------------
+
+1. CPU oracle: partition of unity, UCW conversion, Jacobian-once, direct/global
+   label invariance, zero/invalid behavior and deterministic selection.
+2. Shader harness: Slang output matches CPU bytes and contains no ray/resource
+   capability in the pure contract module.
+3. Temporal parity: direct-only output matches the accepted T0 oracle; global
+   samples then pass fixed-input identity/coordinate/M/age/weight comparisons.
+4. Spatial parity: one reciprocal direct pair matches the direct oracle before
+   global events are enabled; all accepted global shifts expose exact route and
+   rejection diagnostics.
+5. Runtime correctness: emissive door panels, nearby emitters, mirrors, alpha
+   blockers, rigid/skinned motion, portal crossings and temporal/spatial-off D0.
+6. Energy stability: no ghost emitters, color corruption, recursive poisoning
+   or runaway energy with T0, S0 and T0+S0.
+7. Performance: compare complete pass sums at fixed 2560x1440 input, including
+   pairing/replay subpasses and barriers. Preserve the accepted split-D0,
+   compact64-light, native-geometry configuration.
+
+Rollback and checkpoint policy
+------------------------------
+
+The current T0 and direct-only S0 artifacts remain available and default until
+each stage passes its parity gate. New behavior is a compile-time Vulkan shader
+specialization selected by one host control; disabling it removes its extra
+resources and dispatches. Commit only after the pure contract/harness, unified
+temporal, selected-center spatial, and paired-spatial milestones respectively.
+
+Immediate implementation slice
+------------------------------
+
+Begin with T30.1 only: freeze the resource-free shift result and GRIS input/
+output structs, implement the CPU oracle and deterministic vectors, and prove
+that direct/global labels cannot change the merge result. Do not alter D0/T0/S0
+runtime selection in this slice.
+
+T30.1 progress, 2026-08-11
+---------------------------
+
+The resource-free contract now lives in neo/shaders/slang_upt10. It defines
+INVALID, VALID_ZERO and VALID_POSITIVE mapping states, the explicit
+source-scaled-weight to source-UCW conversion, target/Jacobian/MIS proposal
+mass, saturating confidence accumulation and deterministic two-proposal winner
+selection. routeLabel is present in the input ABI for diagnostics but is not
+read by the estimator.
+
+The deterministic CPU oracle passes direct/global relabeling, asymmetric
+Jacobian, invalid, valid-zero, non-finite overflow and confidence-saturation
+vectors. The Slang probe compiles to Vulkan SPIR-V with the declared 48-byte
+proposal and 16-byte control/result strides and contains no ray-query or
+ray-tracing instruction/capability. The prescribed full release build passes.
+
+No runtime artifact, binding or selection changed. A Vulkan byte-comparison
+harness remains the final T30.1 gate before the common contract may be included
+by T0; compile/reflection parity alone is not CPU/GPU numeric parity.

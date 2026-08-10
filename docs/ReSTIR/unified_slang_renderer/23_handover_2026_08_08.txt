@@ -1478,3 +1478,30 @@ capture and interpretation contract. The full Vulkan release build and UPT-07
 artifact verifier pass. The rebuilt executable and five content-changed Vulkan
 SPIR-V blobs were deployed with matching SHA-256 hashes; no DX12 shader was
 compiled. Runtime site distributions remain the next acceptance evidence.
+
+UPT-30 genuine DI/GI reuse unification decision, 2026-08-11
+------------------------------------------------------------
+
+UPT-29 confirmed that view-dependent temporal work is sparse indirect history
+replay, but the current reuse architecture is transitional. D0 already streams
+short direct and longer global paths into one reservoir. T0 still chooses
+separate direct/global mapping and merge behavior, while S0 rejects every
+global sample and the host admits S0 only for the direct-only family.
+
+Further optimization of that event-specific T0 is stopped. Document 45 defines
+the replacement: one shift-result contract carrying source/target targets,
+Jacobian, mapping validity and deferred winner visibility; one target-scaled-
+UCW GRIS core; common temporal reciprocal shifts; and combined spatial reuse
+followed by Enhanced reciprocal pairing. Temporal and spatial remain ordered
+passes, not one dispatch. The existing artifacts remain parity oracles.
+
+The first bounded slice is resource-free contract/oracle work only. Production
+D0/T0/S0 selection must not change until direct/global label invariance,
+Jacobian-once and byte-level deterministic merge vectors pass on CPU and Slang.
+
+The first half of T30.1 is now built. slang_upt10 supplies the pure mapping/
+merge contract, a deterministic CPU oracle and a compile/reflection verifier.
+The CPU vectors pass, the SPIR-V exposes only two SRVs plus one UAV, and its
+disassembly contains no ray-query or ray-tracing capability. The full Vulkan
+release build passes. Runtime selection is unchanged. CPU/GPU byte comparison
+is still required before this contract is admitted into T0.
