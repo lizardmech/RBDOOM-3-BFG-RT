@@ -135,3 +135,19 @@ already published into the common current-vertex shape.
 That larger change requires an isolated A/B and producer/consumer validation.
 Do not change the estimator, reservoir, temporal/spatial policy, ray ceiling or
 visibility rules as part of it.
+
+Runtime result, 2026-08-10
+--------------------------
+
+The narrowed rigid/skinned loads and material-first T0 alpha test produced no
+performance difference in the tested views. The shader/ABI change remains
+correct, but the route-record bandwidth and removed header load are rejected as
+the dominant bottleneck. Do not proceed directly to the larger common-route
+descriptor solely from the visible-rigid correlation.
+
+A stronger observation supersedes that interpretation: a second heavy view ran
+at about 18 FPS live, 44 FPS in frozen production modes 1/2 and 56 FPS in static
+mode 3, while walking the modes backward to zero made the same live view faster.
+Per-hit shader work cannot retain that benefit after mode 0 is restored. UPT-23
+now owns an eight-frame release audit of scene/BVH/acceleration planning state;
+its result is the next architecture gate.

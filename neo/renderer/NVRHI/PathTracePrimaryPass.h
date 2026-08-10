@@ -421,6 +421,8 @@ private:
     int m_unifiedPtFrozenSceneCapturedMode = 0;
     uint64 m_unifiedPtFrozenSceneReplayFrames = 0;
     int m_unifiedPtFrozenSceneReportedMode = -1;
+    int m_unifiedPtFrozenSceneReleaseAuditFromMode = 0;
+    int m_unifiedPtFrozenSceneReleaseAuditFramesRemaining = 0;
     bool m_smokeWaitingForDoomSurfaceLogged;
     int m_smokeSceneLogCooldownFrames;
     bool m_smokeStaticBlasCacheValid;

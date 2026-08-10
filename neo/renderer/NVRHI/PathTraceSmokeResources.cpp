@@ -2725,6 +2725,8 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_unifiedPtFrozenSceneCapturedMode = 0;
     m_unifiedPtFrozenSceneReplayFrames = 0;
     m_unifiedPtFrozenSceneReportedMode = -1;
+    m_unifiedPtFrozenSceneReleaseAuditFromMode = 0;
+    m_unifiedPtFrozenSceneReleaseAuditFramesRemaining = 0;
     m_smokeStaticBlasCacheValid = false;
     m_smokeStaticBlasSignature = 0;
     m_smokeStaticBlasOpacitySignature = 0;

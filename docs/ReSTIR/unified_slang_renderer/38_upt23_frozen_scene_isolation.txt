@@ -170,3 +170,42 @@ clear.
 
 Exact factorial runtime timings remain open; mode 5 has no image-acceptance
 requirement beyond remaining stable enough to collect its timing batch.
+
+Expanded field result and replay correction, 2026-08-10
+--------------------------------------------------------
+
+The rigid/skinned narrow-load implementation in UPT-24 produced no visible
+performance difference. A second Doom view then exposed a much larger state
+effect: live mode 0 ran at about 18 FPS, frozen production modes 1/2 at about
+44 FPS, and frozen static mode 3 at about 56 FPS. More importantly, stepping
+backward from 3 through 2 and 1 to 0 left mode 0 substantially faster at the
+same camera. That hysteresis rejects a purely per-hit route-decode explanation.
+The leading boundary is now persistent scene/acceleration planning state or
+work allowed to converge while frozen replay bypasses its producers.
+
+The host also contained a concrete frozen-mode state-machine bug. Successful
+captures for every request >=3 were recorded as captured mode 3. Modes 4 and 5
+therefore failed their replay-mode match on the following frame and rebuilt the
+scene continuously. Their previous timing results are invalid. Captured modes
+4 and 5 now preserve their requested identities and can enter the same early-
+return replay path as modes 2 and 3.
+
+Returning from any frozen mode to mode 0 now emits eight consecutive
+`frozen release audit` records without requiring another cvar. Each record
+includes full scene-function time, the earlier pre-BVH scene timer, capture,
+material, emissive, buffer create/upload, BVH plan and BLAS/TLAS submission
+times; geometry/TLAS counts; and rigid-route, rigid-TLAS, BVH and acceleration
+async cache/queue state. This deliberately measures beyond the old `sceneMs`
+cutoff, which occurs before BVH frame planning and could not explain the
+observed mode-0 convergence.
+
+Next runtime evidence
+---------------------
+
+At the fixed 18 FPS view, perform one clean mode-0 sample, then 1 -> 2, then 3,
+then 2 (which captures through mode 1), then 0. Preserve the eight release-audit
+lines after the final zero. A falling fullSceneMs or changing async cached/
+queued state identifies a CPU publication/planning convergence effect. Stable
+CPU timings with a faster mode-0 GPU frame instead implicate the submitted
+TLAS/BLAS content or GPU residency/cache state. Do not start the common-route
+architecture change until this split is resolved.

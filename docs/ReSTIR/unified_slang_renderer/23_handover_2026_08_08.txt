@@ -1167,3 +1167,242 @@ rebuilt UPT-04 SPIR-V blobs were deployed with matching hashes. The executable
 remained the prior verified 16,314,368-byte build with SHA-256
 FAAB471E658CC8614366503365A3F4D8D722A14EC0B0B11487C2A8630ECACA2D and was
 redeployed as requested. No DX12 shader was compiled or deployed.
+
+UPT-19 rejected rigid-instance opacity trial, 2026-08-10
+--------------------------------------------------------
+
+wall.txt and orbs.txt show that the small-map twofold timing swing is not a
+ray-count or temporal-history-age effect. D0 continuation rays remain about
+3.51 million, D0 visibility rays remain about 7.1 million, T0 history replay
+remains about 455--457k and reciprocal replay remains about 149--154k. The orb
+view instead changes rigid continuation hits from 14,882 to 463,694 and raises
+secondary material/PDF/occlusion failures by 30--197 times.
+
+The shared canonical rigid BLAS provider is material-independent and its one
+geometry is non-opaque, so a conservative trial supplied ForceOpaque or
+ForceNonOpaque from the effective rigid instance material. The build and
+deployment passed, but orbs2.txt showed no performance change. The instance-
+opacity trial is therefore rejected and rolled back rather than retained as
+unused traversal risk.
+
+This negative result narrows the remaining mechanism. The map reports about
+2.22 million dynamic indices and the orb diagnostic now records 507,133 rigid
+continuation hits. With almost unchanged D0/T0 ray counts, the view-dependent
+cost is rigid BLAS traversal or committed-hit decode/shading, not temporal age,
+history population, light selection or programmable opacity. Use the existing
+split-continuation C0 marker to compare pure exact continuation traversal in
+the wall and orb views before another implementation change. See documents 33
+and 34.
+
+The opacity code was removed, the prescribed Vulkan release rebuild passed,
+and no SPIR-V shader changed. Only RBDoom3BFG.exe was redeployed; source and
+destination match at 16,314,368 bytes and SHA-256
+70E0C76921B11A13E70C0E88597B5657D6DF9D0E577C4BF84D0AFEB722D4E6F6.
+
+UPT-20 admission: temporal replay compaction, 2026-08-10
+--------------------------------------------------------
+
+The continuation split was admitted and captured in the PBR-orb map. The wall
+capture measures frame/C0/D0/T0 at 14.92/0.28/6.64/4.79 ms; the orb capture
+measures 18.46/0.80/6.92/8.23 ms. C0 proves geometry-sensitive traversal, but
+T0 owns 3.44 ms of the 4.24 ms summed marker delta and D0 shade is nearly flat.
+The existing T0 shader can trace history replay, reciprocal current-at-history
+replay and final winner visibility in one full-screen divergent kernel. This
+is now the measured paper-shaped compaction target. Document 35 defines the
+bounded implementation; opacity classification, light selection, temporal age
+and broader portal filtering are closed as explanations for this swing.
+
+UPT-21 build-ready diagnostic: static Lambert material isolation, 2026-08-10
+-----------------------------------------------------------------------------
+
+To test whether OpenPBR execution or transitive shader footprint owns the
+remaining view-sensitive cost, UPT now has a separate constant-gray Lambert
+specialization selected by r_pathTracingUnifiedPtLambertDiagnostic. It replaces
+primary and secondary receiver BSDF work without runtime-branching around a
+still-linked OpenPBR closure. Real emitter textures/colors, alpha clipping,
+geometry/light identities, reservoir math, proposal schedule and ray ceilings
+remain unchanged. The content-generation hash includes the mode.
+
+The full Vulkan release build passes all D0/T0/S0 Lambert artifact and closure
+checks and links RBDoom3BFG.exe. Runtime pipeline logs explicitly report
+shading=lambert-diagnostic or shading=openpbr. Document 36 owns the supported
+gate, matched A/B procedure and interpretation. No runtime performance claim
+has been made yet and no DX12 shader was compiled.
+
+UPT-21 runtime result: Lambert is not the heavy-area bottleneck
+----------------------------------------------------------------
+
+The static Lambert specialization makes temporal about 3 ms faster in the
+PBR-orb view and produces no measurable temporal change in the heavy Doom-level
+area. OpenPBR is therefore a real local cost in the material-stress scene but
+is rejected as the dominant cause of the production heavy-area T0 slowdown.
+Because Lambert also changes continuation directions, the orb delta is not a
+pure instruction-cost measurement. Continue with indirect replay/traversal
+scheduling, light-count scaling and dependent memory traffic; do not pursue a
+broader OpenPBR simplification as the next optimization.
+
+UPT-22 build-ready diagnostic: temporal bottleneck ladder, 2026-08-10
+---------------------------------------------------------------------
+
+Five static Lambert/compact64/duplication T0 probes now execute cumulative work
+and then republish the untouched D0 reservoir. A per-pixel digest at binding 31
+keeps the selected calculations live without feeding partial temporal results
+into the next frame. Their compiled sizes grow from 71,684 to 712,112 bytes and
+their static RayQuery sites grow 0, 1, 2, 2, 4, proving that the intended stages
+survived optimization.
+
+Use r_pathTracingUnifiedPtTemporalBottleneckProbe 1..5 at one fixed heavy-area
+camera. Adjacent T0 marker deltas price receiver/history work, first indirect
+replay, reciprocal/cross evaluation, merge and final visibility respectively.
+Mode 0 remains production. Document 37 contains the exact gate, capture matrix
+and decision rule. The Vulkan release build passes; runtime results remain the
+acceptance gate and no DX12 shader was compiled.
+
+UPT-22 first-run correction
+---------------------------
+
+probe.txt proves that none of the requested probe modes engaged: D0 reported
+geometry=legacy112 lights=legacy112 and T0 remained bottleneckProbe=0. Compact
+lights are subordinate to r_pathTracingUnifiedPtCompactGeometry, which was
+missing from the abbreviated test instructions. Set CompactGeometry 1 before
+timing and require D0 geometry=compact48 lights=compact64 plus T0 lightStride=64
+and bottleneckProbe=N. The host now logs requested/effective probe mode and all
+six gate bits whenever the request or effective mode changes.
+
+UPT-22 valid ladder run and timestamp instrumentation
+------------------------------------------------------
+
+probe1.txt proves that all five requested probe stages engaged: every request
+matched its effective mode, all six gate bits were one, T0 reported the expected
+stage-specific blob and D0 reported compact48 geometry plus compact64 lights.
+The condump contains no steady-state GPU pass timing, however; `createUs` is CPU
+pipeline creation latency and cannot rank the stages.
+
+The host therefore owns an opt-in dispatch-only Vulkan timestamp batch through
+r_pathTracingUnifiedPtTemporalGpuTiming. It ignores 16 valid-history warm-up
+dispatches, gathers 64 samples, and reports median/mean/minimum/p90/maximum for
+the effective stage. Changing the probe stage automatically rearms the batch.
+This removes Nsight capture overhead and manual overlay transcription from the
+decisive T1..T5 measurement while leaving the renderer untouched when disabled.
+
+UPT-22 measured result and reciprocal sub-ladder
+------------------------------------------------
+
+The 2560x1440 timestamp batch measured P/T1/T2/T3/T4/T5 medians of
+13.501/1.293/2.261/8.749/9.092/11.546 ms. Reciprocal/cross evaluation therefore
+adds 6.488 ms, while merge adds only 0.343 ms. That is the decisive hotspot;
+receiver/history, first replay and merge are not the next optimization lane.
+
+Static probe modes 6--9 now split the hotspot after bookkeeping/BASIC
+selection, current-receiver target, direct cross-receiver target, and global
+reciprocal traversal plus full hit decode. Existing mode 3 supplies the final
+post-hit endpoint/light/material/PDF boundary. SPIR-V inspection proves modes
+6/7/8 retain one RayQuery, mode 9 introduces exactly the second, and mode 3
+keeps two while adding the post-hit closure. The Vulkan build passed. Only new
+probe6--9 blobs and the executable were deployed with matching hashes; no DX12
+shader was compiled.
+
+UPT-22 reciprocal T9 request/query/decode split
+-----------------------------------------------
+
+Modes 10 and 11 refine the measured 2.535 ms T9 traversal/decode interval.
+Mode 10 retains reciprocal identity resolution, continuation replay and exact
+trace-request construction but does not submit the second query. Mode 11 adds
+the second RayQuery and every committed-hit fact but stops before geometry
+surface decoding. Existing mode 9 supplies the full-decode boundary and mode 3
+the post-hit target boundary. Static SPIR-V inspection proves RayQuery counts
+of one/two/two/two for modes 10/11/9/3 and monotonically growing load counts of
+604/664/721/883. The Vulkan build passed; only new probe10/11 blobs and the
+executable require deployment, with no DX12 shader compilation.
+
+UPT-23 frozen scene isolation diagnostics
+-----------------------------------------
+
+The Vulkan UPT path now has two escalating isolation levels behind
+r_pathTracingUnifiedPtFrozenScene. Mode 1 captures the next complete production
+scene package and switches to mode 2, which reuses that committed package while
+skipping all later scene/universe uploads and BLAS/TLAS construction. Mode 3
+captures and reuses a static-only monolithic TLAS and selects dedicated D0/T0
+shader variants with direct static-triangle decoding, analytic lights only,
+identity current/history light mapping, and no dynamic, rigid, skinned,
+emissive-lookup, or previous-to-current-remap access.
+
+OpenPBR and Lambert mode-3 variants were built. Static SPIR-V inspection proves
+that the five excluded resource families do not survive in the four principal
+D0/T0 variants; the variants retain three and four RayQueryProceedKHR sites,
+respectively, so this diagnostic does not obtain a misleading result by silently
+lowering the existing ray/work ceiling. Runtime logging distinguishes capture
+from replay and reports uploads=0, blas=0, tlas=0, and universeUpdates=0 for a
+valid replay. The exact test matrix and interpretation gates are recorded in
+38_upt23_frozen_scene_isolation.txt. Runtime timing remains to be collected on
+the user's representative wall/orb and heavy-level views.
+
+UPT-23 first field result and factorial split, 2026-08-10
+---------------------------------------------------------
+
+The first field run established a live T0 median of 18.872 ms at 2560x1440.
+Frozen production replay recovered roughly 4 ms, while the bundled static-TLAS,
+flat-geometry, analytic-only mode reduced temporal cost to roughly 6 ms. Scene
+publication/acceleration interference is therefore real, but the larger
+remaining reduction belongs to the previously combined geometry/light bundle.
+
+Modes 4 and 5 now provide the missing factorial corners. Mode 4 keeps the full
+production geometry/TLAS and statically removes emissive lookup plus D0/T0
+previous/current remapping. Mode 5 uses the static-only TLAS/direct geometry
+decode while retaining the full emissive distribution, lookup and remap
+closures. SPIR-V inspection proves that each mode retains the opposite resource
+family and that D0/T0 still contain three/four RayQueryProceedKHR sites. The
+Vulkan release build passed. Exact mode 2/4/5/3 timing batches remain open.
+
+UPT-24 build-ready resolver narrowing, 2026-08-10
+--------------------------------------------------
+
+Extended field observation identifies visible rigid geometry as the dominant
+content correlate: heavy Doom views contain many rigid props, mode 3 removes
+the rigid-static PBR spheres with the same large reduction, and the live empty-
+wall view matches mode 3 despite retaining the production TLAS. Modes 1/2 also
+recover roughly 4 ms, so scene publication/acceleration and per-hit resolve are
+additive rather than mutually exclusive. Lambert did not fix the heavy area.
+
+The FullSample comparison was corrected: its indexed geometry chain is still
+four dependent levels and its compute resolver reads an instance transform.
+Its useful differences are one common route, attribute masking and pre-skinned
+vertices, not a zero-cost transform.
+
+UPT-24 implements the first contract-preserving slice. Rigid and skinned route
+tables retain their CPU byte layouts and bindings but are word-addressed by the
+Vulkan shaders. Current rigid hits fetch 80 rather than 144 bytes, rigid
+material lookup fetches 16 bytes, and current skinned hits fetch 48 rather than
+80 bytes. Skinned range classification now derives its exact producer-owned
+base from 2 + rigidInstanceCount and performs no header load. T0 alpha traversal
+checks material identity/flags before full triangle decode, matching D0's
+accepted no-hole shape.
+
+The Vulkan release build passes all artifact, binding, geometry and trace-count
+closures and links the executable. Production T0 SPIR-V retains bindings 17/20,
+contains no whole rigid/skinned record loads and uses v4uint loads. Runtime
+image and timing acceptance remains open; document 39 owns the exact A/B and
+the next common-route/attribute-mask escalation.
+
+UPT-24 runtime rejection and UPT-23 replay-state audit, 2026-08-10
+-----------------------------------------------------------------
+
+UPT-24's narrowed rigid/skinned route loads produced no performance difference.
+They remain a valid ABI-preserving cleanup, but route-record load width is not
+the dominant slowdown. A stronger field result supersedes the earlier direct
+rigid-decoder inference: a second Doom view measured about 18 FPS live, 44 FPS
+in frozen modes 1/2 and 56 FPS in mode 3, and mode 0 remained faster after the
+modes were traversed backward. This history dependence points to persistent
+scene/BVH/acceleration planning or GPU structure state rather than work paid
+independently by each hit.
+
+The frozen host state machine had also collapsed every successful mode >=3
+capture to captured mode 3. Consequently modes 4/5 never matched their replay
+requests and rebuilt each frame; previous factorial timings for those modes are
+invalid. The captured identity now preserves modes 4 and 5. Releasing any
+frozen mode to zero arms eight `frozen release audit` lines covering full scene
+time through the end of the function, pre-BVH scene time, component timings,
+geometry/TLAS counts and async rigid-route, rigid-TLAS, BVH and acceleration
+cache/queue state. The prescribed Vulkan build passes and all SPIR-V is up to
+date. The executable deployment remains pending while the running game holds
+the destination file open.

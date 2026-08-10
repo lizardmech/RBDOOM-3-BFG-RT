@@ -7303,14 +7303,19 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     if (frozenSceneRequest == 0 &&
         m_unifiedPtFrozenSceneCapturedMode != 0)
     {
+        const int releasedFrozenMode =
+            m_unifiedPtFrozenSceneCapturedMode;
         common->Printf(
             "PathTraceUnifiedPt: frozen scene released mode=%d replayFrames=%llu; normal publication resumed\n",
-            m_unifiedPtFrozenSceneCapturedMode,
+            releasedFrozenMode,
             static_cast<unsigned long long>(
                 m_unifiedPtFrozenSceneReplayFrames));
         m_unifiedPtFrozenSceneCapturedMode = 0;
         m_unifiedPtFrozenSceneReplayFrames = 0;
         m_unifiedPtFrozenSceneReportedMode = -1;
+        m_unifiedPtFrozenSceneReleaseAuditFromMode =
+            releasedFrozenMode;
+        m_unifiedPtFrozenSceneReleaseAuditFramesRemaining = 8;
         m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES);
     }
     else if (frozenSceneRequest == 2 &&
@@ -15096,7 +15101,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     if (completedFrozenRequest == 1 || completedFrozenRequest >= 3)
     {
         m_unifiedPtFrozenSceneCapturedMode =
-            completedFrozenRequest == 1 ? 2 : 3;
+            completedFrozenRequest == 1
+                ? 2
+                : completedFrozenRequest;
         m_unifiedPtFrozenSceneReplayFrames = 0;
         m_unifiedPtFrozenSceneReportedMode = -1;
         if (completedFrozenRequest == 1)
@@ -15229,6 +15236,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.rigidRouteVertexCount = rigidRouteBuild.stats.vertices;
     sceneLogDesc.rigidRouteIndexCount = rigidRouteBuild.stats.indexes;
     sceneLogDesc.rigidRouteTriangleCount = rigidRouteBuild.stats.triangles;
+    int frozenAuditBvhFramePlanMs = 0;
+    bool frozenAuditBvhFramePlanningAlreadyCached = false;
+    bool frozenAuditBvhFramePlanningAlreadyQueued = false;
     {
         OPTICK_EVENT("PT BVH Frame Planning");
     const bool staticBucketAuditRequested =
@@ -15805,6 +15815,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.bvhGeometryContentSignature = bvhFrameToken.dirtyToken.geometryContentSignature;
     sceneLogDesc.bvhActiveBlasInputSignature = bvhFrameToken.dirtyToken.activeBlasInputSignature;
     sceneLogDesc.bvhTlasInstanceSignature = bvhFrameToken.dirtyToken.tlasInstanceSignature;
+    frozenAuditBvhFramePlanMs = bvhFramePlanMs;
+    frozenAuditBvhFramePlanningAlreadyCached =
+        bvhFramePlanningAlreadyCached;
+    frozenAuditBvhFramePlanningAlreadyQueued =
+        bvhFramePlanningAlreadyQueued;
     }
     sceneLogDesc.requestedDebugMode = requestedDebugMode;
     sceneLogDesc.staticUploadBytes = staticUploadBytes;
@@ -16370,5 +16385,47 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         OPTICK_EVENT("PT Scene Diagnostic Logs");
         RunSmokeSceneBuildDiagnosticLogs(sceneLogDesc);
+    }
+    if (m_unifiedPtFrozenSceneReleaseAuditFramesRemaining > 0)
+    {
+        const int auditFrame =
+            9 - m_unifiedPtFrozenSceneReleaseAuditFramesRemaining;
+        const int fullSceneMs = Sys_Milliseconds() - sceneStartMs;
+        common->Printf(
+            "PathTraceUnifiedPt: frozen release audit from=%d frame=%d fullSceneMs=%d preBvhSceneMs=%d captureMs=%d materialMs=%d emissiveMs=%d bufferCreateMs=%d bufferUploadMs=%d bvhPlanMs=%d accelSubmitMs=%d blasMs=%d tlasMs=%d tlasInstances=%d rigidTlas=%zu rigidRoute=%d staticBuckets=%zu geometry(v/i dynamic=%d/%d rigid=%d/%d) async(enabled=%d bvh=%d accelAccepted=%d rigidTlasCached/queued=%d/%d rigidRouteCached/queued=%d/%d bvhCached/queued=%d/%d)\n",
+            m_unifiedPtFrozenSceneReleaseAuditFromMode,
+            auditFrame,
+            fullSceneMs,
+            sceneMs,
+            captureMs,
+            materialMs,
+            emissiveMs,
+            bufferCreateMs,
+            bufferUploadMs,
+            frozenAuditBvhFramePlanMs,
+            accelSubmitMs,
+            blasSubmitMs,
+            tlasSubmitMs,
+            instanceCount,
+            rigidTlasRouteInstances.size(),
+            rigidRouteBuild.stats.emittedInstances,
+            staticBucketFramePublication.activePublication.
+                tlasInstances.size(),
+            dynamicVertexCount,
+            dynamicIndexCount,
+            rigidRouteBuild.stats.vertices,
+            rigidRouteBuild.stats.indexes,
+            asyncCpuPlanning ? 1 : 0,
+            asyncBvhFramePlanning ? 1 : 0,
+            accelerationPlanAcceptedFromAsync ? 1 : 0,
+            rigidTlasAsyncPlanCached ? 1 : 0,
+            rigidTlasAsyncPlanQueued ? 1 : 0,
+            rigidRouteBuildAsyncCached ? 1 : 0,
+            rigidRouteBuildAsyncQueued ? 1 : 0,
+            frozenAuditBvhFramePlanningAlreadyCached ? 1 : 0,
+            frozenAuditBvhFramePlanningAlreadyQueued ? 1 : 0);
+        --m_unifiedPtFrozenSceneReleaseAuditFramesRemaining;
+        if (m_unifiedPtFrozenSceneReleaseAuditFramesRemaining == 0)
+            m_unifiedPtFrozenSceneReleaseAuditFromMode = 0;
     }
 }
