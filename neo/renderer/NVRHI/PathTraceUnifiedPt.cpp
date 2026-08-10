@@ -425,6 +425,7 @@ static uint64_t Upt06BuildContentGeneration(
     hash = Upt04HashValue(hash, enabledFamilyMask);
     hash = Upt04HashValue(hash, specializationIdentity);
     hash = Upt04HashValue(hash, dispatch.lambertDiagnostic ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.temporalBottleneckProbe);
     hash = Upt04HashValue(hash, UPT04_TRANSPORT_K_MAX);
     hash = Upt04HashValue(hash, UPT04_TRANSPORT_POLICY_ID);
     const uint32_t emissiveTrialCount = static_cast<uint32_t>(
@@ -1247,6 +1248,8 @@ void PathTraceUnifiedPtState::ReleaseTemporal()
     m_temporalPipeline = nullptr;
     m_temporalShader = nullptr;
     m_temporalBindingLayout = nullptr;
+    m_temporalBottleneckBuffer = nullptr;
+    m_temporalBottleneckCapacity = 0u;
     m_temporalPipelineAttempted = false;
     m_reportedTemporalHistoryAvailable = -1;
     m_reportedTemporalSkipReason = -1;
@@ -4126,7 +4129,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         && m_temporalIndirect == indirect
         && m_temporalEarlyReconnect == earlyReconnect
         && m_temporalRouteDiagnostics == routeDiagnostics
-        && m_temporalLambertDiagnostic == inputs.lambertDiagnostic)
+        && m_temporalLambertDiagnostic == inputs.lambertDiagnostic
+        && m_temporalBottleneckProbe == inputs.temporalBottleneckProbe)
     {
         return true;
     }
@@ -4135,7 +4139,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         || m_temporalIndirect != indirect
         || m_temporalEarlyReconnect != earlyReconnect
         || m_temporalRouteDiagnostics != routeDiagnostics
-        || m_temporalLambertDiagnostic != inputs.lambertDiagnostic)
+        || m_temporalLambertDiagnostic != inputs.lambertDiagnostic
+        || m_temporalBottleneckProbe != inputs.temporalBottleneckProbe)
     {
         ReleaseTemporal();
         m_temporalCompactLights = inputs.compactLights;
@@ -4144,6 +4149,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         m_temporalEarlyReconnect = earlyReconnect;
         m_temporalRouteDiagnostics = routeDiagnostics;
         m_temporalLambertDiagnostic = inputs.lambertDiagnostic;
+        m_temporalBottleneckProbe = inputs.temporalBottleneckProbe;
     }
     if (m_temporalPipelineAttempted)
     {
@@ -4190,6 +4196,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
     if (earlyReconnect || routeDiagnostics)
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
+    if (inputs.temporalBottleneckProbe != 0u)
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT07_PUSH_CONSTANT_BYTES));
     m_temporalBindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -4200,7 +4208,16 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         return false;
     }
 
-    const char* path = inputs.lambertDiagnostic
+    static const char* bottleneckPaths[5] = {
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe1.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe2.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe3.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe4.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe5.bin"
+    };
+    const char* path = inputs.temporalBottleneckProbe != 0u
+        ? bottleneckPaths[inputs.temporalBottleneckProbe - 1u]
+        : (inputs.lambertDiagnostic
         ? (inputs.duplication
             ? (inputs.compactLights
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert.bin"
@@ -4238,7 +4255,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
                 : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery_duplication.bin")
             : (inputs.compactLights
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery_light64.bin"
-                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery.bin")));
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery.bin"))));
     void* data = nullptr;
     int size = 0;
     ID_TIME_T timestamp = 0;
@@ -4275,7 +4292,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u family=%s shading=%s createUs=%llu\n",
+        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u family=%s shading=%s bottleneckProbe=%u createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -4287,8 +4304,45 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
             : (routeDiagnostics ? "unified-route-diagnostics" : "unified"))
             : "direct-basic",
         inputs.lambertDiagnostic ? "lambert-diagnostic" : "openpbr",
+        inputs.temporalBottleneckProbe,
         static_cast<unsigned long long>(pipelineUs));
     return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureTemporalBottleneckBuffer(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (inputs.temporalBottleneckProbe == 0u)
+        return true;
+    const uint64_t count64 = uint64_t(inputs.width) * uint64_t(inputs.height);
+    if (count64 == 0u || count64 > UINT32_MAX)
+        return false;
+    const uint32_t count = static_cast<uint32_t>(count64);
+    if (m_temporalBottleneckBuffer && m_temporalBottleneckCapacity == count)
+        return true;
+
+    nvrhi::BufferDesc desc;
+    desc.debugName = "PathTraceUnifiedPtTemporalBottleneckProbe";
+    desc.byteSize = count64 * sizeof(uint32_t);
+    desc.structStride = sizeof(uint32_t);
+    desc.canHaveUAVs = true;
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+    m_temporalBottleneckBuffer = inputs.device->createBuffer(desc);
+    m_temporalBottleneckCapacity = m_temporalBottleneckBuffer ? count : 0u;
+    for (uint32_t page = 0; page < 2u; ++page)
+    {
+        m_temporalBindingSets[page] = nullptr;
+        m_temporalBindingSetDescValid[page] = false;
+    }
+    if (m_temporalBottleneckBuffer)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: temporal bottleneck probe buffer pixels=%u bytes=%llu clear=never\n",
+            count,
+            static_cast<unsigned long long>(desc.byteSize));
+    }
+    return m_temporalBottleneckBuffer != nullptr;
 }
 
 bool PathTraceUnifiedPtState::EnsureTemporalDiagnosticBuffers(
@@ -4466,6 +4520,9 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
     if (m_temporalEarlyReconnect || m_temporalRouteDiagnostics)
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
             30, m_temporalDiagnosticCounters));
+    if (inputs.temporalBottleneckProbe != 0u)
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            31, m_temporalBottleneckBuffer));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT07_PUSH_CONSTANT_BYTES));
     if (m_temporalBindingSets[pageIndex] &&
@@ -4537,6 +4594,8 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
         return reportSkip(9, "temporal-diagnostics-unavailable");
     if (!EnsureTemporalPipeline(inputs))
         return reportSkip(5, "pipeline-unavailable");
+    if (!EnsureTemporalBottleneckBuffer(inputs))
+        return reportSkip(10, "bottleneck-probe-buffer-unavailable");
     if (!EnsureTemporalBindingSet(inputs))
         return reportSkip(6, "binding-set-unavailable");
 

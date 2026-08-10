@@ -2834,6 +2834,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.duplication =
                 r_pathTracingUnifiedPtDuplication.GetBool() &&
                 unifiedPtInputs.temporal;
+            unifiedPtInputs.temporalBottleneckProbe =
+                unifiedPtInputs.lambertDiagnostic &&
+                unifiedPtInputs.compactLights &&
+                unifiedPtInputs.duplication &&
+                unifiedPtInputs.temporal &&
+                r_pathTracingUnifiedPtTemporalIndirect.GetBool()
+                    ? static_cast<uint32_t>(idMath::ClampInt(
+                        0, 5,
+                        r_pathTracingUnifiedPtTemporalBottleneckProbe.GetInteger()))
+                    : 0u;
             unifiedPtInputs.spatial =
                 r_pathTracingUnifiedPtSpatial.GetBool() &&
                 unifiedPtInputs.family == PathTraceUnifiedPtFamily::DirectOnly;

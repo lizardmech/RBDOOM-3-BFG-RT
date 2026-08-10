@@ -75,6 +75,7 @@ struct PathTraceUnifiedPtDispatchInputs
     bool splitInitial = false;
     bool splitContinuation = false;
     bool lambertDiagnostic = false;
+    uint32_t temporalBottleneckProbe = 0;
     bool directProposalParity = false;
     bool lightTiles = false;
     bool temporal = false;
@@ -160,6 +161,7 @@ private:
     bool EnsureResolveBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureTemporalBottleneckBuffer(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalDiagnosticBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
     void DrainTemporalDiagnosticReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureDuplicationResources(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -315,6 +317,7 @@ private:
     bool m_temporalEarlyReconnect = false;
     bool m_temporalRouteDiagnostics = false;
     bool m_temporalLambertDiagnostic = false;
+    uint32_t m_temporalBottleneckProbe = 0;
     bool m_temporalPipelineAttempted = false;
     nvrhi::BindingLayoutHandle m_temporalBindingLayout;
     std::array<nvrhi::BindingSetHandle, 2> m_temporalBindingSets;
@@ -324,6 +327,8 @@ private:
     nvrhi::ComputePipelineHandle m_temporalPipeline;
     nvrhi::BufferHandle m_temporalDiagnosticCounters;
     nvrhi::BufferHandle m_temporalDiagnosticReadback;
+    uint32_t m_temporalBottleneckCapacity = 0;
+    nvrhi::BufferHandle m_temporalBottleneckBuffer;
     bool m_temporalDiagnosticReadbackPending = false;
     bool m_temporalDiagnosticReadbackIsRoute = false;
     int m_temporalDiagnosticReadbackDelayFrames = 0;

@@ -20,6 +20,9 @@ import upt07_temporal_surface_contract;
 #ifndef UPT07_ROUTE_DIAGNOSTICS
 #define UPT07_ROUTE_DIAGNOSTICS 0
 #endif
+#ifndef UPT07_BOTTLENECK_STAGE
+#define UPT07_BOTTLENECK_STAGE 0
+#endif
 
 public struct Upt07TemporalDirectControl
 {
@@ -67,6 +70,9 @@ public [[vk::binding(26, 0)]] StructuredBuffer<Upt04PrimaryHistorySidecar> gUpt0
 public [[vk::binding(29, 0)]] StructuredBuffer<Upt04EmissiveDistributionEntry> gUpt07EmissiveDistribution;
 #if UPT07_INDIRECT_REPLAY && (UPT07_EARLY_RECONNECT || UPT07_ROUTE_DIAGNOSTICS)
 public [[vk::binding(30, 0)]] RWStructuredBuffer<uint> gUpt07ReconnectDiagnostics;
+#endif
+#if UPT07_BOTTLENECK_STAGE > 0
+public [[vk::binding(31, 0)]] RWStructuredBuffer<uint> gUpt07BottleneckProbe;
 #endif
 public [[vk::push_constant]] ConstantBuffer<Upt07TemporalDirectControl> gUpt07Control;
 

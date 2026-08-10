@@ -33,6 +33,9 @@ import upt07_emissive_material;
 #ifndef UPT07_ROUTE_DIAGNOSTICS
 #define UPT07_ROUTE_DIAGNOSTICS 0
 #endif
+#ifndef UPT07_BOTTLENECK_STAGE
+#define UPT07_BOTTLENECK_STAGE 0
+#endif
 #if UPT07_INDIRECT_REPLAY
 import upt07_temporal_indirect;
 #endif
@@ -454,6 +457,25 @@ public uint Upt07BuildSelectedVisibility(
     return 1u;
 }
 
+#if UPT07_BOTTLENECK_STAGE > 0
+uint Upt07BottleneckMix(uint digest, uint value)
+{
+    return (digest ^ value) * 16777619u;
+}
+
+void Upt07PublishBottleneckProbe(
+    uint index,
+    Upt03PackedReservoir currentPacked,
+    uint digest)
+{
+    // Every probe invocation writes one observable digest so Slang cannot
+    // dead-strip the cumulative work. Republish the untouched D0 record so
+    // every probe mode consumes the same previous-frame D0 population.
+    gUpt07BottleneckProbe[index] = digest;
+    gUpt07CurrentReservoirs[index] = currentPacked;
+}
+#endif
+
 [numthreads(8, 8, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -588,6 +610,21 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #else
     const bool indirectHistoryEligible = false;
 #endif
+#if UPT07_BOTTLENECK_STAGE == 1
+    uint bottleneckDigest = 2166136261u;
+    bottleneckDigest = Upt07BottleneckMix(bottleneckDigest, historyIndex);
+    bottleneckDigest = Upt07BottleneckMix(bottleneckDigest, history.valid);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, history.logical.hasSelectedSample);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, history.logical.selected.eventKind);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, directHistoryEligible ? 1u : 0u);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, indirectHistoryEligible ? 1u : 0u);
+    Upt07PublishBottleneckProbe(index, currentPacked, bottleneckDigest);
+    return;
+#endif
 #if UPT07_INDIRECT_REPLAY && UPT07_ROUTE_DIAGNOSTICS
     if (history.valid != 0u && history.logical.hasSelectedSample != 0u)
     {
@@ -658,6 +695,24 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 ? 0u : kUpt07RejectShiftedValidZero;
 #endif
     }
+
+#if UPT07_BOTTLENECK_STAGE == 2
+    uint bottleneckDigest = 2166136261u;
+    bottleneckDigest = Upt07BottleneckMix(bottleneckDigest, historyIndex);
+    bottleneckDigest = Upt07BottleneckMix(bottleneckDigest, shiftedValid);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, historyFailureReason);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, shifted.eventKind);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, shifted.identity0);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, shifted.identity1);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, asuint(historyShiftJacobian));
+    Upt07PublishBottleneckProbe(index, currentPacked, bottleneckDigest);
+    return;
+#endif
 
     const uint historyIdentity = shiftedValid != 0u ? shifted.identity0 : 0u;
     Upt07DecodedReservoir seededCurrent = current;
@@ -811,6 +866,24 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         ? confidenceHistory.logical.selected.target
         : 0.0f;
 
+#if UPT07_BOTTLENECK_STAGE == 3
+    uint bottleneckDigest = 2166136261u;
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, confidenceShiftedValid);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, basicSelectsHistory ? 1u : 0u);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, asuint(currentTargetAtCurrent));
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, asuint(currentTargetAtHistory));
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, asuint(historyTargetAtHistory));
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, adaptiveMaximumHistoryM);
+    Upt07PublishBottleneckProbe(index, currentPacked, bottleneckDigest);
+    return;
+#endif
+
     Upt07TemporalMergeResult merged = Upt07MergeTemporal(
         seededCurrent,
         confidenceHistory,
@@ -847,6 +920,22 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         Upt07ReconnectDiag(kUpt07ReconnectDiagHistorySelected);
 #endif
 
+#if UPT07_BOTTLENECK_STAGE == 4
+    uint bottleneckDigest = 2166136261u;
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, merged.logical.hasSelectedSample);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, merged.selectedHistory);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, merged.logical.selected.eventKind);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, merged.logical.selected.identity0);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, asuint(merged.logical.weightSum));
+    Upt07PublishBottleneckProbe(index, currentPacked, bottleneckDigest);
+    return;
+#endif
+
     // Regression guard: both RTXDI FullSample and the accepted legacy DI lane
     // re-establish final visibility after reuse. UPT-05 deliberately cannot
     // trace, so deleting the old T0 ray left history-selected radiance fully
@@ -864,6 +953,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // current candidate route that reaches T0 without D0 visibility proof.
     const bool mergedIndirect = merged.logical.hasSelectedSample != 0u
         && (merged.logical.selected.flags & kUpt04CandidateFlagGlobal) != 0u;
+#if UPT07_BOTTLENECK_STAGE == 5
+    // 1 = no query required, 2 = query passed, 3 = query failed/unavailable.
+    uint bottleneckVisibilityResult = 1u;
+#endif
 #if UPT07_INDIRECT_REPLAY
     if (merged.logical.hasSelectedSample != 0u
         && ((merged.selectedHistory != 0u && !mergedIndirect)
@@ -896,6 +989,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                     visibilityIgnore) != 0u
                 && Upt07VisibilityPassed(visibility, visibilityIgnore);
         }
+#if UPT07_BOTTLENECK_STAGE == 5
+        bottleneckVisibilityResult = visibilityPassed ? 2u : 3u;
+        if (visibilityPassed)
+        {
+            merged.logical.selected.flags =
+                (merged.logical.selected.flags & ~visibilityProof)
+                | visibilityProof;
+        }
+#else
         if (!visibilityPassed)
         {
 #if UPT07_ROUTE_DIAGNOSTICS
@@ -907,6 +1009,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         merged.logical.selected.flags =
             (merged.logical.selected.flags & ~visibilityProof)
             | visibilityProof;
+#endif
     }
 #else
     if (merged.logical.hasSelectedSample != 0u
@@ -929,6 +1032,21 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             (merged.logical.selected.flags & ~visibilityProof)
             | visibilityProof;
     }
+#endif
+#if UPT07_BOTTLENECK_STAGE == 5
+    uint bottleneckDigest = 2166136261u;
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, merged.logical.hasSelectedSample);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, merged.selectedHistory);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, merged.logical.selected.eventKind);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, merged.logical.selected.identity0);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, bottleneckVisibilityResult);
+    Upt07PublishBottleneckProbe(index, currentPacked, bottleneckDigest);
+    return;
 #endif
     gUpt07CurrentReservoirs[index] = Upt07PackTemporalResult(merged);
 }

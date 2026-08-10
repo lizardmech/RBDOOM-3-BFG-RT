@@ -1,0 +1,119 @@
+UPT-22: decisive temporal bottleneck ladder
+============================================
+
+Status
+------
+
+Implemented and Vulkan-build verified on 2026-08-10. Runtime timings are the
+acceptance result. This is a destructive profiling view of T0 output, not a
+renderer mode and not an estimator experiment.
+
+Purpose
+-------
+
+Aggregate Nsight stalls and route counters could show that indirect temporal
+was expensive but could not assign its milliseconds among receiver/history
+traffic, the first indirect replay, reciprocal cross evaluation, merge work and
+final visibility. OpenPBR isolation also changed continuation directions and
+therefore could not isolate these dependency chains.
+
+The new cvar selects five separately compiled cumulative T0 shaders:
+
+    r_pathTracingUnifiedPtTemporalBottleneckProbe 0..5
+
+    0   normal production temporal
+    1   receiver reprojection, surface search and history load
+    2   stage 1 plus history-to-current indirect replay
+    3   stage 2 plus previous-best/duplication and reciprocal cross evaluation
+    4   stage 3 plus temporal reservoir merge
+    5   stage 4 plus final winner visibility
+
+Every nonzero stage writes one digest dword per valid pixel so the compiler
+cannot remove computed values. It then republishes the untouched D0 reservoir,
+including stage 5. Consequently every probe stage consumes the same previous-
+frame D0 event population instead of changing later work by feeding a partial
+temporal result back into history. The digest buffer is count-bounded, fully
+written by active pixels and never cleared.
+
+Admission gate
+--------------
+
+The host clamps the cvar to 0..5 and admits a nonzero stage only with:
+
+    r_pathTracingUnifiedPtFamily 0
+    r_pathTracingUnifiedPtBackend 0
+    r_pathTracingUnifiedPtCompactReceiver 2
+    r_pathTracingUnifiedPtCompactLights 1
+    r_pathTracingUnifiedPtLambertDiagnostic 1
+    r_pathTracingUnifiedPtTemporal 1
+    r_pathTracingUnifiedPtTemporalIndirect 1
+    r_pathTracingUnifiedPtDuplication 1
+    r_pathTracingUnifiedPtTemporalEarlyReconnect 0
+    r_pathTracingUnifiedPtTemporalRouteDiagnostics 0
+    r_pathTracingUnifiedPtSplitInitial 0
+    r_pathTracingUnifiedPtDiagnostics 0
+    r_pathTracingUnifiedPtShaderProof 6
+
+The temporal pipeline log must print shading=lambert-diagnostic and
+bottleneckProbe=N. A missing or zero label means the requested stage was gated
+off and the timing is invalid.
+
+SPIR-V proof
+------------
+
+The built blobs demonstrate cumulative closure rather than a runtime branch or
+dead-code-eliminated experiment:
+
+    stage   bytes     static RayQuery initialization sites   digest binding
+      1      71,684                  0                             31
+      2     309,912                  1                             31
+      3     616,736                  2                             31
+      4     639,216                  2                             31
+      5     712,112                  4                             31
+
+Stage 2 adds the first replay query. Stage 3 adds the reciprocal replay site.
+Stage 4 adds no traversal. Stage 5 adds the two possible final-visibility sites.
+The compile-time unreachable-code warnings after each terminal probe return are
+expected; normal variants compile with the probe macro explicitly equal to zero.
+
+Capture procedure
+-----------------
+
+Use one fixed heavy Doom-level camera, fixed resolution and otherwise identical
+cvars. Disable unrelated diagnostics. For each stage 1 through 5, wait until the
+pipeline log has printed the requested stage and at least two subsequent frames
+have run, then capture the T0 marker. Record a median of several frames if the
+marker is visibly noisy. Do not compare image quality: probe stages deliberately
+show D0-only output.
+
+Let the measured temporal times be T1..T5. Attribute work by subtraction:
+
+    receiver/history shell        = T1
+    history indirect replay       = T2 - T1
+    reciprocal/cross evaluation   = T3 - T2
+    merge/duplication remainder    = T4 - T3
+    final winner visibility       = T5 - T4
+
+Also record production mode 0 as P. P versus T5 is not an instruction delta:
+it measures how much production temporal feedback changes the next frame's
+event population compared with the controlled D0-only population. A large
+P-T5 difference is itself proof that temporal feedback/route population, rather
+than one isolated shader block, owns the instability.
+
+Decision rule
+-------------
+
+The largest positive adjacent delta owns the next implementation task. If
+T2-T1 dominates, compact/queue the first replay or reduce its traversal work.
+If T3-T2 dominates, remove or restructure reciprocal replay/pairwise work. If
+T5-T4 dominates, compact winner visibility. If T1 dominates, the bottleneck is
+full-screen receiver/history memory and reprojection before any RayQuery. If no
+single delta dominates but P is much larger than T5, investigate temporal event
+feedback and route amplification rather than shader arithmetic.
+
+Build and deployment
+--------------------
+
+`cmake --build --preset win64-pt-dev-release` from `neo/` passes. The five
+Vulkan SPIR-V artifacts and matching executable are the only required deploy
+outputs for this diagnostic. No DX12 shader is compiled.

@@ -205,6 +205,27 @@ upt07_declare_lambert_variant(
     upt07_temporal_unified_rayquery_light64_duplication_lambert
     UPT07_PACKED_LIGHT_RECORD=1 UPT07_DUPLICATION_MAP=1)
 
+set(UPT07_BOTTLENECK_OUTPUTS)
+foreach(bottleneck_stage RANGE 1 5)
+    set(bottleneck_module
+        "upt07_temporal_unified_rayquery_light64_duplication_lambert_probe${bottleneck_stage}")
+    path_tracing_declare_slang_spirv_module(
+        NAME "${bottleneck_module}"
+        SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+        ENTRY main STAGE compute OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+        INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_LIST_DIR}/.."
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        DEPENDS ${UPT07_DIRECT_MODULES}
+        DEFINES UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_INDIRECT_REPLAY=1
+            UPT_DIAGNOSTIC_LAMBERT=1 UPT07_PACKED_LIGHT_RECORD=1
+            UPT07_DUPLICATION_MAP=1
+            UPT07_BOTTLENECK_STAGE=${bottleneck_stage}
+        OUT_VAR bottleneck_outputs)
+    list(APPEND UPT07_BOTTLENECK_OUTPUTS ${bottleneck_outputs})
+endforeach()
+
 path_tracing_declare_slang_spirv_module(
     NAME upt07_temporal_unified_rayquery_route_diag
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
@@ -366,6 +387,22 @@ foreach(lambert_module
         VERBATIM)
     list(APPEND UPT07_LAMBERT_RUNTIME_OUTPUTS "${lambert_runtime}")
 endforeach()
+set(UPT07_BOTTLENECK_RUNTIME_OUTPUTS)
+foreach(bottleneck_stage RANGE 1 5)
+    set(bottleneck_module
+        "upt07_temporal_unified_rayquery_light64_duplication_lambert_probe${bottleneck_stage}")
+    set(bottleneck_runtime "${UPT07_RUNTIME_DIR}/${bottleneck_module}.bin")
+    add_custom_command(
+        OUTPUT "${bottleneck_runtime}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT07_RUNTIME_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${UPT07_OUTPUT_DIR}/${bottleneck_module}.slang.spv"
+            "${bottleneck_runtime}"
+        DEPENDS ${UPT07_BOTTLENECK_OUTPUTS}
+        COMMENT "UPT-22 Vulkan T0 bottleneck probe artifact: stage ${bottleneck_stage}"
+        VERBATIM)
+    list(APPEND UPT07_BOTTLENECK_RUNTIME_OUTPUTS "${bottleneck_runtime}")
+endforeach()
 set(UPT07_UNIFIED_ROUTE_DIAG_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_route_diag.bin")
 set(UPT07_UNIFIED_COMPACT_ROUTE_DIAG_RUNTIME_OUTPUT
@@ -481,7 +518,8 @@ add_custom_target(PathTraceSlangUpt07TemporalOwnership
         "${UPT07_UNIFIED_COMPACT_ROUTE_DIAG_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_COMPACT_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
-        ${UPT07_LAMBERT_RUNTIME_OUTPUTS})
+        ${UPT07_LAMBERT_RUNTIME_OUTPUTS}
+        ${UPT07_BOTTLENECK_RUNTIME_OUTPUTS})
 set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
     FOLDER "Shaders/UPT-07")
 if(TARGET RBDoom3BFG)

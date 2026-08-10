@@ -82,3 +82,20 @@ passes. All seven D0 Lambert layout variants, the compact32 continuation tracer,
 four unified T0 variants and two UPT-09 variants compile to Vulkan SPIR-V and
 pass the existing UPT closure/runtime-artifact verifiers. DX12 shaders were not
 compiled.
+
+Runtime result, 2026-08-10
+--------------------------
+
+The static Lambert specialization reduces temporal by about 3 ms in the PBR-orb
+view, but produces no measurable temporal improvement in the heavy Doom-level
+area. This partially admits the diagnostic and rejects OpenPBR as the general
+cause of the large production T0 cost. OpenPBR execution/code footprint is
+material in the deliberately PBR-heavy orb view, but removing it does not move
+the dominant Doom-level bottleneck.
+
+Do not generalize the orb delta directly into pure shader cost: Lambert also
+changes continuation directions and therefore the traversed geometry and later
+event distribution. The no-change Doom result is the stronger isolation result.
+The next investigation should stay in T0 indirect replay/traversal scheduling,
+light-count-dependent work and dependent global-memory traffic rather than
+further simplifying the OpenPBR implementation.

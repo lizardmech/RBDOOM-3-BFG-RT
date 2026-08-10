@@ -1509,6 +1509,12 @@ idCVar r_pathTracingUnifiedPtTemporalRouteDiagnostics(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT temporal workload diagnostic specialization: one-frame-delayed counters for current/history event mix, indirect replay attempts, BASIC selection, merge winner, age, and failure route; valid with early reconnect disabled" );
 
+idCVar r_pathTracingUnifiedPtTemporalBottleneckProbe(
+    "r_pathTracingUnifiedPtTemporalBottleneckProbe",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Vulkan UPT T0 static bottleneck ladder for Lambert+compact64+duplication: 0 production, 1 reprojection/history only, 2 plus history indirect replay, 3 plus reciprocal/cross evaluation, 4 plus merge, 5 plus final visibility; probe modes execute cumulative work then republish D0 and write one digest dword per pixel" );
+
 idCVar r_pathTracingUnifiedPtDuplication(
     "r_pathTracingUnifiedPtDuplication",
     "1",
