@@ -150,24 +150,31 @@ same partition. The reciprocal/cross stage therefore owns 56 percent of the
 controlled T5 shader and 48 percent of production P; temporal merge is closed
 as the next optimization target.
 
-Modes 6 through 9 split that dominant stage without changing modes 1 through
+Modes 6 through 11 split that dominant stage without changing modes 1 through
 5:
 
     6   T2 plus previous-best/duplication bookkeeping and BASIC selection
     7   T6 plus current-candidate target at the current receiver
     8   T7 plus direct-light target at the history receiver
-    9   T8 plus global reciprocal continuation, RayQuery and hit decode
+    10  T8 plus reciprocal identity, continuation and trace-request construction
+    11  T10 plus reciprocal RayQuery and committed-hit facts
+    9   T11 plus full geometry-surface decode
     3   T9 plus global post-hit endpoint/light/material/PDF target evaluation
 
-Stage 9 returns immediately after folding the complete decoded hit surface into
-the observable probe digest. It does not admit a synthetic sample to the
-reservoir and, like every other probe, republishes untouched D0. Run the modes
-in the order 2, 6, 7, 8, 9, 3 under the existing timestamp sampler. Attribute:
+Stage 10 folds every resolved identity, continuation and request field into the
+observable digest before the second query. Stage 11 folds every committed-hit
+fact into the digest before vertex/index/material loads. Stage 9 folds the
+complete decoded hit surface into the digest. None admits a synthetic sample to
+the reservoir; every probe republishes untouched D0. Run modes 2, 6, 7 and 8
+when reproducing the full stage-3 partition, then run 8, 10, 11, 9 and 3 for the
+focused T9 split. Attribute:
 
     bookkeeping/duplication       = T6 - T2
     current-receiver target       = T7 - T6
     direct cross-receiver target  = T8 - T7
-    reciprocal traversal/decode   = T9 - T8
+    reciprocal request setup      = T10 - T8
+    reciprocal RayQuery           = T11 - T10
+    reciprocal surface decode     = T9 - T11
     reciprocal post-hit target    = T3 - T9
 
 Static SPIR-V inspection proves the intended closure:
@@ -177,19 +184,26 @@ Static SPIR-V inspection proves the intended closure:
       6    339,132                  1 / 1                    422
       7    393,824                  1 / 1                    506
       8    446,320                  1 / 1                    589
+     10    478,256                  1 / 1                    604
+     11    502,424                  2 / 2                    664
       9    542,564                  2 / 2                    721
       3    616,736                  2 / 2                    883
 
-Thus mode 9 introduces exactly the reciprocal query and decoded geometry;
-mode 3 retains the same ray count while adding the remaining post-hit work.
+Thus mode 10 contains no reciprocal query, mode 11 introduces exactly that
+query without surface decode, mode 9 adds decoded geometry without another
+ray, and mode 3 adds the remaining post-hit work.
 
 Build and deployment
 --------------------
 
-`cmake --build --preset win64-pt-dev-release` from `neo/` passes. The nine
+`cmake --build --preset win64-pt-dev-release` from `neo/` passes. The eleven
 diagnostic Vulkan SPIR-V artifacts and matching executable are the only required deploy
 outputs for this diagnostic. No DX12 shader is compiled.
 
 After the stage-3 refinement, only the four new probe 6--9 blobs and the rebuilt
 executable require deployment; the original probes and normal UPT-07 artifacts
 remain byte-identical.
+
+After the T9 refinement, only new probes 10 and 11 plus the rebuilt executable
+require deployment. Probes 1--9 and normal UPT-07 artifacts remain
+byte-identical.

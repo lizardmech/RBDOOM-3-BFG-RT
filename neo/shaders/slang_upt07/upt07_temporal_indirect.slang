@@ -939,11 +939,66 @@ public uint Upt07ReplayIndirectSample(
             continuation.direction,
             continuationRay))
         return 0u;
+
+#if UPT07_BOTTLENECK_STAGE == 10
+    if (sourceIsHistory == 0u)
+    {
+        // Price reciprocal identity resolution, random continuation replay and
+        // exact trace-request construction without admitting the second ray.
+        // Fold every request/path input into the observable scalar so this
+        // cannot collapse to the stage-8 no-reciprocal specialization.
+        const float requestDigest =
+            abs(dot(continuationRay.origin,
+                float3(0.131f, 0.173f, 0.197f)))
+            + abs(dot(continuationRay.direction,
+                float3(0.211f, 0.233f, 0.257f)))
+            + abs(continuationRay.tMin) * 0.277f
+            + abs(continuationRay.tMax) * 0.293f
+            + abs(dot(continuation.throughput,
+                float3(0.313f, 0.331f, 0.347f)))
+            + abs(continuation.pdf) * 0.367f
+            + float(continuation.lobeMask & 0xffu) * 1.0e-4f
+            + float(storedDenseIndex & 0xffffu) * 1.0e-5f
+            + float(storedLightType & 0xffu) * 1.0e-4f
+            + abs(storedSelectionPdf) * 0.389f;
+        shifted.status = kUpt04SampleValidPositive;
+        shifted.eventKind = source.eventKind;
+        shifted.target = requestDigest + 1.0e-6f;
+        failureReason = 0u;
+        return 1u;
+    }
+#endif
+
     failureReason = kUpt07RejectIndirectGeometry;
     const Upt04HitFacts hit = Upt07TraceIndirect(
         continuationRay, 0u, Upt04NoVisibilityIgnore());
     if (hit.status != kUpt04HitTriangle || hit.instanceId == 0xffffffffu)
         return 0u;
+
+#if UPT07_BOTTLENECK_STAGE == 11
+    if (sourceIsHistory == 0u)
+    {
+        // Retain every committed-hit fact while stopping before vertex/index,
+        // material and interpolant loads in Upt04DecodeGeometryHit.
+        const float committedHitDigest =
+            abs(hit.hitT) * 0.131f
+            + abs(dot(hit.barycentrics, float2(0.173f, 0.197f)))
+            + float(hit.instanceId & 0xffffu) * 1.0e-5f
+            + float(hit.geometryId & 0xffffu) * 1.0e-6f
+            + float(hit.primitiveId & 0xffffu) * 1.0e-6f
+            + float(hit.frontFace & 1u) * 1.0e-4f;
+        shifted.status = kUpt04SampleValidPositive;
+        shifted.eventKind = source.eventKind;
+        shifted.identity0 = hit.instanceId + 1u;
+        shifted.identity1 = hit.primitiveId + 1u;
+        shifted.sampleCoord0 = hit.barycentrics.x;
+        shifted.sampleCoord1 = hit.barycentrics.y;
+        shifted.target = committedHitDigest + 1.0e-6f;
+        failureReason = 0u;
+        return 1u;
+    }
+#endif
+
     const Upt04GeometryHitSurface hitSurface = Upt04DecodeGeometryHit(hit);
     if (hitSurface.valid == 0u)
         return 0u;

@@ -912,7 +912,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         ? confidenceHistory.logical.selected.target
         : 0.0f;
 
-#if UPT07_BOTTLENECK_STAGE == 3 || UPT07_BOTTLENECK_STAGE == 9
+#if UPT07_BOTTLENECK_STAGE == 3 || UPT07_BOTTLENECK_STAGE == 9 || UPT07_BOTTLENECK_STAGE == 10 || UPT07_BOTTLENECK_STAGE == 11
     uint bottleneckDigest = 2166136261u;
     bottleneckDigest = Upt07BottleneckMix(
         bottleneckDigest, confidenceShiftedValid);

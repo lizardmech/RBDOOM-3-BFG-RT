@@ -2836,7 +2836,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtInputs.temporal;
             const uint32_t requestedTemporalBottleneckProbe =
                 static_cast<uint32_t>(idMath::ClampInt(
-                    0, 9,
+                    0, 11,
                     r_pathTracingUnifiedPtTemporalBottleneckProbe.GetInteger()));
             unifiedPtInputs.temporalBottleneckProbe =
                 unifiedPtInputs.lambertDiagnostic &&
