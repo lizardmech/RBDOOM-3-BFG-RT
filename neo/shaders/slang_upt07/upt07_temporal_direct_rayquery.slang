@@ -9,6 +9,9 @@ import upt04_emissive_replay;
 import upt04_material_contract;
 import upt04_primary_surface_live_contract;
 import upt04_random_white_hash;
+#ifndef UPT_FROZEN_STATIC_SCENE
+#define UPT_FROZEN_STATIC_SCENE 0
+#endif
 #ifndef UPT_DIAGNOSTIC_LAMBERT
 #define UPT_DIAGNOSTIC_LAMBERT 0
 #endif
@@ -179,14 +182,22 @@ public uint Upt07ResolveDirectLight(
     if ((source.eventKind != 1u && source.eventKind != 2u)
         || source.identity0 == 0u)
         return 0u;
+#if UPT_FROZEN_STATIC_SCENE
+    if (source.eventKind == 2u)
+        return 0u;
+#endif
     const uint sourceDenseIndex = source.identity0 - 1u;
     if (sourceIsHistory != 0u)
     {
+#if UPT_FROZEN_STATIC_SCENE
+        currentDenseIndex = sourceDenseIndex;
+#else
         if (sourceDenseIndex >= gUpt07Control.previousToCurrentLightCount)
             return 0u;
         currentDenseIndex = gUpt07PreviousToCurrentLights[sourceDenseIndex];
         if (currentDenseIndex == 0xffffffffu)
             return 0u;
+#endif
     }
     else
     {

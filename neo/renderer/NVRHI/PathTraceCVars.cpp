@@ -1437,6 +1437,12 @@ idCVar r_pathTracingUnifiedPtLambertDiagnostic(
     CVAR_RENDERER | CVAR_BOOL,
     "Vulkan UPT profiling specialization: replace OpenPBR receiver and secondary-hit shading with constant-gray untextured Lambert eval/sample/PDF while preserving emissive endpoint textures and alpha-clip traversal; supported by unified RayQuery compact32 D0 and indirect temporal without reconnect/route diagnostics" );
 
+idCVar r_pathTracingUnifiedPtFrozenScene(
+    "r_pathTracingUnifiedPtFrozenScene",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Vulkan UPT isolated-scene diagnostic: 0 normal scene publication, 1 capture the next complete production scene then switch to 2, 2 replay the immutable committed GPU scene package with no scene/universe uploads or BLAS/TLAS work, 3 capture/replay a static-only TLAS and select the flat-static analytic-only shader specialization" );
+
 idCVar r_pathTracingUnifiedPtDirectProposalParity(
     "r_pathTracingUnifiedPtDirectProposalParity",
     "1",

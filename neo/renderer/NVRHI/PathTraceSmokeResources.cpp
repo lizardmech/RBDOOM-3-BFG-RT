@@ -2722,6 +2722,9 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkyEnvironmentSourceName.Clear();
     m_smokeSceneBuilt = false;
     m_smokeTestDispatched = false;
+    m_unifiedPtFrozenSceneCapturedMode = 0;
+    m_unifiedPtFrozenSceneReplayFrames = 0;
+    m_unifiedPtFrozenSceneReportedMode = -1;
     m_smokeStaticBlasCacheValid = false;
     m_smokeStaticBlasSignature = 0;
     m_smokeStaticBlasOpacitySignature = 0;

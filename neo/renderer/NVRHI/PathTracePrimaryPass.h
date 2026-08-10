@@ -418,6 +418,9 @@ private:
     bool m_smokeSceneBuilt;
     bool m_smokeSceneRebuildLogged;
     bool m_smokeTestDispatched;
+    int m_unifiedPtFrozenSceneCapturedMode = 0;
+    uint64 m_unifiedPtFrozenSceneReplayFrames = 0;
+    int m_unifiedPtFrozenSceneReportedMode = -1;
     bool m_smokeWaitingForDoomSurfaceLogged;
     int m_smokeSceneLogCooldownFrames;
     bool m_smokeStaticBlasCacheValid;

@@ -2777,8 +2777,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 ? static_cast<uint32_t>(unifiedPtReceiverMode)
                 : 0u;
             unifiedPtInputs.compactPrimaryHistory = useUptCompactPrimaryHistory;
+            unifiedPtInputs.frozenStaticDiagnostic =
+                idMath::ClampInt(
+                    0, 3,
+                    r_pathTracingUnifiedPtFrozenScene.GetInteger()) == 3 &&
+                unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
+                unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified &&
+                unifiedPtInputs.primaryReceiverMode == 2u &&
+                !unifiedPtInputs.diagnostics &&
+                unifiedPtInputs.shaderProofMode <= 6u;
             unifiedPtInputs.compactGeometry =
                 r_pathTracingUnifiedPtCompactGeometry.GetBool() &&
+                !unifiedPtInputs.frozenStaticDiagnostic &&
                 unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
                 unifiedPtInputs.primaryReceiverMode == 2u &&
                 !unifiedPtInputs.diagnostics &&
@@ -2792,6 +2802,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtInputs.family != PathTraceUnifiedPtFamily::DirectOnly;
             unifiedPtInputs.splitInitial =
                 r_pathTracingUnifiedPtSplitInitial.GetBool() &&
+                !unifiedPtInputs.frozenStaticDiagnostic &&
                 unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
                 unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified &&
                 unifiedPtInputs.primaryReceiverMode == 2u &&
@@ -2801,6 +2812,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtInputs.shaderProofMode == 6u;
             unifiedPtInputs.splitContinuation =
                 r_pathTracingUnifiedPtSplitContinuation.GetBool() &&
+                !unifiedPtInputs.frozenStaticDiagnostic &&
                 !unifiedPtInputs.splitInitial &&
                 unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
                 unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified &&
@@ -2825,6 +2837,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 r_pathTracingUnifiedPtDirectProposalParity.GetBool();
             unifiedPtInputs.lightTiles =
                 r_pathTracingUnifiedPtLightTiles.GetBool() &&
+                !unifiedPtInputs.frozenStaticDiagnostic &&
                 unifiedPtInputs.splitInitial &&
                 unifiedPtInputs.directProposalParity &&
                 !unifiedPtInputs.compactLights &&
@@ -2840,12 +2853,25 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     r_pathTracingUnifiedPtTemporalBottleneckProbe.GetInteger()));
             unifiedPtInputs.temporalBottleneckProbe =
                 unifiedPtInputs.lambertDiagnostic &&
+                !unifiedPtInputs.frozenStaticDiagnostic &&
                 unifiedPtInputs.compactLights &&
                 unifiedPtInputs.duplication &&
                 unifiedPtInputs.temporal &&
                 r_pathTracingUnifiedPtTemporalIndirect.GetBool()
                     ? requestedTemporalBottleneckProbe
                     : 0u;
+            static int reportedFrozenStaticEffective = -1;
+            if (reportedFrozenStaticEffective !=
+                (unifiedPtInputs.frozenStaticDiagnostic ? 1 : 0))
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: frozen static shader effective=%d geometry=monolithic-static lights=analytic-only remap=identity emissiveLookup=disabled shading=%s\n",
+                    unifiedPtInputs.frozenStaticDiagnostic ? 1 : 0,
+                    unifiedPtInputs.lambertDiagnostic
+                        ? "lambert-diagnostic" : "openpbr");
+                reportedFrozenStaticEffective =
+                    unifiedPtInputs.frozenStaticDiagnostic ? 1 : 0;
+            }
             static uint32_t reportedTemporalBottleneckRequest = UINT32_MAX;
             static uint32_t reportedTemporalBottleneckEffective = UINT32_MAX;
             if (reportedTemporalBottleneckRequest != requestedTemporalBottleneckProbe

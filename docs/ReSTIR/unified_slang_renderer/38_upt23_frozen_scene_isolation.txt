@@ -1,0 +1,129 @@
+UPT-23: Frozen scene and static-flat isolation
+================================================
+
+Purpose
+-------
+
+Separate four costs that normal gameplay and a whole-frame Nsight capture mix
+together:
+
+    per-frame scene/universe publication;
+    BLAS/TLAS build or update;
+    GPU identity/geometry route lookup;
+    actual traversal, reservoir work and material shading.
+
+This is a diagnostic lane. It does not change production UPT sampling,
+temporal/spatial reuse, reservoir storage, ray ceilings or defaults.
+
+Control
+-------
+
+    r_pathTracingUnifiedPtFrozenScene 0
+        Normal scene construction and production shaders.
+
+    r_pathTracingUnifiedPtFrozenScene 1
+        Capture the next complete production scene. After a successful commit,
+        the host changes the cvar to 2.
+
+    r_pathTracingUnifiedPtFrozenScene 2
+        Replay the committed production scene package. Scene construction exits
+        before particle capture and all geometry/material/light universe,
+        upload and acceleration work. Camera and UPT output/history remain live.
+        Requesting 2 without a snapshot admits one capture frame.
+
+    r_pathTracingUnifiedPtFrozenScene 3
+        Capture and replay the current monolithic static publication. The
+        capture TLAS contains only static BLAS instance zero. Dynamic BLAS,
+        static-bucket, rigid and skinned TLAS instances are omitted. D0/T0 use
+        direct primitive-indexed geometry, fixed dense analytic lights and
+        identity previous/current mapping.
+
+Mode 3 proposal and lookup boundary
+-----------------------------------
+
+Mode 3 is analytic-NEE-only. Emissive NEE range/count, distribution and lookup
+metadata are zero. Emissive material self-emission may still be observed when
+a continuation hits a static emissive surface, but reverse-NEE MIS uses zero
+NEE PDF and performs no geometry-to-emissive hash search.
+
+The shader still loads dense light records and triangle material records; those
+are input data for lighting and shading, not persistent-identity searches.
+The following production lookup/routing mechanisms are statically absent:
+
+    gUpt07PreviousToCurrentLights;
+    gUpt04EmissiveLookup;
+    dynamic geometry arrays;
+    rigid route arrays;
+    skinned route arrays;
+    static-bucket route dispatch.
+
+Both OpenPBR and constant-gray Lambert specializations exist. Select Lambert
+with r_pathTracingUnifiedPtLambertDiagnostic 1. No runtime shading branch is
+used to create that comparison.
+
+Build proof, 2026-08-10
+-----------------------
+
+The prescribed Vulkan release build passes and links RBDoom3BFG.exe. Runtime
+artifacts include two D0 and four T0 frozen-static variants (OpenPBR/Lambert,
+with T0 duplication off/on). No DX12 shader was added or compiled.
+
+SPIR-V disassembly proves all inspected frozen D0/T0 OpenPBR/Lambert variants
+contain zero symbols for previous-to-current remapping, emissive lookup, and
+dynamic/rigid/skinned geometry. D0 retains three static RayQuery proceed sites;
+T0 retains four. The experiment therefore removes lookup/routing work without
+lowering the established ray ceiling.
+
+Runtime matrix
+--------------
+
+Use one fixed camera and keep the ordinary UPT family, temporal, spatial,
+duplication and resolution controls identical between rows. Use
+r_pathTracingUnifiedPtTemporalGpuTiming 1 for dispatch-only T0 measurements;
+use Nsight markers for D0 and whole-frame/scene-build confirmation.
+
+    A. frozenScene 0, Lambert 0: normal production baseline.
+    B. frozenScene 1 -> 2, Lambert 0: production package with scene work gone.
+    C. frozenScene 3, Lambert 0: static-flat OpenPBR.
+    D. frozenScene 3, Lambert 1: static-flat Lambert.
+
+Required log evidence:
+
+    frozen scene captured mode=2 or mode=3;
+    frozen scene replay ... sceneBuild=skipped uploads=0 blas=0 tlas=0;
+    frozen static shader effective=1 ... remap=identity emissiveLookup=disabled;
+    D0 pipeline shading=frozen-static-openpbr or frozen-static-lambert;
+    T0 pipeline shading=frozen-static-openpbr or frozen-static-lambert.
+
+Interpretation
+--------------
+
+    A -> B improvement:
+        scene/universe publication or acceleration events contaminated the
+        measured frame.
+
+    B -> C improvement:
+        production GPU identity/geometry routing is material.
+
+    C remains slow:
+        traversal, unified reservoir/shift work, code footprint or occupancy
+        remains the bottleneck.
+
+    C -> D improvement:
+        material evaluation owns the difference.
+
+    C and D similar:
+        OpenPBR is excluded for this frozen workload.
+
+Limitations and safety
+----------------------
+
+The camera is live; freeze player position manually for matched timing. Mode 3
+captures the current static publication rather than constructing a new spatial
+AABB clip, so capture immediately in the intended portal/room after a clean map
+load for the narrowest chunk. Moving doors, actors, rigid props and skinned
+meshes are intentionally absent. Changing maps invalidates the snapshot through
+the normal resource reset. Returning the cvar to zero resumes normal scene
+publication and invalidates UPT history without a full reservoir clear.
+
+Runtime performance and image acceptance remain open.

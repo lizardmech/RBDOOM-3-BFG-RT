@@ -8,6 +8,10 @@ import upt04_material_provider_contract;
 import upt04_geometry_contract;
 import upt04_emissive_replay;
 
+#ifndef UPT_FROZEN_STATIC_SCENE
+#define UPT_FROZEN_STATIC_SCENE 0
+#endif
+
 public static const uint kUpt04ReverseNeeLookupFailure = 1u;
 public static const uint kUpt04ReverseNeeZeroPdf = 2u;
 public static const uint kUpt04ReverseNeePositivePdf = 3u;
@@ -30,6 +34,11 @@ public bool Upt04FindEmissiveDenseLight(
     out uint denseLightIndex,
     out float conditionalIdentityPdf)
 {
+#if UPT_FROZEN_STATIC_SCENE
+    denseLightIndex = kUpt04InvalidLightIndex;
+    conditionalIdentityPdf = 0.0f;
+    return false;
+#else
     denseLightIndex = kUpt04InvalidLightIndex;
     conditionalIdentityPdf = 0.0f;
     uint physicalEntryCount = 0u;
@@ -74,6 +83,7 @@ public bool Upt04FindEmissiveDenseLight(
         }
     }
     return false;
+#endif
 }
 
 public float Upt04ExactNeePdfForEmissiveHit<

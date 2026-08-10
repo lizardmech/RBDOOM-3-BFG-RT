@@ -467,6 +467,19 @@ path_tracing_declare_slang_spirv_module(
 list(APPEND UPT04_BACKEND_OUTPUTS
     ${continuation32_material48_shade_rayquery_outputs})
 
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_rayquery_compact32_frozen_static
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_rayquery.slang"
+    ENTRY main STAGE compute OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2
+        UPT_FROZEN_STATIC_SCENE=1
+    OUT_VAR frozen_static_rayquery_outputs RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${frozen_static_rayquery_outputs})
+
 # Static Lambert-only profiling closure. These variants deliberately omit the
 # OpenPBR implementation from the selected entry-point graph.
 function(upt04_declare_lambert_variant variant_name source_file)
@@ -489,6 +502,10 @@ endfunction()
 
 upt04_declare_lambert_variant(upt04_initial_rayquery_compact32_lambert
     upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2)
+upt04_declare_lambert_variant(
+    upt04_initial_rayquery_compact32_frozen_static_lambert
+    upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2
+    UPT_FROZEN_STATIC_SCENE=1)
 upt04_declare_lambert_variant(upt04_initial_rayquery_compact32_geometry48_lambert
     upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2
     UPT04_PACKED_GEOMETRY_VERTEX=1)
@@ -1079,6 +1096,8 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_rayquery_compact32_geometry48_light64_continuation32
     upt04_initial_rayquery_compact32_geometry48_light64_material48_continuation32
     upt04_initial_rayquery_compact32_lambert
+    upt04_initial_rayquery_compact32_frozen_static
+    upt04_initial_rayquery_compact32_frozen_static_lambert
     upt04_initial_rayquery_compact32_geometry48_lambert
     upt04_initial_rayquery_compact32_geometry48_light64_lambert
     upt04_initial_rayquery_compact32_geometry48_light64_material48_lambert

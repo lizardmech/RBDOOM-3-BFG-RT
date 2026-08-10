@@ -7264,6 +7264,57 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     OPTICK_EVENT("PT Build Scene");
 
+    const int frozenSceneRequest = idMath::ClampInt(
+        0, 3, r_pathTracingUnifiedPtFrozenScene.GetInteger());
+    idRenderWorldLocal* frozenRenderWorld =
+        viewDef ? viewDef->renderWorld : nullptr;
+    const bool frozenWorldMatches = frozenRenderWorld &&
+        m_smokeSceneRenderWorld == frozenRenderWorld &&
+        m_smokeSceneMapName.Icmp(frozenRenderWorld->mapName) == 0 &&
+        m_smokeSceneMapTimeStamp == frozenRenderWorld->mapTimeStamp &&
+        m_smokeSceneMapLoadSerial == frozenRenderWorld->mapLoadSerial;
+    const bool frozenResourcesReady = m_smokeTlas && m_smokeBindingSet &&
+        m_smokeTextureDescriptorTable && m_smokeSceneBuilt;
+    if ((frozenSceneRequest == 2 || frozenSceneRequest == 3) &&
+        m_unifiedPtFrozenSceneCapturedMode == frozenSceneRequest &&
+        frozenWorldMatches && frozenResourcesReady)
+    {
+        ++m_unifiedPtFrozenSceneReplayFrames;
+        if (m_unifiedPtFrozenSceneReportedMode != frozenSceneRequest)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: frozen scene replay mode=%d route=%s sceneBuild=skipped uploads=0 blas=0 tlas=0 universeUpdates=0 camera=live\n",
+                frozenSceneRequest,
+                frozenSceneRequest == 3
+                    ? "static-flat-analytic-only"
+                    : "production-package");
+            m_unifiedPtFrozenSceneReportedMode = frozenSceneRequest;
+        }
+        return;
+    }
+    if (frozenSceneRequest == 0 &&
+        m_unifiedPtFrozenSceneCapturedMode != 0)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: frozen scene released mode=%d replayFrames=%llu; normal publication resumed\n",
+            m_unifiedPtFrozenSceneCapturedMode,
+            static_cast<unsigned long long>(
+                m_unifiedPtFrozenSceneReplayFrames));
+        m_unifiedPtFrozenSceneCapturedMode = 0;
+        m_unifiedPtFrozenSceneReplayFrames = 0;
+        m_unifiedPtFrozenSceneReportedMode = -1;
+        m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES);
+    }
+    else if (frozenSceneRequest == 2 &&
+        m_unifiedPtFrozenSceneCapturedMode != 2)
+    {
+        // Mode 2 is replay-only. If no production snapshot exists, admit one
+        // normal capture frame first and switch back automatically below.
+        r_pathTracingUnifiedPtFrozenScene.SetInteger(1);
+        common->Printf(
+            "PathTraceUnifiedPt: frozen production replay requested without a snapshot; capturing one frame first\n");
+    }
+
     BuildPathTraceParticleCompositeCapture(viewDef, m_particleCapture);
 
     const int sceneStartMs = Sys_Milliseconds();
@@ -14268,6 +14319,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeSkinnedEmissivePublishBindingSet = nullptr;
     }
 
+    const bool frozenStaticCapture = frozenSceneRequest == 3 &&
+        m_unifiedPtFrozenSceneCapturedMode != 3;
     std::vector<nvrhi::rt::InstanceDesc>
         liveExtraTlasInstances;
     liveExtraTlasInstances.reserve(
@@ -14276,7 +14329,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             ? staticBucketFramePublication.
                 activePublication.tlasInstances.size()
             : 0u));
-    if (staticBucketRouteAccepted)
+    if (staticBucketRouteAccepted && !frozenStaticCapture)
     {
         liveExtraTlasInstances.insert(
             liveExtraTlasInstances.end(),
@@ -14285,10 +14338,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticBucketFramePublication.
                 activePublication.tlasInstances.end());
     }
-    liveExtraTlasInstances.insert(
-        liveExtraTlasInstances.end(),
-        rigidTlasRouteInstances.begin(),
-        rigidTlasRouteInstances.end());
+    if (!frozenStaticCapture)
+    {
+        liveExtraTlasInstances.insert(
+            liveExtraTlasInstances.end(),
+            rigidTlasRouteInstances.begin(),
+            rigidTlasRouteInstances.end());
+    }
 
     accelSubmitDesc.commandList = commandList;
     accelSubmitDesc.tlas = m_smokeTlas;
@@ -14305,10 +14361,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             ? &liveExtraTlasInstances
             : nullptr;
     accelSubmitDesc.hasStaticBlas = hasStaticBlas;
-    accelSubmitDesc.hasDynamicBlas = hasDynamicBlas;
+    accelSubmitDesc.hasDynamicBlas = frozenStaticCapture
+        ? false : hasDynamicBlas;
     accelSubmitDesc.staticBlasCacheHit = staticBlasCacheHit;
     accelSubmitDesc.includeStaticBlasInTlas =
-        !staticBucketRouteAccepted;
+        frozenStaticCapture || !staticBucketRouteAccepted;
     accelSubmitDesc.diagnosticMarkers =
         r_pathTracingNsightGpuMarkers.GetInteger() != 0;
     RtSmokeAccelSubmitTiming accelSubmitTiming;
@@ -15024,6 +15081,27 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         OPTICK_EVENT("PT Commit Scene Resources");
         CommitRayTracingSmokeSceneResources(resourceCommitDesc);
+    }
+    const int completedFrozenRequest = idMath::ClampInt(
+        0, 3, r_pathTracingUnifiedPtFrozenScene.GetInteger());
+    if (completedFrozenRequest == 1 || completedFrozenRequest == 3)
+    {
+        m_unifiedPtFrozenSceneCapturedMode =
+            completedFrozenRequest == 1 ? 2 : 3;
+        m_unifiedPtFrozenSceneReplayFrames = 0;
+        m_unifiedPtFrozenSceneReportedMode = -1;
+        if (completedFrozenRequest == 1)
+            r_pathTracingUnifiedPtFrozenScene.SetInteger(2);
+        m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES);
+        common->Printf(
+            "PathTraceUnifiedPt: frozen scene captured mode=%d route=%s staticTriangles=%d lights=%d nextFrameSceneBuild=skipped\n",
+            m_unifiedPtFrozenSceneCapturedMode,
+            m_unifiedPtFrozenSceneCapturedMode == 3
+                ? "static-flat-analytic-only"
+                : "production-package",
+            m_sceneInputs.geometry.staticTriangleCount,
+            m_sceneInputs.lights.
+                restirLightManagerDoomAnalyticSampleableCount);
     }
     const RtSmokeSkinnedBlasShadowAudit skinnedBlasShadowAudit =
         UpdateSmokeSkinnedBlasShadowState(

@@ -3,6 +3,10 @@ import upt04_geometry_bindings;
 import upt04_initial_control;
 import upt04_hit_contract;
 
+#ifndef UPT_FROZEN_STATIC_SCENE
+#define UPT_FROZEN_STATIC_SCENE 0
+#endif
+
 #ifndef UPT04_PACKED_GEOMETRY_VERTEX
 #define UPT04_PACKED_GEOMETRY_VERTEX 0
 #endif
@@ -292,6 +296,16 @@ public bool Upt04ResolveTriangle(Upt04HitFacts hit, out Upt04ResolvedTriangle tr
     if (hit.status != kUpt04HitTriangle || hit.geometryId != 0u)
         return false;
 
+#if UPT_FROZEN_STATIC_SCENE
+    // The isolated diagnostic TLAS contains exactly the monolithic static
+    // BLAS at instance zero. PrimitiveIndex is canonicalized across hardware-
+    // opacity chunks before reaching this resolver.
+    if (hit.instanceId != 0u)
+        return false;
+    return Upt04LoadStaticTriangle(
+        hit.primitiveId, 0u, hit.primitiveId, triangle);
+#else
+
     const bool staticBucket =
         Upt04StaticBucketRouteAvailable()
         && (hit.instanceId & ~kUpt04ShaderInstanceMask) == 0u
@@ -317,6 +331,7 @@ public bool Upt04ResolveTriangle(Upt04HitFacts hit, out Upt04ResolvedTriangle tr
     if (Upt04SkinnedInstanceInRange(hit.instanceId, skinnedRouteIndex))
         return Upt04LoadSkinnedTriangle(hit.instanceId, hit.primitiveId, triangle);
     return Upt04LoadRigidTriangle(hit.instanceId, hit.primitiveId, triangle);
+#endif
 }
 
 // Resolve the material indirection without fetching triangle indices or
@@ -329,6 +344,15 @@ public bool Upt04ResolveTriangleMaterialIndex(
     materialIndex = kUpt04InvalidIdentity;
     if (hit.status != kUpt04HitTriangle || hit.geometryId != 0u)
         return false;
+
+#if UPT_FROZEN_STATIC_SCENE
+    if (hit.instanceId != 0u ||
+        hit.primitiveId >= Upt04StaticTriangleCount())
+        return false;
+    materialIndex =
+        gUpt04StaticTriangleMaterialIndices[hit.primitiveId];
+    return true;
+#else
 
     const bool staticBucket =
         Upt04StaticBucketRouteAvailable()
@@ -398,6 +422,7 @@ public bool Upt04ResolveTriangleMaterialIndex(
         return false;
     materialIndex = rigidRoute.materialIndex;
     return true;
+#endif
 }
 
 public Upt04GeometryHitSurface Upt04BuildGeometryHitSurface(

@@ -30,6 +30,10 @@ import upt07_indirect_material;
 import upt07_temporal_direct_bindings;
 import upt07_temporal_reservoir;
 
+#ifndef UPT_FROZEN_STATIC_SCENE
+#define UPT_FROZEN_STATIC_SCENE 0
+#endif
+
 #ifndef UPT07_EARLY_RECONNECT
 #define UPT07_EARLY_RECONNECT 0
 #endif
@@ -291,6 +295,11 @@ public bool Upt07FindEmissiveDenseLight(
     out uint denseLightIndex,
     out float conditionalIdentityPdf)
 {
+#if UPT_FROZEN_STATIC_SCENE
+    denseLightIndex = kUpt04InvalidLightIndex;
+    conditionalIdentityPdf = 0.0f;
+    return false;
+#else
     denseLightIndex = kUpt04InvalidLightIndex;
     conditionalIdentityPdf = 0.0f;
     uint physicalCount;
@@ -334,6 +343,7 @@ public bool Upt07FindEmissiveDenseLight(
         }
     }
     return false;
+#endif
 }
 
 public float Upt07ExactNeePdfForEmissiveHit(
@@ -420,14 +430,23 @@ public uint Upt07ResolveStoredSecondaryLight(
     if ((source.eventKind != 1u && source.eventKind != 2u)
         || source.identity0 == 0u)
         return 0u;
+#if UPT_FROZEN_STATIC_SCENE
+    if (source.eventKind == 2u)
+        return 0u;
+#endif
     denseIndex = source.identity0 - 1u;
     if (sourceIsHistory != 0u)
     {
+#if UPT_FROZEN_STATIC_SCENE
+        // Frozen light payload indices are invariant for the lifetime of the
+        // captured scene; no previous/current identity translation exists.
+#else
         if (denseIndex >= gUpt07Control.previousToCurrentLightCount)
             return 0u;
         denseIndex = gUpt07PreviousToCurrentLights[denseIndex];
         if (denseIndex == 0xffffffffu)
             return 0u;
+#endif
     }
     if (denseIndex >= gUpt07Control.currentLightCount)
         return 0u;
