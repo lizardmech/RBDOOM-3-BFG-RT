@@ -34,6 +34,7 @@ set(UPT07_DIRECT_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_emissive_material.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_indirect_material.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt07_work_budget.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_binary16.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_hit_contract.slang"
@@ -280,6 +281,21 @@ foreach(bottleneck_stage RANGE 1 11)
 endforeach()
 
 path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64_duplication_lambert_probe12
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main STAGE compute OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_INDIRECT_REPLAY=1
+        UPT_DIAGNOSTIC_LAMBERT=1 UPT07_PACKED_LIGHT_RECORD=1
+        UPT07_DUPLICATION_MAP=1 UPT07_BOTTLENECK_STAGE=12
+    OUT_VAR upt07_work_budget_outputs)
+list(APPEND UPT07_BOTTLENECK_OUTPUTS ${upt07_work_budget_outputs})
+
+path_tracing_declare_slang_spirv_module(
     NAME upt07_temporal_unified_rayquery_route_diag
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
     ENTRY main STAGE compute OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
@@ -392,6 +408,10 @@ add_custom_command(
         -DUPT07_RECONNECT_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_reconnect.slang.spvasm
         -DUPT07_RECONNECT_COMPACT_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_reconnect.slang.spirv-reflection.json
         -DUPT07_RECONNECT_COMPACT_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_reconnect.slang.spvasm
+        -DUPT07_WORK_BUDGET_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe12.slang.spirv-reflection.json
+        -DUPT07_WORK_BUDGET_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe12.slang.spvasm
+        -DUPT07_TEMPORAL_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang
+        -DUPT07_WORK_BUDGET_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_work_budget.slang
         -DUPT07_STAMP=${UPT07_DIRECT_VERIFY_STAMP}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt07TemporalDirect.cmake"
     DEPENDS ${temporal_direct_outputs} ${temporal_direct_compact_outputs}
@@ -400,7 +420,9 @@ add_custom_command(
         ${temporal_unified_compact_route_diag_outputs}
         ${temporal_unified_reconnect_outputs}
         ${temporal_unified_compact_reconnect_outputs}
+        ${upt07_work_budget_outputs}
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt07TemporalDirect.cmake"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt07_work_budget.slang"
     COMMENT "UPT-07 verifying complete primary-direct temporal shift provider"
     VERBATIM)
 
@@ -467,7 +489,7 @@ foreach(frozen_module
     list(APPEND UPT07_FROZEN_RUNTIME_OUTPUTS "${frozen_runtime}")
 endforeach()
 set(UPT07_BOTTLENECK_RUNTIME_OUTPUTS)
-foreach(bottleneck_stage RANGE 1 11)
+foreach(bottleneck_stage RANGE 1 12)
     set(bottleneck_module
         "upt07_temporal_unified_rayquery_light64_duplication_lambert_probe${bottleneck_stage}")
     set(bottleneck_runtime "${UPT07_RUNTIME_DIR}/${bottleneck_module}.bin")
@@ -577,6 +599,7 @@ add_custom_command(
         ${temporal_unified_compact_reconnect_outputs}
         ${temporal_unified_duplication_reconnect_outputs}
         ${temporal_unified_compact_duplication_reconnect_outputs}
+        ${upt07_work_budget_outputs}
         "${UPT07_DIRECT_VERIFY_STAMP}"
     COMMENT "UPT-07 verified Vulkan runtime artifacts: primary-direct temporal shift"
     VERBATIM)

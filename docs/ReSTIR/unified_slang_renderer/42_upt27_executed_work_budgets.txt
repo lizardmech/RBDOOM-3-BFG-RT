@@ -1,0 +1,104 @@
+UPT-27: executed-work budgets
+================================
+
+Purpose
+-------
+
+Make hidden multiplicative GPU work observable before another emitter, route,
+or material change can silently turn one logical temporal sample into many
+dependent searches, loads, or traces.  This is a guard, not an estimator change
+and not a performance mode.
+
+The first admitted slice covers the currently dominant T0 unified indirect
+route.  D0 and S0 retain their existing compiled ray-site ceilings; they should
+adopt the same runtime counter ABI when either becomes the measured bottleneck.
+
+Two different checks are required
+---------------------------------
+
+Compiled structure can fail the build.  VerifyUpt07TemporalDirect.cmake now
+checks the emitted Vulkan SPIR-V and source closure for:
+
+* exactly four statically bounded RayQuery initializers in the complete T0
+  work-budget specialization;
+* no TraceRay instruction;
+* no serialized emissive-CDF binary search in temporal replay;
+* exactly one declared reverse emissive-hash call path (one declaration plus
+  one call in source);
+* binding 31 for the per-pixel result; and
+* the declared ray/remap/hash/light-load ceilings.
+
+Executed work is scene dependent and cannot honestly fail an ordinary shader
+compile.  Probe 12 executes one deterministic diagnostic T0 frame, writes one
+nine-dword record per pixel, copies it asynchronously, and prints PASS/FAIL plus
+mean, p50, p90, p99, maximum and active-pixel counts.  No global atomics and no
+per-frame full-buffer clear are used: each valid dispatch thread owns and
+initializes only its own record.
+
+Counter ABI
+-----------
+
+Words 0--7 are logical hot-path operations:
+
+    0 RayQuery initializations
+    1 RayQuery Proceed iterations (programmable candidate pressure)
+    2 previous-to-current stable remap loads
+    3 reverse emissive hash-entry loads
+    4 unified light-record loads
+    5 geometry/material-index or full-triangle resolves
+    6 material-record loads on programmable traversal/secondary evaluation
+    7 texture samples on programmable alpha traversal
+
+Word 8 is the declared-ceiling violation mask:
+
+    bit 0 rays > 3 per pixel
+    bit 1 stable remaps > 2 per pixel
+    bit 2 emissive hash loads > 32 per pixel
+    bit 3 light-record loads > 8 per pixel
+
+Proceed iterations, geometry resolves, material loads and texture samples are
+reported without fabricated universal ceilings because authored alpha coverage
+can legitimately vary.  Their percentiles and maxima are the evidence needed
+to identify the grate/character-style traversal explosion.  The log also sums
+words 2--7 as logicalDependentLoadsPerPixel; this is a renderer-contract count,
+not an attempted reconstruction of compiler OpLoad instructions.
+
+Runtime protocol
+----------------
+
+Use the already accepted probe gates:
+
+    r_pathTracingUnifiedPtLambertDiagnostic 1
+    r_pathTracingUnifiedPtCompactGeometry 1
+    r_pathTracingUnifiedPtCompactLights 1
+    r_pathTracingUnifiedPtDuplication 1
+    r_pathTracingUnifiedPtTemporal 1
+    r_pathTracingUnifiedPtTemporalIndirect 1
+    r_pathTracingUnifiedPtTemporalBottleneckProbe 12
+
+The first valid-history frame is captured; output appears after the delayed
+readback.  Toggle the probe to 0 and back to 12 to rearm at a new camera pose.
+Probe 12 republishes the untouched D0 reservoir, like the existing bottleneck
+ladder, so it must be returned to 0 for production rendering and timing.
+
+Interpretation
+--------------
+
+* Large emissiveHashLoads proves endpoint-to-light reverse lookup remains in a
+  hot route.  The normal stored-secondary-light replay should use stable remap
+  plus the stored source PDF and avoid this search.
+* Large proceed/geometry/material/texture values with ordinary ray counts prove
+  programmable alpha traversal, not extra paths or light candidates.
+* Large lightLoads with ordinary rays identifies repeated light materialization
+  or replay.  Large remapLoads identifies repeated identity translation.
+* A ray violation is an estimator/control-flow regression and should never be
+  explained away by scene content.
+
+Verification 2026-08-10
+-----------------------
+
+The Vulkan-only target PathTraceSlangUpt07TemporalOwnership compiled probe 12
+and passed the extended artifact verifier.  The full requested build from neo,
+cmake --build --preset win64-pt-dev-release, then succeeded.  No DX12 shader was
+compiled.  Runtime values still require an in-game capture; build success proves
+the ABI, static ceilings and asynchronous readback path, not scene counts.

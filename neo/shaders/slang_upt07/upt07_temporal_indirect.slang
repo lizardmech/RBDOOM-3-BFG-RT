@@ -29,6 +29,7 @@ import upt07_emissive_material;
 import upt07_indirect_material;
 import upt07_temporal_direct_bindings;
 import upt07_temporal_reservoir;
+import upt07_work_budget;
 
 #ifndef UPT_FROZEN_STATIC_SCENE
 #define UPT_FROZEN_STATIC_SCENE 0
@@ -205,7 +206,8 @@ public bool Upt07IndirectHistoryEligible(Upt07DecodedReservoir reservoir)
 public Upt04HitFacts Upt07TraceIndirect(
     Upt04TraceRequest request,
     uint visibility,
-    Upt04VisibilityIgnore ignore)
+    Upt04VisibilityIgnore ignore,
+    inout Upt07WorkCounters work)
 {
     Upt04HitFacts result = Upt04MissFacts(request.tMax);
     RayDesc ray;
@@ -214,12 +216,14 @@ public Upt04HitFacts Upt07TraceIndirect(
     ray.Direction = request.direction;
     ray.TMax = request.tMax;
     RayQuery<0> query = RayQuery<0>();
+    Upt07WorkAdd(work, kUpt07WorkRayQueries);
     const uint flags = visibility != 0u
         ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
         : RAY_FLAG_NONE;
     query.TraceRayInline(gUpt07Scene, flags, 0xffu, ray);
     while (query.Proceed())
     {
+        Upt07WorkAdd(work, kUpt07WorkProceedIterations);
         if (query.CandidateType() != CANDIDATE_NON_OPAQUE_TRIANGLE)
             continue;
         uint candidatePrimitiveId;
@@ -242,7 +246,7 @@ public Upt04HitFacts Upt07TraceIndirect(
         candidate.barycentrics = query.CandidateTriangleBarycentrics();
         candidate.hitT = query.CandidateTriangleRayT();
         candidate.frontFace = 1u;
-        if (Upt07MaterialRejectsAlphaClipCandidate(candidate))
+        if (Upt07MaterialRejectsAlphaClipCandidate(candidate, work))
             continue;
         query.CommitNonOpaqueTriangleHit();
     }
@@ -298,7 +302,8 @@ public bool Upt07FindEmissiveDenseLight(
     uint instanceId,
     uint primitiveIndex,
     out uint denseLightIndex,
-    out float conditionalIdentityPdf)
+    out float conditionalIdentityPdf,
+    inout Upt07WorkCounters work)
 {
 #if UPT_FROZEN_FLAT_LIGHTS
     denseLightIndex = kUpt04InvalidLightIndex;
@@ -327,6 +332,7 @@ public bool Upt07FindEmissiveDenseLight(
     [unroll]
     for (uint probe = 0u; probe < kUpt04EmissiveLookupMaxProbes; ++probe)
     {
+        Upt07WorkAdd(work, kUpt07WorkEmissiveHashLoads);
         const Upt04EmissiveLookupEntry entry =
             gUpt04EmissiveLookup[(first + probe) & mask];
         if (entry.occupied == 0u)
@@ -336,6 +342,7 @@ public bool Upt07FindEmissiveDenseLight(
         {
             if (entry.denseLightIndex >= gUpt07Control.currentLightCount)
                 return false;
+            Upt07WorkAdd(work, kUpt07WorkLightRecordLoads);
             const Upt04UnifiedLightRecord light =
                 Upt07LoadLight(entry.denseLightIndex);
             if (light.type != kUpt04LightEmissiveTriangle
@@ -356,13 +363,14 @@ public float Upt07ExactNeePdfForEmissiveHit(
     uint primitiveIndex,
     float3 receiverPosition,
     float2 hitBarycentrics,
-    uint proposalParity)
+    uint proposalParity,
+    inout Upt07WorkCounters work)
 {
     uint denseLightIndex;
     float conditionalIdentityPdf;
     if (!Upt07FindEmissiveDenseLight(
             instanceId, primitiveIndex,
-            denseLightIndex, conditionalIdentityPdf))
+            denseLightIndex, conditionalIdentityPdf, work))
         return 0.0f;
     Upt04LocalLightRanges ranges;
     ranges.emissiveStart = gUpt07Control.emissiveRangeStart;
@@ -398,6 +406,7 @@ public float Upt07ExactNeePdfForEmissiveHit(
             : 0.0f;
     if (!Upt04FinitePositive(selectionPdf))
         return 0.0f;
+    Upt07WorkAdd(work, kUpt07WorkLightRecordLoads);
     const Upt04EmissiveGeometrySample replay =
         Upt04ReplayEmissiveTriangleBarycentrics(
             Upt07LoadLight(denseLightIndex),
@@ -427,7 +436,8 @@ public uint Upt07ResolveStoredSecondaryLight(
     uint sourceIsHistory,
     out uint denseIndex,
     out uint lightType,
-    out float selectionPdf)
+    out float selectionPdf,
+    inout Upt07WorkCounters work)
 {
     denseIndex = kUpt04InvalidLightIndex;
     lightType = kUpt04LightInvalid;
@@ -448,6 +458,7 @@ public uint Upt07ResolveStoredSecondaryLight(
 #else
         if (denseIndex >= gUpt07Control.previousToCurrentLightCount)
             return 0u;
+        Upt07WorkAdd(work, kUpt07WorkStableRemapLoads);
         denseIndex = gUpt07PreviousToCurrentLights[denseIndex];
         if (denseIndex == 0xffffffffu)
             return 0u;
@@ -455,6 +466,7 @@ public uint Upt07ResolveStoredSecondaryLight(
     }
     if (denseIndex >= gUpt07Control.currentLightCount)
         return 0u;
+    Upt07WorkAdd(work, kUpt07WorkLightRecordLoads);
     const Upt04UnifiedLightRecord light = Upt07LoadLight(denseIndex);
     lightType = source.eventKind == 2u
         ? kUpt04LightEmissiveTriangle : kUpt04LightDoomAnalytic;
@@ -598,7 +610,8 @@ public uint Upt07TryStaticSecondaryReconnect(
     float storedSelectionPdf,
     out Upt03Candidate shifted,
     out float shiftJacobian,
-    out Upt07PendingIndirectVisibility pendingVisibility)
+    out Upt07PendingIndirectVisibility pendingVisibility,
+    inout Upt07WorkCounters work)
 {
     shifted = (Upt03Candidate)0;
     shiftJacobian = 1.0f;
@@ -618,6 +631,7 @@ public uint Upt07TryStaticSecondaryReconnect(
     reconnectHit.primitiveId = source.reconnectionPrimitiveId;
     reconnectHit.barycentrics = source.reconnectionBarycentrics;
     reconnectHit.frontFace = source.reconnectionFrontFace;
+    Upt07WorkAdd(work, kUpt07WorkGeometryResolves);
     const Upt04GeometryHitSurface hitSurface =
         Upt04DecodeGeometryHit(reconnectHit);
     if (hitSurface.valid == 0u)
@@ -649,6 +663,7 @@ public uint Upt07TryStaticSecondaryReconnect(
         Upt04EvaluatePrimaryDirectProbe(
             sourceReceiver, sourceDirection, float3(1.0f));
 
+    Upt07WorkAdd(work, kUpt07WorkLightRecordLoads);
     const Upt04UnifiedLightRecord storedLight =
         Upt07LoadLight(storedDenseIndex);
     Upt04LocalLightSample selectedSample;
@@ -663,6 +678,7 @@ public uint Upt07TryStaticSecondaryReconnect(
         Upt07ReconnectDiag(kUpt07ReconnectDiagSourceEvaluationFailure);
         return 0u;
     }
+    Upt07WorkAdd(work, kUpt07WorkMaterialRecordLoads);
     const Upt04MaterialEvaluation sourceSecondary =
         Upt07EvaluateSecondaryDirect(
             hitSurface,
@@ -760,6 +776,7 @@ public uint Upt07TryStaticSecondaryReconnect(
     const Upt04MaterialEvaluation targetPrimary =
         Upt04EvaluatePrimaryDirectProbe(
             targetReceiver, targetDirection, float3(1.0f));
+    Upt07WorkAdd(work, kUpt07WorkMaterialRecordLoads);
     const Upt04MaterialEvaluation targetSecondary =
         Upt07EvaluateSecondaryDirect(
             hitSurface,
@@ -803,7 +820,7 @@ public uint Upt07TryStaticSecondaryReconnect(
     }
     Upt07ReconnectDiag(kUpt07ReconnectDiagVisibilityExecuted);
     const Upt04HitFacts blocker = Upt07TraceIndirect(
-        reconnectVisibility, 1u, Upt04NoVisibilityIgnore());
+        reconnectVisibility, 1u, Upt04NoVisibilityIgnore(), work);
     if (blocker.status == kUpt04HitTriangle)
     {
         Upt07ReconnectDiag(kUpt07ReconnectDiagVisibilityFailed);
@@ -868,7 +885,8 @@ public uint Upt07ReplayIndirectSample(
     out uint failureReason,
     out Upt03Candidate shifted,
     out Upt07PendingIndirectVisibility pendingVisibility,
-    out float shiftJacobian)
+    out float shiftJacobian,
+    inout Upt07WorkCounters work)
 {
     failureReason = kUpt07RejectIndirectStructure;
     shifted = (Upt03Candidate)0;
@@ -898,7 +916,8 @@ public uint Upt07ReplayIndirectSample(
             sourceIsHistory,
             storedDenseIndex,
             storedLightType,
-            storedSelectionPdf) == 0u)
+            storedSelectionPdf,
+            work) == 0u)
     {
         failureReason = kUpt07RejectIndirectIdentity;
         return 0u;
@@ -923,7 +942,8 @@ public uint Upt07ReplayIndirectSample(
                 storedSelectionPdf,
                 shifted,
                 shiftJacobian,
-                pendingVisibility);
+                pendingVisibility,
+                work);
             if (reconnectResult == 2u)
             {
                 failureReason = shifted.status == kUpt04SampleValidPositive
@@ -985,7 +1005,7 @@ public uint Upt07ReplayIndirectSample(
 
     failureReason = kUpt07RejectIndirectGeometry;
     const Upt04HitFacts hit = Upt07TraceIndirect(
-        continuationRay, 0u, Upt04NoVisibilityIgnore());
+        continuationRay, 0u, Upt04NoVisibilityIgnore(), work);
     if (hit.status != kUpt04HitTriangle || hit.instanceId == 0xffffffffu)
         return 0u;
 
@@ -1013,6 +1033,7 @@ public uint Upt07ReplayIndirectSample(
     }
 #endif
 
+    Upt07WorkAdd(work, kUpt07WorkGeometryResolves);
     const Upt04GeometryHitSurface hitSurface = Upt04DecodeGeometryHit(hit);
     if (hitSurface.valid == 0u)
         return 0u;
@@ -1082,7 +1103,8 @@ public uint Upt07ReplayIndirectSample(
                 receiver.worldPositionAndViewDepth.xyz,
                 hit.barycentrics,
                 (source.flags & kUpt04CandidateFlagDirectProposalParity) != 0u
-                    ? 1u : 0u)
+                    ? 1u : 0u,
+                work)
             : 0.0f;
         contribution *= Upt04BalanceHeuristic(continuation.pdf, neePdf);
         if (!all(isfinite(contribution)))
@@ -1121,6 +1143,7 @@ public uint Upt07ReplayIndirectSample(
     // emissive CDF again. D0 persists the algebraically equivalent raw-target
     // representation, so current-domain target evaluation remains exact.
     failureReason = kUpt07RejectIndirectInnerRis;
+    Upt07WorkAdd(work, kUpt07WorkLightRecordLoads);
     const Upt04UnifiedLightRecord storedLight =
         Upt07LoadLight(storedDenseIndex);
     Upt04LocalLightSample selectedSample;
@@ -1132,6 +1155,7 @@ public uint Upt07ReplayIndirectSample(
             selectedSample) == 0u
         || selectedSample.status != kUpt04SampleValidPositive)
         return 0u;
+    Upt07WorkAdd(work, kUpt07WorkMaterialRecordLoads);
     const Upt04MaterialEvaluation selectedMaterial =
         Upt07EvaluateSecondaryDirect(
             hitSurface,

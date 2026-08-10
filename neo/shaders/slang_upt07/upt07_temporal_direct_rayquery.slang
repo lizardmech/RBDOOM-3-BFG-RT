@@ -31,6 +31,7 @@ import upt07_temporal_direct_bindings;
 import upt07_temporal_reservoir;
 import upt07_temporal_surface_contract;
 import upt07_emissive_material;
+import upt07_work_budget;
 #ifndef UPT07_INDIRECT_REPLAY
 #define UPT07_INDIRECT_REPLAY 0
 #endif
@@ -119,7 +120,8 @@ public bool Upt07DirectHistoryEligible(Upt07DecodedReservoir history)
 // current-frame VisibilityKnown|VisibilityPassed proof and pay no second ray.
 public bool Upt07VisibilityPassed(
     Upt04TraceRequest request,
-    Upt04VisibilityIgnore ignore)
+    Upt04VisibilityIgnore ignore,
+    inout Upt07WorkCounters work)
 {
     RayDesc ray;
     ray.Origin = request.origin;
@@ -127,6 +129,7 @@ public bool Upt07VisibilityPassed(
     ray.Direction = request.direction;
     ray.TMax = request.tMax;
     RayQuery<0> query = RayQuery<0>();
+    Upt07WorkAdd(work, kUpt07WorkRayQueries);
     query.TraceRayInline(
         gUpt07Scene,
         RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
@@ -134,6 +137,7 @@ public bool Upt07VisibilityPassed(
         ray);
     while (query.Proceed())
     {
+        Upt07WorkAdd(work, kUpt07WorkProceedIterations);
         if (query.CandidateType() != CANDIDATE_NON_OPAQUE_TRIANGLE)
             continue;
         uint candidatePrimitiveId;
@@ -178,7 +182,8 @@ public uint Upt07ResolveDirectLight(
     uint sourceIsHistory,
     out uint emissive,
     out uint currentDenseIndex,
-    out Upt04UnifiedLightRecord light)
+    out Upt04UnifiedLightRecord light,
+    inout Upt07WorkCounters work)
 {
     emissive = source.eventKind == 2u ? 1u : 0u;
     currentDenseIndex = 0xffffffffu;
@@ -198,6 +203,7 @@ public uint Upt07ResolveDirectLight(
 #else
         if (sourceDenseIndex >= gUpt07Control.previousToCurrentLightCount)
             return 0u;
+        Upt07WorkAdd(work, kUpt07WorkStableRemapLoads);
         currentDenseIndex = gUpt07PreviousToCurrentLights[sourceDenseIndex];
         if (currentDenseIndex == 0xffffffffu)
             return 0u;
@@ -216,6 +222,7 @@ public uint Upt07ResolveDirectLight(
     if (currentDenseIndex >= gUpt07Control.currentLightCount
         || (emissive != 0u ? !inEmissiveRange : !inAnalyticRange))
         return 0u;
+    Upt07WorkAdd(work, kUpt07WorkLightRecordLoads);
     light = Upt07LoadLight(currentDenseIndex);
     const uint expectedType = emissive != 0u
         ? kUpt04LightEmissiveTriangle : kUpt04LightDoomAnalytic;
@@ -230,12 +237,14 @@ public uint Upt07EvaluateDirectSample(
     uint sourceIsHistory,
     out Upt04LocalLightSample sample,
     out uint emissive,
-    out uint currentDenseIndex)
+    out uint currentDenseIndex,
+    inout Upt07WorkCounters work)
 {
     sample = (Upt04LocalLightSample)0;
     Upt04UnifiedLightRecord light;
     if (Upt07ResolveDirectLight(
-            source, sourceIsHistory, emissive, currentDenseIndex, light) == 0u)
+            source, sourceIsHistory, emissive, currentDenseIndex, light,
+            work) == 0u)
         return 0u;
     if (sourceIsHistory != 0u && !Upt07DirectLightTemporalReplayable(light))
         return 0u;
@@ -303,7 +312,8 @@ public uint Upt07EvaluateDirectSample(
 public float Upt07PrimaryDirectTargetAtReceiver<
     TMaterialSet : IUpt07PrimaryMaterialSet>(
     Upt03Candidate source,
-    Upt04PrimarySurfaceRecord receiver)
+    Upt04PrimarySurfaceRecord receiver,
+    inout Upt07WorkCounters work)
 {
     if ((source.flags & kUpt04CandidateFlagGlobal) != 0u
         || source.pathLength != 1u
@@ -313,7 +323,8 @@ public float Upt07PrimaryDirectTargetAtReceiver<
     uint emissive;
     uint currentDenseIndex;
     if (Upt07EvaluateDirectSample(
-            source, receiver, 0u, sample, emissive, currentDenseIndex) == 0u
+            source, receiver, 0u, sample, emissive, currentDenseIndex,
+            work) == 0u
         || sample.status != kUpt04SampleValidPositive)
         return 0.0f;
     const Upt04MaterialEvaluation material =
@@ -352,7 +363,8 @@ public uint Upt07ShiftPrimaryDirect<
     TMaterialSet : IUpt07PrimaryMaterialSet>(
     Upt03Candidate source,
     Upt04PrimarySurfaceRecord receiver,
-    out Upt03Candidate shifted)
+    out Upt03Candidate shifted,
+    inout Upt07WorkCounters work)
 {
     shifted = (Upt03Candidate)0;
     Upt04LocalLightRanges ranges;
@@ -366,7 +378,8 @@ public uint Upt07ShiftPrimaryDirect<
     uint emissive;
     uint currentDenseIndex;
     if (Upt07EvaluateDirectSample(
-            source, receiver, 1u, sample, emissive, currentDenseIndex) == 0u)
+            source, receiver, 1u, sample, emissive, currentDenseIndex,
+            work) == 0u)
         return 0u;
     const Upt04MaterialEvaluation material =
         TMaterialSet.EvaluatePrimaryDirect(
@@ -402,6 +415,7 @@ public uint Upt07ShiftPrimaryDirect<
     shifted.pathLength = 1u;
     shifted.reconnectionVertexLength = 0u;
     shifted.identity0 = currentDenseIndex + 1u;
+    Upt07WorkAdd(work, kUpt07WorkLightRecordLoads);
     shifted.identity1 = Upt04StableLightIdentityFingerprint(
         Upt07LoadLight(currentDenseIndex));
     shifted.replayKey = source.replayKey;
@@ -439,7 +453,8 @@ public uint Upt07BuildSelectedVisibility(
     Upt03Candidate selected,
     Upt04PrimarySurfaceRecord receiver,
     out Upt04TraceRequest visibility,
-    out Upt04VisibilityIgnore visibilityIgnore)
+    out Upt04VisibilityIgnore visibilityIgnore,
+    inout Upt07WorkCounters work)
 {
     visibility = (Upt04TraceRequest)0;
     visibilityIgnore = Upt04NoVisibilityIgnore();
@@ -452,7 +467,8 @@ public uint Upt07BuildSelectedVisibility(
             0u,
             sample,
             emissive,
-            currentDenseIndex) == 0u
+            currentDenseIndex,
+            work) == 0u
         || sample.status != kUpt04SampleValidPositive
         || !Upt04BuildPrimaryVisibilityRequest(
             receiver.worldPositionAndViewDepth.xyz,
@@ -464,6 +480,7 @@ public uint Upt07BuildSelectedVisibility(
         return 0u;
     if (emissive != 0u)
     {
+        Upt07WorkAdd(work, kUpt07WorkLightRecordLoads);
         const Upt04UnifiedLightRecord visibilityLight =
             Upt07LoadLight(currentDenseIndex);
         visibilityIgnore = Upt04MakeVisibilityIgnore(
@@ -489,6 +506,26 @@ void Upt07PublishBottleneckProbe(
     gUpt07BottleneckProbe[index] = digest;
     gUpt07CurrentReservoirs[index] = currentPacked;
 }
+
+#if UPT07_BOTTLENECK_STAGE == 12
+void Upt07PublishWorkBudget(
+    uint index,
+    Upt03PackedReservoir currentPacked,
+    Upt07WorkCounters work)
+{
+    const uint base = index * (kUpt07WorkCounterCount + 1u);
+    gUpt07BottleneckProbe[base + 0u] = work.rayQueries;
+    gUpt07BottleneckProbe[base + 1u] = work.proceedIterations;
+    gUpt07BottleneckProbe[base + 2u] = work.stableRemapLoads;
+    gUpt07BottleneckProbe[base + 3u] = work.emissiveHashLoads;
+    gUpt07BottleneckProbe[base + 4u] = work.lightRecordLoads;
+    gUpt07BottleneckProbe[base + 5u] = work.geometryResolves;
+    gUpt07BottleneckProbe[base + 6u] = work.materialRecordLoads;
+    gUpt07BottleneckProbe[base + 7u] = work.textureSamples;
+    gUpt07BottleneckProbe[base + 8u] = Upt07WorkBudgetViolationMask(work);
+    gUpt07CurrentReservoirs[index] = currentPacked;
+}
+#endif
 #endif
 
 [numthreads(8, 8, 1)]
@@ -502,6 +539,16 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (index >= gUpt07Control.surfaceCount)
         return;
 
+    Upt07WorkCounters work = (Upt07WorkCounters)0;
+#if UPT07_BOTTLENECK_STAGE == 12
+    // Initialize this pixel's complete record. No full-buffer clear is needed,
+    // including when an invalid receiver returns before any expensive work.
+    const uint workBase = index * (kUpt07WorkCounterCount + 1u);
+    [unroll]
+    for (uint workSlot = 0u; workSlot < kUpt07WorkCounterCount + 1u;
+        ++workSlot)
+        gUpt07BottleneckProbe[workBase + workSlot] = 0u;
+#endif
     const Upt03PackedReservoir currentPacked = gUpt07CurrentReservoirs[index];
     const Upt07DecodedReservoir current = Upt07DecodeReservoir(currentPacked);
     const Upt04PrimarySurfaceRecord receiver = Upt07LoadCurrentSurface(index);
@@ -537,9 +584,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 0u,
                 currentEmissive,
                 currentDenseIndex,
-                currentLight) != 0u
+                currentLight,
+                work) != 0u
             && !Upt07DirectLightTemporalReplayable(currentLight))
         {
+#if UPT07_BOTTLENECK_STAGE == 12
+            Upt07PublishWorkBudget(index, currentPacked, work);
+#endif
             gUpt07CurrentReservoirs[index] = currentPacked;
             return;
         }
@@ -678,7 +729,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         shiftedValid = Upt07ShiftPrimaryDirect<UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
             history.logical.selected,
             receiver,
-            shifted);
+            shifted,
+            work);
         if (shiftedValid != 0u)
             historyFailureReason = shifted.status == kUpt04SampleValidPositive
                 ? 0u : kUpt07RejectShiftedValidZero;
@@ -699,7 +751,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             indirectFailureReason,
             shifted,
             shiftedIndirectVisibility,
-            historyShiftJacobian);
+            historyShiftJacobian,
+            work);
 #if UPT07_ROUTE_DIAGNOSTICS
         Upt07RouteDiag(shiftedValid != 0u ? 10u : 11u);
 #endif
@@ -838,14 +891,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         {
             currentTargetAtCurrent =
                 Upt07PrimaryDirectTargetAtReceiver<UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
-                    currentCandidate, receiver);
+                    currentCandidate, receiver, work);
 #if UPT07_BOTTLENECK_STAGE != 7
             if (confidenceShiftedValid != 0u
                 && Upt04PrimarySurfaceRecordValid(historyReceiver)
                 && (pairwiseMis != 0u || !basicSelectsHistory))
                 currentTargetAtHistory =
                     Upt07PrimaryDirectTargetAtReceiver<UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
-                        currentCandidate, historyReceiver);
+                        currentCandidate, historyReceiver, work);
 #endif
         }
         else
@@ -878,7 +931,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                         currentShiftFailure,
                         currentAtHistory,
                         unusedCurrentVisibility,
-                        unusedCurrentJacobian);
+                        unusedCurrentJacobian,
+                        work);
 #if UPT07_ROUTE_DIAGNOSTICS
                 Upt07RouteDiag(currentAtHistoryValid != 0u ? 13u : 14u);
 #endif
@@ -1035,7 +1089,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 visibilityPassed = Upt07TraceIndirect(
                         shiftedIndirectVisibility.request,
                         1u,
-                        shiftedIndirectVisibility.ignore).status
+                        shiftedIndirectVisibility.ignore,
+                        work).status
                     != kUpt04HitTriangle;
             }
         }
@@ -1047,8 +1102,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                     merged.logical.selected,
                     receiver,
                     visibility,
-                    visibilityIgnore) != 0u
-                && Upt07VisibilityPassed(visibility, visibilityIgnore);
+                    visibilityIgnore,
+                    work) != 0u
+                && Upt07VisibilityPassed(visibility, visibilityIgnore, work);
         }
 #if UPT07_BOTTLENECK_STAGE == 5
         bottleneckVisibilityResult = visibilityPassed ? 2u : 3u;
@@ -1063,6 +1119,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         {
 #if UPT07_ROUTE_DIAGNOSTICS
             Upt07RouteDiag(31u);
+#endif
+#if UPT07_BOTTLENECK_STAGE == 12
+            Upt07PublishWorkBudget(index, currentPacked, work);
 #endif
             gUpt07CurrentReservoirs[index] = currentPacked;
             return;
@@ -1083,9 +1142,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 merged.logical.selected,
                 receiver,
                 visibility,
-                visibilityIgnore) == 0u
-            || !Upt07VisibilityPassed(visibility, visibilityIgnore))
+                visibilityIgnore,
+                work) == 0u
+            || !Upt07VisibilityPassed(visibility, visibilityIgnore, work))
         {
+#if UPT07_BOTTLENECK_STAGE == 12
+            Upt07PublishWorkBudget(index, currentPacked, work);
+#endif
             gUpt07CurrentReservoirs[index] = currentPacked;
             return;
         }
@@ -1110,4 +1173,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     return;
 #endif
     gUpt07CurrentReservoirs[index] = Upt07PackTemporalResult(merged);
+#if UPT07_BOTTLENECK_STAGE == 12
+    Upt07PublishWorkBudget(index, currentPacked, work);
+#endif
 }

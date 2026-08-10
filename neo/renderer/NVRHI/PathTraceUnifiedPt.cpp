@@ -84,6 +84,9 @@ static constexpr uint32_t UPT07_GEOMETRY_FLAG_ROUTE_DIAGNOSTICS = 1u << 22u;
 static constexpr uint32_t UPT07_TEMPORAL_DIAGNOSTIC_COUNT = 32u;
 static constexpr uint32_t UPT07_TEMPORAL_DIAGNOSTIC_BYTES =
     UPT07_TEMPORAL_DIAGNOSTIC_COUNT * sizeof(uint32_t);
+static constexpr uint32_t UPT07_WORK_BUDGET_COUNTER_COUNT = 8u;
+static constexpr uint32_t UPT07_WORK_BUDGET_WORDS_PER_PIXEL =
+    UPT07_WORK_BUDGET_COUNTER_COUNT + 1u;
 static constexpr uint32_t UPT08_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT09_PUSH_CONSTANT_BYTES = 88u;
 static constexpr uint32_t UPT09_MAXIMUM_INPUT_M = 32u;
@@ -4327,7 +4330,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         return false;
     }
 
-    static const char* bottleneckPaths[11] = {
+    static const char* bottleneckPaths[12] = {
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe1.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe2.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe3.bin",
@@ -4338,7 +4341,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe8.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe9.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe10.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe11.bin"
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe11.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe12.bin"
     };
     const char* path = inputs.temporalBottleneckProbe != 0u
         ? bottleneckPaths[inputs.temporalBottleneckProbe - 1u]
@@ -4454,12 +4458,16 @@ bool PathTraceUnifiedPtState::EnsureTemporalBottleneckBuffer(
     if (count64 == 0u || count64 > UINT32_MAX)
         return false;
     const uint32_t count = static_cast<uint32_t>(count64);
-    if (m_temporalBottleneckBuffer && m_temporalBottleneckCapacity == count)
+    if (m_temporalBottleneckBuffer && m_temporalBottleneckCapacity == count
+        && (inputs.temporalBottleneckProbe != 12u
+            || m_temporalWorkBudgetReadback))
         return true;
 
     nvrhi::BufferDesc desc;
     desc.debugName = "PathTraceUnifiedPtTemporalBottleneckProbe";
-    desc.byteSize = count64 * sizeof(uint32_t);
+    const uint64_t wordsPerPixel = inputs.temporalBottleneckProbe == 12u
+        ? UPT07_WORK_BUDGET_WORDS_PER_PIXEL : 1u;
+    desc.byteSize = count64 * wordsPerPixel * sizeof(uint32_t);
     desc.structStride = sizeof(uint32_t);
     desc.canHaveUAVs = true;
     desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
@@ -4471,6 +4479,20 @@ bool PathTraceUnifiedPtState::EnsureTemporalBottleneckBuffer(
         m_temporalBindingSets[page] = nullptr;
         m_temporalBindingSetDescValid[page] = false;
     }
+    if (inputs.temporalBottleneckProbe == 12u)
+    {
+        nvrhi::BufferDesc readbackDesc;
+        readbackDesc.debugName =
+            "PathTraceUnifiedPtTemporalWorkBudgetReadback";
+        readbackDesc.byteSize = desc.byteSize;
+        readbackDesc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        readbackDesc.initialState = nvrhi::ResourceStates::CopyDest;
+        readbackDesc.keepInitialState = true;
+        m_temporalWorkBudgetReadback =
+            inputs.device->createBuffer(readbackDesc);
+        m_temporalWorkBudgetCaptureArmed =
+            m_temporalWorkBudgetReadback != nullptr;
+    }
     if (m_temporalBottleneckBuffer)
     {
         common->Printf(
@@ -4478,7 +4500,9 @@ bool PathTraceUnifiedPtState::EnsureTemporalBottleneckBuffer(
             count,
             static_cast<unsigned long long>(desc.byteSize));
     }
-    return m_temporalBottleneckBuffer != nullptr;
+    return m_temporalBottleneckBuffer != nullptr
+        && (inputs.temporalBottleneckProbe != 12u
+            || m_temporalWorkBudgetReadback != nullptr);
 }
 
 bool PathTraceUnifiedPtState::EnsureTemporalDiagnosticBuffers(
@@ -4558,6 +4582,101 @@ void PathTraceUnifiedPtState::DrainTemporalDiagnosticReadback(
     }
     inputs.device->unmapBuffer(m_temporalDiagnosticReadback);
     m_temporalDiagnosticReadbackPending = false;
+}
+
+void PathTraceUnifiedPtState::DrainTemporalWorkBudgetReadback(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_temporalWorkBudgetReadbackPending
+        || !m_temporalWorkBudgetReadback || !inputs.device)
+        return;
+    if (m_temporalWorkBudgetReadbackDelayFrames > 0)
+    {
+        --m_temporalWorkBudgetReadbackDelayFrames;
+        return;
+    }
+    const uint32_t* words = static_cast<const uint32_t*>(
+        inputs.device->mapBuffer(
+            m_temporalWorkBudgetReadback, nvrhi::CpuAccessMode::Read));
+    if (!words)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: temporal work budget readback map failed\n");
+        m_temporalWorkBudgetReadbackPending = false;
+        return;
+    }
+
+    static const char* names[UPT07_WORK_BUDGET_COUNTER_COUNT] = {
+        "rays", "proceed", "remapLoads", "emissiveHashLoads",
+        "lightLoads", "geometryResolves", "materialLoads", "textureSamples"
+    };
+    std::array<uint64_t, UPT07_WORK_BUDGET_COUNTER_COUNT> totals = {};
+    std::array<uint32_t, UPT07_WORK_BUDGET_COUNTER_COUNT> maxima = {};
+    std::array<uint32_t, UPT07_WORK_BUDGET_COUNTER_COUNT> nonzero = {};
+    std::array<std::array<uint32_t, 257>,
+        UPT07_WORK_BUDGET_COUNTER_COUNT> histograms = {};
+    std::array<uint32_t, 4> violationCounts = {};
+    uint32_t anyViolationCount = 0u;
+    uint64_t logicalDependentLoads = 0u;
+    for (uint32_t pixel = 0u; pixel < m_temporalBottleneckCapacity; ++pixel)
+    {
+        const uint32_t base = pixel * UPT07_WORK_BUDGET_WORDS_PER_PIXEL;
+        for (uint32_t counter = 0u;
+            counter < UPT07_WORK_BUDGET_COUNTER_COUNT; ++counter)
+        {
+            const uint32_t value = words[base + counter];
+            totals[counter] += value;
+            maxima[counter] = Max(maxima[counter], value);
+            nonzero[counter] += value != 0u ? 1u : 0u;
+            ++histograms[counter][Min(value, 256u)];
+            if (counter >= 2u)
+                logicalDependentLoads += value;
+        }
+        const uint32_t violationMask = words[base + 8u];
+        anyViolationCount += violationMask != 0u ? 1u : 0u;
+        for (uint32_t bit = 0u; bit < violationCounts.size(); ++bit)
+            violationCounts[bit] += (violationMask & (1u << bit)) != 0u
+                ? 1u : 0u;
+    }
+    const auto percentile = [&](uint32_t counter, uint32_t numerator)
+    {
+        const uint64_t threshold =
+            (uint64_t(m_temporalBottleneckCapacity) * numerator + 99u) / 100u;
+        uint64_t cumulative = 0u;
+        for (uint32_t value = 0u; value <= 256u; ++value)
+        {
+            cumulative += histograms[counter][value];
+            if (cumulative >= threshold)
+                return value;
+        }
+        return 256u;
+    };
+    common->Printf(
+        "PathTraceUnifiedPt: temporal work budget status=%s pixels=%u violations(any/rays/remap/hash/light)=%u/%u/%u/%u/%u logicalDependentLoadsPerPixel=%.3f ceilings(rays/remap/hash/light)=3/2/32/8\n",
+        anyViolationCount == 0u ? "PASS" : "FAIL",
+        m_temporalBottleneckCapacity,
+        anyViolationCount,
+        violationCounts[0], violationCounts[1], violationCounts[2],
+        violationCounts[3],
+        m_temporalBottleneckCapacity != 0u
+            ? double(logicalDependentLoads)
+                / double(m_temporalBottleneckCapacity)
+            : 0.0);
+    for (uint32_t counter = 0u;
+        counter < UPT07_WORK_BUDGET_COUNTER_COUNT; ++counter)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: temporal work %-19s mean=%8.3f p50=%u p90=%u p99=%u max=%u activePixels=%u\n",
+            names[counter],
+            m_temporalBottleneckCapacity != 0u
+                ? double(totals[counter])
+                    / double(m_temporalBottleneckCapacity)
+                : 0.0,
+            percentile(counter, 50u), percentile(counter, 90u),
+            percentile(counter, 99u), maxima[counter], nonzero[counter]);
+    }
+    inputs.device->unmapBuffer(m_temporalWorkBudgetReadback);
+    m_temporalWorkBudgetReadbackPending = false;
 }
 
 void PathTraceUnifiedPtState::UpdateTemporalGpuTiming(
@@ -4827,6 +4946,7 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
     UpdateTemporalGpuTiming(inputs);
     PollTemporalGpuTiming(inputs);
     DrainTemporalDiagnosticReadback(inputs);
+    DrainTemporalWorkBudgetReadback(inputs);
     if (!inputs.temporal)
     {
         m_reportedTemporalSkipReason = -1;
@@ -5113,6 +5233,10 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             inputs.commandList->setBufferState(
                 m_temporalDiagnosticCounters,
                 nvrhi::ResourceStates::UnorderedAccess);
+        if (inputs.temporalBottleneckProbe != 0u)
+            inputs.commandList->setBufferState(
+                m_temporalBottleneckBuffer,
+                nvrhi::ResourceStates::UnorderedAccess);
         inputs.commandList->commitBarriers();
         if (captureTemporalDiagnostics)
         {
@@ -5158,6 +5282,30 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             m_temporalDiagnosticReadbackPending = true;
             m_temporalDiagnosticReadbackIsRoute = captureRouteDiagnostics;
             m_temporalDiagnosticReadbackDelayFrames = 2;
+        }
+        if (inputs.temporalBottleneckProbe == 12u
+            && historyAvailable
+            && m_temporalWorkBudgetCaptureArmed
+            && !m_temporalWorkBudgetReadbackPending)
+        {
+            const uint64_t workBudgetBytes =
+                uint64_t(m_temporalBottleneckCapacity)
+                * UPT07_WORK_BUDGET_WORDS_PER_PIXEL * sizeof(uint32_t);
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_temporalBottleneckBuffer);
+            inputs.commandList->setBufferState(
+                m_temporalBottleneckBuffer,
+                nvrhi::ResourceStates::CopySource);
+            inputs.commandList->setBufferState(
+                m_temporalWorkBudgetReadback,
+                nvrhi::ResourceStates::CopyDest);
+            inputs.commandList->commitBarriers();
+            inputs.commandList->copyBuffer(
+                m_temporalWorkBudgetReadback, 0,
+                m_temporalBottleneckBuffer, 0, workBudgetBytes);
+            m_temporalWorkBudgetReadbackPending = true;
+            m_temporalWorkBudgetReadbackDelayFrames = 2;
+            m_temporalWorkBudgetCaptureArmed = false;
         }
     }
     m_reportedTemporalSkipReason = -1;

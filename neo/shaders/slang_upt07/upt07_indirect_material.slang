@@ -19,6 +19,7 @@ import upt05_material_openpbr;
 #endif
 import upt07_emissive_material;
 import upt07_temporal_direct_bindings;
+import upt07_work_budget;
 
 public static const uint kUpt07MaterialAlphaClipTest = 0x00000001u;
 public static const uint kUpt07MaterialDiffuseYCoCg = 0x00000002u;
@@ -73,24 +74,43 @@ public bool Upt07MaterialTexture(
     return all(isfinite(texel)) && !any(abs(texel) > 65504.0f);
 }
 
+public bool Upt07MaterialTextureCounted(
+    uint textureIndex,
+    float2 texCoord,
+    out float4 texel,
+    inout Upt07WorkCounters work)
+{
+    if (textureIndex != kUpt04InvalidIdentity
+        && textureIndex < gUpt07Control.logicalTextureCount
+        && all(isfinite(texCoord)) && !any(abs(texCoord) > 65536.0f))
+        Upt07WorkAdd(work, kUpt07WorkTextureSamples);
+    return Upt07MaterialTexture(textureIndex, texCoord, texel);
+}
+
 // Reject only a proven discarded texel. Missing route/material/texture data
 // remains solid, matching the accepted D0 no-hole traversal rule.
-public bool Upt07MaterialRejectsAlphaClipCandidate(Upt04HitFacts candidate)
+public bool Upt07MaterialRejectsAlphaClipCandidate(
+    Upt04HitFacts candidate,
+    inout Upt07WorkCounters work)
 {
     uint materialIndex;
+    Upt07WorkAdd(work, kUpt07WorkGeometryResolves);
     if (!Upt04ResolveTriangleMaterialIndex(candidate, materialIndex)
         || materialIndex >= gUpt07Control.materialCount)
         return false;
+    Upt07WorkAdd(work, kUpt07WorkMaterialRecordLoads);
     const uint materialFlags =
         gUptDirectEmitterMaterials[materialIndex].flags;
     if ((materialFlags & kUpt07MaterialAlphaClipTest) == 0u)
         return false;
 
     Upt04ResolvedTriangle triangle;
+    Upt07WorkAdd(work, kUpt07WorkGeometryResolves);
     if (!Upt04ResolveTriangle(candidate, triangle)
         || triangle.materialIndex != materialIndex
         || triangle.materialIndex >= gUpt07Control.materialCount)
         return false;
+    Upt07WorkAdd(work, kUpt07WorkMaterialRecordLoads);
     const Upt04SmokeMaterialRecord material =
         gUptDirectEmitterMaterials[triangle.materialIndex];
     if ((material.flags & kUpt07MaterialAlphaClipTest) == 0u
@@ -112,8 +132,8 @@ public bool Upt07MaterialRejectsAlphaClipCandidate(Upt04HitFacts candidate)
     bool diffuseValid = true;
     if ((material.flags & kUpt07MaterialForceDebugAlbedo) == 0u)
     {
-        diffuseValid = Upt07MaterialTexture(
-            material.diffuseTextureIndex, texCoord, diffuse);
+        diffuseValid = Upt07MaterialTextureCounted(
+            material.diffuseTextureIndex, texCoord, diffuse, work);
         if (!diffuseValid
             && material.diffuseTextureIndex == kUpt04InvalidIdentity)
         {
@@ -148,7 +168,8 @@ public bool Upt07MaterialRejectsAlphaClipCandidate(Upt04HitFacts candidate)
     else if (material.alphaTextureIndex != kUpt04InvalidIdentity)
     {
         float4 alphaTexel;
-        if (!Upt07MaterialTexture(material.alphaTextureIndex, texCoord, alphaTexel))
+        if (!Upt07MaterialTextureCounted(
+                material.alphaTextureIndex, texCoord, alphaTexel, work))
             return false;
         coverage = alphaTexel.w;
     }

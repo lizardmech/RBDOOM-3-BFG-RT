@@ -6,6 +6,8 @@ foreach(required UPT07_FULL_REFLECTION UPT07_FULL_DISASSEMBLY
         UPT07_ROUTE_DIAG_COMPACT_REFLECTION UPT07_ROUTE_DIAG_COMPACT_DISASSEMBLY
         UPT07_RECONNECT_REFLECTION UPT07_RECONNECT_DISASSEMBLY
         UPT07_RECONNECT_COMPACT_REFLECTION UPT07_RECONNECT_COMPACT_DISASSEMBLY
+        UPT07_WORK_BUDGET_REFLECTION UPT07_WORK_BUDGET_DISASSEMBLY
+        UPT07_TEMPORAL_SOURCE UPT07_WORK_BUDGET_SOURCE
         UPT07_STAMP)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "UPT-07 direct temporal verification missing ${required}")
@@ -28,6 +30,10 @@ file(READ "${UPT07_RECONNECT_REFLECTION}" reconnect_reflection)
 file(READ "${UPT07_RECONNECT_DISASSEMBLY}" reconnect_disassembly)
 file(READ "${UPT07_RECONNECT_COMPACT_REFLECTION}" reconnect_compact_reflection)
 file(READ "${UPT07_RECONNECT_COMPACT_DISASSEMBLY}" reconnect_compact_disassembly)
+file(READ "${UPT07_WORK_BUDGET_REFLECTION}" work_budget_reflection)
+file(READ "${UPT07_WORK_BUDGET_DISASSEMBLY}" work_budget_disassembly)
+file(READ "${UPT07_TEMPORAL_SOURCE}" temporal_source)
+file(READ "${UPT07_WORK_BUDGET_SOURCE}" work_budget_source)
 
 foreach(kind full compact)
     foreach(binding 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 23 25 26 27 28)
@@ -67,6 +73,41 @@ foreach(kind full compact)
     if(${kind}_disassembly MATCHES "OpCapability (Int16|Float16)" OR
        ${kind}_disassembly MATCHES "OpType(Int|Float) 16")
         message(FATAL_ERROR "UPT-07 ${kind} direct temporal introduced native 16-bit SPIR-V")
+    endif()
+endforeach()
+
+if(NOT work_budget_reflection MATCHES
+        "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*31")
+    message(FATAL_ERROR "UPT temporal work-budget specialization lacks per-pixel UAV binding 31")
+endif()
+string(REGEX MATCHALL "OpRayQueryInitializeKHR" work_budget_rayqueries
+    "${work_budget_disassembly}")
+list(LENGTH work_budget_rayqueries work_budget_rayquery_count)
+if(NOT work_budget_rayquery_count EQUAL 4 OR
+   work_budget_disassembly MATCHES "OpTraceRayKHR")
+    message(FATAL_ERROR
+        "UPT temporal work budget exceeded the declared four static RayQuery sites")
+endif()
+string(REGEX MATCHALL "Upt07FindEmissiveDenseLight\\(" emissive_lookup_sites
+    "${temporal_source}")
+list(LENGTH emissive_lookup_sites emissive_lookup_site_count)
+if(NOT emissive_lookup_site_count EQUAL 2)
+    message(FATAL_ERROR
+        "UPT temporal introduced an undeclared emissive hash-search call site")
+endif()
+if(temporal_source MATCHES "gUpt07EmissiveDistribution" OR
+   temporal_source MATCHES "while[ \t\r\n]*\\([ \t]*low[ \t]*<[ \t]*high")
+    message(FATAL_ERROR
+        "UPT temporal reintroduced serialized emissive-CDF search")
+endif()
+foreach(contract
+        "kUpt07BudgetRayQueriesPerPixel = 3u"
+        "kUpt07BudgetStableRemapLoadsPerPixel = 2u"
+        "kUpt07BudgetEmissiveHashLoadsPerPixel = 32u"
+        "kUpt07BudgetLightRecordLoadsPerPixel = 8u")
+    if(NOT work_budget_source MATCHES "${contract}")
+        message(FATAL_ERROR
+            "UPT temporal work-budget contract lost declaration: ${contract}")
     endif()
 endforeach()
 
@@ -135,4 +176,4 @@ if(NOT full_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt07CurrentLights\"" OR
 endif()
 
 file(WRITE "${UPT07_STAMP}"
-    "UPT-07 temporal verified: direct variants retain 28 bindings/one winner RayQuery; baseline unified variants retain 29 bindings/four RayQuery sites; route diagnostics expose 30 bindings while retaining four sites; UPT-17 reconnect variants expose 30 bindings/six bounded branch-dependent sites; no TraceRay or native16\n")
+    "UPT-07 temporal verified: direct variants retain 28 bindings/one winner RayQuery; baseline unified variants retain 29 bindings/four RayQuery sites; route diagnostics expose 30 bindings while retaining four sites; UPT-17 reconnect variants expose 30 bindings/six bounded branch-dependent sites; probe12 retains four RayQuery sites, no CDF search, one declared emissive-hash call, and per-pixel work budgets; no TraceRay or native16\n")

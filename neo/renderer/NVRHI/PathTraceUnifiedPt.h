@@ -166,6 +166,7 @@ private:
     bool EnsureTemporalBottleneckBuffer(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalDiagnosticBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
     void DrainTemporalDiagnosticReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
+    void DrainTemporalWorkBudgetReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
     void UpdateTemporalGpuTiming(const PathTraceUnifiedPtDispatchInputs& inputs);
     void PollTemporalGpuTiming(const PathTraceUnifiedPtDispatchInputs& inputs);
     nvrhi::TimerQueryHandle BeginTemporalGpuTiming(
@@ -340,6 +341,10 @@ private:
     nvrhi::BufferHandle m_temporalDiagnosticReadback;
     uint32_t m_temporalBottleneckCapacity = 0;
     nvrhi::BufferHandle m_temporalBottleneckBuffer;
+    nvrhi::BufferHandle m_temporalWorkBudgetReadback;
+    bool m_temporalWorkBudgetReadbackPending = false;
+    bool m_temporalWorkBudgetCaptureArmed = false;
+    int m_temporalWorkBudgetReadbackDelayFrames = 0;
     bool m_temporalDiagnosticReadbackPending = false;
     bool m_temporalDiagnosticReadbackIsRoute = false;
     int m_temporalDiagnosticReadbackDelayFrames = 0;
