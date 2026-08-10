@@ -131,9 +131,65 @@ full-screen receiver/history memory and reprojection before any RayQuery. If no
 single delta dominates but P is much larger than T5, investigate temporal event
 feedback and route amplification rather than shader arithmetic.
 
+First measured result and stage-3 refinement
+---------------------------------------------
+
+At 2560x1440, 64-sample dispatch-only medians measured:
+
+    P       13.501 ms
+    T1       1.293 ms
+    T2       2.261 ms
+    T3       8.749 ms
+    T4       9.092 ms
+    T5      11.546 ms
+
+The resulting costs are 1.293 ms receiver/history, 0.968 ms first replay,
+6.488 ms reciprocal/cross evaluation, 0.343 ms merge, 2.454 ms final
+visibility and 1.955 ms production-feedback difference. Means reproduce the
+same partition. The reciprocal/cross stage therefore owns 56 percent of the
+controlled T5 shader and 48 percent of production P; temporal merge is closed
+as the next optimization target.
+
+Modes 6 through 9 split that dominant stage without changing modes 1 through
+5:
+
+    6   T2 plus previous-best/duplication bookkeeping and BASIC selection
+    7   T6 plus current-candidate target at the current receiver
+    8   T7 plus direct-light target at the history receiver
+    9   T8 plus global reciprocal continuation, RayQuery and hit decode
+    3   T9 plus global post-hit endpoint/light/material/PDF target evaluation
+
+Stage 9 returns immediately after folding the complete decoded hit surface into
+the observable probe digest. It does not admit a synthetic sample to the
+reservoir and, like every other probe, republishes untouched D0. Run the modes
+in the order 2, 6, 7, 8, 9, 3 under the existing timestamp sampler. Attribute:
+
+    bookkeeping/duplication       = T6 - T2
+    current-receiver target       = T7 - T6
+    direct cross-receiver target  = T8 - T7
+    reciprocal traversal/decode   = T9 - T8
+    reciprocal post-hit target    = T3 - T9
+
+Static SPIR-V inspection proves the intended closure:
+
+    mode   bytes     RayQuery initialize/proceed sites   OpLoad count
+      2    309,912                  1 / 1                    418
+      6    339,132                  1 / 1                    422
+      7    393,824                  1 / 1                    506
+      8    446,320                  1 / 1                    589
+      9    542,564                  2 / 2                    721
+      3    616,736                  2 / 2                    883
+
+Thus mode 9 introduces exactly the reciprocal query and decoded geometry;
+mode 3 retains the same ray count while adding the remaining post-hit work.
+
 Build and deployment
 --------------------
 
-`cmake --build --preset win64-pt-dev-release` from `neo/` passes. The five
-Vulkan SPIR-V artifacts and matching executable are the only required deploy
+`cmake --build --preset win64-pt-dev-release` from `neo/` passes. The nine
+diagnostic Vulkan SPIR-V artifacts and matching executable are the only required deploy
 outputs for this diagnostic. No DX12 shader is compiled.
+
+After the stage-3 refinement, only the four new probe 6--9 blobs and the rebuilt
+executable require deployment; the original probes and normal UPT-07 artifacts
+remain byte-identical.

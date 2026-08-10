@@ -791,6 +791,28 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     Upt07RouteDiag(basicSelectsHistory ? 15u : 16u);
 #endif
 
+#if UPT07_BOTTLENECK_STAGE == 6
+    uint bottleneckDigest = 2166136261u;
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, previousBestAdmitted);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, confidenceShiftedValid);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, adaptiveMaximumHistoryM);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, basicSelectsHistory ? 1u : 0u);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, seededCurrent.valid);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, seededCurrent.logical.hasSelectedSample);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, seededCurrent.logical.selected.identity0);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, asuint(seededCurrent.logical.weightSum));
+    Upt07PublishBottleneckProbe(index, currentPacked, bottleneckDigest);
+    return;
+#endif
+
     float currentTargetAtHistory = 0.0f;
     float currentTargetAtCurrent = 0.0f;
     if (seededCurrent.valid != 0u
@@ -802,12 +824,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             currentTargetAtCurrent =
                 Upt07PrimaryDirectTargetAtReceiver<UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
                     currentCandidate, receiver);
+#if UPT07_BOTTLENECK_STAGE != 7
             if (confidenceShiftedValid != 0u
                 && Upt04PrimarySurfaceRecordValid(historyReceiver)
                 && (pairwiseMis != 0u || !basicSelectsHistory))
                 currentTargetAtHistory =
                     Upt07PrimaryDirectTargetAtReceiver<UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
                         currentCandidate, historyReceiver);
+#endif
         }
         else
         {
@@ -819,6 +843,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             currentTargetAtCurrent = isfinite(currentCandidate.target)
                     && currentCandidate.target > 0.0f
                 ? currentCandidate.target : 0.0f;
+#if UPT07_BOTTLENECK_STAGE != 7 && UPT07_BOTTLENECK_STAGE != 8
             if (confidenceShiftedValid != 0u
                 && Upt04PrimarySurfaceRecordValid(historyReceiver)
                 && (pairwiseMis != 0u || !basicSelectsHistory))
@@ -846,10 +871,31 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                     && currentAtHistory.status == kUpt04SampleValidPositive)
                     currentTargetAtHistory = currentAtHistory.target;
             }
+#endif
             }
 #endif
         }
     }
+
+#if UPT07_BOTTLENECK_STAGE == 7 || UPT07_BOTTLENECK_STAGE == 8
+    uint bottleneckDigest = 2166136261u;
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, confidenceShiftedValid);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, basicSelectsHistory ? 1u : 0u);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, seededCurrent.logical.selected.eventKind);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, seededCurrent.logical.selected.identity0);
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, asuint(currentTargetAtCurrent));
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, asuint(currentTargetAtHistory));
+    bottleneckDigest = Upt07BottleneckMix(
+        bottleneckDigest, adaptiveMaximumHistoryM);
+    Upt07PublishBottleneckProbe(index, currentPacked, bottleneckDigest);
+    return;
+#endif
     // The history winner still carries a previous-frame dense light index.
     // Never replay that index through the current light buffer here: light
     // ordering churn can alias it to an unrelated current payload (the
@@ -866,7 +912,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         ? confidenceHistory.logical.selected.target
         : 0.0f;
 
-#if UPT07_BOTTLENECK_STAGE == 3
+#if UPT07_BOTTLENECK_STAGE == 3 || UPT07_BOTTLENECK_STAGE == 9
     uint bottleneckDigest = 2166136261u;
     bottleneckDigest = Upt07BottleneckMix(
         bottleneckDigest, confidenceShiftedValid);

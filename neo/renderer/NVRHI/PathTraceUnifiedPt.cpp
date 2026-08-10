@@ -4221,12 +4221,16 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         return false;
     }
 
-    static const char* bottleneckPaths[5] = {
+    static const char* bottleneckPaths[9] = {
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe1.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe2.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe3.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe4.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe5.bin"
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe5.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe6.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe7.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe8.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe9.bin"
     };
     const char* path = inputs.temporalBottleneckProbe != 0u
         ? bottleneckPaths[inputs.temporalBottleneckProbe - 1u]

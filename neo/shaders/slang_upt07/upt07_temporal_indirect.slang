@@ -33,6 +33,9 @@ import upt07_temporal_reservoir;
 #ifndef UPT07_EARLY_RECONNECT
 #define UPT07_EARLY_RECONNECT 0
 #endif
+#ifndef UPT07_BOTTLENECK_STAGE
+#define UPT07_BOTTLENECK_STAGE 0
+#endif
 
 public static const uint kUpt07IndirectReplayFlag = 1u << 25u;
 #if UPT07_EARLY_RECONNECT
@@ -944,6 +947,42 @@ public uint Upt07ReplayIndirectSample(
     const Upt04GeometryHitSurface hitSurface = Upt04DecodeGeometryHit(hit);
     if (hitSurface.valid == 0u)
         return 0u;
+
+#if UPT07_BOTTLENECK_STAGE == 9
+    if (sourceIsHistory == 0u)
+    {
+        // Stage 9 prices reciprocal continuation generation, traversal and
+        // committed-hit decoding without retaining endpoint/light/material
+        // evaluation. Fold every decoded surface field into the observable
+        // target so the compiler cannot replace this with a hit-only query.
+        const float decodedSurfaceDigest =
+            abs(dot(hitSurface.position, float3(0.131f, 0.173f, 0.197f)))
+            + abs(dot(hitSurface.geometricNormal,
+                float3(0.211f, 0.233f, 0.257f)))
+            + abs(dot(hitSurface.shadingNormal,
+                float3(0.277f, 0.293f, 0.313f)))
+            + abs(dot(hitSurface.tangent, float3(0.331f, 0.347f, 0.367f)))
+            + abs(dot(hitSurface.bitangent, float3(0.389f, 0.409f, 0.431f)))
+            + abs(dot(hitSurface.texCoord, float2(0.449f, 0.467f)))
+            + abs(dot(hitSurface.normalTexCoord, float2(0.487f, 0.503f)))
+            + abs(dot(hitSurface.vertexColor,
+                float4(0.521f, 0.541f, 0.557f, 0.577f)))
+            + abs(dot(hitSurface.vertexColorAdd,
+                float4(0.599f, 0.617f, 0.641f, 0.659f)))
+            + float(hitSurface.materialIndex & 0xffffu) * 1.0e-5f
+            + float(hitSurface.triangleClassAndFlags & 0xffffu) * 1.0e-6f
+            + float(hitSurface.frontFace & 1u) * 1.0e-4f;
+        shifted.status = kUpt04SampleValidPositive;
+        shifted.eventKind = source.eventKind;
+        shifted.identity0 = hit.instanceId + 1u;
+        shifted.identity1 = hit.primitiveId + 1u;
+        shifted.sampleCoord0 = hit.barycentrics.x;
+        shifted.sampleCoord1 = hit.barycentrics.y;
+        shifted.target = decodedSurfaceDigest + 1.0e-6f;
+        failureReason = 0u;
+        return 1u;
+    }
+#endif
 
     shifted.status = kUpt04SampleValidPositive;
     shifted.eventKind = source.eventKind;

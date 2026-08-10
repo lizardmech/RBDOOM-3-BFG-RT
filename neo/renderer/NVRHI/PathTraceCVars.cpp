@@ -1513,7 +1513,7 @@ idCVar r_pathTracingUnifiedPtTemporalBottleneckProbe(
     "r_pathTracingUnifiedPtTemporalBottleneckProbe",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Vulkan UPT T0 static bottleneck ladder for Lambert+compact64+duplication: 0 production, 1 reprojection/history only, 2 plus history indirect replay, 3 plus reciprocal/cross evaluation, 4 plus merge, 5 plus final visibility; probe modes execute cumulative work then republish D0 and write one digest dword per pixel" );
+    "Vulkan UPT T0 static bottleneck ladder for Lambert+compact64+duplication: 0 production; 1..5 original cumulative ladder; stage-3 subprobes 6 bookkeeping, 7 plus current target, 8 plus direct cross target, 9 plus reciprocal traversal/decode, then 3 full reciprocal evaluation; every probe republishes D0 and writes one digest dword per pixel" );
 
 idCVar r_pathTracingUnifiedPtTemporalGpuTiming(
     "r_pathTracingUnifiedPtTemporalGpuTiming",

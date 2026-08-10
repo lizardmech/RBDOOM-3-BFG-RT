@@ -206,7 +206,7 @@ upt07_declare_lambert_variant(
     UPT07_PACKED_LIGHT_RECORD=1 UPT07_DUPLICATION_MAP=1)
 
 set(UPT07_BOTTLENECK_OUTPUTS)
-foreach(bottleneck_stage RANGE 1 5)
+foreach(bottleneck_stage RANGE 1 9)
     set(bottleneck_module
         "upt07_temporal_unified_rayquery_light64_duplication_lambert_probe${bottleneck_stage}")
     path_tracing_declare_slang_spirv_module(
@@ -388,7 +388,7 @@ foreach(lambert_module
     list(APPEND UPT07_LAMBERT_RUNTIME_OUTPUTS "${lambert_runtime}")
 endforeach()
 set(UPT07_BOTTLENECK_RUNTIME_OUTPUTS)
-foreach(bottleneck_stage RANGE 1 5)
+foreach(bottleneck_stage RANGE 1 9)
     set(bottleneck_module
         "upt07_temporal_unified_rayquery_light64_duplication_lambert_probe${bottleneck_stage}")
     set(bottleneck_runtime "${UPT07_RUNTIME_DIR}/${bottleneck_module}.bin")
