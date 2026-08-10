@@ -7582,6 +7582,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         (enableRigidRouteForMode || rigidResidencyBoundsDebug);
     const int source2RigidEntities = sceneSource == 2 ? idMath::ClampInt(0, 2, r_pathTracingSceneSource2RigidEntities.GetInteger()) : 0;
     const int liquidPoolOffsetEnabled = r_pathTracingLiquidPoolMode.GetInteger() != 0 ? 1 : 0;
+    const int removeAlphaClipSurfaces = r_pathTracingUnifiedPtEnable.GetInteger() != 0 &&
+        r_pathTracingUnifiedPtRemoveAlphaClipSurfaces.GetInteger() != 0 ? 1 : 0;
+    const bool removeAlphaClipPolicyChanged =
+        removeAlphaClipSurfaces != m_unifiedPtRemoveAlphaClipSurfacesLast;
     const bool dumpInstanceUniverse = r_pathTracingInstanceUniverseDump.GetInteger() != 0;
     const bool dumpRigidMeshUniverse = r_pathTracingRigidMeshUniverseDump.GetInteger() != 0;
     {
@@ -7593,16 +7597,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const RtSmokeStaticDrawSurfCounts currentStaticDrawSurfs = useSceneUniverseStaticGeometry ? CountCurrentStaticDrawSurfs(viewDef) : RtSmokeStaticDrawSurfCounts();
     if (sceneSource != m_smokeSceneSourceLast ||
         (useSceneUniverseStaticGeometry && source2RigidEntities != m_smokeSceneSource2RigidEntitiesLast) ||
-        liquidPoolOffsetEnabled != m_smokeLiquidPoolOffsetEnabledLast)
+        liquidPoolOffsetEnabled != m_smokeLiquidPoolOffsetEnabledLast ||
+        removeAlphaClipPolicyChanged)
     {
-        common->Printf("PathTracePrimaryPass: PT static geometry policy changed source=%d/%d->%d/%d liquidOffset=%d->%d; clearing static geometry cache\n",
+        common->Printf("PathTracePrimaryPass: PT geometry policy changed source=%d/%d->%d/%d liquidOffset=%d->%d removeAlphaClip=%d->%d; clearing static, rigid, dynamic, and skinned geometry caches\n",
             m_smokeSceneSourceLast,
             m_smokeSceneSource2RigidEntitiesLast,
             sceneSource,
             source2RigidEntities,
             m_smokeLiquidPoolOffsetEnabledLast,
-            liquidPoolOffsetEnabled);
+            liquidPoolOffsetEnabled,
+            m_unifiedPtRemoveAlphaClipSurfacesLast,
+            removeAlphaClipSurfaces);
         m_smokeGeometryUniverse.Clear();
+        if (removeAlphaClipPolicyChanged)
+        {
+            m_staticBucketGeometryUniverse.Clear();
+            m_instanceUniverse.Clear();
+        }
         m_smokeSkinnedSurfaceRecords.clear();
         m_smokeSkinnedCaptureRouteSets.clear();
         m_smokeLegacySkinnedHistoryState = RtSmokeSkinnedHistoryState();
@@ -7624,6 +7636,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeSceneSourceLast = sceneSource;
         m_smokeSceneSource2RigidEntitiesLast = source2RigidEntities;
         m_smokeLiquidPoolOffsetEnabledLast = liquidPoolOffsetEnabled;
+        m_unifiedPtRemoveAlphaClipSurfacesLast = removeAlphaClipSurfaces;
     }
     uint64 sceneUniverseGeneration = 0;
     if (useSceneUniverseStaticGeometry && m_sceneUniverse.EnsureBuilt(viewDef))
@@ -7853,6 +7866,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RtSmokeBucketRanges sceneUniverseBucketRanges;
             sceneUniverseStaticBuildStats = m_sceneUniverse.BuildFullStaticGeometry(viewDef, m_smokeGeometryUniverse, sceneUniverseClassStats, sceneUniverseSkipStats, sceneUniverseAttributeStats, sceneUniverseMaterialStats, sceneUniverseBucketRanges);
             skipStats.invalidIndexCount += sceneUniverseSkipStats.invalidIndexCount;
+            skipStats.alphaClipDiagnostic += sceneUniverseSkipStats.alphaClipDiagnostic;
             skipStats.limitExceeded += sceneUniverseSkipStats.limitExceeded;
             skipStats.zeroAreaOnly += sceneUniverseSkipStats.zeroAreaOnly;
             skipStats.geometryStaticSurfaceBudgetExceeded +=
@@ -7964,6 +7978,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 classStats.unknownIndexes = mirrorClassStats.unknownIndexes;
                 classStats.unknownTriangles = mirrorClassStats.unknownTriangles;
                 skipStats = mirrorSkipStats;
+                skipStats.alphaClipDiagnostic +=
+                    staticSkipStats.alphaClipDiagnostic;
                 skipStats.limitExceeded +=
                     staticSkipStats.limitExceeded;
                 skipStats.geometryStaticSurfaceBudgetExceeded +=
@@ -8124,6 +8140,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 skipStats.geometryStaticRejectedBytes),
             skipStats.limitExceeded);
         r_pathTracingGeometryAdmissionDump.SetInteger(0);
+    }
+    if (removeAlphaClipSurfaces != 0 &&
+        (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: alpha-clip geometry removal active visible/staticSkipped=%d; authored alpha-test and perforated surfaces are omitted before BLAS/TLAS publication across all routes\n",
+            skipStats.alphaClipDiagnostic);
     }
     skinnedOutputAudit =
         UpdateSmokeSkinnedOutputAllocator(

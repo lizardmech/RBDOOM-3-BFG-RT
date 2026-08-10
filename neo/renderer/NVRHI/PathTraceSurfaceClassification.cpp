@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceSurfaceClassification.h"
+#include "PathTraceCVars.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceGuiSurfaces.h"
 #include "../RenderCommon.h"
@@ -121,6 +122,22 @@ bool SmokeMaterialCanPromoteRigidEmissiveCardInternal(const idMaterial* material
     return SmokeMaterialCanPromoteRigidEmissiveCardWithClassifierInternal(material, allowSwinglightRuntimeState, classifier);
 }
 
+}
+
+bool UnifiedPtDiagnosticRemovesAlphaClipSurface(const idMaterial* material)
+{
+    if (!material ||
+        r_pathTracingUnifiedPtEnable.GetInteger() == 0 ||
+        r_pathTracingUnifiedPtRemoveAlphaClipSurfaces.GetInteger() == 0)
+    {
+        return false;
+    }
+
+    bool hasAlphaTest = false;
+    float alphaCutoff = 0.0f;
+    ResolveSmokeMaterialAlphaInfo(material, hasAlphaTest, alphaCutoff);
+    (void)alphaCutoff;
+    return hasAlphaTest;
 }
 
 bool SmokeMaterialUsesOpaqueSwinglightCompatibility(const idMaterial* material)

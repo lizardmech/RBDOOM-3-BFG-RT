@@ -2504,6 +2504,11 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             {
                 continue;
             }
+            if (UnifiedPtDiagnosticRemovesAlphaClipSurface(drawSurf->material))
+            {
+                ++skipStats.alphaClipDiagnostic;
+                continue;
+            }
 
             const int classifyStartMs = Sys_Milliseconds();
             const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
@@ -2612,6 +2617,11 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
 
             if (PathTraceParticleCompositeSurfaceRoute(viewDef, drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
             {
+                continue;
+            }
+            if (UnifiedPtDiagnosticRemovesAlphaClipSurface(drawSurf->material))
+            {
+                ++skipStats.alphaClipDiagnostic;
                 continue;
             }
 

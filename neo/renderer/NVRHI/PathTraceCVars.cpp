@@ -1443,6 +1443,12 @@ idCVar r_pathTracingUnifiedPtFrozenScene(
     CVAR_RENDERER | CVAR_INTEGER,
     "Vulkan UPT isolated-scene factorial: 0 normal, 1 capture production then switch to 2, 2 frozen production geometry/full lights, 3 static geometry/analytic-only lights, 4 production geometry/analytic-only lights, 5 static geometry/full light machinery; modes 2-5 replay with no scene/universe uploads or BLAS/TLAS work" );
 
+idCVar r_pathTracingUnifiedPtRemoveAlphaClipSurfaces(
+    "r_pathTracingUnifiedPtRemoveAlphaClipSurfaces",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Vulkan UPT geometry diagnostic: omit every authored alpha-test/perforated surface from static, dynamic, rigid, and skinned ray-tracing geometry; changing this forces a one-time geometry cache rebuild and intentionally creates holes" );
+
 idCVar r_pathTracingUnifiedPtDirectProposalParity(
     "r_pathTracingUnifiedPtDirectProposalParity",
     "1",

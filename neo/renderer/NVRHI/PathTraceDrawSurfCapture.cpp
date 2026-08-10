@@ -34,6 +34,7 @@ void AddSmokeSurfaceSkipStats(RtSmokeSurfaceSkipStats& dst, const RtSmokeSurface
     dst.nullModel += src.nullModel;
     dst.invalidIndexCount += src.invalidIndexCount;
     dst.conditionedOff += src.conditionedOff;
+    dst.alphaClipDiagnostic += src.alphaClipDiagnostic;
     dst.nonCurrentCache += src.nonCurrentCache;
     dst.limitExceeded += src.limitExceeded;
     dst.geometrySurfaceBudgetExceeded +=
@@ -777,6 +778,13 @@ void CapturePathTraceDrawSurfMirror(
                 }
             }
 
+            if (UnifiedPtDiagnosticRemovesAlphaClipSurface(material))
+            {
+                ++skipStats.alphaClipDiagnostic;
+                instanceUniverse.RecordSkippedDrawSurf(skipStats);
+                continue;
+            }
+
             RecordPathTraceDrawSurfMirrorObservation(
                 viewDef,
                 geometryUniverse,
@@ -831,6 +839,11 @@ uint64 BuildPathTraceSkinnedCaptureViewSignature(
                 drawSurf,
                 tri) ==
                 RtPathTraceParticleSurfaceRoute::CompositeOnly)
+        {
+            continue;
+        }
+        if (UnifiedPtDiagnosticRemovesAlphaClipSurface(
+                drawSurf ? drawSurf->material : nullptr))
         {
             continue;
         }
@@ -1094,6 +1107,11 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
 
             if (PathTraceParticleCompositeSurfaceRoute(viewDef, drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
             {
+                continue;
+            }
+            if (UnifiedPtDiagnosticRemovesAlphaClipSurface(drawSurf->material))
+            {
+                ++skipStats.alphaClipDiagnostic;
                 continue;
             }
 

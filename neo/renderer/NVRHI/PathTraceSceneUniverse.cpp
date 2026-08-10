@@ -1401,6 +1401,11 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                 ++buildStats.skippedInvalid;
                 continue;
             }
+            if (UnifiedPtDiagnosticRemovesAlphaClipSurface(material))
+            {
+                ++skipStats.alphaClipDiagnostic;
+                continue;
+            }
 
             const uint64 key = BuildSceneUniverseLegacyDrawSurfKey(entity, material, tri);
             const uint64 bucketSurfaceKey =
@@ -1804,6 +1809,11 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
         if (emissiveCapable)
         {
             ++buildStats.emissiveCapableSurfaces;
+        }
+        if (UnifiedPtDiagnosticRemovesAlphaClipSurface(material))
+        {
+            ++skipStats.alphaClipDiagnostic;
+            return;
         }
         ++buildStats.residencyVisited;
 

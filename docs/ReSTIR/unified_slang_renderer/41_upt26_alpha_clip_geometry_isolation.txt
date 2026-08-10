@@ -1,0 +1,74 @@
+UPT-26: Alpha-clip geometry isolation diagnostic
+================================================
+
+Purpose
+-------
+
+This is a destructive profiling control for ruling alpha-clipped geometry out
+of the remaining UPT D0/T0 cost. It is not an alternate rendering mode and it
+must remain default-off.
+
+Control
+-------
+
+    r_pathTracingUnifiedPtRemoveAlphaClipSurfaces 0  normal production scene
+    r_pathTracingUnifiedPtRemoveAlphaClipSurfaces 1  omit alpha-clip surfaces
+
+The enabled mode removes a whole surface when its material has an authored
+alpha-test stage or MC_PERFORATED coverage. It does not turn the material
+opaque and does not merely accept/reject an any-hit candidate differently.
+The surface is excluded before ray-tracing geometry publication, so its
+triangles are absent from the BLAS/TLAS and cannot incur traversal, material,
+texture, or alpha-test work.
+
+Coverage and invalidation
+-------------------------
+
+The same predicate gates:
+
+    visible static and dynamic draw-surface capture;
+    full and portal-selected static scene-universe geometry;
+    the draw-surface mirror and skinned capture signature;
+    entity-feed rigid candidates;
+    portal-resident off-screen rigid candidates;
+    the static portal-bucket universe.
+
+Changing the effective value clears static, static-bucket, rigid, dynamic,
+skinned and instance-universe caches once. It does not add a per-frame clear.
+The console prints the policy transition and periodically reports the number
+of visible/static surfaces removed. Missing grates, foliage, lamp masks and
+other obvious holes are expected proof that the diagnostic engaged.
+
+Test protocol
+-------------
+
+Run the same fixed camera twice after normal PSO warm-up, without Nsight first:
+
+    r_pathTracingUnifiedPtRemoveAlphaClipSurfaces 0
+    r_pathTracingUnifiedPtTemporalGpuTiming 0
+    r_pathTracingUnifiedPtTemporalGpuTiming 1
+
+then:
+
+    r_pathTracingUnifiedPtRemoveAlphaClipSurfaces 1
+    r_pathTracingUnifiedPtTemporalGpuTiming 0
+    r_pathTracingUnifiedPtTemporalGpuTiming 1
+
+Wait for the one-time rebuild and temporal-history warm-up after each toggle.
+Compare D0 and T0 separately. Restore the cvar to 0 after testing.
+
+Interpretation
+--------------
+
+A negligible timing change rules out executed alpha-clip geometry and texture
+work as the large remaining cost in that view. It does not measure the static
+instruction footprint of alpha support still linked into the shader; a later
+shader specialization would be required only if that narrower code-footprint
+question becomes material.
+
+Build proof, 2026-08-10
+-----------------------
+
+The prescribed win64-pt-dev-release build passed. ShaderMake reported all
+SPIR-V shaders up to date, so no DX12 or Vulkan shader was rebuilt. Deployment
+therefore requires only the release executable.

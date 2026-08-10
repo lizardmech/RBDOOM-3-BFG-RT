@@ -247,6 +247,7 @@ extern idCVar r_pathTracingUnifiedPtLightTiles;
 extern idCVar r_pathTracingUnifiedPtSplitContinuation;
 extern idCVar r_pathTracingUnifiedPtLambertDiagnostic;
 extern idCVar r_pathTracingUnifiedPtFrozenScene;
+extern idCVar r_pathTracingUnifiedPtRemoveAlphaClipSurfaces;
 extern idCVar r_pathTracingUnifiedPtDirectProposalParity;
 extern idCVar r_pathTracingUnifiedPtD0PreviousBest;
 extern idCVar r_pathTracingUnifiedPtTemporal;

@@ -512,6 +512,10 @@ bool RigidResidencyCanTrackSurface(const idRenderEntityLocal* entity, const srfT
     {
         return false;
     }
+    if (UnifiedPtDiagnosticRemovesAlphaClipSurface(material))
+    {
+        return false;
+    }
     const deform_t deform = material->Deform();
     if (deform == DFRM_SPRITE ||
         deform == DFRM_TUBE ||

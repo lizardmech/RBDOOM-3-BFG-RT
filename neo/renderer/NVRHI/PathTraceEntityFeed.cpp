@@ -129,7 +129,8 @@ bool EntityFeedSurfaceUsableForRigidRoute(const modelSurface_t* surface, const s
         tri->numVerts > 0 &&
         tri->numIndexes > 0 &&
         material != nullptr &&
-        material->IsDrawn();
+        material->IsDrawn() &&
+        !UnifiedPtDiagnosticRemovesAlphaClipSurface(material);
 }
 
 bool EntityFeedCanPromoteRigidEmissiveCard(const idRenderEntityLocal* entity, const idRenderModel* model, const srfTriangles_t* tri, const idMaterial* material)
