@@ -12,6 +12,10 @@ import upt04_random_white_hash;
 #ifndef UPT_FROZEN_STATIC_SCENE
 #define UPT_FROZEN_STATIC_SCENE 0
 #endif
+
+#ifndef UPT_FROZEN_FLAT_LIGHTS
+#define UPT_FROZEN_FLAT_LIGHTS UPT_FROZEN_STATIC_SCENE
+#endif
 #ifndef UPT_DIAGNOSTIC_LAMBERT
 #define UPT_DIAGNOSTIC_LAMBERT 0
 #endif
@@ -182,14 +186,14 @@ public uint Upt07ResolveDirectLight(
     if ((source.eventKind != 1u && source.eventKind != 2u)
         || source.identity0 == 0u)
         return 0u;
-#if UPT_FROZEN_STATIC_SCENE
+#if UPT_FROZEN_FLAT_LIGHTS
     if (source.eventKind == 2u)
         return 0u;
 #endif
     const uint sourceDenseIndex = source.identity0 - 1u;
     if (sourceIsHistory != 0u)
     {
-#if UPT_FROZEN_STATIC_SCENE
+#if UPT_FROZEN_FLAT_LIGHTS
         currentDenseIndex = sourceDenseIndex;
 #else
         if (sourceDenseIndex >= gUpt07Control.previousToCurrentLightCount)

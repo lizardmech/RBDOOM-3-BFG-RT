@@ -76,6 +76,7 @@ struct PathTraceUnifiedPtDispatchInputs
     bool splitContinuation = false;
     bool lambertDiagnostic = false;
     bool frozenStaticDiagnostic = false;
+    bool frozenLightDiagnostic = false;
     uint32_t temporalBottleneckProbe = 0;
     bool directProposalParity = false;
     bool lightTiles = false;
@@ -210,6 +211,7 @@ private:
     bool m_splitContinuation = false;
     bool m_lambertDiagnostic = false;
     bool m_frozenStaticDiagnostic = false;
+    bool m_frozenLightDiagnostic = false;
     bool m_directProposalParity = false;
     bool m_lightTiles = false;
     bool m_temporalModeActive = false;
@@ -325,6 +327,7 @@ private:
     bool m_temporalRouteDiagnostics = false;
     bool m_temporalLambertDiagnostic = false;
     bool m_temporalFrozenStaticDiagnostic = false;
+    bool m_temporalFrozenLightDiagnostic = false;
     uint32_t m_temporalBottleneckProbe = 0;
     bool m_temporalPipelineAttempted = false;
     nvrhi::BindingLayoutHandle m_temporalBindingLayout;

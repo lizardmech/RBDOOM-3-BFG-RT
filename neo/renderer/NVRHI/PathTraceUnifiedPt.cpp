@@ -295,11 +295,63 @@ static const char* Upt04DiagnosticShaderPath()
     return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_diagnostics.bin";
 }
 
-static const char* Upt04FrozenStaticInitialShaderPath(bool lambert)
+static const char* Upt04FrozenInitialShaderPath(
+    bool lambert,
+    bool staticGeometry,
+    bool flatLights)
 {
+    if (staticGeometry && flatLights)
+    {
+        return lambert
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_frozen_static_lambert.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_frozen_static.bin";
+    }
+    if (flatLights)
+    {
+        return lambert
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_frozen_lights_lambert.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_frozen_lights.bin";
+    }
     return lambert
-        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_frozen_static_lambert.bin"
-        : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_frozen_static.bin";
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_frozen_geometry_lambert.bin"
+        : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_frozen_geometry.bin";
+}
+
+static const char* Upt07FrozenTemporalShaderPath(
+    bool lambert,
+    bool duplication,
+    bool staticGeometry,
+    bool flatLights)
+{
+    if (lambert)
+    {
+        if (duplication)
+        {
+            return staticGeometry && flatLights
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_static_duplication_lambert.bin"
+                : (flatLights
+                    ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_lights_duplication_lambert.bin"
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_geometry_duplication_lambert.bin");
+        }
+        return staticGeometry && flatLights
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_static_lambert.bin"
+            : (flatLights
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_lights_lambert.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_geometry_lambert.bin");
+    }
+    if (duplication)
+    {
+        return staticGeometry && flatLights
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_static_duplication.bin"
+            : (flatLights
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_lights_duplication.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_geometry_duplication.bin");
+    }
+    return staticGeometry && flatLights
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_static.bin"
+        : (flatLights
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_lights.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_geometry.bin");
 }
 
 static uint32_t Upt04PipelineVariant(const PathTraceUnifiedPtDispatchInputs& inputs)
@@ -435,6 +487,8 @@ static uint64_t Upt06BuildContentGeneration(
     hash = Upt04HashValue(hash, dispatch.lambertDiagnostic ? 1u : 0u);
     hash = Upt04HashValue(hash,
         dispatch.frozenStaticDiagnostic ? 1u : 0u);
+    hash = Upt04HashValue(hash,
+        dispatch.frozenLightDiagnostic ? 1u : 0u);
     hash = Upt04HashValue(hash, dispatch.temporalBottleneckProbe);
     hash = Upt04HashValue(hash, UPT04_TRANSPORT_K_MAX);
     hash = Upt04HashValue(hash, UPT04_TRANSPORT_POLICY_ID);
@@ -1038,7 +1092,7 @@ static Upt04InitialControl Upt04BuildControl(
                 geometry.staticBucketRoutePublicationValid
             ? UPT04_ROUTE_STATIC_BUCKETS
             : 0u) |
-        (!dispatch.frozenStaticDiagnostic &&
+        (!dispatch.frozenLightDiagnostic &&
                 lights.unifiedPtEmissiveLookupExact
             ? UPT04_EMISSIVE_LOOKUP_EXACT
             : 0u) |
@@ -1060,7 +1114,7 @@ static Upt04InitialControl Upt04BuildControl(
         (dispatch.directProposalParity
             ? UPT04_DIRECT_PROPOSAL_PARITY
             : 0u) |
-        (!dispatch.frozenStaticDiagnostic && previousBestHistoryAvailable &&
+        (!dispatch.frozenLightDiagnostic && previousBestHistoryAvailable &&
                 r_pathTracingUnifiedPtD0PreviousBest.GetBool()
             ? UPT04_D0_PREVIOUS_BEST
             : 0u) |
@@ -1081,9 +1135,9 @@ static Upt04InitialControl Upt04BuildControl(
     control.frameSampleIndex = dispatch.frameSampleIndex;
     control.enabledFamilyMask = enabledFamilyMask;
     control.primaryCameraOriginX = dispatch.primaryCameraOrigin[0];
-    control.emissiveRangeStart = dispatch.frozenStaticDiagnostic
+    control.emissiveRangeStart = dispatch.frozenLightDiagnostic
         ? 0u : lights.restirLightManagerEmissiveRangeOffset;
-    control.emissiveRangeCount = dispatch.frozenStaticDiagnostic
+    control.emissiveRangeCount = dispatch.frozenLightDiagnostic
         ? 0u : lights.restirLightManagerEmissiveRangeCount;
     control.analyticRangeStart = lights.restirLightManagerDoomAnalyticRangeOffset;
     control.analyticRangeCount = lights.restirLightManagerDoomAnalyticSampleableCount;
@@ -1127,7 +1181,7 @@ static Upt04InitialControl Upt04BuildControl(
         control.previousCameraLeft[axis] = dispatch.previousCameraLeft[axis];
         control.previousCameraUp[axis] = dispatch.previousCameraUp[axis];
     }
-    const uint32_t previousToCurrentCount = dispatch.frozenStaticDiagnostic
+    const uint32_t previousToCurrentCount = dispatch.frozenLightDiagnostic
         ? control.currentLightCount
         : static_cast<uint32_t>(Max(
             0, lights.restirLightManagerPreviousToCurrentCount));
@@ -1137,14 +1191,14 @@ static Upt04InitialControl Upt04BuildControl(
             ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
     control.previousCameraTanX = dispatch.previousCameraTanX;
     control.previousCameraTanY = dispatch.previousCameraTanY;
-    const uint32_t distributionCount = dispatch.frozenStaticDiagnostic
+    const uint32_t distributionCount = dispatch.frozenLightDiagnostic
         ? 0u : static_cast<uint32_t>(Max(
             0, lights.emissiveDistributionCount));
     control.emissiveDistributionCountAndValid =
         (distributionCount & UPT04_CONTROL_METADATA_COUNT_MASK)
         | (lights.emissiveDistributionValid && distributionCount != 0u
             ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
-    const uint32_t emissiveLookupCapacity = dispatch.frozenStaticDiagnostic
+    const uint32_t emissiveLookupCapacity = dispatch.frozenLightDiagnostic
         ? 0u : static_cast<uint32_t>(Max(
             0, lights.unifiedPtEmissiveLookupCount));
     control.emissiveLookupCapacityAndValid =
@@ -1567,6 +1621,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_splitContinuation != inputs.splitContinuation ||
         m_lambertDiagnostic != inputs.lambertDiagnostic ||
         m_frozenStaticDiagnostic != inputs.frozenStaticDiagnostic ||
+        m_frozenLightDiagnostic != inputs.frozenLightDiagnostic ||
         m_directProposalParity != inputs.directProposalParity ||
         m_lightTiles != inputs.lightTiles)
     {
@@ -1583,6 +1638,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_splitContinuation = inputs.splitContinuation;
         m_lambertDiagnostic = inputs.lambertDiagnostic;
         m_frozenStaticDiagnostic = inputs.frozenStaticDiagnostic;
+        m_frozenLightDiagnostic = inputs.frozenLightDiagnostic;
         m_directProposalParity = inputs.directProposalParity;
         m_lightTiles = inputs.lightTiles;
         m_selectionValid = true;
@@ -1690,8 +1746,11 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         ? Upt04DiagnosticShaderPath()
         : (liveTlasProbe
         ? Upt04LiveTlasProbePath(pipelineVariant)
-        : (inputs.frozenStaticDiagnostic
-        ? Upt04FrozenStaticInitialShaderPath(inputs.lambertDiagnostic)
+        : (inputs.frozenStaticDiagnostic || inputs.frozenLightDiagnostic
+        ? Upt04FrozenInitialShaderPath(
+            inputs.lambertDiagnostic,
+            inputs.frozenStaticDiagnostic,
+            inputs.frozenLightDiagnostic)
         : (inputs.lambertDiagnostic
         ? Upt04LambertInitialShaderPath(
             inputs.compactGeometry, inputs.compactLights,
@@ -1811,10 +1870,10 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.compactGeometry ? "compact48" : "legacy112",
             inputs.compactLights ? "compact64" : "legacy112",
             inputs.compactMaterials ? "compact48" : "legacy112",
-            inputs.frozenStaticDiagnostic
+            (inputs.frozenStaticDiagnostic || inputs.frozenLightDiagnostic)
                 ? (inputs.lambertDiagnostic
-                    ? "frozen-static-lambert"
-                    : "frozen-static-openpbr")
+                    ? "frozen-factor-lambert"
+                    : "frozen-factor-openpbr")
                 : (inputs.lambertDiagnostic
                     ? "lambert-diagnostic" : "openpbr"),
             inputs.splitInitial ? "direct+indirect" : "monolithic",
@@ -4182,6 +4241,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         && m_temporalLambertDiagnostic == inputs.lambertDiagnostic
         && m_temporalFrozenStaticDiagnostic ==
             inputs.frozenStaticDiagnostic
+        && m_temporalFrozenLightDiagnostic ==
+            inputs.frozenLightDiagnostic
         && m_temporalBottleneckProbe == inputs.temporalBottleneckProbe)
     {
         return true;
@@ -4194,6 +4255,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         || m_temporalLambertDiagnostic != inputs.lambertDiagnostic
         || m_temporalFrozenStaticDiagnostic !=
             inputs.frozenStaticDiagnostic
+        || m_temporalFrozenLightDiagnostic !=
+            inputs.frozenLightDiagnostic
         || m_temporalBottleneckProbe != inputs.temporalBottleneckProbe)
     {
         ReleaseTemporal();
@@ -4205,6 +4268,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         m_temporalLambertDiagnostic = inputs.lambertDiagnostic;
         m_temporalFrozenStaticDiagnostic =
             inputs.frozenStaticDiagnostic;
+        m_temporalFrozenLightDiagnostic =
+            inputs.frozenLightDiagnostic;
         m_temporalBottleneckProbe = inputs.temporalBottleneckProbe;
     }
     if (m_temporalPipelineAttempted)
@@ -4279,14 +4344,12 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
     };
     const char* path = inputs.temporalBottleneckProbe != 0u
         ? bottleneckPaths[inputs.temporalBottleneckProbe - 1u]
-        : (inputs.frozenStaticDiagnostic
-        ? (inputs.lambertDiagnostic
-            ? (inputs.duplication
-                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_static_duplication_lambert.bin"
-                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_static_lambert.bin")
-            : (inputs.duplication
-                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_static_duplication.bin"
-                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_frozen_static.bin"))
+        : (inputs.frozenStaticDiagnostic || inputs.frozenLightDiagnostic
+        ? Upt07FrozenTemporalShaderPath(
+            inputs.lambertDiagnostic,
+            inputs.duplication,
+            inputs.frozenStaticDiagnostic,
+            inputs.frozenLightDiagnostic)
         : (inputs.lambertDiagnostic
         ? (inputs.duplication
             ? (inputs.compactLights
@@ -4373,10 +4436,10 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         indirect ? (earlyReconnect ? "unified-reconnect"
             : (routeDiagnostics ? "unified-route-diagnostics" : "unified"))
             : "direct-basic",
-        inputs.frozenStaticDiagnostic
+        (inputs.frozenStaticDiagnostic || inputs.frozenLightDiagnostic)
             ? (inputs.lambertDiagnostic
-                ? "frozen-static-lambert"
-                : "frozen-static-openpbr")
+                ? "frozen-factor-lambert"
+                : "frozen-factor-openpbr")
             : (inputs.lambertDiagnostic
                 ? "lambert-diagnostic" : "openpbr"),
         inputs.temporalBottleneckProbe,
@@ -4865,9 +4928,9 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
     control.renderHeight = inputs.height;
     control.surfaceCount = static_cast<uint32_t>(surfaceCount64);
     control.historyAvailable = historyAvailable ? 1u : 0u;
-    control.emissiveRangeStart = inputs.frozenStaticDiagnostic
+    control.emissiveRangeStart = inputs.frozenLightDiagnostic
         ? 0u : lights.restirLightManagerEmissiveRangeOffset;
-    control.emissiveRangeCount = inputs.frozenStaticDiagnostic
+    control.emissiveRangeCount = inputs.frozenLightDiagnostic
         ? 0u : lights.restirLightManagerEmissiveRangeCount;
     control.analyticRangeStart = lights.restirLightManagerDoomAnalyticRangeOffset;
     control.analyticRangeCount = lights.restirLightManagerDoomAnalyticSampleableCount;
@@ -4937,7 +5000,7 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
                 & PATH_TRACE_UPT_MATERIAL_DECODE_TEXTURES) != 0u
             ? UPT04_MATERIAL_DECODE_TEXTURES : 0u);
     control.emissiveScale = Max(0.0f, inputs.emissiveScale);
-    control.previousToCurrentLightCount = inputs.frozenStaticDiagnostic
+    control.previousToCurrentLightCount = inputs.frozenLightDiagnostic
         ? control.currentLightCount
         : static_cast<uint32_t>(Max(
             0, lights.restirLightManagerPreviousToCurrentCount));
@@ -4950,14 +5013,14 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
         0, inputs.sceneInputs->materials.materialTableEntryCount));
     control.logicalTextureCount = static_cast<uint32_t>(Max(
         0, inputs.sceneInputs->materials.logicalTextureDescriptorCount));
-    const uint32_t distributionCount = inputs.frozenStaticDiagnostic
+    const uint32_t distributionCount = inputs.frozenLightDiagnostic
         ? 0u : static_cast<uint32_t>(Max(
             0, lights.emissiveDistributionCount));
     control.emissiveDistributionCountAndValid =
         (distributionCount & UPT04_CONTROL_METADATA_COUNT_MASK)
         | (lights.emissiveDistributionValid && distributionCount != 0u
             ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
-    const uint32_t lookupCapacity = inputs.frozenStaticDiagnostic
+    const uint32_t lookupCapacity = inputs.frozenLightDiagnostic
         ? 0u : static_cast<uint32_t>(Max(
             0, lights.unifiedPtEmissiveLookupCount));
     control.emissiveLookupCapacityAndValid =

@@ -180,7 +180,7 @@ path_tracing_declare_slang_spirv_module(
     DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
     OUT_VAR temporal_unified_compact_duplication_outputs)
 
-function(upt07_declare_frozen_static_variant variant_name)
+function(upt07_declare_frozen_factor_variant variant_name)
     path_tracing_declare_slang_spirv_module(
         NAME "${variant_name}"
         SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
@@ -191,16 +191,29 @@ function(upt07_declare_frozen_static_variant variant_name)
             "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
         DEPENDS ${UPT07_DIRECT_MODULES}
         DEFINES UPT07_TEMPORAL_GEOMETRY_REPLAY=1
-            UPT07_INDIRECT_REPLAY=1 UPT_FROZEN_STATIC_SCENE=1 ${ARGN}
+            UPT07_INDIRECT_REPLAY=1 ${ARGN}
         OUT_VAR frozen_outputs)
     set(UPT07_FROZEN_OUTPUTS ${UPT07_FROZEN_OUTPUTS} ${frozen_outputs}
         PARENT_SCOPE)
 endfunction()
-upt07_declare_frozen_static_variant(
-    upt07_temporal_unified_rayquery_frozen_static)
-upt07_declare_frozen_static_variant(
+upt07_declare_frozen_factor_variant(
+    upt07_temporal_unified_rayquery_frozen_static
+    UPT_FROZEN_STATIC_SCENE=1)
+upt07_declare_frozen_factor_variant(
     upt07_temporal_unified_rayquery_frozen_static_duplication
-    UPT07_DUPLICATION_MAP=1)
+    UPT_FROZEN_STATIC_SCENE=1 UPT07_DUPLICATION_MAP=1)
+upt07_declare_frozen_factor_variant(
+    upt07_temporal_unified_rayquery_frozen_lights
+    UPT_FROZEN_FLAT_LIGHTS=1)
+upt07_declare_frozen_factor_variant(
+    upt07_temporal_unified_rayquery_frozen_lights_duplication
+    UPT_FROZEN_FLAT_LIGHTS=1 UPT07_DUPLICATION_MAP=1)
+upt07_declare_frozen_factor_variant(
+    upt07_temporal_unified_rayquery_frozen_geometry
+    UPT_FROZEN_STATIC_GEOMETRY=1)
+upt07_declare_frozen_factor_variant(
+    upt07_temporal_unified_rayquery_frozen_geometry_duplication
+    UPT_FROZEN_STATIC_GEOMETRY=1 UPT07_DUPLICATION_MAP=1)
 
 function(upt07_declare_lambert_variant variant_name)
     path_tracing_declare_slang_spirv_module(
@@ -225,6 +238,18 @@ upt07_declare_lambert_variant(
 upt07_declare_lambert_variant(
     upt07_temporal_unified_rayquery_frozen_static_duplication_lambert
     UPT_FROZEN_STATIC_SCENE=1 UPT07_DUPLICATION_MAP=1)
+upt07_declare_lambert_variant(
+    upt07_temporal_unified_rayquery_frozen_lights_lambert
+    UPT_FROZEN_FLAT_LIGHTS=1)
+upt07_declare_lambert_variant(
+    upt07_temporal_unified_rayquery_frozen_lights_duplication_lambert
+    UPT_FROZEN_FLAT_LIGHTS=1 UPT07_DUPLICATION_MAP=1)
+upt07_declare_lambert_variant(
+    upt07_temporal_unified_rayquery_frozen_geometry_lambert
+    UPT_FROZEN_STATIC_GEOMETRY=1)
+upt07_declare_lambert_variant(
+    upt07_temporal_unified_rayquery_frozen_geometry_duplication_lambert
+    UPT_FROZEN_STATIC_GEOMETRY=1 UPT07_DUPLICATION_MAP=1)
 upt07_declare_lambert_variant(upt07_temporal_unified_rayquery_light64_lambert
     UPT07_PACKED_LIGHT_RECORD=1)
 upt07_declare_lambert_variant(upt07_temporal_unified_rayquery_duplication_lambert
@@ -404,7 +429,11 @@ foreach(lambert_module
         upt07_temporal_unified_rayquery_duplication_lambert
         upt07_temporal_unified_rayquery_light64_duplication_lambert
         upt07_temporal_unified_rayquery_frozen_static_lambert
-        upt07_temporal_unified_rayquery_frozen_static_duplication_lambert)
+        upt07_temporal_unified_rayquery_frozen_static_duplication_lambert
+        upt07_temporal_unified_rayquery_frozen_lights_lambert
+        upt07_temporal_unified_rayquery_frozen_lights_duplication_lambert
+        upt07_temporal_unified_rayquery_frozen_geometry_lambert
+        upt07_temporal_unified_rayquery_frozen_geometry_duplication_lambert)
     set(lambert_runtime "${UPT07_RUNTIME_DIR}/${lambert_module}.bin")
     add_custom_command(
         OUTPUT "${lambert_runtime}"
@@ -420,7 +449,11 @@ endforeach()
 set(UPT07_FROZEN_RUNTIME_OUTPUTS)
 foreach(frozen_module
         upt07_temporal_unified_rayquery_frozen_static
-        upt07_temporal_unified_rayquery_frozen_static_duplication)
+        upt07_temporal_unified_rayquery_frozen_static_duplication
+        upt07_temporal_unified_rayquery_frozen_lights
+        upt07_temporal_unified_rayquery_frozen_lights_duplication
+        upt07_temporal_unified_rayquery_frozen_geometry
+        upt07_temporal_unified_rayquery_frozen_geometry_duplication)
     set(frozen_runtime "${UPT07_RUNTIME_DIR}/${frozen_module}.bin")
     add_custom_command(
         OUTPUT "${frozen_runtime}"

@@ -7,6 +7,10 @@ import upt04_hit_contract;
 #define UPT_FROZEN_STATIC_SCENE 0
 #endif
 
+#ifndef UPT_FROZEN_STATIC_GEOMETRY
+#define UPT_FROZEN_STATIC_GEOMETRY UPT_FROZEN_STATIC_SCENE
+#endif
+
 #ifndef UPT04_PACKED_GEOMETRY_VERTEX
 #define UPT04_PACKED_GEOMETRY_VERTEX 0
 #endif
@@ -296,7 +300,7 @@ public bool Upt04ResolveTriangle(Upt04HitFacts hit, out Upt04ResolvedTriangle tr
     if (hit.status != kUpt04HitTriangle || hit.geometryId != 0u)
         return false;
 
-#if UPT_FROZEN_STATIC_SCENE
+#if UPT_FROZEN_STATIC_GEOMETRY
     // The isolated diagnostic TLAS contains exactly the monolithic static
     // BLAS at instance zero. PrimitiveIndex is canonicalized across hardware-
     // opacity chunks before reaching this resolver.
@@ -345,7 +349,7 @@ public bool Upt04ResolveTriangleMaterialIndex(
     if (hit.status != kUpt04HitTriangle || hit.geometryId != 0u)
         return false;
 
-#if UPT_FROZEN_STATIC_SCENE
+#if UPT_FROZEN_STATIC_GEOMETRY
     if (hit.instanceId != 0u ||
         hit.primitiveId >= Upt04StaticTriangleCount())
         return false;

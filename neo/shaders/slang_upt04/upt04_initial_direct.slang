@@ -21,6 +21,14 @@ import upt04_initial_light_selection;
 #define UPT04_LIGHT_TILES 0
 #endif
 
+#ifndef UPT_FROZEN_STATIC_SCENE
+#define UPT_FROZEN_STATIC_SCENE 0
+#endif
+
+#ifndef UPT_FROZEN_FLAT_LIGHTS
+#define UPT_FROZEN_FLAT_LIGHTS UPT_FROZEN_STATIC_SCENE
+#endif
+
 public Upt04LocalLightRanges Upt04InitialDirectLightRanges()
 {
     Upt04LocalLightRanges ranges;
@@ -466,12 +474,20 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial<
 {
     const Upt04PreparedDirectMaterial preparedMaterial =
         TMaterialSet.PreparePrimaryDirect(surface);
+#if UPT_FROZEN_FLAT_LIGHTS
+    const Upt04D0PreviousBestSource previousSource =
+        (Upt04D0PreviousBestSource)0;
+    uint directDiagnostics = 0u;
+    const Upt04DirectRisProposal previousBest =
+        (Upt04DirectRisProposal)0;
+#else
     const Upt04D0PreviousBestSource previousSource =
         Upt04D0LoadPreviousBestSource(surface);
     uint directDiagnostics = previousSource.diagnostics;
     const Upt04DirectRisProposal previousBest =
         Upt04EvaluatePreviousBestProposal<TMaterialSet>(
             previousSource, surface, preparedMaterial, directDiagnostics);
+#endif
 
     Upt04DirectRisProposal freshSelected = (Upt04DirectRisProposal)0;
     float weightSum = 0.0f;

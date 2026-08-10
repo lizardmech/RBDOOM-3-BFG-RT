@@ -34,6 +34,11 @@ import upt07_temporal_reservoir;
 #define UPT_FROZEN_STATIC_SCENE 0
 #endif
 
+
+#ifndef UPT_FROZEN_FLAT_LIGHTS
+#define UPT_FROZEN_FLAT_LIGHTS UPT_FROZEN_STATIC_SCENE
+#endif
+
 #ifndef UPT07_EARLY_RECONNECT
 #define UPT07_EARLY_RECONNECT 0
 #endif
@@ -295,7 +300,7 @@ public bool Upt07FindEmissiveDenseLight(
     out uint denseLightIndex,
     out float conditionalIdentityPdf)
 {
-#if UPT_FROZEN_STATIC_SCENE
+#if UPT_FROZEN_FLAT_LIGHTS
     denseLightIndex = kUpt04InvalidLightIndex;
     conditionalIdentityPdf = 0.0f;
     return false;
@@ -430,14 +435,14 @@ public uint Upt07ResolveStoredSecondaryLight(
     if ((source.eventKind != 1u && source.eventKind != 2u)
         || source.identity0 == 0u)
         return 0u;
-#if UPT_FROZEN_STATIC_SCENE
+#if UPT_FROZEN_FLAT_LIGHTS
     if (source.eventKind == 2u)
         return 0u;
 #endif
     denseIndex = source.identity0 - 1u;
     if (sourceIsHistory != 0u)
     {
-#if UPT_FROZEN_STATIC_SCENE
+#if UPT_FROZEN_FLAT_LIGHTS
         // Frozen light payload indices are invariant for the lifetime of the
         // captured scene; no previous/current identity translation exists.
 #else

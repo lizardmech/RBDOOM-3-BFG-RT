@@ -1441,7 +1441,7 @@ idCVar r_pathTracingUnifiedPtFrozenScene(
     "r_pathTracingUnifiedPtFrozenScene",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Vulkan UPT isolated-scene diagnostic: 0 normal scene publication, 1 capture the next complete production scene then switch to 2, 2 replay the immutable committed GPU scene package with no scene/universe uploads or BLAS/TLAS work, 3 capture/replay a static-only TLAS and select the flat-static analytic-only shader specialization" );
+    "Vulkan UPT isolated-scene factorial: 0 normal, 1 capture production then switch to 2, 2 frozen production geometry/full lights, 3 static geometry/analytic-only lights, 4 production geometry/analytic-only lights, 5 static geometry/full light machinery; modes 2-5 replay with no scene/universe uploads or BLAS/TLAS work" );
 
 idCVar r_pathTracingUnifiedPtDirectProposalParity(
     "r_pathTracingUnifiedPtDirectProposalParity",

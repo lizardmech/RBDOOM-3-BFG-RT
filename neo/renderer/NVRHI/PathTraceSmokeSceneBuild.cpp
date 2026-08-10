@@ -7265,7 +7265,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     OPTICK_EVENT("PT Build Scene");
 
     const int frozenSceneRequest = idMath::ClampInt(
-        0, 3, r_pathTracingUnifiedPtFrozenScene.GetInteger());
+        0, 5, r_pathTracingUnifiedPtFrozenScene.GetInteger());
+    const auto frozenSceneRouteLabel = [](int mode) -> const char*
+    {
+        switch (mode)
+        {
+        case 3: return "static-geometry-analytic-lights";
+        case 4: return "production-geometry-analytic-lights";
+        case 5: return "static-geometry-production-lights";
+        default: return "production-package";
+        }
+    };
     idRenderWorldLocal* frozenRenderWorld =
         viewDef ? viewDef->renderWorld : nullptr;
     const bool frozenWorldMatches = frozenRenderWorld &&
@@ -7275,7 +7285,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeSceneMapLoadSerial == frozenRenderWorld->mapLoadSerial;
     const bool frozenResourcesReady = m_smokeTlas && m_smokeBindingSet &&
         m_smokeTextureDescriptorTable && m_smokeSceneBuilt;
-    if ((frozenSceneRequest == 2 || frozenSceneRequest == 3) &&
+    if (frozenSceneRequest >= 2 &&
         m_unifiedPtFrozenSceneCapturedMode == frozenSceneRequest &&
         frozenWorldMatches && frozenResourcesReady)
     {
@@ -7285,9 +7295,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             common->Printf(
                 "PathTraceUnifiedPt: frozen scene replay mode=%d route=%s sceneBuild=skipped uploads=0 blas=0 tlas=0 universeUpdates=0 camera=live\n",
                 frozenSceneRequest,
-                frozenSceneRequest == 3
-                    ? "static-flat-analytic-only"
-                    : "production-package");
+                frozenSceneRouteLabel(frozenSceneRequest));
             m_unifiedPtFrozenSceneReportedMode = frozenSceneRequest;
         }
         return;
@@ -14319,8 +14327,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeSkinnedEmissivePublishBindingSet = nullptr;
     }
 
-    const bool frozenStaticCapture = frozenSceneRequest == 3 &&
-        m_unifiedPtFrozenSceneCapturedMode != 3;
+    const bool frozenStaticCapture =
+        (frozenSceneRequest == 3 || frozenSceneRequest == 5) &&
+        m_unifiedPtFrozenSceneCapturedMode != frozenSceneRequest;
     std::vector<nvrhi::rt::InstanceDesc>
         liveExtraTlasInstances;
     liveExtraTlasInstances.reserve(
@@ -15083,8 +15092,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         CommitRayTracingSmokeSceneResources(resourceCommitDesc);
     }
     const int completedFrozenRequest = idMath::ClampInt(
-        0, 3, r_pathTracingUnifiedPtFrozenScene.GetInteger());
-    if (completedFrozenRequest == 1 || completedFrozenRequest == 3)
+        0, 5, r_pathTracingUnifiedPtFrozenScene.GetInteger());
+    if (completedFrozenRequest == 1 || completedFrozenRequest >= 3)
     {
         m_unifiedPtFrozenSceneCapturedMode =
             completedFrozenRequest == 1 ? 2 : 3;
@@ -15096,9 +15105,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         common->Printf(
             "PathTraceUnifiedPt: frozen scene captured mode=%d route=%s staticTriangles=%d lights=%d nextFrameSceneBuild=skipped\n",
             m_unifiedPtFrozenSceneCapturedMode,
-            m_unifiedPtFrozenSceneCapturedMode == 3
-                ? "static-flat-analytic-only"
-                : "production-package",
+            frozenSceneRouteLabel(m_unifiedPtFrozenSceneCapturedMode),
             m_sceneInputs.geometry.staticTriangleCount,
             m_sceneInputs.lights.
                 restirLightManagerDoomAnalyticSampleableCount);

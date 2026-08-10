@@ -12,6 +12,10 @@ import upt04_emissive_replay;
 #define UPT_FROZEN_STATIC_SCENE 0
 #endif
 
+#ifndef UPT_FROZEN_FLAT_LIGHTS
+#define UPT_FROZEN_FLAT_LIGHTS UPT_FROZEN_STATIC_SCENE
+#endif
+
 public static const uint kUpt04ReverseNeeLookupFailure = 1u;
 public static const uint kUpt04ReverseNeeZeroPdf = 2u;
 public static const uint kUpt04ReverseNeePositivePdf = 3u;
@@ -34,7 +38,7 @@ public bool Upt04FindEmissiveDenseLight(
     out uint denseLightIndex,
     out float conditionalIdentityPdf)
 {
-#if UPT_FROZEN_STATIC_SCENE
+#if UPT_FROZEN_FLAT_LIGHTS
     denseLightIndex = kUpt04InvalidLightIndex;
     conditionalIdentityPdf = 0.0f;
     return false;
