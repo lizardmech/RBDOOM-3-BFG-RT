@@ -44,6 +44,12 @@ import upt07_work_budget;
 #ifndef UPT07_BOTTLENECK_STAGE
 #define UPT07_BOTTLENECK_STAGE 0
 #endif
+#ifndef UPT10_SHARED_REUSE_ADAPTER
+#define UPT10_SHARED_REUSE_ADAPTER 0
+#endif
+#if UPT10_SHARED_REUSE_ADAPTER
+#include "../slang_upt10/upt10_reuse_contract.slangh"
+#endif
 #if UPT07_INDIRECT_REPLAY
 import upt07_temporal_indirect;
 #endif
@@ -489,6 +495,76 @@ public uint Upt07BuildSelectedVisibility(
     return 1u;
 }
 
+#if UPT10_SHARED_REUSE_ADAPTER
+public uint Upt07ShiftThroughSharedAdapter<
+    TMaterialSet : IUpt07PrimaryMaterialSet>(
+    Upt03Candidate source,
+    Upt04PrimarySurfaceRecord sourceReceiver,
+    Upt04PrimarySurfaceRecord targetReceiver,
+    uint sourceIsHistory,
+    uint directRoute,
+    out uint failureReason,
+    out Upt10ShiftResult result,
+    out Upt07PendingIndirectVisibility pendingVisibility,
+    inout Upt07WorkCounters work)
+{
+    result = (Upt10ShiftResult)0;
+    result.shiftJacobian = 1.0f;
+    result.sourceTarget = source.target;
+    pendingVisibility = (Upt07PendingIndirectVisibility)0;
+    pendingVisibility.ignore = Upt04NoVisibilityIgnore();
+    failureReason = kUpt07RejectShiftInvalid;
+
+    uint shiftedValid = 0u;
+    if (directRoute != 0u)
+    {
+        result.routeLabel = kUpt10RoutePrimaryNee;
+        if (sourceIsHistory != 0u)
+        {
+            shiftedValid = Upt07ShiftPrimaryDirect<TMaterialSet>(
+                source, targetReceiver, result.shifted, work);
+        }
+        else
+        {
+            result.shifted = source;
+            result.shifted.target =
+                Upt07PrimaryDirectTargetAtReceiver<TMaterialSet>(
+                    source, targetReceiver, work);
+            result.shifted.status = result.shifted.target > 0.0f
+                ? kUpt04SampleValidPositive : kUpt04SampleValidZero;
+            shiftedValid = 1u;
+        }
+        result.deferredVisibilityRequired =
+            result.shifted.status == kUpt04SampleValidPositive ? 1u : 0u;
+    }
+    else
+    {
+        result.routeLabel = kUpt10RouteReplayOrReconnect;
+        shiftedValid = Upt07ReplayIndirectSample(
+            source,
+            sourceReceiver,
+            targetReceiver,
+            sourceIsHistory,
+            failureReason,
+            result.shifted,
+            pendingVisibility,
+            result.shiftJacobian,
+            work);
+        result.mappingVisibilityConsumed = shiftedValid;
+        result.deferredVisibilityRequired = pendingVisibility.valid;
+    }
+
+    if (shiftedValid == 0u)
+        return 0u;
+    result.targetTarget = result.shifted.target;
+    result.mappingStatus = result.shifted.status == kUpt04SampleValidPositive
+        ? kUpt10ShiftValidPositive : kUpt10ShiftValidZero;
+    failureReason = result.mappingStatus == kUpt10ShiftValidPositive
+        ? 0u : kUpt07RejectShiftedValidZero;
+    return 1u;
+}
+#endif
+
 #if UPT07_BOTTLENECK_STAGE > 0
 uint Upt07BottleneckMix(uint digest, uint value)
 {
@@ -727,6 +803,25 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #else
     const float historyShiftJacobian = 1.0f;
 #endif
+#if UPT10_SHARED_REUSE_ADAPTER
+    if (directHistoryEligible || indirectHistoryEligible)
+    {
+        Upt10ShiftResult sharedHistoryShift;
+        shiftedValid = Upt07ShiftThroughSharedAdapter<
+            UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
+                history.logical.selected,
+                historyReceiver,
+                receiver,
+                1u,
+                directHistoryEligible ? 1u : 0u,
+                historyFailureReason,
+                sharedHistoryShift,
+                shiftedIndirectVisibility,
+                work);
+        shifted = sharedHistoryShift.shifted;
+        historyShiftJacobian = sharedHistoryShift.shiftJacobian;
+    }
+#else
     if (directHistoryEligible)
     {
         historyFailureReason = kUpt07RejectShiftInvalid;
@@ -769,6 +864,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 ? 0u : kUpt07RejectShiftedValidZero;
 #endif
     }
+#endif
 
 #if UPT07_BOTTLENECK_STAGE == 2
     uint bottleneckDigest = 2166136261u;
@@ -893,6 +989,44 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         && seededCurrent.logical.hasSelectedSample != 0u)
     {
         const Upt03Candidate currentCandidate = seededCurrent.logical.selected;
+#if UPT10_SHARED_REUSE_ADAPTER
+        const bool currentDirect =
+            (currentCandidate.flags & kUpt04CandidateFlagGlobal) == 0u;
+        currentTargetAtCurrent = currentDirect
+            ? Upt07PrimaryDirectTargetAtReceiver<UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
+                currentCandidate, receiver, work)
+            : (isfinite(currentCandidate.target)
+                && currentCandidate.target > 0.0f
+                    ? currentCandidate.target : 0.0f);
+#if UPT07_BOTTLENECK_STAGE != 7 && UPT07_BOTTLENECK_STAGE != 8
+        if (confidenceShiftedValid != 0u
+            && Upt04PrimarySurfaceRecordValid(historyReceiver)
+            && (pairwiseMis != 0u || !basicSelectsHistory))
+        {
+            Upt10ShiftResult sharedCurrentShift;
+            Upt07PendingIndirectVisibility unusedCurrentVisibility;
+            uint currentShiftFailure;
+            Upt07WorkBeginSite(work, kUpt07WorkSiteReciprocalReplay);
+            const uint currentAtHistoryValid =
+                Upt07ShiftThroughSharedAdapter<
+                    UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
+                        currentCandidate,
+                        receiver,
+                        historyReceiver,
+                        0u,
+                        currentDirect ? 1u : 0u,
+                        currentShiftFailure,
+                        sharedCurrentShift,
+                        unusedCurrentVisibility,
+                        work);
+            Upt07WorkEndSite(work);
+            if (currentAtHistoryValid != 0u
+                && sharedCurrentShift.mappingStatus
+                    == kUpt10ShiftValidPositive)
+                currentTargetAtHistory = sharedCurrentShift.targetTarget;
+        }
+#endif
+#else
         if ((currentCandidate.flags & kUpt04CandidateFlagGlobal) == 0u)
         {
             currentTargetAtCurrent =
@@ -952,6 +1086,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             }
 #endif
         }
+#endif
     }
 
 #if UPT07_BOTTLENECK_STAGE == 7 || UPT07_BOTTLENECK_STAGE == 8

@@ -324,6 +324,7 @@ private:
     bool m_temporalCompactLights = false;
     bool m_temporalDuplication = false;
     bool m_temporalIndirect = false;
+    bool m_temporalSharedReuseAdapter = false;
     bool m_temporalEarlyReconnect = false;
     bool m_temporalRouteDiagnostics = false;
     bool m_temporalLambertDiagnostic = false;

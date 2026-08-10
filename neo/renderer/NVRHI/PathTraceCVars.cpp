@@ -1503,6 +1503,12 @@ idCVar r_pathTracingUnifiedPtTemporalIndirect(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-07 bounded one-continuation temporal replay: reconstructs global endpoints and force-reconnects stored secondary-NEE light vertices without rerunning light selection; rejects any identity, replay, target, or visibility mismatch; default off during temporal-only validation" );
 
+idCVar r_pathTracingUnifiedPtSharedReuseAdapter(
+    "r_pathTracingUnifiedPtSharedReuseAdapter",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-30 temporal mechanical-parity A/B: route direct and global cross-receiver shifts through one source-target/target-target/Jacobian result contract; currently effective only for unified indirect compact64-light duplication production shading" );
+
 idCVar r_pathTracingUnifiedPtTemporalEarlyReconnect(
     "r_pathTracingUnifiedPtTemporalEarlyReconnect",
     "0",

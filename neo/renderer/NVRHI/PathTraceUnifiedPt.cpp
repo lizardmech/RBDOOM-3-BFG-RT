@@ -4250,9 +4250,22 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         && r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool();
     const bool routeDiagnostics = indirect && !earlyReconnect
         && r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool();
+    const bool sharedReuseAdapterRequested =
+        r_pathTracingUnifiedPtSharedReuseAdapter.GetBool();
+    const bool sharedReuseAdapter = indirect
+        && sharedReuseAdapterRequested
+        && inputs.compactLights
+        && inputs.duplication
+        && !earlyReconnect
+        && !routeDiagnostics
+        && !inputs.lambertDiagnostic
+        && !inputs.frozenStaticDiagnostic
+        && !inputs.frozenLightDiagnostic
+        && inputs.temporalBottleneckProbe == 0u;
     if (m_temporalPipeline && m_temporalCompactLights == inputs.compactLights
         && m_temporalDuplication == inputs.duplication
         && m_temporalIndirect == indirect
+        && m_temporalSharedReuseAdapter == sharedReuseAdapter
         && m_temporalEarlyReconnect == earlyReconnect
         && m_temporalRouteDiagnostics == routeDiagnostics
         && m_temporalLambertDiagnostic == inputs.lambertDiagnostic
@@ -4267,6 +4280,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
     if (m_temporalCompactLights != inputs.compactLights
         || m_temporalDuplication != inputs.duplication
         || m_temporalIndirect != indirect
+        || m_temporalSharedReuseAdapter != sharedReuseAdapter
         || m_temporalEarlyReconnect != earlyReconnect
         || m_temporalRouteDiagnostics != routeDiagnostics
         || m_temporalLambertDiagnostic != inputs.lambertDiagnostic
@@ -4280,6 +4294,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         m_temporalCompactLights = inputs.compactLights;
         m_temporalDuplication = inputs.duplication;
         m_temporalIndirect = indirect;
+        m_temporalSharedReuseAdapter = sharedReuseAdapter;
         m_temporalEarlyReconnect = earlyReconnect;
         m_temporalRouteDiagnostics = routeDiagnostics;
         m_temporalLambertDiagnostic = inputs.lambertDiagnostic;
@@ -4358,7 +4373,11 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe11.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe12.bin"
     };
-    const char* path = inputs.temporalBottleneckProbe != 0u
+    const char* path = sharedReuseAdapter
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_shared_adapter.bin"
+        : nullptr;
+    if (!path)
+        path = inputs.temporalBottleneckProbe != 0u
         ? bottleneckPaths[inputs.temporalBottleneckProbe - 1u]
         : (inputs.frozenStaticDiagnostic || inputs.frozenLightDiagnostic
         ? Upt07FrozenTemporalShaderPath(
@@ -4441,7 +4460,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u family=%s shading=%s bottleneckProbe=%u createUs=%llu\n",
+        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u family=%s sharedReuseAdapter(requested/effective)=%u/%u shading=%s bottleneckProbe=%u createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -4452,6 +4471,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         indirect ? (earlyReconnect ? "unified-reconnect"
             : (routeDiagnostics ? "unified-route-diagnostics" : "unified"))
             : "direct-basic",
+        sharedReuseAdapterRequested ? 1u : 0u,
+        sharedReuseAdapter ? 1u : 0u,
         (inputs.frozenStaticDiagnostic || inputs.frozenLightDiagnostic)
             ? (inputs.lambertDiagnostic
                 ? "frozen-factor-lambert"

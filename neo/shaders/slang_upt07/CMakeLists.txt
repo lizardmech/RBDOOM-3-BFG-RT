@@ -35,6 +35,7 @@ set(UPT07_DIRECT_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_indirect_material.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_work_budget.slang"
+    "${CMAKE_CURRENT_LIST_DIR}/../slang_upt10/upt10_reuse_contract.slangh"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_binary16.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_hit_contract.slang"
@@ -180,6 +181,40 @@ path_tracing_declare_slang_spirv_module(
     DEPENDS ${UPT07_DIRECT_MODULES}
     DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
     OUT_VAR temporal_unified_compact_duplication_outputs)
+
+# T30.2 compile-only parity specialization. It is intentionally not copied to
+# the runtime shader directory until the shared adapter passes fixed-input
+# temporal parity against the accepted artifact.
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64_duplication_shared_adapter
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1
+        UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
+        UPT10_SHARED_REUSE_ADAPTER=1
+    OUT_VAR temporal_unified_shared_adapter_outputs)
+
+set(UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP
+    "${UPT07_OUTPUT_DIR}/upt10_temporal_shared_adapter_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT10_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_shared_adapter.slang.spirv-reflection.json
+        -DUPT10_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_shared_adapter.slang.spvasm
+        -DUPT10_STAMP=${UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10TemporalAdapter.cmake"
+    DEPENDS ${temporal_unified_shared_adapter_outputs}
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10TemporalAdapter.cmake"
+    COMMENT "UPT-30 verifying compile-only temporal shared adapter ceiling"
+    VERBATIM)
 
 function(upt07_declare_frozen_factor_variant variant_name)
     path_tracing_declare_slang_spirv_module(
@@ -443,6 +478,18 @@ set(UPT07_UNIFIED_DUPLICATION_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_duplication.bin")
 set(UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication.bin")
+set(UPT10_TEMPORAL_SHARED_ADAPTER_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication_shared_adapter.bin")
+add_custom_command(
+    OUTPUT "${UPT10_TEMPORAL_SHARED_ADAPTER_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT07_RUNTIME_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_shared_adapter.slang.spv"
+        "${UPT10_TEMPORAL_SHARED_ADAPTER_RUNTIME_OUTPUT}"
+    DEPENDS ${temporal_unified_shared_adapter_outputs}
+        "${UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP}"
+    COMMENT "UPT-30 Vulkan opt-in temporal shared-adapter artifact"
+    VERBATIM)
 set(UPT07_LAMBERT_RUNTIME_OUTPUTS)
 foreach(lambert_module
         upt07_temporal_unified_rayquery_lambert
@@ -621,7 +668,10 @@ add_custom_target(PathTraceSlangUpt07TemporalOwnership
         "${UPT07_UNIFIED_COMPACT_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
         ${UPT07_LAMBERT_RUNTIME_OUTPUTS}
         ${UPT07_FROZEN_RUNTIME_OUTPUTS}
-        ${UPT07_BOTTLENECK_RUNTIME_OUTPUTS})
+        ${UPT07_BOTTLENECK_RUNTIME_OUTPUTS}
+        ${temporal_unified_shared_adapter_outputs}
+        "${UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP}"
+        "${UPT10_TEMPORAL_SHARED_ADAPTER_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
     FOLDER "Shaders/UPT-07")
 if(TARGET RBDoom3BFG)

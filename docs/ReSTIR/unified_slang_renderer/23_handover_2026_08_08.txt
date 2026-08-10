@@ -1505,3 +1505,21 @@ The CPU vectors pass, the SPIR-V exposes only two SRVs plus one UAV, and its
 disassembly contains no ray-query or ray-tracing capability. The full Vulkan
 release build passes. Runtime selection is unchanged. CPU/GPU byte comparison
 is still required before this contract is admitted into T0.
+
+T30.1 is now complete. The Vulkan harness ran the eight-pair corpus twice on
+the RTX 4090; all 128 output bytes matched the CPU oracle with hash
+0x302f95d704cf624f. The pure contract remains ray-free.
+
+T30.2 now has an opt-in runtime parity specialization selected by
+r_pathTracingUnifiedPtSharedReuseAdapter. It normalizes both temporal shift
+directions into Upt10ShiftResult while retaining the old direct and global
+mapping mechanics and the old merge algebra. The accepted compact64-light plus
+duplication layout remains 30 bindings and four RayQuery sites. The cvar is
+default off and reports requested/effective state in the temporal creation line.
+
+The full Vulkan release build passes. The deployed executable SHA-256 is
+0490AACD26EAAA09F8834DABA741A41FE9D1D08BDDDABCC805D63C82328BF4CA;
+the sole new deployed Vulkan blob is the shared-adapter T0 specialization with
+SHA-256 37317C7018946C26E95AC3BECB676247115F1DF36B431A49A791E240C7ECF1B3.
+No DX12 shader was compiled. Runtime image/timing parity is the remaining T30.2
+gate before the common GRIS merge replaces event-specific temporal algebra.

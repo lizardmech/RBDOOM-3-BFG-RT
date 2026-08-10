@@ -246,3 +246,40 @@ ray-tracing instruction/capability. The prescribed full release build passes.
 No runtime artifact, binding or selection changed. A Vulkan byte-comparison
 harness remains the final T30.1 gate before the common contract may be included
 by T0; compile/reflection parity alone is not CPU/GPU numeric parity.
+
+T30.1 completion and T30.2 adapter, 2026-08-11
+------------------------------------------------
+
+The Vulkan harness now executes the same eight deterministic pairs twice and
+compares all 128 result bytes with the CPU oracle. It passes on the RTX 4090
+with fixed FNV-1a hash 0x302f95d704cf624f. T30.1 is complete.
+
+T30.2 has begun behind r_pathTracingUnifiedPtSharedReuseAdapter. The opt-in
+specialization routes both history-to-current and reciprocal current-to-history
+mapping through one Upt10ShiftResult. Direct NEE still uses exact stable-light
+replay; global paths still use the existing replay/reconnect implementation.
+The caller now consumes one mapping status, source target, target target,
+Jacobian and deferred-visibility declaration. Reservoir merge math is unchanged
+in this parity stage.
+
+The specialization is effective only for unified indirect T0 with compact64
+lights, duplication, production OpenPBR, no frozen mode, no bottleneck probe,
+no early reconnect and no route diagnostics. Its artifact preserves 30 bindings,
+four static RayQuery sites and zero TraceRay sites. It is selectable at runtime
+but remains default off.
+
+Required A/B before T30.3:
+
+    r_pathTracingUnifiedPtTemporal 1
+    r_pathTracingUnifiedPtTemporalIndirect 1
+    r_pathTracingUnifiedPtCompactLights 1
+    r_pathTracingUnifiedPtDuplication 1
+    r_pathTracingUnifiedPtTemporalEarlyReconnect 0
+    r_pathTracingUnifiedPtTemporalRouteDiagnostics 0
+    r_pathTracingUnifiedPtTemporalBottleneckProbe 0
+    r_pathTracingUnifiedPtSharedReuseAdapter 0 / 1
+
+The temporal creation line must report sharedReuseAdapter(requested/effective)
+as 1/1 for the second run. Images, reservoir behavior and dispatch timing should
+match within run noise because this stage changes ownership shape, not estimator
+algebra. Any visible or energy difference is an adapter defect and blocks T30.3.
