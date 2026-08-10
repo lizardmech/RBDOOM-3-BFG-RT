@@ -1432,3 +1432,28 @@ release build passes with unified T0 reduced from 30 to 29 resources and the
 four-RayQuery ceiling unchanged. The executable and exactly 58 rebuilt Vulkan
 SPIR-V files were deployed with matching hashes; no DX12 shader was compiled.
 Document 40 owns the scale-4 image/performance acceptance.
+
+UPT-28 diagnostic configuration parity, 2026-08-11
+---------------------------------------------------
+
+The accepted fastest test configuration is split D0 with compact64 lights and
+native geometry; compact geometry is slower. The earlier temporal probes could
+not represent it because compact lights were subordinate to compact geometry,
+mixed split storage was rejected, and probe shaders forced Lambert.
+
+UPT-28 adds native-geometry/compact-light split-direct and split-indirect Slang
+variants, keeps compact materials on the existing compact-geometry route, and
+recompiles probe stages 1--12 with production OpenPBR. The probe gate now admits
+native geometry and split initial. The required runtime proof is D0
+geometry=legacy112 lights=compact64 split=direct+indirect, T0 shading=openpbr,
+and bottleneckProbe=N. No estimator, reservoir, visibility or ray-ceiling
+contract changed.
+
+The first UPT-28 runtime capture found one further diagnostic-only correctness
+error: the probe-12 counter publisher overwrote the already-written merged T0
+reservoir with D0, suppressing temporal feedback. Probe 12 is now observer-only
+and preserves production history recursion; stages 1--11 remain destructive
+ladder cuts by design. Previous probe-12 camera comparisons do not prove that
+production executed work was stable and must be repeated with the corrected
+artifact. Counter readback now waits for 16 valid-history frames so the captured
+work is steady-state rather than the first post-pipeline-switch history frame.

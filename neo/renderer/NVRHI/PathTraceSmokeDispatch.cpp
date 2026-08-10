@@ -2795,6 +2795,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             const bool frozenAnyDiagnostic =
                 unifiedPtInputs.frozenStaticDiagnostic ||
                 unifiedPtInputs.frozenLightDiagnostic;
+            const bool splitInitialBaseEligible =
+                r_pathTracingUnifiedPtSplitInitial.GetBool() &&
+                !frozenAnyDiagnostic &&
+                unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
+                unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified &&
+                unifiedPtInputs.primaryReceiverMode == 2u &&
+                !unifiedPtInputs.diagnostics &&
+                unifiedPtInputs.shaderProofMode == 6u;
             unifiedPtInputs.compactGeometry =
                 r_pathTracingUnifiedPtCompactGeometry.GetBool() &&
                 !frozenAnyDiagnostic &&
@@ -2804,21 +2812,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtInputs.shaderProofMode <= 6u;
             unifiedPtInputs.compactLights =
                 r_pathTracingUnifiedPtCompactLights.GetBool() &&
-                unifiedPtInputs.compactGeometry;
+                (unifiedPtInputs.compactGeometry || splitInitialBaseEligible);
             unifiedPtInputs.compactMaterials =
                 r_pathTracingUnifiedPtCompactMaterials.GetBool() &&
                 unifiedPtInputs.compactLights &&
+                unifiedPtInputs.compactGeometry &&
                 unifiedPtInputs.family != PathTraceUnifiedPtFamily::DirectOnly;
             unifiedPtInputs.splitInitial =
-                r_pathTracingUnifiedPtSplitInitial.GetBool() &&
-                !frozenAnyDiagnostic &&
-                unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
-                unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified &&
-                unifiedPtInputs.primaryReceiverMode == 2u &&
-                (unifiedPtInputs.compactGeometry ==
-                    unifiedPtInputs.compactLights) &&
-                !unifiedPtInputs.diagnostics &&
-                unifiedPtInputs.shaderProofMode == 6u;
+                splitInitialBaseEligible &&
+                (!unifiedPtInputs.compactGeometry ||
+                    unifiedPtInputs.compactLights);
             unifiedPtInputs.splitContinuation =
                 r_pathTracingUnifiedPtSplitContinuation.GetBool() &&
                 !frozenAnyDiagnostic &&
@@ -2861,7 +2864,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     0, 12,
                     r_pathTracingUnifiedPtTemporalBottleneckProbe.GetInteger()));
             unifiedPtInputs.temporalBottleneckProbe =
-                unifiedPtInputs.lambertDiagnostic &&
+                !unifiedPtInputs.lambertDiagnostic &&
                 !frozenAnyDiagnostic &&
                 unifiedPtInputs.compactLights &&
                 unifiedPtInputs.duplication &&
@@ -2898,12 +2901,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     unifiedPtInputs.temporalBottleneckProbe)
             {
                 common->Printf(
-                    "PathTraceUnifiedPt: temporal bottleneck probe requested/effective=%u/%u gate(lambert/compactGeometry/compactLights/duplication/temporal/indirect)=%u/%u/%u/%u/%u/%u\n",
+                    "PathTraceUnifiedPt: temporal bottleneck probe requested/effective=%u/%u gate(openPbr/nativeGeometry/compactLights/splitInitial/duplication/temporal/indirect)=%u/%u/%u/%u/%u/%u/%u\n",
                     requestedTemporalBottleneckProbe,
                     unifiedPtInputs.temporalBottleneckProbe,
-                    unifiedPtInputs.lambertDiagnostic ? 1u : 0u,
-                    unifiedPtInputs.compactGeometry ? 1u : 0u,
+                    unifiedPtInputs.lambertDiagnostic ? 0u : 1u,
+                    unifiedPtInputs.compactGeometry ? 0u : 1u,
                     unifiedPtInputs.compactLights ? 1u : 0u,
+                    unifiedPtInputs.splitInitial ? 1u : 0u,
                     unifiedPtInputs.duplication ? 1u : 0u,
                     unifiedPtInputs.temporal ? 1u : 0u,
                     r_pathTracingUnifiedPtTemporalIndirect.GetBool() ? 1u : 0u);

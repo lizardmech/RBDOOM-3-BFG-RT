@@ -1,0 +1,70 @@
+UPT-28: diagnostic configuration parity
+=======================================
+
+Finding
+-------
+
+Runtime A/B established that the fastest useful production configuration is
+split initial sampling with compact64 lights and native 112-byte geometry.
+Compact geometry is slower. The T0 bottleneck ladder and executed-work capture
+had drifted away from that configuration: compact lights were subordinate to
+compact geometry, split initial rejected mixed native/compact storage, and all
+probe shaders forced Lambert shading.
+
+Correction
+----------
+
+Compact-light packing is now independent of compact geometry for the split D0
+path. Two Vulkan Slang variants provide the exact missing combinations:
+
+    split direct:   compact32 receiver + native geometry + compact64 lights
+    split indirect: compact32 receiver + native geometry + compact64 lights
+
+The existing native/native and compact48/compact64 variants remain unchanged.
+Compact materials remain subordinate to compact geometry because their current
+shader family is intentionally paired with the compact geometry route.
+
+The temporal bottleneck stages 1--12 now compile with production OpenPBR rather
+than diagnostic Lambert. Their gate requires compact64 lights, duplication,
+temporal and indirect replay, but neither requires nor suppresses compact
+geometry or split initial. This lets the caller preserve the accepted fastest
+D0 event population while profiling T0. The intended field configuration is:
+
+    r_pathTracingUnifiedPtCompactReceiver 2
+    r_pathTracingUnifiedPtCompactGeometry 0
+    r_pathTracingUnifiedPtCompactLights 1
+    r_pathTracingUnifiedPtCompactMaterials 0
+    r_pathTracingUnifiedPtSplitInitial 1
+    r_pathTracingUnifiedPtLambertDiagnostic 0
+    r_pathTracingUnifiedPtDuplication 1
+    r_pathTracingUnifiedPtTemporal 1
+    r_pathTracingUnifiedPtTemporalIndirect 1
+    r_pathTracingUnifiedPtTemporalGpuTiming 1
+
+Set r_pathTracingUnifiedPtTemporalBottleneckProbe to the desired stage. Valid
+startup proof is:
+
+    D0 geometry=legacy112 lights=compact64 split=direct+indirect
+    T0 shading=openpbr bottleneckProbe=N
+    probe gate openPbr/nativeGeometry/compactLights/splitInitial=1/1/1/1
+
+Scope
+-----
+
+This is configuration parity, not an estimator change. Reservoir layout,
+proposal parity, previous-best replay, duplication, temporal algebra, ray
+ceilings, visibility rules and the no-clear diagnostic buffer contract are
+unchanged. No DX12 variant is introduced.
+
+Runtime correction
+------------------
+
+The first production-shaped capture exposed a remaining diagnostic semantic
+drift: probe 12 wrote the merged T0 reservoir and then its counter helper
+overwrote that page with the untouched D0 input. That disabled temporal
+feedback and could suppress the history-dependent performance state under
+investigation. Probe 12 is now observer-only and leaves the production T0
+result intact. The cumulative timing stages 1--11 intentionally retain their
+D0-republish behavior. Host readback now also waits through 16 valid-history
+frames before copying probe 12, matching the timestamp warm-up instead of
+capturing the first newly rebuilt history frame.

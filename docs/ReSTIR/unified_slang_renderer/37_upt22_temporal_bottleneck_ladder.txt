@@ -17,9 +17,9 @@ traffic, the first indirect replay, reciprocal cross evaluation, merge work and
 final visibility. OpenPBR isolation also changed continuation directions and
 therefore could not isolate these dependency chains.
 
-The new cvar selects five separately compiled cumulative T0 shaders:
+The cvar selects twelve separately compiled cumulative or counter T0 shaders:
 
-    r_pathTracingUnifiedPtTemporalBottleneckProbe 0..5
+    r_pathTracingUnifiedPtTemporalBottleneckProbe 0..12
 
     0   normal production temporal
     1   receiver reprojection, surface search and history load
@@ -38,34 +38,40 @@ written by active pixels and never cleared.
 Admission gate
 --------------
 
-The host clamps the cvar to 0..5 and admits a nonzero stage only with:
+As of UPT-28 the host admits a nonzero stage with the accepted fastest
+production data path rather than the older Lambert/compact-geometry diagnostic
+bundle:
 
     r_pathTracingUnifiedPtFamily 0
     r_pathTracingUnifiedPtBackend 0
     r_pathTracingUnifiedPtCompactReceiver 2
-    r_pathTracingUnifiedPtCompactGeometry 1
+    r_pathTracingUnifiedPtCompactGeometry 0
     r_pathTracingUnifiedPtCompactLights 1
-    r_pathTracingUnifiedPtLambertDiagnostic 1
+    r_pathTracingUnifiedPtLambertDiagnostic 0
+    r_pathTracingUnifiedPtSplitInitial 1
     r_pathTracingUnifiedPtTemporal 1
     r_pathTracingUnifiedPtTemporalIndirect 1
     r_pathTracingUnifiedPtDuplication 1
     r_pathTracingUnifiedPtTemporalEarlyReconnect 0
     r_pathTracingUnifiedPtTemporalRouteDiagnostics 0
-    r_pathTracingUnifiedPtSplitInitial 0
     r_pathTracingUnifiedPtDiagnostics 0
     r_pathTracingUnifiedPtShaderProof 6
 
-The temporal pipeline log must print shading=lambert-diagnostic and
-bottleneckProbe=N. A missing or zero label means the requested stage was gated
-off and the timing is invalid. CompactLights is subordinate to CompactGeometry;
-the D0 pipeline must report geometry=compact48 lights=compact64 before any probe
-can engage.
+The temporal pipeline log must print shading=openpbr and bottleneckProbe=N. A
+missing or zero label means the requested stage was gated off and the timing is
+invalid. The D0 pipeline must report geometry=legacy112 lights=compact64 and
+split=direct+indirect. Compact lights are independently supported for this
+split path; compact geometry is no longer required. The probe gate permits the
+older compact-geometry path for controlled comparisons, but it does not force
+it.
 
 SPIR-V proof
 ------------
 
-The built blobs demonstrate cumulative closure rather than a runtime branch or
-dead-code-eliminated experiment:
+The original Lambert blob sizes below document the first implementation. UPT-28
+recompiled the same static stage boundaries against production OpenPBR so the
+ladder no longer changes the accepted shading or D0 configuration merely to
+engage diagnostics:
 
     stage   bytes     static RayQuery initialization sites   digest binding
       1      71,684                  0                             31

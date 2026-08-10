@@ -510,7 +510,6 @@ void Upt07PublishBottleneckProbe(
 #if UPT07_BOTTLENECK_STAGE == 12
 void Upt07PublishWorkBudget(
     uint index,
-    Upt03PackedReservoir currentPacked,
     Upt07WorkCounters work)
 {
     const uint base = index * (kUpt07WorkCounterCount + 1u);
@@ -523,7 +522,6 @@ void Upt07PublishWorkBudget(
     gUpt07BottleneckProbe[base + 6u] = work.materialRecordLoads;
     gUpt07BottleneckProbe[base + 7u] = work.textureSamples;
     gUpt07BottleneckProbe[base + 8u] = Upt07WorkBudgetViolationMask(work);
-    gUpt07CurrentReservoirs[index] = currentPacked;
 }
 #endif
 #endif
@@ -589,7 +587,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             && !Upt07DirectLightTemporalReplayable(currentLight))
         {
 #if UPT07_BOTTLENECK_STAGE == 12
-            Upt07PublishWorkBudget(index, currentPacked, work);
+            Upt07PublishWorkBudget(index, work);
 #endif
             gUpt07CurrentReservoirs[index] = currentPacked;
             return;
@@ -1121,7 +1119,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             Upt07RouteDiag(31u);
 #endif
 #if UPT07_BOTTLENECK_STAGE == 12
-            Upt07PublishWorkBudget(index, currentPacked, work);
+            Upt07PublishWorkBudget(index, work);
 #endif
             gUpt07CurrentReservoirs[index] = currentPacked;
             return;
@@ -1147,7 +1145,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             || !Upt07VisibilityPassed(visibility, visibilityIgnore, work))
         {
 #if UPT07_BOTTLENECK_STAGE == 12
-            Upt07PublishWorkBudget(index, currentPacked, work);
+            Upt07PublishWorkBudget(index, work);
 #endif
             gUpt07CurrentReservoirs[index] = currentPacked;
             return;
@@ -1174,6 +1172,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #endif
     gUpt07CurrentReservoirs[index] = Upt07PackTemporalResult(merged);
 #if UPT07_BOTTLENECK_STAGE == 12
-    Upt07PublishWorkBudget(index, currentPacked, work);
+    Upt07PublishWorkBudget(index, work);
 #endif
 }

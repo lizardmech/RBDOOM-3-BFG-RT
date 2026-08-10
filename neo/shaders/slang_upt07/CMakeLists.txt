@@ -262,7 +262,7 @@ upt07_declare_lambert_variant(
 set(UPT07_BOTTLENECK_OUTPUTS)
 foreach(bottleneck_stage RANGE 1 11)
     set(bottleneck_module
-        "upt07_temporal_unified_rayquery_light64_duplication_lambert_probe${bottleneck_stage}")
+        "upt07_temporal_unified_rayquery_light64_duplication_probe${bottleneck_stage}")
     path_tracing_declare_slang_spirv_module(
         NAME "${bottleneck_module}"
         SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
@@ -273,15 +273,14 @@ foreach(bottleneck_stage RANGE 1 11)
             "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
         DEPENDS ${UPT07_DIRECT_MODULES}
         DEFINES UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_INDIRECT_REPLAY=1
-            UPT_DIAGNOSTIC_LAMBERT=1 UPT07_PACKED_LIGHT_RECORD=1
-            UPT07_DUPLICATION_MAP=1
+            UPT07_PACKED_LIGHT_RECORD=1 UPT07_DUPLICATION_MAP=1
             UPT07_BOTTLENECK_STAGE=${bottleneck_stage}
         OUT_VAR bottleneck_outputs)
     list(APPEND UPT07_BOTTLENECK_OUTPUTS ${bottleneck_outputs})
 endforeach()
 
 path_tracing_declare_slang_spirv_module(
-    NAME upt07_temporal_unified_rayquery_light64_duplication_lambert_probe12
+    NAME upt07_temporal_unified_rayquery_light64_duplication_probe12
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
     ENTRY main STAGE compute OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
     INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -290,8 +289,8 @@ path_tracing_declare_slang_spirv_module(
         "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
     DEPENDS ${UPT07_DIRECT_MODULES}
     DEFINES UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_INDIRECT_REPLAY=1
-        UPT_DIAGNOSTIC_LAMBERT=1 UPT07_PACKED_LIGHT_RECORD=1
-        UPT07_DUPLICATION_MAP=1 UPT07_BOTTLENECK_STAGE=12
+        UPT07_PACKED_LIGHT_RECORD=1 UPT07_DUPLICATION_MAP=1
+        UPT07_BOTTLENECK_STAGE=12
     OUT_VAR upt07_work_budget_outputs)
 list(APPEND UPT07_BOTTLENECK_OUTPUTS ${upt07_work_budget_outputs})
 
@@ -408,8 +407,8 @@ add_custom_command(
         -DUPT07_RECONNECT_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_reconnect.slang.spvasm
         -DUPT07_RECONNECT_COMPACT_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_reconnect.slang.spirv-reflection.json
         -DUPT07_RECONNECT_COMPACT_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_reconnect.slang.spvasm
-        -DUPT07_WORK_BUDGET_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe12.slang.spirv-reflection.json
-        -DUPT07_WORK_BUDGET_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe12.slang.spvasm
+        -DUPT07_WORK_BUDGET_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_probe12.slang.spirv-reflection.json
+        -DUPT07_WORK_BUDGET_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_probe12.slang.spvasm
         -DUPT07_TEMPORAL_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang
         -DUPT07_WORK_BUDGET_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_work_budget.slang
         -DUPT07_STAMP=${UPT07_DIRECT_VERIFY_STAMP}
@@ -491,7 +490,7 @@ endforeach()
 set(UPT07_BOTTLENECK_RUNTIME_OUTPUTS)
 foreach(bottleneck_stage RANGE 1 12)
     set(bottleneck_module
-        "upt07_temporal_unified_rayquery_light64_duplication_lambert_probe${bottleneck_stage}")
+        "upt07_temporal_unified_rayquery_light64_duplication_probe${bottleneck_stage}")
     set(bottleneck_runtime "${UPT07_RUNTIME_DIR}/${bottleneck_module}.bin")
     add_custom_command(
         OUTPUT "${bottleneck_runtime}"

@@ -1405,7 +1405,7 @@ idCVar r_pathTracingUnifiedPtCompactLights(
     "r_pathTracingUnifiedPtCompactLights",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT D0 current-light A/B after compact geometry: 0 binds the manager's 112-byte records; 1 GPU-packs a UPT-only 64-byte current-light sidecar before D0 while preserving all replay identities" );
+    "UPT current-light A/B: 0 binds the manager's 112-byte records; 1 GPU-packs a UPT-only 64-byte current-light sidecar while preserving all replay identities; supported with compact geometry or split initial plus native geometry" );
 
 idCVar r_pathTracingUnifiedPtCompactMaterials(
     "r_pathTracingUnifiedPtCompactMaterials",
@@ -1417,7 +1417,7 @@ idCVar r_pathTracingUnifiedPtSplitInitial(
     "r_pathTracingUnifiedPtSplitInitial",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT unified D0 A/B: 0 runs the three-query RayQuery megakernel; 1 splits direct and indirect work into two 8x8 dispatches using one exact intermediate/final 64-byte reservoir page; requires unified RayQuery production with compact32 receiver and supports either native geometry/lights or the paired compact geometry+light path" );
+    "UPT unified D0 A/B: 0 runs the three-query RayQuery megakernel; 1 splits direct and indirect work into two 8x8 dispatches using one exact intermediate/final 64-byte reservoir page; supports native geometry with native or compact64 lights, or paired compact geometry+light" );
 
 idCVar r_pathTracingUnifiedPtLightTiles(
     "r_pathTracingUnifiedPtLightTiles",
@@ -1525,7 +1525,7 @@ idCVar r_pathTracingUnifiedPtTemporalBottleneckProbe(
     "r_pathTracingUnifiedPtTemporalBottleneckProbe",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Vulkan UPT T0 static bottleneck ladder for Lambert+compact64+duplication: 0 production; 1..5 original ladder; reciprocal subprobes 6 bookkeeping, 7 current target, 8 direct cross target, 10 reciprocal request, 11 committed hit, 9 decoded hit, then 3 full evaluation; 12 captures per-pixel executed-work counters and checks declared ray/remap/hash/light-load budgets" );
+    "Vulkan UPT T0 production-OpenPBR bottleneck ladder for compact64+duplication: 0 production; 1..5 original ladder; reciprocal subprobes 6 bookkeeping, 7 current target, 8 direct cross target, 10 reciprocal request, 11 committed hit, 9 decoded hit, then 3 full evaluation; 12 captures per-pixel executed-work counters and checks declared ray/remap/hash/light-load budgets" );
 
 idCVar r_pathTracingUnifiedPtTemporalGpuTiming(
     "r_pathTracingUnifiedPtTemporalGpuTiming",

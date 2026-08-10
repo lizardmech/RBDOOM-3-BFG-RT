@@ -66,20 +66,25 @@ not an attempted reconstruction of compiler OpLoad instructions.
 Runtime protocol
 ----------------
 
-Use the already accepted probe gates:
+Use the accepted production-shaped probe gates:
 
-    r_pathTracingUnifiedPtLambertDiagnostic 1
-    r_pathTracingUnifiedPtCompactGeometry 1
+    r_pathTracingUnifiedPtLambertDiagnostic 0
+    r_pathTracingUnifiedPtCompactGeometry 0
     r_pathTracingUnifiedPtCompactLights 1
+    r_pathTracingUnifiedPtSplitInitial 1
     r_pathTracingUnifiedPtDuplication 1
     r_pathTracingUnifiedPtTemporal 1
     r_pathTracingUnifiedPtTemporalIndirect 1
     r_pathTracingUnifiedPtTemporalBottleneckProbe 12
 
-The first valid-history frame is captured; output appears after the delayed
-readback.  Toggle the probe to 0 and back to 12 to rearm at a new camera pose.
-Probe 12 republishes the untouched D0 reservoir, like the existing bottleneck
-ladder, so it must be returned to 0 for production rendering and timing.
+After 16 valid-history warm-up frames, one steady-state frame is captured and
+output appears after the delayed readback. Toggle the probe to 0 and back to 12
+to rearm at a new camera pose.
+As corrected by UPT-28, probe 12 is observer-only: it publishes the same merged
+T0 reservoir as production while writing its per-pixel counter record. Stages
+1--11 still republish D0 because their purpose is destructive cumulative timing.
+Probe 12 therefore preserves temporal feedback and is the authoritative work
+capture for position- or history-dependent cost.
 
 Interpretation
 --------------

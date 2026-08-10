@@ -344,6 +344,7 @@ private:
     nvrhi::BufferHandle m_temporalWorkBudgetReadback;
     bool m_temporalWorkBudgetReadbackPending = false;
     bool m_temporalWorkBudgetCaptureArmed = false;
+    uint32_t m_temporalWorkBudgetWarmupFrames = 0u;
     int m_temporalWorkBudgetReadbackDelayFrames = 0;
     bool m_temporalDiagnosticReadbackPending = false;
     bool m_temporalDiagnosticReadbackIsRoute = false;

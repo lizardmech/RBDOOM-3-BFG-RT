@@ -238,6 +238,7 @@ static const char* Upt04InitialShaderPath(
 
 static const char* Upt04SplitDirectShaderPath(
     bool compactGeometry,
+    bool compactLights,
     bool lightTiles)
 {
     if (lightTiles)
@@ -246,11 +247,14 @@ static const char* Upt04SplitDirectShaderPath(
     }
     return compactGeometry
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_geometry48_light64.bin"
-        : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32.bin";
+        : (compactLights
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_light64.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32.bin");
 }
 
 static const char* Upt04SplitIndirectShaderPath(
     bool compactGeometry,
+    bool compactLights,
     bool compactMaterials,
     bool lightTiles)
 {
@@ -260,7 +264,9 @@ static const char* Upt04SplitIndirectShaderPath(
     }
     if (!compactGeometry)
     {
-        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32.bin";
+        return compactLights
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32.bin";
     }
     return compactMaterials
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_material48.bin"
@@ -1759,7 +1765,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.compactGeometry, inputs.compactLights,
             inputs.compactMaterials, inputs.splitContinuation)
         : (inputs.splitInitial
-        ? Upt04SplitDirectShaderPath(inputs.compactGeometry, inputs.lightTiles)
+        ? Upt04SplitDirectShaderPath(
+            inputs.compactGeometry, inputs.compactLights, inputs.lightTiles)
         : Upt04InitialShaderPath(
             m_backend,
             m_family,
@@ -1822,6 +1829,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             if (!Upt04ReadShader(
                     Upt04SplitIndirectShaderPath(
                         inputs.compactGeometry,
+                        inputs.compactLights,
                         inputs.compactMaterials,
                         inputs.lightTiles),
                     splitIndirectData,
@@ -4331,18 +4339,18 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
     }
 
     static const char* bottleneckPaths[12] = {
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe1.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe2.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe3.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe4.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe5.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe6.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe7.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe8.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe9.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe10.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe11.bin",
-        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert_probe12.bin"
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe1.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe2.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe3.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe4.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe5.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe6.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe7.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe8.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe9.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe10.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe11.bin",
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe12.bin"
     };
     const char* path = inputs.temporalBottleneckProbe != 0u
         ? bottleneckPaths[inputs.temporalBottleneckProbe - 1u]
@@ -4492,6 +4500,10 @@ bool PathTraceUnifiedPtState::EnsureTemporalBottleneckBuffer(
             inputs.device->createBuffer(readbackDesc);
         m_temporalWorkBudgetCaptureArmed =
             m_temporalWorkBudgetReadback != nullptr;
+        m_temporalWorkBudgetWarmupFrames =
+            m_temporalWorkBudgetCaptureArmed
+                ? TEMPORAL_GPU_TIMING_WARMUP_FRAMES
+                : 0u;
     }
     if (m_temporalBottleneckBuffer)
     {
@@ -4499,6 +4511,13 @@ bool PathTraceUnifiedPtState::EnsureTemporalBottleneckBuffer(
             "PathTraceUnifiedPt: temporal bottleneck probe buffer pixels=%u bytes=%llu clear=never\n",
             count,
             static_cast<unsigned long long>(desc.byteSize));
+    }
+    if (inputs.temporalBottleneckProbe == 12u
+        && m_temporalWorkBudgetCaptureArmed)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: temporal work budget armed warmup=%u history=production-feedback\n",
+            m_temporalWorkBudgetWarmupFrames);
     }
     return m_temporalBottleneckBuffer != nullptr
         && (inputs.temporalBottleneckProbe != 12u
@@ -5288,24 +5307,31 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             && m_temporalWorkBudgetCaptureArmed
             && !m_temporalWorkBudgetReadbackPending)
         {
-            const uint64_t workBudgetBytes =
-                uint64_t(m_temporalBottleneckCapacity)
-                * UPT07_WORK_BUDGET_WORDS_PER_PIXEL * sizeof(uint32_t);
-            nvrhi::utils::BufferUavBarrier(
-                inputs.commandList, m_temporalBottleneckBuffer);
-            inputs.commandList->setBufferState(
-                m_temporalBottleneckBuffer,
-                nvrhi::ResourceStates::CopySource);
-            inputs.commandList->setBufferState(
-                m_temporalWorkBudgetReadback,
-                nvrhi::ResourceStates::CopyDest);
-            inputs.commandList->commitBarriers();
-            inputs.commandList->copyBuffer(
-                m_temporalWorkBudgetReadback, 0,
-                m_temporalBottleneckBuffer, 0, workBudgetBytes);
-            m_temporalWorkBudgetReadbackPending = true;
-            m_temporalWorkBudgetReadbackDelayFrames = 2;
-            m_temporalWorkBudgetCaptureArmed = false;
+            if (m_temporalWorkBudgetWarmupFrames > 0u)
+            {
+                --m_temporalWorkBudgetWarmupFrames;
+            }
+            else
+            {
+                const uint64_t workBudgetBytes =
+                    uint64_t(m_temporalBottleneckCapacity)
+                    * UPT07_WORK_BUDGET_WORDS_PER_PIXEL * sizeof(uint32_t);
+                nvrhi::utils::BufferUavBarrier(
+                    inputs.commandList, m_temporalBottleneckBuffer);
+                inputs.commandList->setBufferState(
+                    m_temporalBottleneckBuffer,
+                    nvrhi::ResourceStates::CopySource);
+                inputs.commandList->setBufferState(
+                    m_temporalWorkBudgetReadback,
+                    nvrhi::ResourceStates::CopyDest);
+                inputs.commandList->commitBarriers();
+                inputs.commandList->copyBuffer(
+                    m_temporalWorkBudgetReadback, 0,
+                    m_temporalBottleneckBuffer, 0, workBudgetBytes);
+                m_temporalWorkBudgetReadbackPending = true;
+                m_temporalWorkBudgetReadbackDelayFrames = 2;
+                m_temporalWorkBudgetCaptureArmed = false;
+            }
         }
     }
     m_reportedTemporalSkipReason = -1;
