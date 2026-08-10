@@ -9,7 +9,16 @@ import upt04_emissive_replay;
 import upt04_material_contract;
 import upt04_primary_surface_live_contract;
 import upt04_random_white_hash;
+#ifndef UPT_DIAGNOSTIC_LAMBERT
+#define UPT_DIAGNOSTIC_LAMBERT 0
+#endif
+#if UPT_DIAGNOSTIC_LAMBERT
+import upt07_material_lambert_diagnostic;
+#define UPT07_SELECTED_PRIMARY_MATERIAL_SET Upt07LambertDiagnosticMaterialSet
+#else
 import upt07_material_openpbr;
+#define UPT07_SELECTED_PRIMARY_MATERIAL_SET Upt07OpenPbrMaterialSet
+#endif
 import upt07_material_provider_contract;
 import upt07_temporal_direct_bindings;
 import upt07_temporal_reservoir;
@@ -614,7 +623,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (directHistoryEligible)
     {
         historyFailureReason = kUpt07RejectShiftInvalid;
-        shiftedValid = Upt07ShiftPrimaryDirect<Upt07OpenPbrMaterialSet>(
+        shiftedValid = Upt07ShiftPrimaryDirect<UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
             history.logical.selected,
             receiver,
             shifted);
@@ -736,13 +745,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         if ((currentCandidate.flags & kUpt04CandidateFlagGlobal) == 0u)
         {
             currentTargetAtCurrent =
-                Upt07PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
+                Upt07PrimaryDirectTargetAtReceiver<UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
                     currentCandidate, receiver);
             if (confidenceShiftedValid != 0u
                 && Upt04PrimarySurfaceRecordValid(historyReceiver)
                 && (pairwiseMis != 0u || !basicSelectsHistory))
                 currentTargetAtHistory =
-                    Upt07PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
+                    Upt07PrimaryDirectTargetAtReceiver<UPT07_SELECTED_PRIMARY_MATERIAL_SET>(
                         currentCandidate, historyReceiver);
         }
         else

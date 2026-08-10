@@ -30,6 +30,7 @@ set(UPT07_DIRECT_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_reservoir.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_material_provider_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_material_openpbr.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt07_material_lambert_diagnostic.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_emissive_material.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_indirect_material.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang"
@@ -179,6 +180,31 @@ path_tracing_declare_slang_spirv_module(
     DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
     OUT_VAR temporal_unified_compact_duplication_outputs)
 
+function(upt07_declare_lambert_variant variant_name)
+    path_tracing_declare_slang_spirv_module(
+        NAME "${variant_name}"
+        SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+        ENTRY main STAGE compute OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+        INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_LIST_DIR}/.."
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        DEPENDS ${UPT07_DIRECT_MODULES}
+        DEFINES UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_INDIRECT_REPLAY=1
+            UPT_DIAGNOSTIC_LAMBERT=1 ${ARGN}
+        OUT_VAR lambert_outputs)
+    set(UPT07_LAMBERT_OUTPUTS ${UPT07_LAMBERT_OUTPUTS} ${lambert_outputs}
+        PARENT_SCOPE)
+endfunction()
+upt07_declare_lambert_variant(upt07_temporal_unified_rayquery_lambert)
+upt07_declare_lambert_variant(upt07_temporal_unified_rayquery_light64_lambert
+    UPT07_PACKED_LIGHT_RECORD=1)
+upt07_declare_lambert_variant(upt07_temporal_unified_rayquery_duplication_lambert
+    UPT07_DUPLICATION_MAP=1)
+upt07_declare_lambert_variant(
+    upt07_temporal_unified_rayquery_light64_duplication_lambert
+    UPT07_PACKED_LIGHT_RECORD=1 UPT07_DUPLICATION_MAP=1)
+
 path_tracing_declare_slang_spirv_module(
     NAME upt07_temporal_unified_rayquery_route_diag
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
@@ -322,6 +348,24 @@ set(UPT07_UNIFIED_DUPLICATION_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_duplication.bin")
 set(UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication.bin")
+set(UPT07_LAMBERT_RUNTIME_OUTPUTS)
+foreach(lambert_module
+        upt07_temporal_unified_rayquery_lambert
+        upt07_temporal_unified_rayquery_light64_lambert
+        upt07_temporal_unified_rayquery_duplication_lambert
+        upt07_temporal_unified_rayquery_light64_duplication_lambert)
+    set(lambert_runtime "${UPT07_RUNTIME_DIR}/${lambert_module}.bin")
+    add_custom_command(
+        OUTPUT "${lambert_runtime}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT07_RUNTIME_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${UPT07_OUTPUT_DIR}/${lambert_module}.slang.spv"
+            "${lambert_runtime}"
+        DEPENDS ${UPT07_LAMBERT_OUTPUTS}
+        COMMENT "UPT-07 Vulkan Lambert diagnostic artifact: ${lambert_module}"
+        VERBATIM)
+    list(APPEND UPT07_LAMBERT_RUNTIME_OUTPUTS "${lambert_runtime}")
+endforeach()
 set(UPT07_UNIFIED_ROUTE_DIAG_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_route_diag.bin")
 set(UPT07_UNIFIED_COMPACT_ROUTE_DIAG_RUNTIME_OUTPUT
@@ -436,7 +480,8 @@ add_custom_target(PathTraceSlangUpt07TemporalOwnership
         "${UPT07_UNIFIED_ROUTE_DIAG_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_COMPACT_ROUTE_DIAG_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_COMPACT_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}")
+        "${UPT07_UNIFIED_COMPACT_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
+        ${UPT07_LAMBERT_RUNTIME_OUTPUTS})
 set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
     FOLDER "Shaders/UPT-07")
 if(TARGET RBDoom3BFG)

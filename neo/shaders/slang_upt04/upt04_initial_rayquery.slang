@@ -9,7 +9,16 @@ import upt04_transport_initial_bounded;
 import upt04_initial_indirect;
 import upt04_initial_reservoir_stream;
 import upt04_primary_surface_live_contract;
+#ifndef UPT_DIAGNOSTIC_LAMBERT
+#define UPT_DIAGNOSTIC_LAMBERT 0
+#endif
+#if UPT_DIAGNOSTIC_LAMBERT
+import upt05_material_set_lambert_diagnostic;
+#define UPT_SELECTED_MATERIAL_SET Upt05LambertDiagnosticMaterialSet
+#else
 import upt05_material_set_openpbr;
+#define UPT_SELECTED_MATERIAL_SET Upt05OpenPbrMaterialSet
+#endif
 
 #ifndef UPT04_SPLIT_CONTINUATION_SHADE
 #define UPT04_SPLIT_CONTINUATION_SHADE 0
@@ -39,7 +48,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 
     Upt04InitialTraceWork direct =
-        Upt04PrepareDirectPathTreeWorkFromSurface<Upt05OpenPbrMaterialSet>(
+        Upt04PrepareDirectPathTreeWorkFromSurface<UPT_SELECTED_MATERIAL_SET>(
             pixel, receiverWork.surfaceIndex, primarySurface);
     Upt04HitFacts hit = Upt04MissFacts(direct.ray.tMax);
     if (direct.valid != 0u && direct.traceRequired != 0u)
@@ -56,7 +65,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 
     Upt04InitialTraceWork continuation =
-        Upt04PrepareIndirectPathTreeWorkFromSurface<Upt05OpenPbrMaterialSet>(
+        Upt04PrepareIndirectPathTreeWorkFromSurface<UPT_SELECTED_MATERIAL_SET>(
             pixel, receiverWork.surfaceIndex, primarySurface, transport);
 #if UPT04_SPLIT_CONTINUATION_SHADE
     hit = gUpt04ContinuationHits[surfaceIndex];
@@ -66,7 +75,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         hit = Upt04TraceRayQuery(continuation.ray);
 #endif
     const Upt04IndirectHitTrialResult indirect =
-        Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
+        Upt04PrepareIndirectHitTrials<UPT_SELECTED_MATERIAL_SET>(
             continuation, hit, pixel);
     Upt04StreamInitialTraceWork(
         reservoir, indirect.endpointCandidate, pixel, 1u);

@@ -11,7 +11,14 @@ import upt04_local_light_evaluation;
 import upt04_local_light_proposal;
 import upt04_material_contract;
 import upt04_material_provider_contract;
+#ifndef UPT_DIAGNOSTIC_LAMBERT
+#define UPT_DIAGNOSTIC_LAMBERT 0
+#endif
+#if UPT_DIAGNOSTIC_LAMBERT
+import upt07_material_lambert_diagnostic;
+#else
 import upt04_material_primary_live;
+#endif
 import upt04_path_event_contract;
 import upt04_primary_surface_live_contract;
 import upt04_random_contract;

@@ -36,7 +36,7 @@ foreach(module IN LISTS entry_modules)
         message(FATAL_ERROR
             "UPT-05 entry module ${module} does not select the OpenPBR composition")
     endif()
-    if(NOT source MATCHES "<Upt05OpenPbrMaterialSet>")
+    if(NOT source MATCHES "Upt05OpenPbrMaterialSet")
         message(FATAL_ERROR
             "UPT-05 entry module ${module} lacks static material specialization")
     endif()

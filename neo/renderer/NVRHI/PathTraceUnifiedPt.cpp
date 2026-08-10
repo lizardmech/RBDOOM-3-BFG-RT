@@ -268,6 +268,27 @@ static const char* Upt04ContinuationTraceShaderPath()
     return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_continuation_trace_rayquery_compact32.bin";
 }
 
+static const char* Upt04LambertInitialShaderPath(
+    bool compactGeometry,
+    bool compactLights,
+    bool compactMaterials,
+    bool splitContinuation)
+{
+    if (splitContinuation)
+    {
+        return compactMaterials
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_material48_continuation32_lambert.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_continuation32_lambert.bin";
+    }
+    if (compactMaterials)
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_material48_lambert.bin";
+    if (compactLights)
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_lambert.bin";
+    if (compactGeometry)
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_lambert.bin";
+    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_lambert.bin";
+}
+
 static const char* Upt04DiagnosticShaderPath()
 {
     return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_diagnostics.bin";
@@ -403,6 +424,7 @@ static uint64_t Upt06BuildContentGeneration(
     // not change.
     hash = Upt04HashValue(hash, enabledFamilyMask);
     hash = Upt04HashValue(hash, specializationIdentity);
+    hash = Upt04HashValue(hash, dispatch.lambertDiagnostic ? 1u : 0u);
     hash = Upt04HashValue(hash, UPT04_TRANSPORT_K_MAX);
     hash = Upt04HashValue(hash, UPT04_TRANSPORT_POLICY_ID);
     const uint32_t emissiveTrialCount = static_cast<uint32_t>(
@@ -1499,6 +1521,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_compactMaterials != inputs.compactMaterials ||
         m_splitInitial != inputs.splitInitial ||
         m_splitContinuation != inputs.splitContinuation ||
+        m_lambertDiagnostic != inputs.lambertDiagnostic ||
         m_directProposalParity != inputs.directProposalParity ||
         m_lightTiles != inputs.lightTiles)
     {
@@ -1513,6 +1536,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_compactMaterials = inputs.compactMaterials;
         m_splitInitial = inputs.splitInitial;
         m_splitContinuation = inputs.splitContinuation;
+        m_lambertDiagnostic = inputs.lambertDiagnostic;
         m_directProposalParity = inputs.directProposalParity;
         m_lightTiles = inputs.lightTiles;
         m_selectionValid = true;
@@ -1620,6 +1644,10 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         ? Upt04DiagnosticShaderPath()
         : (liveTlasProbe
         ? Upt04LiveTlasProbePath(pipelineVariant)
+        : (inputs.lambertDiagnostic
+        ? Upt04LambertInitialShaderPath(
+            inputs.compactGeometry, inputs.compactLights,
+            inputs.compactMaterials, inputs.splitContinuation)
         : (inputs.splitInitial
         ? Upt04SplitDirectShaderPath(inputs.compactGeometry, inputs.lightTiles)
         : Upt04InitialShaderPath(
@@ -1630,7 +1658,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.compactLights,
             inputs.compactMaterials,
             inputs.splitContinuation,
-            inputs.directProposalParity)));
+            inputs.directProposalParity))));
     void* initialData = nullptr;
     int initialSize = 0;
     ID_TIME_T initialTimestamp = 0;
@@ -1721,7 +1749,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             }
         }
         common->Printf(
-            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s split=%s continuation=%s lightTiles=%u payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
+            "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s shading=%s split=%s continuation=%s lightTiles=%u payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
             Upt04BackendName(m_backend),
             Upt04FamilyName(m_family),
             pipelineVariant,
@@ -1735,6 +1763,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.compactGeometry ? "compact48" : "legacy112",
             inputs.compactLights ? "compact64" : "legacy112",
             inputs.compactMaterials ? "compact48" : "legacy112",
+            inputs.lambertDiagnostic ? "lambert-diagnostic" : "openpbr",
             inputs.splitInitial ? "direct+indirect" : "monolithic",
             inputs.splitContinuation ? "split-hit32" : "inline",
             inputs.lightTiles ? 1u : 0u,
@@ -3070,7 +3099,9 @@ bool PathTraceUnifiedPtState::EnsureContinuationPipeline(
     ID_TIME_T shaderTimestamp = 0;
     uint64_t shaderHash = 0;
     if (!Upt04ReadShader(
-            Upt04ContinuationTraceShaderPath(),
+            inputs.lambertDiagnostic
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_continuation_trace_rayquery_compact32_lambert.bin"
+                : Upt04ContinuationTraceShaderPath(),
             shaderData,
             shaderSize,
             shaderTimestamp,
@@ -4094,7 +4125,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         && m_temporalDuplication == inputs.duplication
         && m_temporalIndirect == indirect
         && m_temporalEarlyReconnect == earlyReconnect
-        && m_temporalRouteDiagnostics == routeDiagnostics)
+        && m_temporalRouteDiagnostics == routeDiagnostics
+        && m_temporalLambertDiagnostic == inputs.lambertDiagnostic)
     {
         return true;
     }
@@ -4102,7 +4134,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         || m_temporalDuplication != inputs.duplication
         || m_temporalIndirect != indirect
         || m_temporalEarlyReconnect != earlyReconnect
-        || m_temporalRouteDiagnostics != routeDiagnostics)
+        || m_temporalRouteDiagnostics != routeDiagnostics
+        || m_temporalLambertDiagnostic != inputs.lambertDiagnostic)
     {
         ReleaseTemporal();
         m_temporalCompactLights = inputs.compactLights;
@@ -4110,6 +4143,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         m_temporalIndirect = indirect;
         m_temporalEarlyReconnect = earlyReconnect;
         m_temporalRouteDiagnostics = routeDiagnostics;
+        m_temporalLambertDiagnostic = inputs.lambertDiagnostic;
     }
     if (m_temporalPipelineAttempted)
     {
@@ -4166,7 +4200,15 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         return false;
     }
 
-    const char* path = indirect
+    const char* path = inputs.lambertDiagnostic
+        ? (inputs.duplication
+            ? (inputs.compactLights
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_lambert.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_duplication_lambert.bin")
+            : (inputs.compactLights
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_lambert.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_lambert.bin"))
+        : (indirect
         ? (inputs.duplication
             ? (inputs.compactLights
                 ? (earlyReconnect
@@ -4196,7 +4238,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
                 : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery_duplication.bin")
             : (inputs.compactLights
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery_light64.bin"
-                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery.bin"));
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_direct_rayquery.bin")));
     void* data = nullptr;
     int size = 0;
     ID_TIME_T timestamp = 0;
@@ -4233,7 +4275,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u family=%s createUs=%llu\n",
+        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u family=%s shading=%s createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -4244,6 +4286,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         indirect ? (earlyReconnect ? "unified-reconnect"
             : (routeDiagnostics ? "unified-route-diagnostics" : "unified"))
             : "direct-basic",
+        inputs.lambertDiagnostic ? "lambert-diagnostic" : "openpbr",
         static_cast<unsigned long long>(pipelineUs));
     return true;
 }
@@ -4777,14 +4820,17 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
 bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
-    if (m_spatialPipeline && m_spatialCompactLights == inputs.compactLights)
+    if (m_spatialPipeline && m_spatialCompactLights == inputs.compactLights
+        && m_spatialLambertDiagnostic == inputs.lambertDiagnostic)
     {
         return true;
     }
-    if (m_spatialCompactLights != inputs.compactLights)
+    if (m_spatialCompactLights != inputs.compactLights
+        || m_spatialLambertDiagnostic != inputs.lambertDiagnostic)
     {
         ReleaseSpatial();
         m_spatialCompactLights = inputs.compactLights;
+        m_spatialLambertDiagnostic = inputs.lambertDiagnostic;
     }
     if (m_spatialPipelineAttempted)
     {
@@ -4830,9 +4876,13 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         return false;
     }
 
-    const char* path = inputs.compactLights
-        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery_light64.bin"
-        : "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery.bin";
+    const char* path = inputs.lambertDiagnostic
+        ? (inputs.compactLights
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery_light64_lambert.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery_lambert.bin")
+        : (inputs.compactLights
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery_light64.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery.bin");
     void* data = nullptr;
     int size = 0;
     ID_TIME_T timestamp = 0;
@@ -4869,7 +4919,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=1 createUs=%llu\n",
+        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=1 shading=%s createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -4877,6 +4927,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         UPT09_REGULAR_NEIGHBOR_COUNT,
         UPT09_RESCUE_NEIGHBOR_COUNT,
         UPT09_NEIGHBOR_RADIUS,
+        inputs.lambertDiagnostic ? "lambert-diagnostic" : "openpbr",
         static_cast<unsigned long long>(pipelineUs));
     return true;
 }

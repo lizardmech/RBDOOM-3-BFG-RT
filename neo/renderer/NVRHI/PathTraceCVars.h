@@ -245,6 +245,7 @@ extern idCVar r_pathTracingUnifiedPtCompactMaterials;
 extern idCVar r_pathTracingUnifiedPtSplitInitial;
 extern idCVar r_pathTracingUnifiedPtLightTiles;
 extern idCVar r_pathTracingUnifiedPtSplitContinuation;
+extern idCVar r_pathTracingUnifiedPtLambertDiagnostic;
 extern idCVar r_pathTracingUnifiedPtDirectProposalParity;
 extern idCVar r_pathTracingUnifiedPtD0PreviousBest;
 extern idCVar r_pathTracingUnifiedPtTemporal;

@@ -48,6 +48,8 @@ set(UPT04_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_primary_live.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_openpbr.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_set_openpbr.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_lambert_diagnostic.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_set_lambert_diagnostic.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_local_light_evaluation_direct.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_reservoir_stream.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_shared.slang"
@@ -464,6 +466,51 @@ path_tracing_declare_slang_spirv_module(
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS
     ${continuation32_material48_shade_rayquery_outputs})
+
+# Static Lambert-only profiling closure. These variants deliberately omit the
+# OpenPBR implementation from the selected entry-point graph.
+function(upt04_declare_lambert_variant variant_name source_file)
+    path_tracing_declare_slang_spirv_module(
+        NAME "${variant_name}"
+        SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/${source_file}"
+        ENTRY main STAGE compute OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+        INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_LIST_DIR}/.."
+            "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+            "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_lambert_diagnostic.slang"
+            "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_set_lambert_diagnostic.slang"
+            "${CMAKE_CURRENT_SOURCE_DIR}/upt04_continuation_hit_bindings.slang"
+        DEFINES ${ARGN} UPT_DIAGNOSTIC_LAMBERT=1
+        OUT_VAR lambert_outputs RAY_QUERY)
+    set(UPT04_LAMBERT_OUTPUTS ${UPT04_LAMBERT_OUTPUTS} ${lambert_outputs}
+        PARENT_SCOPE)
+endfunction()
+
+upt04_declare_lambert_variant(upt04_initial_rayquery_compact32_lambert
+    upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2)
+upt04_declare_lambert_variant(upt04_initial_rayquery_compact32_geometry48_lambert
+    upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2
+    UPT04_PACKED_GEOMETRY_VERTEX=1)
+upt04_declare_lambert_variant(upt04_initial_rayquery_compact32_geometry48_light64_lambert
+    upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2
+    UPT04_PACKED_GEOMETRY_VERTEX=1 UPT04_PACKED_LIGHT_RECORD=1)
+upt04_declare_lambert_variant(upt04_initial_rayquery_compact32_geometry48_light64_material48_lambert
+    upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2
+    UPT04_PACKED_GEOMETRY_VERTEX=1 UPT04_PACKED_LIGHT_RECORD=1
+    UPT04_PACKED_MATERIAL_RECORD=1)
+upt04_declare_lambert_variant(upt04_initial_rayquery_compact32_geometry48_light64_continuation32_lambert
+    upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2
+    UPT04_PACKED_GEOMETRY_VERTEX=1 UPT04_PACKED_LIGHT_RECORD=1
+    UPT04_SPLIT_CONTINUATION_SHADE=1)
+upt04_declare_lambert_variant(upt04_initial_rayquery_compact32_geometry48_light64_material48_continuation32_lambert
+    upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2
+    UPT04_PACKED_GEOMETRY_VERTEX=1 UPT04_PACKED_LIGHT_RECORD=1
+    UPT04_PACKED_MATERIAL_RECORD=1 UPT04_SPLIT_CONTINUATION_SHADE=1)
+upt04_declare_lambert_variant(upt04_continuation_trace_rayquery_compact32_lambert
+    upt04_continuation_trace_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2
+    UPT04_CONTINUATION_HIT_WRITE=1)
+list(APPEND UPT04_BACKEND_OUTPUTS ${UPT04_LAMBERT_OUTPUTS})
 
 path_tracing_declare_slang_spirv_module(
     NAME upt04_compact_material_pack
@@ -1031,6 +1078,13 @@ set(UPT04_RUNTIME_MODULES
     upt04_continuation_trace_rayquery_compact32
     upt04_initial_rayquery_compact32_geometry48_light64_continuation32
     upt04_initial_rayquery_compact32_geometry48_light64_material48_continuation32
+    upt04_initial_rayquery_compact32_lambert
+    upt04_initial_rayquery_compact32_geometry48_lambert
+    upt04_initial_rayquery_compact32_geometry48_light64_lambert
+    upt04_initial_rayquery_compact32_geometry48_light64_material48_lambert
+    upt04_continuation_trace_rayquery_compact32_lambert
+    upt04_initial_rayquery_compact32_geometry48_light64_continuation32_lambert
+    upt04_initial_rayquery_compact32_geometry48_light64_material48_continuation32_lambert
     upt04_compact_material_pack
     upt04_initial_diagnostics
     upt04_initial_direct_only_rayquery

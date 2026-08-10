@@ -11,6 +11,7 @@ set(UPT09_DIRECT_MODULES
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07/upt07_temporal_reservoir.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07/upt07_material_provider_contract.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07/upt07_material_openpbr.slang"
+    "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07/upt07_material_lambert_diagnostic.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07/upt07_emissive_material.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_binary16.slang"
@@ -67,6 +68,30 @@ path_tracing_declare_slang_spirv_module(
     OUT_VAR spatial_direct_compact_outputs
     RAY_QUERY)
 
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_direct_rayquery_lambert
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main STAGE compute OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_SPATIAL_GEOMETRY_REPLAY=1 UPT_DIAGNOSTIC_LAMBERT=1
+    OUT_VAR spatial_lambert_outputs RAY_QUERY)
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_direct_rayquery_light64_lambert
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main STAGE compute OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_PACKED_LIGHT_RECORD=1 UPT09_SPATIAL_GEOMETRY_REPLAY=1
+        UPT_DIAGNOSTIC_LAMBERT=1
+    OUT_VAR spatial_compact_lambert_outputs RAY_QUERY)
+
 set(UPT09_VERIFY_STAMP "${UPT09_OUTPUT_DIR}/upt09_spatial_direct_verified.txt")
 add_custom_command(
     OUTPUT "${UPT09_VERIFY_STAMP}"
@@ -88,8 +113,14 @@ set(UPT09_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_direct_rayquery.bin")
 set(UPT09_COMPACT_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_direct_rayquery_light64.bin")
+set(UPT09_LAMBERT_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_direct_rayquery_lambert.bin")
+set(UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_direct_rayquery_light64_lambert.bin")
 add_custom_command(
     OUTPUT "${UPT09_RUNTIME_OUTPUT}" "${UPT09_COMPACT_RUNTIME_OUTPUT}"
+        "${UPT09_LAMBERT_RUNTIME_OUTPUT}"
+        "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT09_RUNTIME_DIR}"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${UPT09_OUTPUT_DIR}/upt09_spatial_direct_rayquery.slang.spv"
@@ -97,7 +128,14 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${UPT09_OUTPUT_DIR}/upt09_spatial_direct_rayquery_light64.slang.spv"
         "${UPT09_COMPACT_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT09_OUTPUT_DIR}/upt09_spatial_direct_rayquery_lambert.slang.spv"
+        "${UPT09_LAMBERT_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT09_OUTPUT_DIR}/upt09_spatial_direct_rayquery_light64_lambert.slang.spv"
+        "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}"
     DEPENDS ${spatial_direct_outputs} ${spatial_direct_compact_outputs}
+        ${spatial_lambert_outputs} ${spatial_compact_lambert_outputs}
         "${UPT09_VERIFY_STAMP}"
     COMMENT "UPT-09 verified Vulkan runtime artifacts: direct spatial rescue"
     VERBATIM)
@@ -105,7 +143,8 @@ add_custom_command(
 add_custom_target(PathTraceSlangUpt09Spatial
     DEPENDS ${spatial_direct_outputs} ${spatial_direct_compact_outputs}
         "${UPT09_VERIFY_STAMP}" "${UPT09_RUNTIME_OUTPUT}"
-        "${UPT09_COMPACT_RUNTIME_OUTPUT}")
+        "${UPT09_COMPACT_RUNTIME_OUTPUT}" "${UPT09_LAMBERT_RUNTIME_OUTPUT}"
+        "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt09Spatial PROPERTIES FOLDER "Shaders/UPT-09")
 if(TARGET RBDoom3BFG)
     add_dependencies(RBDoom3BFG PathTraceSlangUpt09Spatial)

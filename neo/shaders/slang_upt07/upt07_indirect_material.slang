@@ -5,9 +5,18 @@ import upt04_initial_control;
 import upt04_material_contract;
 import upt04_material_emission;
 import upt04_material_live_contract;
+#ifndef UPT_DIAGNOSTIC_LAMBERT
+#define UPT_DIAGNOSTIC_LAMBERT 0
+#endif
+#if UPT_DIAGNOSTIC_LAMBERT
+import upt07_material_lambert_diagnostic;
+#else
 import upt04_material_primary_live;
+#endif
 import upt04_path_event_contract;
+#if !UPT_DIAGNOSTIC_LAMBERT
 import upt05_material_openpbr;
+#endif
 import upt07_emissive_material;
 import upt07_temporal_direct_bindings;
 
@@ -146,6 +155,9 @@ public Upt04PreparedDirectMaterial Upt07PrepareSecondaryDirect(
     Upt04GeometryHitSurface surface,
     float3 viewDirection)
 {
+#if UPT_DIAGNOSTIC_LAMBERT
+    return Upt07LambertPrepareSecondary(surface, viewDirection);
+#else
     Upt04PreparedDirectMaterial result = (Upt04PreparedDirectMaterial)0;
     if (surface.valid == 0u
         || surface.materialIndex >= gUpt07Control.materialCount)
@@ -233,6 +245,7 @@ public Upt04PreparedDirectMaterial Upt07PrepareSecondaryDirect(
     result.specularF0 = saturate(specularF0);
     result.valid = 1u;
     return result;
+#endif
 }
 
 public Upt04MaterialEvaluation Upt07EvaluateSecondaryDirect(

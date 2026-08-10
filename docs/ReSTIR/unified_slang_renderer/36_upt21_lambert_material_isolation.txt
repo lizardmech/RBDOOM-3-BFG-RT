@@ -1,0 +1,84 @@
+UPT-21: static Lambert material-isolation diagnostic
+====================================================
+
+Status
+------
+
+Implemented and Vulkan-build verified on 2026-08-10. Runtime timing remains an
+A/B gate. This is a profiling specialization, not a replacement material model
+and not an estimator change.
+
+Question
+--------
+
+The wall/orb captures still show strongly view-dependent D0 and especially T0
+cost. OpenPBR evaluation, sampling and its transitive shader closure are large
+enough that a runtime branch around them would not answer whether their code
+footprint or execution is responsible. The diagnostic therefore compiles a
+separate shader family in which ordinary receiver and secondary-hit surfaces
+use only constant-gray Lambert evaluation and cosine-hemisphere continuation.
+
+Contract
+--------
+
+    r_pathTracingUnifiedPtLambertDiagnostic 0|1
+
+The admitted route is unified family 0, RayQuery backend 0, compact receiver 2,
+shader proof 1..6, split-initial off and UPT diagnostics off. Split continuation
+may remain on. When temporal is enabled, temporal-indirect must be enabled and
+early reconnection plus temporal route diagnostics must be off.
+
+The specialization:
+
+* uses constant linear albedo 0.8, roughness 1 and diffuse-only Lambert
+  evaluation/PDF;
+* samples the primary continuation with a cosine hemisphere and throughput
+  equal to the constant albedo;
+* omits the OpenPBR material modules from the selected D0/T0 shader closure;
+* preserves real emissive material identity, texture/color, masking and scale;
+* preserves alpha-clip traversal and real geometry/material identity needed by
+  visibility and emissive replay;
+* preserves reservoir layout, proposal count/order, random dimensions, stable
+  identities, visibility rules, ray ceiling and compact32/48/64 paths; and
+* hashes the specialization into the page generation so toggling it invalidates
+  incompatible temporal history without clearing full buffers.
+
+The D0 and T0 pipeline logs print either shading=lambert-diagnostic or
+shading=openpbr. Treat the cvar as inactive unless both selected pipeline logs
+show the expected label. UPT-09 variants also exist for direct-only spatial
+experiments, although the current unified-family admission route does not run
+that direct-only spatial baseline.
+
+A/B procedure
+-------------
+
+Use the same saved position, resolution, RNG settings and UPT configuration.
+Warm the pipeline and collect matched captures with only this cvar changed:
+
+    r_pathTracingUnifiedPtLambertDiagnostic 0
+    r_pathTracingUnifiedPtLambertDiagnostic 1
+
+Compare full-frame time and the D0/T0 markers, then compare SASS footprint,
+registers, No Instructions, long scoreboard, active warps and ray-query input
+dependencies. First confirm the pipeline log label and that visible emitters and
+alpha cutouts remain correct.
+
+Interpretation
+--------------
+
+A large and repeatable reduction, especially if traversal/ray counts remain
+stable, implicates OpenPBR execution or its transitive code/register footprint.
+Little change rules out OpenPBR as the dominant cause and redirects the next
+work to traversal divergence, hit decode, replay scheduling or reservoir/light
+traffic. A visual mismatch in emitter identity, alpha coverage, ghost lighting
+or reservoir stability rejects the comparison rather than counting it as a
+performance result.
+
+Verification
+------------
+
+The exact command `cmake --build --preset win64-pt-dev-release` from `neo/`
+passes. All seven D0 Lambert layout variants, the compact32 continuation tracer,
+four unified T0 variants and two UPT-09 variants compile to Vulkan SPIR-V and
+pass the existing UPT closure/runtime-artifact verifiers. DX12 shaders were not
+compiled.

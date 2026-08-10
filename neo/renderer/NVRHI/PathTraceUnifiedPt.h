@@ -74,6 +74,7 @@ struct PathTraceUnifiedPtDispatchInputs
     bool compactMaterials = false;
     bool splitInitial = false;
     bool splitContinuation = false;
+    bool lambertDiagnostic = false;
     bool directProposalParity = false;
     bool lightTiles = false;
     bool temporal = false;
@@ -199,6 +200,7 @@ private:
     bool m_compactMaterials = false;
     bool m_splitInitial = false;
     bool m_splitContinuation = false;
+    bool m_lambertDiagnostic = false;
     bool m_directProposalParity = false;
     bool m_lightTiles = false;
     bool m_temporalModeActive = false;
@@ -312,6 +314,7 @@ private:
     bool m_temporalIndirect = false;
     bool m_temporalEarlyReconnect = false;
     bool m_temporalRouteDiagnostics = false;
+    bool m_temporalLambertDiagnostic = false;
     bool m_temporalPipelineAttempted = false;
     nvrhi::BindingLayoutHandle m_temporalBindingLayout;
     std::array<nvrhi::BindingSetHandle, 2> m_temporalBindingSets;
@@ -341,6 +344,7 @@ private:
     bool m_duplicationPipelineAttempted = false;
 
     bool m_spatialCompactLights = false;
+    bool m_spatialLambertDiagnostic = false;
     bool m_spatialPipelineAttempted = false;
     nvrhi::BindingLayoutHandle m_spatialBindingLayout;
     std::array<nvrhi::BindingSetHandle, 2> m_spatialBindingSets;

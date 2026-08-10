@@ -9,7 +9,16 @@ import upt04_emissive_replay;
 import upt04_material_contract;
 import upt04_primary_surface_live_contract;
 import upt04_random_white_hash;
+#ifndef UPT_DIAGNOSTIC_LAMBERT
+#define UPT_DIAGNOSTIC_LAMBERT 0
+#endif
+#if UPT_DIAGNOSTIC_LAMBERT
+import upt07_material_lambert_diagnostic;
+#define UPT09_SELECTED_PRIMARY_MATERIAL_SET Upt07LambertDiagnosticMaterialSet
+#else
 import upt07_material_openpbr;
+#define UPT09_SELECTED_PRIMARY_MATERIAL_SET Upt07OpenPbrMaterialSet
+#endif
 import upt07_material_provider_contract;
 import upt07_emissive_material;
 import upt07_temporal_reservoir;
@@ -400,7 +409,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         ? min(center.logical.effectiveM, gUpt09Control.maximumInputM) : 0u;
     const float centerReceiverTarget = centerSelected
         && (gUpt09Control.proofMode == 5u || pairwiseProof)
-        ? Upt09PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
+        ? Upt09PrimaryDirectTargetAtReceiver<UPT09_SELECTED_PRIMARY_MATERIAL_SET>(
             center.logical.selected, receiver)
         : (centerSelected ? center.logical.selected.target : 0.0f);
     uint outputM = centerM;
@@ -483,7 +492,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         {
             ++pairwisePairsSeen;
             const float centerTargetAtNeighbor = neighborM > 0u
-                ? Upt09PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
+                ? Upt09PrimaryDirectTargetAtReceiver<UPT09_SELECTED_PRIMARY_MATERIAL_SET>(
                     center.logical.selected, neighborSurface)
                 : 0.0f;
             const float canonicalTerm = float(centerM)
@@ -527,7 +536,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         Upt03Candidate shifted;
         Upt04TraceRequest visibility;
         Upt04VisibilityIgnore visibilityIgnore;
-        if (Upt09ShiftPrimaryDirectUnshadowed<Upt07OpenPbrMaterialSet>(
+        if (Upt09ShiftPrimaryDirectUnshadowed<UPT09_SELECTED_PRIMARY_MATERIAL_SET>(
                 neighbor.logical.selected,
                 receiver,
                 shifted,
@@ -548,7 +557,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         // a strict runtime A/B.
         const float neighborSourceTarget =
             (gUpt09Control.proofMode == 5u || pairwiseProof)
-            ? Upt09PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
+            ? Upt09PrimaryDirectTargetAtReceiver<UPT09_SELECTED_PRIMARY_MATERIAL_SET>(
                 neighbor.logical.selected, neighborSurface)
             : neighbor.logical.selected.target;
         float neighborMass = 0.0f;
@@ -664,7 +673,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             const uint neighborIndex = uint(neighborPixel.y) * dimensions.x
                 + uint(neighborPixel.x);
             normalizationDenominator +=
-                Upt09PrimaryDirectTargetAtReceiver<Upt07OpenPbrMaterialSet>(
+                Upt09PrimaryDirectTargetAtReceiver<UPT09_SELECTED_PRIMARY_MATERIAL_SET>(
                     selected,
                     Upt09LoadSurface(neighborIndex))
                 * float(acceptedM[acceptedIndex]);

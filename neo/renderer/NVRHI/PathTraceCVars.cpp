@@ -1431,6 +1431,12 @@ idCVar r_pathTracingUnifiedPtSplitContinuation(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT unified D0 A/B: trace the deterministic primary continuation into one 32-byte hit-facts sidecar, then run direct plus secondary shading with one final reservoir write; mutually exclusive with the rejected direct/indirect split" );
 
+idCVar r_pathTracingUnifiedPtLambertDiagnostic(
+    "r_pathTracingUnifiedPtLambertDiagnostic",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Vulkan UPT profiling specialization: replace OpenPBR receiver and secondary-hit shading with constant-gray untextured Lambert eval/sample/PDF while preserving emissive endpoint textures and alpha-clip traversal; supported by unified RayQuery compact32 D0 and indirect temporal without reconnect/route diagnostics" );
+
 idCVar r_pathTracingUnifiedPtDirectProposalParity(
     "r_pathTracingUnifiedPtDirectProposalParity",
     "1",

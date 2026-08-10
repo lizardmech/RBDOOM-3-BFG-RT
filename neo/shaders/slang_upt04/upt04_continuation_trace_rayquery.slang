@@ -6,7 +6,16 @@ import upt04_initial_shared;
 import upt04_initial_work_contract;
 import upt04_primary_surface_live_contract;
 import upt04_transport_initial_bounded;
+#ifndef UPT_DIAGNOSTIC_LAMBERT
+#define UPT_DIAGNOSTIC_LAMBERT 0
+#endif
+#if UPT_DIAGNOSTIC_LAMBERT
+import upt05_material_set_lambert_diagnostic;
+#define UPT_SELECTED_MATERIAL_SET Upt05LambertDiagnosticMaterialSet
+#else
 import upt05_material_set_openpbr;
+#define UPT_SELECTED_MATERIAL_SET Upt05OpenPbrMaterialSet
+#endif
 
 // C0 owns only deterministic primary-continuation generation and one inline
 // trace. Material/geometry shading and reservoir work remain in D0.
@@ -31,7 +40,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         {
             const Upt04InitialTraceWork continuation =
                 Upt04PrepareIndirectPathTreeWorkFromSurface<
-                    Upt05OpenPbrMaterialSet>(
+                    UPT_SELECTED_MATERIAL_SET>(
                         pixel,
                         receiverWork.surfaceIndex,
                         primarySurface,
