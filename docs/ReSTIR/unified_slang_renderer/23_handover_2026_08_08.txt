@@ -1874,3 +1874,52 @@ The added transport depth is expensive relative to its benefit in this game;
 retain it for future renderer ports and preserve `uptf2` as the
 production-shaped one-continuation lane. Three-vertex spatial reuse remains a
 separate future task.
+
+UPT-38 exact three-vertex S0, 2026-08-12
+-----------------------------------------
+
+UPT-38 completes reuse for the optional path-length-two endpoint without a
+new spatial estimator. A separate Vulkan artifact compiles the accepted UPT-33
+one-neighbor reciprocal-pair/empty-rescue route with UPT-36 exact stored-q
+replay. The rejected UPT-34 three-neighbor route is excluded by the host gate.
+
+S0 reuses `Upt07ReplayIndirectSample`: it reconstructs x1->x2, validates the
+stored-q survival branch, traces x2->x3, and evaluates endpoint emission,
+target, path PDF and emissive-hit MIS in the target receiver domain. It never
+reapplies the initial-only biased minimum-throughput cutoff. Invalid or
+incompatible samples fail closed.
+
+No descriptor, buffer, page, clear, dispatch or persistent ABI was added. The
+new artifact verifies at 26 bindings, 96-byte push constants, triangle-class
+bindings 9/13, one workgroup barrier, six static RayQuery sites and zero
+TraceRay sites. Each lane maps one partner with at most two continuation
+queries; the conceptual reciprocal pair therefore has at most four mapping
+queries plus the existing per-winner visibility bound.
+
+The blob is 655100 bytes, SHA-256
+2D3AC59F233826901C5AE89B3F496CFB15F302D0FE0D57F4C8916E8F24AD0BBD. The
+Release executable is 16352256 bytes, SHA-256
+5FD36907F904A642D6863249CDECEED49EECC4B2154929593A78019EBA188AD2. The
+UPT-02 D0/T0/S0 equality oracle passes at a 64-byte reservoir and 22 random
+slots. No DX12 shader was compiled.
+
+Run `exec uptb5` and require threeVertexReplay=1 in both temporal and spatial
+pipeline logs, with spatial neighbors=1, continuationRaysMaxPerMapping=2 and
+mappingRaysMaxPerPair=4. Compare visually
+and for cost against `exec uptb3` after warm-up. Runtime acceptance is pending;
+do not checkpoint or enable the path by default before that comparison.
+
+UPT-38 runtime result, 2026-08-12
+---------------------------------
+
+The deployed `uptb5` specialization worked correctly and is runtime accepted.
+Spatial reuse can propagate occasional high-energy temporal fireflies, but the
+user judged the current image cleaner than comparable shipping renderers and
+the effect cannot be assessed meaningfully before the intended denoiser/Ray
+Reconstruction pipeline is tested.
+
+Do not compensate in S0 with a clamp, target cap, broader rejection or invalid
+sample admission. The high-energy sample originates in temporal reuse and S0
+preserves it. Reopen the issue only if denoiser testing exposes a specific T0
+estimator, replay, visibility or material defect. Preserve `uptf2` as the
+production-shaped rollback and keep the extra bounce optional.

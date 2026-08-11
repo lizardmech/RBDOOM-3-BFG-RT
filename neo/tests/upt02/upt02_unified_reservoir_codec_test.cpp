@@ -288,7 +288,7 @@ void TestThreeBounceRouletteVector() {
 		qOneTarget == referenceContribution && qOneMass == referenceContribution,
 		"q=1 must reduce exactly to the no-roulette convention");
 
-	// T0 must reconstruct the same x1->x2->x3 estimator as D0: roulette is
+	// T0 and S0 must reconstruct the same x1->x2->x3 estimator as D0: roulette is
 	// present once in throughput and path PDF, excluded once from the stored
 	// target, and retained as the proposal probability.
 	constexpr double primaryThroughput = 1.75;
@@ -299,13 +299,18 @@ void TestThreeBounceRouletteVector() {
 		(secondaryThroughput / referenceQ) * endpointEmission * endpointMis;
 	constexpr double t0Contribution = primaryThroughput *
 		(secondaryThroughput / referenceQ) * endpointEmission * endpointMis;
+	constexpr double s0Contribution = primaryThroughput *
+		(secondaryThroughput / referenceQ) * endpointEmission * endpointMis;
 	constexpr double d0Target = d0Contribution * referenceQ;
 	constexpr double t0Target = t0Contribution * referenceQ;
+	constexpr double s0Target = s0Contribution * referenceQ;
 	constexpr double d0PathPdf = 0.3 * 0.4 * referenceQ;
 	constexpr double t0PathPdf = 0.3 * 0.4 * referenceQ;
+	constexpr double s0PathPdf = 0.3 * 0.4 * referenceQ;
 	static_assert(d0Contribution == t0Contribution && d0Target == t0Target &&
-		d0PathPdf == t0PathPdf,
-		"two-continuation temporal replay must reproduce D0 energy and PDF exactly");
+		d0PathPdf == t0PathPdf && d0Contribution == s0Contribution &&
+		d0Target == s0Target && d0PathPdf == s0PathPdf,
+		"two-continuation temporal/spatial replay must reproduce D0 energy and PDF exactly");
 
 	constexpr double aggressiveQ = 0.25;
 	constexpr double aggressiveSurvivedContribution =
@@ -328,8 +333,10 @@ void TestThreeBounceRouletteVector() {
 	constexpr bool initialKillsDarkPath =
 		darkThroughputSquared < minimumThroughput * minimumThroughput;
 	constexpr bool temporalReplayKillsDarkPath = false;
-	static_assert(initialKillsDarkPath && !temporalReplayKillsDarkPath,
-		"the biased throughput cutoff belongs to initial sampling only");
+	constexpr bool spatialReplayKillsDarkPath = false;
+	static_assert(initialKillsDarkPath && !temporalReplayKillsDarkPath &&
+		!spatialReplayKillsDarkPath,
+		"the biased throughput cutoff belongs to initial sampling only, never T0/S0");
 
 	RouletteState state = {};
 	state.pathPdf = 0.1;

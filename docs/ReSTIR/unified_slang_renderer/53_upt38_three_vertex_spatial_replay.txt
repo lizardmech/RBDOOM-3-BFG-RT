@@ -1,0 +1,126 @@
+UPT-38: exact three-vertex shared spatial replay
+================================================
+
+Status
+------
+
+Implemented and runtime accepted as a default-off Vulkan S0 specialization.
+Offline verification passes and the deployed image remained stable.
+
+Scope and authority
+-------------------
+
+UPT-38 completes reuse for the optional UPT-35/36 three-vertex endpoint. It
+does not add another transport depth and does not change the spatial
+estimator. The specialization is exactly the runtime-accepted UPT-33
+one-neighbor full-occupancy reciprocal pair plus UPT-36's exact
+`UPT07_THREE_VERTEX_REPLAY` route.
+
+The rejected UPT-34 three-neighbor experiment is explicitly incompatible with
+this gate. UPT-38 requires:
+
+    shared spatial
+    stored direct source target
+    workgroup reciprocal pairing
+    empty-center rescue
+    multi-neighbor disabled
+    compact64 lights and the accepted common-GRIS temporal chain
+
+Replay contract
+---------------
+
+Global S0 candidates already pass through `Upt07ReplayIndirectSample`. With
+the UPT-36 define enabled, an `eventKind=4,pathLength=2,
+reconnectionVertexLength=1` endpoint is admitted only when both stored q
+fields are finite, lie in (0,1], and agree. The mapping then:
+
+    replays x1->x2 from persisted path-vertex randoms
+    validates the stored-q survival branch
+    samples and traces x2->x3
+    decodes and evaluates x3 emission
+    reconstructs contribution, target, path PDF and emissive-hit MIS
+    publishes the shifted endpoint in the target receiver domain
+
+The initial-only biased minimum-throughput cutoff is never repeated in S0.
+The selected D0 path already survived it; applying it during reuse would alter
+the shift domain and desynchronize the accepted mapping.
+
+Estimator and visibility
+------------------------
+
+UPT-33 pairwise GRIS is unchanged. The source target comes from the stored
+source-domain candidate. The target target and Jacobian come from exact replay.
+UCW conversion, pairwise MIS, confidence, duplicate policy, empty-center
+rescue and winner selection are unchanged.
+
+The x3 closest hit proves endpoint visibility for a successful replay and the
+shifted candidate carries the accepted visibility-known/passed proof. Other
+candidate shapes retain the existing winner-only deferred visibility route.
+An invalid, stale, incompatible, missing, zero-target or failed-visibility
+sample is rejected; UPT-38 never admits it for density.
+
+Bounds and ABI
+--------------
+
+No reservoir field, descriptor, page, texture, buffer, clear or dispatch was
+added. Reflection remains:
+
+    bindings                    26
+    push constants              96 bytes
+    triangle-class bindings     9 / 13
+    workgroup barriers          1
+    static RayQuery sites       6
+    TraceRay sites              0
+
+Each lane maps one reciprocal partner. A three-vertex mapping emits at most
+two closest-hit continuation queries; the existing winner visibility route is
+at most one more query. Across the conceptual two-pixel reciprocal pair this
+is at most four mapping continuation queries, with no multi-neighbor fan-out.
+
+Runtime configuration
+---------------------
+
+    exec uptb5
+
+Require these diagnostics:
+
+    three-vertex initial requested/effective=1/1
+    temporal ... threeVertexReplay=1 indirectReplayRaysMax=6
+    spatial ... sharedSpatial=1 storedSourceTarget=1
+        workgroupPairing=1 emptyRescue=1
+        threeVertexReplay=1 neighbors=1 pairedPixels=2
+        continuationRaysMaxPerMapping=2 mappingRaysMaxPerPair=4
+
+Compare `uptb5` against `uptb3` after pipeline/history warm-up. The expected
+difference is S0 only. Reject white/color corruption, ghost or missing
+emitters, geometry holes, motion poisoning, brightness drift, runaway energy,
+tile structure beyond the accepted UPT-33 behavior, or an unjustified cost.
+The production-shaped rollback remains `exec uptf2`.
+
+Offline result
+--------------
+
+The focused Vulkan target compiles and passes its structural verifier. The
+artifact is 655100 bytes, SHA-256
+2D3AC59F233826901C5AE89B3F496CFB15F302D0FE0D57F4C8916E8F24AD0BBD.
+The generated Release host project compiles and links with only the two
+pre-existing C4819 warnings. The executable is 16352256 bytes, SHA-256
+5FD36907F904A642D6863249CDECEED49EECC4B2154929593A78019EBA188AD2.
+The UPT-02 codec/math harness passes at a 64-byte reservoir and 22 random
+slots, including exact D0/T0/S0 contribution, target and path-PDF equality and
+proof that the biased cutoff remains initial-only. No DX12 shader was compiled.
+
+Runtime result
+--------------
+
+`exec uptb5` activated the specialization and rendered correctly. The user
+reported that spatial reuse can propagate occasional temporal fireflies, but
+the result remains cleaner than comparable shipping renderers. This is not a
+UPT-38 spatial correctness failure: the high-energy sample is already present
+in T0 and S0 preserves the accepted reservoir energy rather than inventing it.
+
+Do not add an S0 clamp, target cap, broader rejection or density workaround.
+Re-evaluate the practical impact with the intended denoiser/Ray Reconstruction
+pipeline. Reopen indirect-temporal firefly work only if that test exposes a
+specific T0 estimator, replay, visibility or material-evaluation defect. UPT-38
+is otherwise runtime accepted.

@@ -2985,9 +2985,84 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 reportedCommonGrisMergeRequest = commonGrisMergeRequest;
                 reportedCommonGrisMergeEffective = commonGrisMergeEffective;
             }
-            unifiedPtInputs.spatial =
-                r_pathTracingUnifiedPtSpatial.GetBool() &&
-                unifiedPtInputs.family == PathTraceUnifiedPtFamily::DirectOnly;
+            const bool requestedSharedSpatial =
+                r_pathTracingUnifiedPtSharedSpatial.GetBool();
+            const bool effectiveSharedSpatial = requestedSharedSpatial
+                && effectiveCommonGrisMerge
+                && unifiedPtInputs.temporal
+                && unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified
+                && unifiedPtInputs.compactLights
+                && unifiedPtInputs.duplication
+                && !unifiedPtInputs.lambertDiagnostic
+                && !frozenAnyDiagnostic
+                && unifiedPtInputs.temporalBottleneckProbe == 0u
+                && !r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
+                && !r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool();
+            static int reportedSharedSpatialRequest = -1;
+            static int reportedSharedSpatialEffective = -1;
+            const int sharedSpatialRequest = requestedSharedSpatial ? 1 : 0;
+            const int sharedSpatialEffective = effectiveSharedSpatial ? 1 : 0;
+            if (reportedSharedSpatialRequest != sharedSpatialRequest
+                || reportedSharedSpatialEffective != sharedSpatialEffective)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: shared spatial requested/effective=%d/%d gate(commonGris/temporal/unified/compactLights/duplication/openPbr/noFrozen/noProbe/noEarlyReconnect/noRouteDiag)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
+                    sharedSpatialRequest,
+                    sharedSpatialEffective,
+                    effectiveCommonGrisMerge ? 1u : 0u,
+                    unifiedPtInputs.temporal ? 1u : 0u,
+                    unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified
+                        ? 1u : 0u,
+                    unifiedPtInputs.compactLights ? 1u : 0u,
+                    unifiedPtInputs.duplication ? 1u : 0u,
+                    unifiedPtInputs.lambertDiagnostic ? 0u : 1u,
+                    frozenAnyDiagnostic ? 0u : 1u,
+                    unifiedPtInputs.temporalBottleneckProbe == 0u ? 1u : 0u,
+                    r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
+                        ? 0u : 1u,
+                    r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool()
+                        ? 0u : 1u);
+                reportedSharedSpatialRequest = sharedSpatialRequest;
+                reportedSharedSpatialEffective = sharedSpatialEffective;
+            }
+            const bool requestedSpatialWorkgroupPairing =
+                r_pathTracingUnifiedPtSpatialWorkgroupPairing.GetBool();
+            const bool effectiveSpatialStoredSourceTarget =
+                effectiveSharedSpatial
+                && r_pathTracingUnifiedPtSpatialStoredSourceTarget.GetBool();
+            const bool effectiveSpatialWorkgroupPairing =
+                requestedSpatialWorkgroupPairing
+                && effectiveSpatialStoredSourceTarget;
+            static int reportedSpatialWorkgroupPairingRequest = -1;
+            static int reportedSpatialWorkgroupPairingEffective = -1;
+            const int spatialWorkgroupPairingRequest =
+                requestedSpatialWorkgroupPairing ? 1 : 0;
+            const int spatialWorkgroupPairingEffective =
+                effectiveSpatialWorkgroupPairing ? 1 : 0;
+            if (reportedSpatialWorkgroupPairingRequest !=
+                    spatialWorkgroupPairingRequest
+                || reportedSpatialWorkgroupPairingEffective !=
+                    spatialWorkgroupPairingEffective)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: spatial workgroup pairing requested/effective=%d/%d gate(sharedSpatial/storedSourceTarget)=%u/%u\n",
+                    spatialWorkgroupPairingRequest,
+                    spatialWorkgroupPairingEffective,
+                    effectiveSharedSpatial ? 1u : 0u,
+                    effectiveSpatialStoredSourceTarget ? 1u : 0u);
+                reportedSpatialWorkgroupPairingRequest =
+                    spatialWorkgroupPairingRequest;
+                reportedSpatialWorkgroupPairingEffective =
+                    spatialWorkgroupPairingEffective;
+            }
+            unifiedPtInputs.spatial = r_pathTracingUnifiedPtSpatial.GetBool()
+                && (unifiedPtInputs.family == PathTraceUnifiedPtFamily::DirectOnly
+                    || effectiveSharedSpatial);
+            const bool effectiveThreeVertexSpatialReplay =
+                !unifiedPtInputs.spatial
+                || (effectiveSharedSpatial
+                    && effectiveSpatialWorkgroupPairing
+                    && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool());
             const bool requestedThreeVertexInitial =
                 r_pathTracingUnifiedPtThreeVertexInitial.GetBool();
             unifiedPtInputs.threeVertexInitial = requestedThreeVertexInitial
@@ -2997,7 +3072,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 && !unifiedPtInputs.compactMaterials
                 && !unifiedPtInputs.lightTiles
                 && (!unifiedPtInputs.temporal || effectiveCommonGrisMerge)
-                && !unifiedPtInputs.spatial
+                && effectiveThreeVertexSpatialReplay
                 && !unifiedPtInputs.lambertDiagnostic
                 && !frozenAnyDiagnostic
                 && unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery
@@ -3030,7 +3105,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     != threeVertexMinimumPathThroughputKey)
             {
                 common->Printf(
-                    "PathTraceUnifiedPt: three-vertex initial requested/effective=%d/%d q=%.3f minimumPathThroughput=%.3f cutoff=initial-only-uncompensated-L2 gate(splitInitial/nativeGeometry/compactLights/noCompactMaterials/noTiles/temporalReplay/noSpatial/openPbr/noFrozen/rayquery/unified/compact32/proof6)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
+                    "PathTraceUnifiedPt: three-vertex initial requested/effective=%d/%d q=%.3f minimumPathThroughput=%.3f cutoff=initial-only-uncompensated-L2 gate(splitInitial/nativeGeometry/compactLights/noCompactMaterials/noTiles/temporalReplay/spatialReplay/openPbr/noFrozen/rayquery/unified/compact32/proof6)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
                     threeVertexRequest,
                     threeVertexEffective,
                     threeVertexContinueProbability,
@@ -3042,7 +3117,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     unifiedPtInputs.lightTiles ? 0u : 1u,
                     (!unifiedPtInputs.temporal || effectiveCommonGrisMerge)
                         ? 1u : 0u,
-                    unifiedPtInputs.spatial ? 0u : 1u,
+                    effectiveThreeVertexSpatialReplay ? 1u : 0u,
                     unifiedPtInputs.lambertDiagnostic ? 0u : 1u,
                     frozenAnyDiagnostic ? 0u : 1u,
                     unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery ? 1u : 0u,

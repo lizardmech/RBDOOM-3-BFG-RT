@@ -514,6 +514,11 @@ Packet index
         FullSample-shaped initial-only squared-L2 throughput cutoff before
         roulette/ray emission, with stored-q replay and history invalidation.
 
+    53_upt38_three_vertex_spatial_replay.txt
+        Extends only the accepted one-neighbor UPT-33 shared-spatial artifact
+        with UPT-36 exact stored-q two-continuation replay, preserving the
+        reservoir/binding ABI and rejecting the three-neighbor experiment.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

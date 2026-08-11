@@ -403,6 +403,7 @@ private:
     bool m_spatialStoredSourceTarget = false;
     bool m_spatialWorkgroupPairing = false;
     bool m_spatialEmptyRescue = false;
+    bool m_spatialThreeVertexReplay = false;
     bool m_spatialLambertDiagnostic = false;
     bool m_spatialPipelineAttempted = false;
     nvrhi::BindingLayoutHandle m_spatialBindingLayout;

@@ -143,6 +143,17 @@ static bool Upt30SharedSpatialEnabled(
         && !r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool();
 }
 
+static bool Upt38ThreeVertexSpatialEnabled(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    return inputs.threeVertexInitial
+        && inputs.spatial
+        && Upt30SharedSpatialEnabled(inputs)
+        && r_pathTracingUnifiedPtSpatialStoredSourceTarget.GetBool()
+        && r_pathTracingUnifiedPtSpatialWorkgroupPairing.GetBool()
+        && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool();
+}
+
 static uint32_t Upt04FamilyMask(PathTraceUnifiedPtFamily family)
 {
     switch (family)
@@ -842,7 +853,8 @@ static bool Upt04InputsValid(const PathTraceUnifiedPtDispatchInputs& dispatch)
     if (dispatch.threeVertexInitial &&
         (!dispatch.splitInitial || dispatch.compactGeometry ||
          !dispatch.compactLights || dispatch.compactMaterials ||
-         dispatch.lightTiles || dispatch.spatial ||
+         dispatch.lightTiles ||
+         (dispatch.spatial && !Upt38ThreeVertexSpatialEnabled(dispatch)) ||
          dispatch.backend != PathTraceUnifiedPtBackend::RayQuery ||
          dispatch.family != PathTraceUnifiedPtFamily::Unified ||
          dispatch.primaryReceiverMode != 2u || dispatch.diagnostics ||
@@ -5817,11 +5829,14 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         && r_pathTracingUnifiedPtSpatialWorkgroupPairing.GetBool();
     const bool emptyRescue = workgroupPairing
         && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool();
+    const bool threeVertexReplay = Upt38ThreeVertexSpatialEnabled(inputs)
+        && emptyRescue;
     if (m_spatialPipeline && m_spatialCompactLights == inputs.compactLights
         && m_spatialSharedReuse == sharedSpatial
         && m_spatialStoredSourceTarget == storedSourceTarget
         && m_spatialWorkgroupPairing == workgroupPairing
         && m_spatialEmptyRescue == emptyRescue
+        && m_spatialThreeVertexReplay == threeVertexReplay
         && m_spatialLambertDiagnostic == inputs.lambertDiagnostic)
     {
         return true;
@@ -5831,6 +5846,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         || m_spatialStoredSourceTarget != storedSourceTarget
         || m_spatialWorkgroupPairing != workgroupPairing
         || m_spatialEmptyRescue != emptyRescue
+        || m_spatialThreeVertexReplay != threeVertexReplay
         || m_spatialLambertDiagnostic != inputs.lambertDiagnostic)
     {
         ReleaseSpatial();
@@ -5839,6 +5855,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         m_spatialStoredSourceTarget = storedSourceTarget;
         m_spatialWorkgroupPairing = workgroupPairing;
         m_spatialEmptyRescue = emptyRescue;
+        m_spatialThreeVertexReplay = threeVertexReplay;
         m_spatialLambertDiagnostic = inputs.lambertDiagnostic;
     }
     if (m_spatialPipelineAttempted)
@@ -5883,7 +5900,9 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         return false;
     }
 
-    const char* path = sharedSpatial
+    const char* path = threeVertexReplay
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64_three_vertex.bin"
+        : sharedSpatial
         ? (workgroupPairing
             ? (emptyRescue
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64.bin"
@@ -5934,7 +5953,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=%u sharedSpatial=%u storedSourceTarget=%u workgroupPairing=%u emptyRescue=%u pairedPixels=%u mappingRaysMaxPerPair=%u shading=%s createUs=%llu\n",
+        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=%u sharedSpatial=%u storedSourceTarget=%u workgroupPairing=%u emptyRescue=%u threeVertexReplay=%u neighbors=%u pairedPixels=%u continuationRaysMaxPerMapping=%u mappingRaysMaxPerPair=%u shading=%s createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -5947,8 +5966,11 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         storedSourceTarget ? 1u : 0u,
         workgroupPairing ? 1u : 0u,
         emptyRescue ? 1u : 0u,
+        threeVertexReplay ? 1u : 0u,
+        sharedSpatial ? 1u : UPT09_REGULAR_NEIGHBOR_COUNT,
         sharedSpatial ? 2u : 1u,
-        sharedSpatial ? 2u : 0u,
+        threeVertexReplay ? 2u : (sharedSpatial ? 1u : 0u),
+        sharedSpatial ? (threeVertexReplay ? 4u : 2u) : 0u,
         inputs.lambertDiagnostic ? "lambert-diagnostic" : "openpbr",
         static_cast<unsigned long long>(pipelineUs));
     return true;
