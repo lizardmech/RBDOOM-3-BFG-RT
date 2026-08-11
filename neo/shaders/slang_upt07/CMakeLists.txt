@@ -221,6 +221,26 @@ path_tracing_declare_slang_spirv_module(
         UPT10_SHARED_REUSE_ADAPTER=1 UPT10_COMMON_GRIS_MERGE=1
     OUT_VAR temporal_unified_common_gris_outputs)
 
+# UPT-36 keeps the accepted common-GRIS temporal artifact unchanged and adds
+# exact replay only for UPT-35 eventKind=4,pathLength=2 endpoints.
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1
+        UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
+        UPT10_SHARED_REUSE_ADAPTER=1 UPT10_COMMON_GRIS_MERGE=1
+        UPT07_THREE_VERTEX_REPLAY=1
+    OUT_VAR temporal_unified_common_gris_three_vertex_outputs)
+
 set(UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP
     "${UPT07_OUTPUT_DIR}/upt10_temporal_shared_adapter_verified.txt")
 add_custom_command(
@@ -252,6 +272,24 @@ add_custom_command(
         "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10TemporalAdapter.cmake"
     COMMENT "UPT-30 verifying common GRIS temporal ceiling"
+    VERBATIM)
+
+set(UPT36_TEMPORAL_VERIFY_STAMP
+    "${UPT07_OUTPUT_DIR}/upt36_three_vertex_temporal_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT36_TEMPORAL_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT36_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex.slang.spirv-reflection.json
+        -DUPT36_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex.slang.spvasm
+        -DUPT36_STAMP=${UPT36_TEMPORAL_VERIFY_STAMP}
+        -DUPT36_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
+        -DUPT36_REPLAY_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt36ThreeVertexTemporal.cmake"
+    DEPENDS ${temporal_unified_common_gris_three_vertex_outputs}
+        "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt36ThreeVertexTemporal.cmake"
+    COMMENT "UPT-36 verifying bounded three-vertex temporal replay"
     VERBATIM)
 
 function(upt07_declare_frozen_factor_variant variant_name)
@@ -540,6 +578,18 @@ add_custom_command(
         "${UPT10_TEMPORAL_COMMON_GRIS_VERIFY_STAMP}"
     COMMENT "UPT-30 Vulkan opt-in temporal common-GRIS artifact"
     VERBATIM)
+set(UPT36_TEMPORAL_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex.bin")
+add_custom_command(
+    OUTPUT "${UPT36_TEMPORAL_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT07_RUNTIME_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex.slang.spv"
+        "${UPT36_TEMPORAL_RUNTIME_OUTPUT}"
+    DEPENDS ${temporal_unified_common_gris_three_vertex_outputs}
+        "${UPT36_TEMPORAL_VERIFY_STAMP}"
+    COMMENT "UPT-36 Vulkan opt-in three-vertex temporal artifact"
+    VERBATIM)
 set(UPT07_LAMBERT_RUNTIME_OUTPUTS)
 foreach(lambert_module
         upt07_temporal_unified_rayquery_lambert
@@ -724,9 +774,19 @@ add_custom_target(PathTraceSlangUpt07TemporalOwnership
         "${UPT10_TEMPORAL_SHARED_ADAPTER_RUNTIME_OUTPUT}"
         ${temporal_unified_common_gris_outputs}
         "${UPT10_TEMPORAL_COMMON_GRIS_VERIFY_STAMP}"
-        "${UPT10_TEMPORAL_COMMON_GRIS_RUNTIME_OUTPUT}")
+        "${UPT10_TEMPORAL_COMMON_GRIS_RUNTIME_OUTPUT}"
+        ${temporal_unified_common_gris_three_vertex_outputs}
+        "${UPT36_TEMPORAL_VERIFY_STAMP}"
+        "${UPT36_TEMPORAL_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
     FOLDER "Shaders/UPT-07")
 if(TARGET RBDoom3BFG)
     add_dependencies(RBDoom3BFG PathTraceSlangUpt07TemporalOwnership)
 endif()
+
+add_custom_target(PathTraceSlangUpt36ThreeVertexTemporal
+    DEPENDS ${temporal_unified_common_gris_three_vertex_outputs}
+        "${UPT36_TEMPORAL_VERIFY_STAMP}"
+        "${UPT36_TEMPORAL_RUNTIME_OUTPUT}")
+set_target_properties(PathTraceSlangUpt36ThreeVertexTemporal PROPERTIES
+    FOLDER "Shaders/UPT-07")

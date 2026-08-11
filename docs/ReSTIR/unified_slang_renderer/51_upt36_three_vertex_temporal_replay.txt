@@ -1,0 +1,127 @@
+UPT-36 / UPT-10B: exact three-vertex temporal replay
+=====================================================
+
+Status
+------
+
+Implemented and accepted as a default-off T0 specialization. Runtime testing
+reported correct visuals and stable replay with the UPT-37 q and throughput
+controls. The extra bounce remains optional because its cost is difficult to
+justify for Doom 3 content.
+
+Accepted input
+--------------
+
+UPT-35 established one new positive reservoir topology:
+
+    eventKind                         4 (BSDF endpoint)
+    pathLength                       2
+    reconnectionVertexLength         1
+    proposalPdf                      q in (0, 1]
+    accumulatedRouletteProbability  same q
+
+The accepted one-continuation endpoint and secondary-NEE shapes remain
+unchanged. The new temporal artifact accepts the UPT-35 topology only when
+both persisted q fields are finite, lie in (0,1], and agree within 0.002.
+Stale, incompatible or structurally ambiguous records fail closed.
+
+Shift construction
+------------------
+
+For each required source/target mapping T0 now performs exact random replay:
+
+    replay x1 material lobe and x1 -> x2 direction from pathVertex 0
+    trace and decode x2
+    replay the stored-q survival decision from pathVertex 1
+    replay the x2 material lobe and x2 -> x3 direction from pathVertex 1
+    trace and decode x3
+    evaluate x3 emission
+    evaluate the x2 local BSDF/NEE balance term
+    publish the shifted endpoint only when every stage remains valid
+
+The replay does not reinterpret x3 as a light-universe identity and performs
+no CDF search, emissive hash search, inner-RIS loop or stored-light remap. The
+endpoint is rediscovered by the same persisted random sequence that generated
+it. Alpha clip and geometry decoding use the accepted T0 RayQuery route.
+
+Estimator convention
+--------------------
+
+The shifted contribution and metadata exactly reproduce UPT-35:
+
+    contribution = T1 * (T2 / q) * Le * balance(pdf2, neePdfAtX2)
+    pathPdf      = pdf1 * pdf2 * q
+    target       = max(contribution) * q
+    proposalPdf  = q
+
+Thus target/proposalPdf retains the survived 1/q streaming mass and roulette
+is neither omitted nor applied twice. A replayed termination disagreement,
+invalid x2/x3 surface, zero or non-finite target, or invalid path PDF is never
+admitted merely to retain history density.
+
+Specialization and ceiling
+--------------------------
+
+The accepted common-GRIS compact64-light duplication artifact remains the
+rollback path. UPT-36 is a separate shader selected only when the UPT-35 gate
+is effective with temporal enabled, spatial disabled, and the accepted shared
+reuse/common-GRIS configuration active.
+
+The static shader contains six RayQuery sites and no TraceRay site. This is the
+existing four-site common-GRIS temporal ceiling plus one possible second
+continuation for history-to-current mapping and one for reciprocal
+current-to-history mapping. No buffer, binding, push constant, dispatch,
+full-frame clear or reservoir ABI is added.
+
+Validation
+----------
+
+Offline require:
+
+    30 descriptor bindings and triangle-class bindings 9/13
+    six static RayQuery sites and zero TraceRay sites
+    stored-q structure checks and D0/T0 estimator equality oracle
+    successful Vulkan SPIR-V validation and Release host build
+    accepted common-GRIS artifact remains available as rollback
+
+Runtime run `exec uptb3` and require:
+
+    three-vertex initial requested/effective=1/1
+    temporal ... threeVertexReplay=1 indirectReplayRaysMax=6
+    spatial disabled
+
+Reject white/color corruption, ghost or missing emitters, geometry holes,
+motion poisoning, runaway energy, instability or unexpected history survival
+after topology/roulette disagreement. Compare against `exec uptb2` for D0 and
+`exec uptf2` for the accepted one-continuation temporal baseline.
+
+Offline result
+--------------
+
+The focused Vulkan target compiles, validates and passes its structural
+verifier:
+
+    descriptor bindings                 30
+    triangle-class bindings             9 / 13
+    static RayQuery sites               6
+    TraceRay sites                      0
+    UPT-36 blob bytes                   1086456
+    UPT-36 SHA-256                      A51227CCB09094300501FAA3AABDAD015975E09FE230B455124F90F560A7BEB0
+
+The UPT-02 codec/math harness passes with a 64-byte reservoir, 22 unique
+random slots and exact D0/T0 two-continuation contribution, target and path-PDF
+equality. The focused Release host build passes with only the two pre-existing
+C4819 code-page warnings. The executable is 16350720 bytes, SHA-256
+E515EF9B8FC1403F6FD9507980D7CD1F0E1735842AA53ACC10BE92B93AC34C0B.
+No DX12 shader was compiled.
+
+The required aggregate preset was invoked. Its Visual Studio wrapper detached
+into persistent build nodes, reproducing the known wrapper behavior, after the
+focused shader and host targets had already completed successfully. Accepted
+UPT-07 runtime binaries were restored byte-for-byte afterward; in particular
+the `uptf2` common-GRIS artifact remains 828976 bytes, SHA-256
+92C2954BAD341B92BEFF5C730AD7B3C41C85862EC84507E8BBFD2B8EB6313C44.
+
+UPT-37 subsequently made q runtime-configurable. T0 consumes q from the stored
+sample rather than the live cvar, and never applies the initial-only biased
+minimum-throughput cutoff. See document 52.

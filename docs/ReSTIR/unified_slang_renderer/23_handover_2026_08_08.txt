@@ -1816,3 +1816,61 @@ reported blobBytes=519800, workgroupPairing=1, emptyRescue=1. There were no
 binding, validation or shader errors. The user reported that performance and
 visuals seemed fine. Treat UPT-33 as runtime accepted and preserve both uptf1
 and uptf2 as rollback oracles before multi-neighbor work.
+
+UPT-36 exact three-vertex T0, 2026-08-11
+-----------------------------------------
+
+UPT-36 extends only the accepted common-GRIS compact64-light duplication T0
+configuration. An `eventKind=4,pathLength=2,reconnectionVertexLength=1`
+history/current endpoint is eligible only when both persisted roulette fields
+are finite, lie in (0,1], and agree. T0 replays x1->x2, the path-vertex-1
+stored-q survival decision and
+x2->x3, then evaluates the x3 emission and the same x2 BSDF/NEE balance term
+used by D0. Any structural, roulette, traversal, geometry, material, target or
+PDF disagreement rejects the sample.
+
+No light-universe search or remap participates in this endpoint route. The
+separate artifact preserves 30 bindings, the 64-byte reservoir and all page
+contracts. Its six static RayQuery sites are the previous four-site temporal
+ceiling plus at most one second continuation in each direction of the
+pairwise mapping. Spatial remains disabled. Run `exec uptb3` and require
+threeVertexReplay=1 plus indirectReplayRaysMax=6 before visual testing.
+
+Offline verification passes at 30 bindings, triangle classes 9/13, six static
+RayQuery sites and zero TraceRay. The new blob is 1086456 bytes, SHA-256
+A51227CCB09094300501FAA3AABDAD015975E09FE230B455124F90F560A7BEB0. The
+64-byte codec/math oracle proves D0/T0 equality and the Release host build
+passes. The accepted common-GRIS rollback blob remains byte-identical at
+SHA-256 92C2954BAD341B92BEFF5C730AD7B3C41C85862EC84507E8BBFD2B8EB6313C44.
+
+UPT-37 termination controls, 2026-08-12
+----------------------------------------
+
+The three-vertex lane now reads runtime q and minimum-throughput values from
+the existing reserved initial-control words. D0 samples the x2 BSDF, multiplies
+uncompensated accumulated throughput, kills paths whose squared RGB L2 length
+falls below the squared threshold, then performs roulette and emits x2->x3.
+The cutoff is biased, uncompensated, creates no candidate/ray, and is initial
+sampling only.
+
+T0 never reapplies the cutoff and replays q from the selected sample's matching
+proposalPdf/accumulatedRouletteProbability fields. Both cvar bit patterns enter
+the content-generation fingerprint, so changes invalidate history without a
+full clear. `exec uptb3` is the q=0.8/threshold=0 baseline; `exec uptb4` is the
+aggressive q=0.25/threshold=0.10 measurement preset. Spatial remains disabled.
+
+Offline verification passes. D0 is 529636 bytes, SHA-256
+39E47D38107AA7320176D055213AA6EB87D3995A99D7DA68C9BEA122C59E3301;
+T0 is 1087424 bytes, SHA-256
+520E988F8203F68CF64B217F5811EFEADA84197C7E91F53263075F51E5B99ACE.
+The codec/math harness and focused Release host build pass. Runtime acceptance
+subsequently passed. Both the q=0.8/threshold=0 baseline and aggressive
+q=0.25/threshold=0.10 configuration worked without a reported replay,
+geometry, emissive, motion or energy failure. UPT-36/37 may be checkpointed as
+an optional completed D0/T0 feature.
+
+Do not promote the aggressive preset or the extra bounce as Doom 3 defaults.
+The added transport depth is expensive relative to its benefit in this game;
+retain it for future renderer ports and preserve `uptf2` as the
+production-shaped one-continuation lane. Three-vertex spatial reuse remains a
+separate future task.

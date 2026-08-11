@@ -56,6 +56,26 @@ import upt07_work_budget;
 #ifndef UPT07_BOTTLENECK_STAGE
 #define UPT07_BOTTLENECK_STAGE 0
 #endif
+#ifndef UPT07_THREE_VERTEX_REPLAY
+#define UPT07_THREE_VERTEX_REPLAY 0
+#endif
+
+#if UPT07_THREE_VERTEX_REPLAY
+public bool Upt07ThreeVertexEndpointStructureValid(Upt03Candidate candidate)
+{
+    return candidate.eventKind == 4u
+        && candidate.pathLength == 2u
+        && candidate.reconnectionVertexLength == 1u
+        && isfinite(candidate.proposalPdf)
+        && isfinite(candidate.accumulatedRouletteProbability)
+        && candidate.proposalPdf > 0.0f
+        && candidate.proposalPdf <= 1.0f
+        && candidate.accumulatedRouletteProbability > 0.0f
+        && candidate.accumulatedRouletteProbability <= 1.0f
+        && abs(candidate.proposalPdf
+                - candidate.accumulatedRouletteProbability) <= 0.002f;
+}
+#endif
 
 public static const uint kUpt07IndirectReplayFlag = 1u << 25u;
 #if UPT07_EARLY_RECONNECT
@@ -210,7 +230,13 @@ public bool Upt07IndirectHistoryEligible(Upt07DecodedReservoir reservoir)
         && candidate.pathLength == 2u
         && (candidate.reconnectionVertexLength == 1u
             || candidate.reconnectionVertexLength == 2u);
+#if UPT07_THREE_VERTEX_REPLAY
+    const bool threeVertexEndpoint =
+        Upt07ThreeVertexEndpointStructureValid(candidate);
+    return endpoint || secondaryNee || threeVertexEndpoint;
+#else
     return endpoint || secondaryNee;
+#endif
 }
 
 public Upt04HitFacts Upt07TraceIndirect(
@@ -936,8 +962,15 @@ public uint Upt07ReplayIndirectSample(
         && source.pathLength == 2u
         && (source.reconnectionVertexLength == 1u
             || source.reconnectionVertexLength == 2u);
+#if UPT07_THREE_VERTEX_REPLAY
+    const bool threeVertexEndpoint =
+        Upt07ThreeVertexEndpointStructureValid(source);
+    if (!endpoint && !secondaryNee && !threeVertexEndpoint)
+        return 0u;
+#else
     if (!endpoint && !secondaryNee)
         return 0u;
+#endif
     uint storedDenseIndex = kUpt04InvalidLightIndex;
     uint storedLightType = kUpt04LightInvalid;
     float storedSelectionPdf = 0.0f;
@@ -1117,6 +1150,143 @@ public uint Upt07ReplayIndirectSample(
     shifted.proposalPdf = source.proposalPdf;
     shifted.partialJacobian = 1.0f;
     shifted.accumulatedRouletteProbability = 1.0f;
+
+#if UPT07_THREE_VERTEX_REPLAY
+    if (threeVertexEndpoint)
+    {
+        failureReason = kUpt07RejectIndirectContinuation;
+        // D0 persists the exact clamped probability in both proposalPdf and
+        // accumulatedRouletteProbability. Replay consumes that per-sample q;
+        // it never re-reads the live cvar and never reapplies the biased
+        // minimum-throughput cutoff.
+        const float q = clamp(source.proposalPdf, 0.0f, 1.0f);
+        const float rouletteRandom = Upt04WhiteHash(
+            Upt04PersistedReplayRandomKey(
+                source.replayKey,
+                source.replayIndex,
+                1u,
+                0u,
+                kUpt04StreamIndirectRouletteSurvival,
+                kUpt04DimensionIndirectRouletteSurvival));
+        // A stored path-length-two endpoint exists only on the survival
+        // branch.  Any disagreement means the persisted payload is stale or
+        // incompatible with this specialization and must fail closed.
+        if (rouletteRandom >= q)
+            return 0u;
+
+        const Upt04PreparedDirectMaterial preparedSecondary =
+            Upt07PrepareSecondaryDirect(hitSurface, -continuation.direction);
+        if (preparedSecondary.valid == 0u)
+            return 0u;
+        const Upt04PathEvent secondContinuation =
+            Upt07SampleSecondaryContinuation(
+                preparedSecondary,
+                Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+                    source.replayKey,
+                    source.replayIndex,
+                    1u,
+                    0u,
+                    kUpt04StreamMaterialLobeSelection,
+                    kUpt04DimensionMaterialLobeSelection)),
+                float2(
+                    Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+                        source.replayKey,
+                        source.replayIndex,
+                        1u,
+                        0u,
+                        kUpt04StreamIndirectContinuationU,
+                        kUpt04DimensionIndirectContinuationU)),
+                    Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+                        source.replayKey,
+                        source.replayIndex,
+                        1u,
+                        0u,
+                        kUpt04StreamIndirectContinuationV,
+                        kUpt04DimensionIndirectContinuationV))));
+        if (secondContinuation.valid == 0u
+            || !Upt04FinitePositive(secondContinuation.pdf)
+            || !all(isfinite(secondContinuation.throughput)))
+            return 0u;
+
+        Upt04TraceRequest secondRay;
+        if (!Upt04BuildContinuationRequest(
+                hitSurface.position,
+                hitSurface.geometricNormal,
+                hitSurface.shadingNormal,
+                secondContinuation.direction,
+                secondRay))
+            return 0u;
+        failureReason = kUpt07RejectIndirectGeometry;
+        const Upt04HitFacts secondHit = Upt07TraceIndirect(
+            secondRay, 0u, Upt04NoVisibilityIgnore(), work);
+        if (secondHit.status != kUpt04HitTriangle
+            || secondHit.instanceId == 0xffffffffu)
+            return 0u;
+        Upt07WorkAdd(work, kUpt07WorkGeometryResolves);
+        const Upt04GeometryHitSurface endpointSurface =
+            Upt04DecodeGeometryHit(secondHit);
+        if (endpointSurface.valid == 0u)
+            return 0u;
+
+        failureReason = kUpt07RejectIndirectEndpoint;
+        const Upt04MaterialEmissionEvaluation emission =
+            Upt07EvaluateHitEmission(endpointSurface);
+        if (emission.valid == 0u)
+            return 0u;
+        float3 contribution = continuation.throughput
+            * (secondContinuation.throughput / q)
+            * emission.radiance;
+        const float neePdf = any(emission.radiance > 0.0f)
+            ? Upt07ExactNeePdfForEmissiveHit(
+                secondHit.instanceId,
+                secondHit.primitiveId,
+                hitSurface.position,
+                secondHit.barycentrics,
+                (source.flags & kUpt04CandidateFlagDirectProposalParity) != 0u
+                    ? 1u : 0u,
+                work)
+            : 0.0f;
+        contribution *= Upt04BalanceHeuristic(
+            secondContinuation.pdf, neePdf);
+        const float rawTarget = max(contribution.x,
+            max(contribution.y, contribution.z));
+        const float target = rawTarget * q;
+        const float pathPdf = continuation.pdf
+            * secondContinuation.pdf * q;
+        if (!all(isfinite(contribution)) || !isfinite(target)
+            || target < 0.0f || !Upt04FinitePositive(pathPdf))
+            return 0u;
+
+        shifted.eventKind = 4u;
+        shifted.lobeMask = continuation.lobeMask
+            | secondContinuation.lobeMask;
+        shifted.identity0 = secondHit.instanceId + 1u;
+        shifted.identity1 = secondHit.primitiveId + 1u;
+        shifted.sampleCoord0 = secondHit.barycentrics.x;
+        shifted.sampleCoord1 = secondHit.barycentrics.y;
+        shifted.pathLength = 2u;
+        shifted.reconnectionVertexLength = 1u;
+        shifted.pathPdf = pathPdf;
+        shifted.proposalPdf = q;
+        shifted.accumulatedRouletteProbability = q;
+        shifted.flags |= kUpt04CandidateFlagVisibilityKnown
+            | kUpt04CandidateFlagVisibilityPassed;
+        shifted.contributionR = contribution.x;
+        shifted.contributionG = contribution.y;
+        shifted.contributionB = contribution.z;
+        shifted.target = target;
+        if (!Upt04FinitePositive(target))
+        {
+            shifted.status = kUpt04SampleValidZero;
+            shifted.contributionR = 0.0f;
+            shifted.contributionG = 0.0f;
+            shifted.contributionB = 0.0f;
+            shifted.target = 0.0f;
+        }
+        failureReason = 0u;
+        return 1u;
+    }
+#endif
 
     if (endpoint)
     {

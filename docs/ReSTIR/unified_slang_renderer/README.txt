@@ -503,6 +503,17 @@ Packet index
         stamps the result structurally non-donating for both direct and global
         paths.
 
+    51_upt36_three_vertex_temporal_replay.txt
+        Replays the accepted x1-x2-x3 endpoint exactly through persisted
+        path-vertex randoms, q=0.8 survival, two closest-hit continuations and
+        current-receiver endpoint/MIS evaluation in a separate bounded T0
+        artifact while leaving spatial reuse disabled.
+
+    52_upt37_three_vertex_termination_controls.txt
+        Makes x2-to-x3 roulette probability runtime-configurable and adds the
+        FullSample-shaped initial-only squared-L2 throughput cutoff before
+        roulette/ray emission, with stored-q replay and history invalidation.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

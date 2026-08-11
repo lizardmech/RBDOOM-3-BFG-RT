@@ -1,0 +1,117 @@
+UPT-37: runtime roulette and initial-only throughput termination
+================================================================
+
+Status
+------
+
+Implemented as runtime controls on the default-off UPT-35/36 specialization.
+Build and runtime acceptance passed. Keep the specialization optional: the
+extra bounce is difficult to justify for Doom 3 content, but the completed
+D0/T0 transport is retained for renderer ports whose materials, scale or
+lighting make the additional depth worthwhile.
+
+Controls
+--------
+
+    r_pathTracingUnifiedPtThreeVertexContinueProbability
+        default 0.8, clamped [0,1]
+
+    r_pathTracingUnifiedPtThreeVertexMinimumPathThroughput
+        default 0.0, clamped [0,1]
+
+The first value is the x2->x3 Russian-roulette survival probability q. q=0
+disables that continuation without emitting a ray; lower positive values retain
+unbiased 1/q compensation but increase variance.
+
+The second value follows RTXDI FullSample `minimumPathThroughput`. It is a
+hard, uncompensated and therefore biased kill threshold. The test is:
+
+    dot(T, T) < minimumPathThroughput * minimumPathThroughput
+
+where T is the accumulated RGB f*NoL/pdf throughput after sampling the x2 BSDF
+but before the current roulette compensation. This is squared RGB L2 length,
+not luminance or max component, and avoids a square root.
+
+Ordering and replay contract
+----------------------------
+
+D0 order is now:
+
+    sample x2 BSDF
+    form uncompensated accumulated throughput
+    apply minimum-throughput kill
+    draw roulette survival with runtime q
+    apply 1/q throughput and q path-PDF factors
+    emit x2->x3 ray
+
+The cutoff creates no candidate and no ray. It has no compensation.
+
+T0 deliberately does not apply the cutoff. A selected D0 sample already proved
+that the initial path survived it; repeating a receiver-dependent cutoff during
+hybrid-shift replay would desynchronize the mapping. T0 instead validates and
+uses the q stored in proposalPdf and accumulatedRouletteProbability. It never
+reads the live q cvar for a history sample.
+
+ABI and invalidation
+--------------------
+
+No push-constant size is added. The two binary32 values travel through the
+existing reservedControl0/1 uint words at offsets 200 and 204, preserving the
+accepted 208-byte reflected ABI. Other D0 artifacts ignore those words.
+
+The clamped bit patterns of q and the threshold participate in the UPT content
+generation fingerprint only while three-vertex transport is effective.
+Changing either cvar therefore rejects incompatible history without clearing a
+full buffer. New D0 samples publish the new q and T0 replays that stored value.
+
+Test presets
+------------
+
+    exec uptb3
+        baseline: q=0.8, threshold=0.0, temporal on, spatial off
+
+    exec uptb4
+        aggressive trial: q=0.25, threshold=0.10, temporal on, spatial off
+
+The aggressive preset is intentionally not a proposed production default. It
+exists to measure ray-count/performance sensitivity and visible variance/bias.
+Compare fixed camera positions after history warm-up and inspect dark indirect
+regions, small emitters, motion, energy stability and temporal convergence.
+
+Runtime result
+--------------
+
+The deployed q=0.8/threshold=0 baseline and q=0.25/threshold=0.10 aggressive
+configuration both ran correctly. No replay corruption, ghost emitters,
+geometry loss, motion poisoning or runaway energy was reported. The feature is
+therefore accepted as an optional three-vertex path.
+
+Do not infer that the aggressive preset is a new default. For Doom 3 the added
+bounce remains expensive relative to its visible benefit. Preserve the
+one-continuation `uptf2` lane as the production-shaped choice, and use the two
+termination controls to tune the optional deeper path for future renderer
+ports.
+
+Offline result
+--------------
+
+Both focused Vulkan shader targets compile, validate and pass their structural
+verifiers. D0 retains 25 bindings, a 208-byte push constant, three static
+RayQuery sites and zero TraceRay sites. T0 retains 30 bindings, six static
+RayQuery sites and zero TraceRay sites; its verifier confirms stored-q replay
+and the absence of a throughput-cutoff route.
+
+    D0 bytes / SHA-256
+        529636
+        39E47D38107AA7320176D055213AA6EB87D3995A99D7DA68C9BEA122C59E3301
+
+    T0 bytes / SHA-256
+        1087424
+        520E988F8203F68CF64B217F5811EFEADA84197C7E91F53263075F51E5B99ACE
+
+The UPT-02 harness passes at a 64-byte reservoir and 22 random slots, including
+q=0.25 unbiased compensation, squared-L2 threshold semantics, and proof that
+the cutoff is initial-only. The Release host build passes with the two existing
+C4819 warnings. The executable is 16352256 bytes, SHA-256
+65678BDB1D0BAA7982177992944EEA07A29A3E4DF046C991169DF6EB80389E1A.
+No DX12 shader was compiled.

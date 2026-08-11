@@ -15,8 +15,6 @@ import upt04_transport_initial_bounded;
 import upt04_emissive_lookup;
 import upt05_material_openpbr;
 
-public static const float kUpt04ThreeVertexContinueChance = 0.8f;
-
 public struct Upt04SecondContinuationResult
 {
     public Upt04InitialTraceWork work;
@@ -84,19 +82,6 @@ public Upt04SecondContinuationResult Upt04PrepareSecondContinuation<
             != kUpt04TransportIndirectContinuation)
         return result;
 
-    const float q = kUpt04ThreeVertexContinueChance;
-    const float rouletteRandom = Upt04WhiteHash(
-        Upt04PersistedReplayRandomKey(
-            firstContinuation.replayKey,
-            firstContinuation.replayIndex,
-            1u,
-            0u,
-            kUpt04StreamIndirectRouletteSurvival,
-            kUpt04DimensionIndirectRouletteSurvival));
-    // Termination is not a reservoir candidate and emits no ray.
-    if (!Upt04FinitePositive(q) || q > 1.0f || rouletteRandom >= q)
-        return result;
-
     const Upt04PreparedDirectMaterial prepared =
         TMaterialSet.PrepareSecondaryDirect(
             secondarySurface, -firstContinuation.ray.direction);
@@ -132,10 +117,39 @@ public Upt04SecondContinuationResult Upt04PrepareSecondContinuation<
         || !all(isfinite(continuation.throughput)))
         return result;
 
+    // RTXDI FullSample orders this biased cutoff after the current BSDF
+    // throughput multiplication but before roulette and ray emission. It is
+    // intentionally initial-only; reuse must replay the stored surviving path
+    // without applying this state-dependent kill again.
+    const float3 uncompensatedPathThroughput =
+        firstContinuation.pathThroughput * continuation.throughput;
+    const float minimumPathThroughput = clamp(
+        asfloat(gUpt04Control.reservedControl1), 0.0f, 1.0f);
+    if (!all(isfinite(uncompensatedPathThroughput))
+        || (minimumPathThroughput > 0.0f
+            && dot(uncompensatedPathThroughput,
+                    uncompensatedPathThroughput)
+                < minimumPathThroughput * minimumPathThroughput))
+        return result;
+
+    const float q = clamp(
+        asfloat(gUpt04Control.reservedControl0), 0.0f, 1.0f);
+    const float rouletteRandom = Upt04WhiteHash(
+        Upt04PersistedReplayRandomKey(
+            firstContinuation.replayKey,
+            firstContinuation.replayIndex,
+            1u,
+            0u,
+            kUpt04StreamIndirectRouletteSurvival,
+            kUpt04DimensionIndirectRouletteSurvival));
+    // Roulette termination is not a reservoir candidate and emits no ray.
+    if (!Upt04FinitePositive(q) || rouletteRandom >= q)
+        return result;
+
     Upt04InitialTraceWork work = firstContinuation;
     work.lobeMask |= continuation.lobeMask;
     work.pathPdf *= continuation.pdf * q;
-    work.pathThroughput *= continuation.throughput / q;
+    work.pathThroughput = uncompensatedPathThroughput / q;
     work.accumulatedRouletteProbability *= q;
     if (!Upt04FinitePositive(work.pathPdf)
         || !Upt04FinitePositive(work.accumulatedRouletteProbability)

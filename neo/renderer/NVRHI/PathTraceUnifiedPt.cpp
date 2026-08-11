@@ -509,6 +509,27 @@ static uint64_t Upt04HashValue(uint64_t hash, uint64_t value)
     return hash;
 }
 
+static float Upt04ThreeVertexContinueProbability()
+{
+    return idMath::ClampFloat(0.0f, 1.0f,
+        r_pathTracingUnifiedPtThreeVertexContinueProbability.GetFloat());
+}
+
+static float Upt04ThreeVertexMinimumPathThroughput()
+{
+    return idMath::ClampFloat(0.0f, 1.0f,
+        r_pathTracingUnifiedPtThreeVertexMinimumPathThroughput.GetFloat());
+}
+
+static uint32_t Upt04FloatBitPattern(float value)
+{
+    uint32_t bits = 0u;
+    static_assert(sizeof(bits) == sizeof(value),
+        "UPT control float bit transport requires binary32");
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
 static uint64_t Upt06BuildContentGeneration(
     const PathTraceUnifiedPtDispatchInputs& dispatch,
     uint32_t enabledFamilyMask,
@@ -545,6 +566,10 @@ static uint64_t Upt06BuildContentGeneration(
     hash = Upt04HashValue(hash, UPT04_SECONDARY_NEE_BOUNCE_INDEX);
     hash = Upt04HashValue(hash, dispatch.lightTiles ? 1u : 0u);
     hash = Upt04HashValue(hash, dispatch.threeVertexInitial ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.threeVertexInitial
+        ? Upt04FloatBitPattern(Upt04ThreeVertexContinueProbability()) : 0u);
+    hash = Upt04HashValue(hash, dispatch.threeVertexInitial
+        ? Upt04FloatBitPattern(Upt04ThreeVertexMinimumPathThroughput()) : 0u);
     hash = Upt04HashValue(hash,
         r_pathTracingUnifiedPtD0PreviousBest.GetBool() ? 1u : 0u);
     hash = Upt04HashValue(hash,
@@ -817,7 +842,7 @@ static bool Upt04InputsValid(const PathTraceUnifiedPtDispatchInputs& dispatch)
     if (dispatch.threeVertexInitial &&
         (!dispatch.splitInitial || dispatch.compactGeometry ||
          !dispatch.compactLights || dispatch.compactMaterials ||
-         dispatch.lightTiles || dispatch.temporal || dispatch.spatial ||
+         dispatch.lightTiles || dispatch.spatial ||
          dispatch.backend != PathTraceUnifiedPtBackend::RayQuery ||
          dispatch.family != PathTraceUnifiedPtFamily::Unified ||
          dispatch.primaryReceiverMode != 2u || dispatch.diagnostics ||
@@ -1336,6 +1361,13 @@ static Upt04InitialControl Upt04BuildControl(
         (emissiveLookupCapacity & UPT04_CONTROL_METADATA_COUNT_MASK)
         | (lights.unifiedPtEmissiveLookupExact && emissiveLookupCapacity >= 2u
             ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
+    // Preserve the accepted 208-byte ABI: UPT-37 transports two binary32
+    // values through the previously reserved uint words. Other D0 artifacts
+    // ignore them and keep their original reflected layout.
+    control.reservedControl0 = Upt04FloatBitPattern(
+        Upt04ThreeVertexContinueProbability());
+    control.reservedControl1 = Upt04FloatBitPattern(
+        Upt04ThreeVertexMinimumPathThroughput());
     return control;
 }
 
@@ -2038,7 +2070,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                 static_cast<long long>(splitIndirectTimestamp),
                 inputs.threeVertexInitial ? 1 : 0,
                 inputs.threeVertexInitial ? 2u : 1u,
-                inputs.threeVertexInitial ? 0.8f : 1.0f,
+                inputs.threeVertexInitial
+                    ? Upt04ThreeVertexContinueProbability() : 1.0f,
                 static_cast<unsigned long long>(splitIndirectPipelineUs));
         }
         return true;
@@ -4403,11 +4436,14 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
     const bool commonGrisMerge = sharedReuseAdapter
         && commonGrisMergeRequested
         && r_pathTracingUnifiedPtTemporalPairwise.GetBool();
+    const bool threeVertexReplay = inputs.threeVertexInitial
+        && commonGrisMerge;
     if (m_temporalPipeline && m_temporalCompactLights == inputs.compactLights
         && m_temporalDuplication == inputs.duplication
         && m_temporalIndirect == indirect
         && m_temporalSharedReuseAdapter == sharedReuseAdapter
         && m_temporalCommonGrisMerge == commonGrisMerge
+        && m_temporalThreeVertexReplay == threeVertexReplay
         && m_temporalEarlyReconnect == earlyReconnect
         && m_temporalRouteDiagnostics == routeDiagnostics
         && m_temporalLambertDiagnostic == inputs.lambertDiagnostic
@@ -4424,6 +4460,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         || m_temporalIndirect != indirect
         || m_temporalSharedReuseAdapter != sharedReuseAdapter
         || m_temporalCommonGrisMerge != commonGrisMerge
+        || m_temporalThreeVertexReplay != threeVertexReplay
         || m_temporalEarlyReconnect != earlyReconnect
         || m_temporalRouteDiagnostics != routeDiagnostics
         || m_temporalLambertDiagnostic != inputs.lambertDiagnostic
@@ -4452,6 +4489,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         m_temporalIndirect = indirect;
         m_temporalSharedReuseAdapter = sharedReuseAdapter;
         m_temporalCommonGrisMerge = commonGrisMerge;
+        m_temporalThreeVertexReplay = threeVertexReplay;
         m_temporalEarlyReconnect = earlyReconnect;
         m_temporalRouteDiagnostics = routeDiagnostics;
         m_temporalLambertDiagnostic = inputs.lambertDiagnostic;
@@ -4526,7 +4564,9 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe11.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe12.bin"
     };
-    const char* path = commonGrisMerge
+    const char* path = threeVertexReplay
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex.bin"
+        : commonGrisMerge
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_common_gris.bin"
         : (sharedReuseAdapter
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_shared_adapter.bin"
@@ -4615,14 +4655,15 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u family=%s sharedReuseAdapter(requested/effective)=%u/%u commonGrisMerge(requested/effective)=%u/%u shading=%s bottleneckProbe=%u createUs=%llu\n",
+        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u threeVertexReplay=%u family=%s sharedReuseAdapter(requested/effective)=%u/%u commonGrisMerge(requested/effective)=%u/%u shading=%s bottleneckProbe=%u createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
         inputs.compactLights ? UPT04_COMPACT_LIGHT_STRIDE : 112u,
         inputs.duplication ? 1u : 0u,
         indirect ? 1u : 0u,
-        indirect ? 4u : 0u,
+        indirect ? (threeVertexReplay ? 6u : 4u) : 0u,
+        threeVertexReplay ? 1u : 0u,
         indirect ? (earlyReconnect ? "unified-reconnect"
             : (routeDiagnostics ? "unified-route-diagnostics" : "unified"))
             : "direct-basic",

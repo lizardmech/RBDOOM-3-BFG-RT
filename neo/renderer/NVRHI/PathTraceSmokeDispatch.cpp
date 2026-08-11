@@ -2996,7 +2996,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 && unifiedPtInputs.compactLights
                 && !unifiedPtInputs.compactMaterials
                 && !unifiedPtInputs.lightTiles
-                && !unifiedPtInputs.temporal
+                && (!unifiedPtInputs.temporal || effectiveCommonGrisMerge)
                 && !unifiedPtInputs.spatial
                 && !unifiedPtInputs.lambertDiagnostic
                 && !frozenAnyDiagnostic
@@ -3010,19 +3010,38 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             const int threeVertexRequest = requestedThreeVertexInitial ? 1 : 0;
             const int threeVertexEffective =
                 unifiedPtInputs.threeVertexInitial ? 1 : 0;
+            const float threeVertexContinueProbability = idMath::ClampFloat(
+                0.0f, 1.0f,
+                r_pathTracingUnifiedPtThreeVertexContinueProbability.GetFloat());
+            const float threeVertexMinimumPathThroughput = idMath::ClampFloat(
+                0.0f, 1.0f,
+                r_pathTracingUnifiedPtThreeVertexMinimumPathThroughput.GetFloat());
+            const int threeVertexContinueProbabilityKey = idMath::Ftoi(
+                threeVertexContinueProbability * 1000000.0f);
+            const int threeVertexMinimumPathThroughputKey = idMath::Ftoi(
+                threeVertexMinimumPathThroughput * 1000000.0f);
+            static int reportedThreeVertexContinueProbabilityKey = -1;
+            static int reportedThreeVertexMinimumPathThroughputKey = -1;
             if (reportedThreeVertexRequest != threeVertexRequest
-                || reportedThreeVertexEffective != threeVertexEffective)
+                || reportedThreeVertexEffective != threeVertexEffective
+                || reportedThreeVertexContinueProbabilityKey
+                    != threeVertexContinueProbabilityKey
+                || reportedThreeVertexMinimumPathThroughputKey
+                    != threeVertexMinimumPathThroughputKey)
             {
                 common->Printf(
-                    "PathTraceUnifiedPt: three-vertex initial requested/effective=%d/%d gate(splitInitial/nativeGeometry/compactLights/noCompactMaterials/noTiles/noTemporal/noSpatial/openPbr/noFrozen/rayquery/unified/compact32/proof6)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
+                    "PathTraceUnifiedPt: three-vertex initial requested/effective=%d/%d q=%.3f minimumPathThroughput=%.3f cutoff=initial-only-uncompensated-L2 gate(splitInitial/nativeGeometry/compactLights/noCompactMaterials/noTiles/temporalReplay/noSpatial/openPbr/noFrozen/rayquery/unified/compact32/proof6)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
                     threeVertexRequest,
                     threeVertexEffective,
+                    threeVertexContinueProbability,
+                    threeVertexMinimumPathThroughput,
                     unifiedPtInputs.splitInitial ? 1u : 0u,
                     unifiedPtInputs.compactGeometry ? 0u : 1u,
                     unifiedPtInputs.compactLights ? 1u : 0u,
                     unifiedPtInputs.compactMaterials ? 0u : 1u,
                     unifiedPtInputs.lightTiles ? 0u : 1u,
-                    unifiedPtInputs.temporal ? 0u : 1u,
+                    (!unifiedPtInputs.temporal || effectiveCommonGrisMerge)
+                        ? 1u : 0u,
                     unifiedPtInputs.spatial ? 0u : 1u,
                     unifiedPtInputs.lambertDiagnostic ? 0u : 1u,
                     frozenAnyDiagnostic ? 0u : 1u,
@@ -3032,6 +3051,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     unifiedPtInputs.shaderProofMode == 6u ? 1u : 0u);
                 reportedThreeVertexRequest = threeVertexRequest;
                 reportedThreeVertexEffective = threeVertexEffective;
+                reportedThreeVertexContinueProbabilityKey =
+                    threeVertexContinueProbabilityKey;
+                reportedThreeVertexMinimumPathThroughputKey =
+                    threeVertexMinimumPathThroughputKey;
             }
             unifiedPtInputs.historyEpoch = m_frameResources.historyEpoch;
             unifiedPtInputs.historyResetReasonFlags =

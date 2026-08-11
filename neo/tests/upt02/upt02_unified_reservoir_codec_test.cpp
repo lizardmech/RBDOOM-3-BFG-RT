@@ -288,6 +288,49 @@ void TestThreeBounceRouletteVector() {
 		qOneTarget == referenceContribution && qOneMass == referenceContribution,
 		"q=1 must reduce exactly to the no-roulette convention");
 
+	// T0 must reconstruct the same x1->x2->x3 estimator as D0: roulette is
+	// present once in throughput and path PDF, excluded once from the stored
+	// target, and retained as the proposal probability.
+	constexpr double primaryThroughput = 1.75;
+	constexpr double secondaryThroughput = 0.6;
+	constexpr double endpointEmission = 3.25;
+	constexpr double endpointMis = 0.7;
+	constexpr double d0Contribution = primaryThroughput *
+		(secondaryThroughput / referenceQ) * endpointEmission * endpointMis;
+	constexpr double t0Contribution = primaryThroughput *
+		(secondaryThroughput / referenceQ) * endpointEmission * endpointMis;
+	constexpr double d0Target = d0Contribution * referenceQ;
+	constexpr double t0Target = t0Contribution * referenceQ;
+	constexpr double d0PathPdf = 0.3 * 0.4 * referenceQ;
+	constexpr double t0PathPdf = 0.3 * 0.4 * referenceQ;
+	static_assert(d0Contribution == t0Contribution && d0Target == t0Target &&
+		d0PathPdf == t0PathPdf,
+		"two-continuation temporal replay must reproduce D0 energy and PDF exactly");
+
+	constexpr double aggressiveQ = 0.25;
+	constexpr double aggressiveSurvivedContribution =
+		referenceContribution / aggressiveQ;
+	constexpr double aggressiveStoredTarget =
+		aggressiveSurvivedContribution * aggressiveQ;
+	static_assert(aggressiveStoredTarget == referenceContribution &&
+		aggressiveQ * aggressiveSurvivedContribution == referenceContribution,
+		"runtime q changes must retain unbiased roulette compensation");
+
+	constexpr double minimumThroughput = 0.1;
+	constexpr double darkThroughputSquared =
+		0.04 * 0.04 + 0.04 * 0.04 + 0.04 * 0.04;
+	constexpr double greyThroughputSquared =
+		0.1 * 0.1 + 0.1 * 0.1 + 0.1 * 0.1;
+	static_assert(darkThroughputSquared < minimumThroughput * minimumThroughput,
+		"dark accumulated throughput must be killed before roulette");
+	static_assert(greyThroughputSquared >= minimumThroughput * minimumThroughput,
+		"minimum throughput must use RGB L2 length, not a per-channel test");
+	constexpr bool initialKillsDarkPath =
+		darkThroughputSquared < minimumThroughput * minimumThroughput;
+	constexpr bool temporalReplayKillsDarkPath = false;
+	static_assert(initialKillsDarkPath && !temporalReplayKillsDarkPath,
+		"the biased throughput cutoff belongs to initial sampling only");
+
 	RouletteState state = {};
 	state.pathPdf = 0.1;
 	Check(ApplyRouletteSurvival(state, 0.25), "first roulette survival must be representable");

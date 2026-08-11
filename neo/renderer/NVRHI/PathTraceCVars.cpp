@@ -1423,7 +1423,19 @@ idCVar r_pathTracingUnifiedPtThreeVertexInitial(
     "r_pathTracingUnifiedPtThreeVertexInitial",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT-35 D0-only three-vertex transport: add one q=0.8 roulette-gated x2-to-x3 continuation and endpoint proposal to split-initial native-geometry compact64-light mode; temporal and spatial must be disabled" );
+    "UPT-35/36 three-vertex transport: add one roulette-gated x2-to-x3 continuation and endpoint proposal to split-initial native-geometry compact64-light mode with exact temporal replay; spatial must be disabled" );
+
+idCVar r_pathTracingUnifiedPtThreeVertexContinueProbability(
+    "r_pathTracingUnifiedPtThreeVertexContinueProbability",
+    "0.8",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "UPT-37 x2-to-x3 Russian-roulette continuation probability, clamped to [0,1]; lower values reduce rays without bias but increase variance" );
+
+idCVar r_pathTracingUnifiedPtThreeVertexMinimumPathThroughput(
+    "r_pathTracingUnifiedPtThreeVertexMinimumPathThroughput",
+    "0.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "UPT-37 initial-only uncompensated x2 throughput L2 cutoff before roulette/ray emission, clamped to [0,1]; biased like RTXDI FullSample minimumPathThroughput and deliberately excluded from temporal replay" );
 
 idCVar r_pathTracingUnifiedPtLightTiles(
     "r_pathTracingUnifiedPtLightTiles",

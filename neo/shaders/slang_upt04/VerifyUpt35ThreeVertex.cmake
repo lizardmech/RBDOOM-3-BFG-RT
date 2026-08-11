@@ -35,8 +35,11 @@ if(disassembly MATCHES "OpTraceRayKHR")
 endif()
 
 foreach(pattern
-        "kUpt04ThreeVertexContinueChance[ \t]*=[ \t]*0\\.8f"
-        "pathThroughput[ \t]*\\*=[ \t]*continuation\\.throughput[ \t]*/[ \t]*q"
+        "asfloat\\(gUpt04Control\\.reservedControl0\\)"
+        "asfloat\\(gUpt04Control\\.reservedControl1\\)"
+        "dot\\(uncompensatedPathThroughput"
+        "minimumPathThroughput[ \t]*\\*[ \t]*minimumPathThroughput"
+        "pathThroughput[ \t]*=[ \t]*uncompensatedPathThroughput[ \t]*/[ \t]*q"
         "pathPdf[ \t]*\\*=[ \t]*continuation\\.pdf[ \t]*\\*[ \t]*q"
         "proposalPdf[ \t]*=[ \t]*endpoint\\.accumulatedRouletteProbability"
         "pathLength[ \t]*=[ \t]*2u")
@@ -47,4 +50,4 @@ endforeach()
 
 file(SIZE "${UPT35_SPV}" spv_bytes)
 file(WRITE "${UPT35_STAMP}"
-    "UPT-35 verified: descriptors=25 push=208 workgroup=8x8 RayQuery=3 TraceRay=0 bytes=${spv_bytes} q=0.8 endpointPathLength=2\n")
+    "UPT-35/37 verified: descriptors=25 push=208 workgroup=8x8 RayQuery=3 TraceRay=0 bytes=${spv_bytes} runtime-q initial-only-L2-cutoff endpointPathLength=2\n")
