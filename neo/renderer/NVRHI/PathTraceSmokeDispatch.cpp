@@ -2988,6 +2988,51 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.spatial =
                 r_pathTracingUnifiedPtSpatial.GetBool() &&
                 unifiedPtInputs.family == PathTraceUnifiedPtFamily::DirectOnly;
+            const bool requestedThreeVertexInitial =
+                r_pathTracingUnifiedPtThreeVertexInitial.GetBool();
+            unifiedPtInputs.threeVertexInitial = requestedThreeVertexInitial
+                && unifiedPtInputs.splitInitial
+                && !unifiedPtInputs.compactGeometry
+                && unifiedPtInputs.compactLights
+                && !unifiedPtInputs.compactMaterials
+                && !unifiedPtInputs.lightTiles
+                && !unifiedPtInputs.temporal
+                && !unifiedPtInputs.spatial
+                && !unifiedPtInputs.lambertDiagnostic
+                && !frozenAnyDiagnostic
+                && unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery
+                && unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified
+                && unifiedPtInputs.primaryReceiverMode == 2u
+                && !unifiedPtInputs.diagnostics
+                && unifiedPtInputs.shaderProofMode == 6u;
+            static int reportedThreeVertexRequest = -1;
+            static int reportedThreeVertexEffective = -1;
+            const int threeVertexRequest = requestedThreeVertexInitial ? 1 : 0;
+            const int threeVertexEffective =
+                unifiedPtInputs.threeVertexInitial ? 1 : 0;
+            if (reportedThreeVertexRequest != threeVertexRequest
+                || reportedThreeVertexEffective != threeVertexEffective)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: three-vertex initial requested/effective=%d/%d gate(splitInitial/nativeGeometry/compactLights/noCompactMaterials/noTiles/noTemporal/noSpatial/openPbr/noFrozen/rayquery/unified/compact32/proof6)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
+                    threeVertexRequest,
+                    threeVertexEffective,
+                    unifiedPtInputs.splitInitial ? 1u : 0u,
+                    unifiedPtInputs.compactGeometry ? 0u : 1u,
+                    unifiedPtInputs.compactLights ? 1u : 0u,
+                    unifiedPtInputs.compactMaterials ? 0u : 1u,
+                    unifiedPtInputs.lightTiles ? 0u : 1u,
+                    unifiedPtInputs.temporal ? 0u : 1u,
+                    unifiedPtInputs.spatial ? 0u : 1u,
+                    unifiedPtInputs.lambertDiagnostic ? 0u : 1u,
+                    frozenAnyDiagnostic ? 0u : 1u,
+                    unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery ? 1u : 0u,
+                    unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified ? 1u : 0u,
+                    unifiedPtInputs.primaryReceiverMode == 2u ? 1u : 0u,
+                    unifiedPtInputs.shaderProofMode == 6u ? 1u : 0u);
+                reportedThreeVertexRequest = threeVertexRequest;
+                reportedThreeVertexEffective = threeVertexEffective;
+            }
             unifiedPtInputs.historyEpoch = m_frameResources.historyEpoch;
             unifiedPtInputs.historyResetReasonFlags =
                 m_frameResources.settings.resetReasonFlags;

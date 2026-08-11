@@ -73,6 +73,7 @@ struct PathTraceUnifiedPtDispatchInputs
     bool compactLights = false;
     bool compactMaterials = false;
     bool splitInitial = false;
+    bool threeVertexInitial = false;
     bool splitContinuation = false;
     bool lambertDiagnostic = false;
     bool frozenStaticDiagnostic = false;
@@ -213,6 +214,7 @@ private:
     bool m_compactLights = false;
     bool m_compactMaterials = false;
     bool m_splitInitial = false;
+    bool m_threeVertexInitial = false;
     bool m_splitContinuation = false;
     bool m_lambertDiagnostic = false;
     bool m_frozenStaticDiagnostic = false;

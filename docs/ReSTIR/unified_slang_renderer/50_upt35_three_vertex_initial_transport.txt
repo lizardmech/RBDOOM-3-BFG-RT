@@ -1,0 +1,177 @@
+UPT-35 / UPT-10A: bounded three-vertex initial transport
+===========================================================
+
+Status
+------
+
+Implemented, built, statically verified and runtime accepted as a D0-only
+specialization. The accepted `uptf2` one-continuation temporal/spatial
+renderer remains unchanged.
+
+Reference terminology and exact workload
+----------------------------------------
+
+The locally vendored NVIDIA FullSample performance presets use:
+
+    restirPT.initialSampling.maxBounceDepth = 3
+    enableRussianRoulette = true
+    russianRouletteContinueChance = 0.8
+
+The reference initial path tracer starts at bounceDepth 2 and does not run
+roulette at that first continuation. With maxBounceDepth 3, its exact workload
+after the primary receiver is:
+
+    x1 -> x2 continuation                      always eligible
+    NEE at x2                                  eligible
+    roulette before x2 -> x3                  q = 0.8
+    x2 -> x3 continuation                      only on survival
+    emissive endpoint at x3                    eligible
+    NEE at x3                                  rejected (path length 4)
+
+In rbdoom terms this is `maxContinuationRaysAfterReceiver = 2`. It is not
+three continuation rays and does not add a second light-candidate loop.
+
+First implementation boundary
+-----------------------------
+
+The first candidate extends only the accepted split-initial indirect shader
+with native geometry, compact32 receivers and compact64 lights. It adds:
+
+    one secondary-surface BSDF sample at x2
+    one fixed q=0.8 roulette draw at path vertex 1
+    at most one x2 -> x3 closest-hit RayQuery
+    one x3 endpoint proposal streamed into the same reservoir
+
+The existing x1 direct proposal, x1 -> x2 endpoint proposal and x2 NEE proposal
+are unchanged. No x3 NEE proposal is generated. The accepted one-continuation
+shader remains a separate artifact and pays no instruction, binding, payload,
+buffer, clear or pipeline cost for this feature.
+
+The new endpoint is encoded as:
+
+    eventKind                         4 (BSDF endpoint)
+    pathLength                       2
+    reconnectionVertexLength         1
+    accumulatedRouletteProbability  0.8
+
+This does not collide with the existing x2 NEE sample because that sample has
+eventKind 1 or 2. The 64-byte reservoir ABI already stores all required fields.
+No persistent field or descriptor binding is added.
+
+Roulette and reservoir math
+---------------------------
+
+On survival:
+
+    pathThroughput *= secondaryBsdfThroughput / q
+    pathPdf        *= secondaryBsdfPdf * q
+    accumulatedRouletteProbability *= q
+
+The physical endpoint contribution contains the `1/q` compensation. Matching
+the NVIDIA reference target convention, the stored target excludes roulette:
+
+    rawTarget   = max(contribution)       // contains 1/q
+    target      = rawTarget * q
+    proposalPdf = q
+    streamMass  = target / proposalPdf = rawTarget
+
+Thus a survived execution contributes the compensated mass while its selected
+target does not double-count roulette. Across executions, survival probability
+q times contribution divided by q preserves the no-roulette expectation.
+Roulette termination creates no reservoir candidate and emits no ray.
+
+Reuse boundary
+--------------
+
+Current UPT temporal replay accepts only the x2 endpoint form
+`eventKind=4,pathLength=1` and x2 NEE forms `eventKind=1/2,pathLength=2`.
+It deliberately rejects `eventKind=4,pathLength=2`. Therefore UPT-35 is
+effective only with temporal and spatial disabled. Extending T0/S0 is a later
+task after D0 energy, identity and performance are accepted; reuse may not
+guess a one-continuation interpretation for the new endpoint.
+
+Ray/work ceiling
+----------------
+
+Per receiver, including the existing direct proposal, the specialization is
+bounded to:
+
+    continuation RayQueries <= 2
+    visibility RayQueries   <= 2
+    total RayQueries        <= 4
+
+There is no loop with a runtime maximum, no wavefront queue, no per-frame
+full-buffer clear and no new full-resolution allocation.
+
+Validation gates
+----------------
+
+Offline:
+
+    one-continuation artifacts remain byte-identical
+    new shader has the existing descriptor layout and push-constant ABI
+    static RayQuery sites match two continuations plus one x2 NEE visibility
+    no TraceRay instruction exists
+    q=1 CPU oracle matches no-roulette energy exactly
+    q=0.8 oracle proves unbiased survival compensation and target convention
+
+Runtime, with temporal and spatial disabled:
+
+    requested/effective gate reports 1/1
+    x3 emissive contribution appears without white/color corruption
+    no ghost emitters, missing geometry or alpha-clip regression
+    emissive-disabled and analytic-only scenes remain finite
+    direct and one-continuation D0 output remain unchanged when disabled
+    measured cost is consistent with one additional stochastic continuation
+
+Only after these gates pass may temporal/spatial replay for the new endpoint be
+designed. The accepted `uptf2` baseline remains the rollback configuration.
+
+Offline result
+--------------
+
+The focused Vulkan specialization compiles and passes SPIR-V validation. The
+structural verifier records:
+
+    descriptor bindings                 25 (unchanged)
+    push constants                      208 bytes (unchanged)
+    workgroup                           8x8
+    static RayQuery sites               3
+    TraceRay sites                      0
+    UPT-35 blob bytes                   528756
+    UPT-35 SHA-256                      14A5A511631AF00386B3A799334B0FC441669952DA089A1320CDE26234ACC487
+
+Recompiling the accepted split-indirect compact64 specialization from the
+edited sources is byte-identical to its pre-existing artifact at 376320 bytes,
+SHA-256 7E92A60184A9B137C8B3CFED485622A2EDF9BDA6926AC095ADE09BE5ACEFF30A.
+The UPT-02 CPU codec/roulette harness passes with a 64-byte stride and 22
+collision-free random slots, including q=1 reduction and q=0.8 unbiased target
+and streaming-mass assertions.
+
+The Release host build passes with only the two pre-existing C4819 code-page
+warnings. The deployed executable is 16350208 bytes, SHA-256
+54EAB781319B28A7C5A9C51C03859C2A70E73FF0713DAE300B54A617D27EEEB9.
+No DX12 shader was compiled.
+
+Runtime gate
+------------
+
+Run `exec uptb2`. Require:
+
+    three-vertex initial requested/effective=1/1
+    split indirect ... threeVertex=1 continuationRaysMax=2 rouletteQ=0.80
+
+Temporal and spatial must report disabled. Compare image and D0 cost directly
+against `exec uptf2` only after setting temporal/spatial to zero there as well,
+or against the same camera pose with the three-vertex cvar toggled off. Runtime
+acceptance is pending.
+
+Runtime result
+--------------
+
+The user ran `exec uptb2`; the three-vertex specialization activated and
+worked without visual, stability or geometry issues. Treat the bounded D0
+transport, fixed-q roulette compensation and x3 endpoint admission as runtime
+accepted. This acceptance does not yet admit `eventKind=4,pathLength=2` into
+temporal or spatial reuse; those passes remain deliberately disabled until
+their two-continuation shift/replay contract is implemented and verified.

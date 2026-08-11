@@ -285,8 +285,13 @@ static const char* Upt04SplitIndirectShaderPath(
     bool compactGeometry,
     bool compactLights,
     bool compactMaterials,
-    bool lightTiles)
+    bool lightTiles,
+    bool threeVertexInitial)
 {
+    if (threeVertexInitial)
+    {
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex.bin";
+    }
     if (lightTiles)
     {
         return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light_tiles.bin";
@@ -539,6 +544,7 @@ static uint64_t Upt06BuildContentGeneration(
     hash = Upt04HashValue(hash, emissiveTrialCount);
     hash = Upt04HashValue(hash, UPT04_SECONDARY_NEE_BOUNCE_INDEX);
     hash = Upt04HashValue(hash, dispatch.lightTiles ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.threeVertexInitial ? 1u : 0u);
     hash = Upt04HashValue(hash,
         r_pathTracingUnifiedPtD0PreviousBest.GetBool() ? 1u : 0u);
     hash = Upt04HashValue(hash,
@@ -805,6 +811,17 @@ static bool Upt04InputsValid(const PathTraceUnifiedPtDispatchInputs& dispatch)
          dispatch.primaryReceiverMode != 2u || dispatch.compactGeometry ||
          dispatch.compactLights || dispatch.compactMaterials ||
          dispatch.diagnostics || dispatch.shaderProofMode != 6u))
+    {
+        return false;
+    }
+    if (dispatch.threeVertexInitial &&
+        (!dispatch.splitInitial || dispatch.compactGeometry ||
+         !dispatch.compactLights || dispatch.compactMaterials ||
+         dispatch.lightTiles || dispatch.temporal || dispatch.spatial ||
+         dispatch.backend != PathTraceUnifiedPtBackend::RayQuery ||
+         dispatch.family != PathTraceUnifiedPtFamily::Unified ||
+         dispatch.primaryReceiverMode != 2u || dispatch.diagnostics ||
+         dispatch.lambertDiagnostic || dispatch.shaderProofMode != 6u))
     {
         return false;
     }
@@ -1562,6 +1579,7 @@ void PathTraceUnifiedPtState::Release()
     m_compactLights = false;
     m_compactMaterials = false;
     m_splitInitial = false;
+    m_threeVertexInitial = false;
     m_splitContinuation = false;
     m_directProposalParity = false;
     m_lightTiles = false;
@@ -1744,6 +1762,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_compactLights != inputs.compactLights ||
         m_compactMaterials != inputs.compactMaterials ||
         m_splitInitial != inputs.splitInitial ||
+        m_threeVertexInitial != inputs.threeVertexInitial ||
         m_splitContinuation != inputs.splitContinuation ||
         m_lambertDiagnostic != inputs.lambertDiagnostic ||
         m_frozenStaticDiagnostic != inputs.frozenStaticDiagnostic ||
@@ -1761,6 +1780,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_compactLights = inputs.compactLights;
         m_compactMaterials = inputs.compactMaterials;
         m_splitInitial = inputs.splitInitial;
+        m_threeVertexInitial = inputs.threeVertexInitial;
         m_splitContinuation = inputs.splitContinuation;
         m_lambertDiagnostic = inputs.lambertDiagnostic;
         m_frozenStaticDiagnostic = inputs.frozenStaticDiagnostic;
@@ -1948,7 +1968,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                         inputs.compactGeometry,
                         inputs.compactLights,
                         inputs.compactMaterials,
-                        inputs.lightTiles),
+                        inputs.lightTiles,
+                        inputs.threeVertexInitial),
                     splitIndirectData,
                     splitIndirectSize,
                     splitIndirectTimestamp,
@@ -2011,10 +2032,13 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         if (inputs.splitInitial)
         {
             common->Printf(
-                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 createUs=%llu\n",
+                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 threeVertex=%d continuationRaysMax=%u rouletteQ=%.2f createUs=%llu\n",
                 splitIndirectSize,
                 static_cast<unsigned long long>(splitIndirectHash),
                 static_cast<long long>(splitIndirectTimestamp),
+                inputs.threeVertexInitial ? 1 : 0,
+                inputs.threeVertexInitial ? 2u : 1u,
+                inputs.threeVertexInitial ? 0.8f : 1.0f,
                 static_cast<unsigned long long>(splitIndirectPipelineUs));
         }
         return true;

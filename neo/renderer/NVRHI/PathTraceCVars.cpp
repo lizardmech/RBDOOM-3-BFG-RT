@@ -1419,6 +1419,12 @@ idCVar r_pathTracingUnifiedPtSplitInitial(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT unified D0 A/B: 0 runs the three-query RayQuery megakernel; 1 splits direct and indirect work into two 8x8 dispatches using one exact intermediate/final 64-byte reservoir page; supports native geometry with native or compact64 lights, or paired compact geometry+light" );
 
+idCVar r_pathTracingUnifiedPtThreeVertexInitial(
+    "r_pathTracingUnifiedPtThreeVertexInitial",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-35 D0-only three-vertex transport: add one q=0.8 roulette-gated x2-to-x3 continuation and endpoint proposal to split-initial native-geometry compact64-light mode; temporal and spatial must be disabled" );
+
 idCVar r_pathTracingUnifiedPtLightTiles(
     "r_pathTracingUnifiedPtLightTiles",
     "0",

@@ -71,6 +71,7 @@ set(UPT04_UNIFIED_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_previous_best.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_multibounce.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_local_light_evaluation.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_bindings.slang"
@@ -358,6 +359,24 @@ path_tracing_declare_slang_spirv_module(
     OUT_VAR split_indirect_light64_rayquery_outputs
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS ${split_indirect_light64_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1
+    OUT_VAR split_indirect_light64_three_vertex_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_three_vertex_rayquery_outputs})
 
 path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_split_direct_rayquery_compact32_light_tiles
@@ -1097,6 +1116,28 @@ add_custom_command(
 # Reflection/disassembly artifacts remain build-only evidence.
 set(UPT04_RUNTIME_OUTPUT_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../../../base/renderprogs2/spirv/builtin/pathtracing/slang_upt04")
+set(UPT35_VERIFY_STAMP
+    "${UPT04_OUTPUT_DIR}/upt35_three_vertex_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT35_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT35_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex.slang.spirv-reflection.json
+        -DUPT35_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex.slang.spvasm
+        -DUPT35_SPV=${UPT04_OUTPUT_DIR}/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex.slang.spv
+        -DUPT35_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_multibounce.slang
+        -DUPT35_STAMP=${UPT35_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt35ThreeVertex.cmake"
+    DEPENDS ${split_indirect_light64_three_vertex_rayquery_outputs}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_multibounce.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt35ThreeVertex.cmake"
+    COMMENT "UPT-35 verifying bounded three-vertex initial transport"
+    VERBATIM)
+add_custom_target(PathTraceSlangUpt35ThreeVertex
+    DEPENDS "${UPT35_VERIFY_STAMP}")
+set_target_properties(PathTraceSlangUpt35ThreeVertex
+    PROPERTIES FOLDER "Shaders/UPT-04")
+add_dependencies(PathTraceSlangUpt04ModuleGraph
+    PathTraceSlangUpt35ThreeVertex)
 set(UPT04_LIGHT_TILE_VERIFY_STAMP
     "${UPT04_OUTPUT_DIR}/upt04_light_tiles_verified.txt")
 add_custom_command(
@@ -1157,6 +1198,7 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_split_indirect_rayquery_compact32
     upt04_initial_split_direct_rayquery_compact32_light64
     upt04_initial_split_indirect_rayquery_compact32_light64
+    upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex
     upt04_initial_split_direct_rayquery_compact32_light_tiles
     upt04_initial_split_indirect_rayquery_compact32_light_tiles
     upt04_initial_split_direct_rayquery_compact32_geometry48_light64
@@ -1218,6 +1260,7 @@ foreach(runtime_module IN LISTS UPT04_RUNTIME_MODULES)
             "${UPT05_MATERIAL_BOUNDARY_STAMP}"
             "${UPT04_LIGHT_TILE_VERIFY_STAMP}"
             "${UPT04_NATIVE_LIGHT_VIEW_VERIFY_STAMP}"
+            "${UPT35_VERIFY_STAMP}"
         COMMENT "UPT-04 verified Vulkan runtime artifact: ${runtime_module}"
         VERBATIM)
     list(APPEND UPT04_RUNTIME_OUTPUTS "${runtime_output}")

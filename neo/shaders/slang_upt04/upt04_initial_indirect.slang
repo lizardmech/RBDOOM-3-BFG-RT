@@ -20,11 +20,18 @@ import upt04_transport_initial_bounded;
 import upt04_emissive_lookup;
 import upt04_initial_light_selection;
 
+#ifndef UPT04_MULTI_BOUNCE_INITIAL
+#define UPT04_MULTI_BOUNCE_INITIAL 0
+#endif
+
 public struct Upt04IndirectHitTrialResult
 {
     public Upt04InitialTraceWork endpointCandidate;
     public Upt04InitialTraceWork neeWork;
     public uint diagnostics;
+#if UPT04_MULTI_BOUNCE_INITIAL
+    public Upt04GeometryHitSurface secondarySurface;
+#endif
 };
 
 public static const uint kUpt04IndirectDiagContinuationMiss = 1u << 0u;
@@ -282,6 +289,9 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         result.diagnostics |= kUpt04IndirectDiagGeometryFailure;
         return result;
     }
+#if UPT04_MULTI_BOUNCE_INITIAL
+    result.secondarySurface = hitSurface;
+#endif
 
     Upt04InitialTraceWork endpoint = work;
     // The continuation query reached this exact endpoint in the current TLAS.

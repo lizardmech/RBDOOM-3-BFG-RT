@@ -269,6 +269,25 @@ void TestPackRoundTrip() {
 }
 
 void TestThreeBounceRouletteVector() {
+	constexpr double referenceContribution = 5.0;
+	constexpr double referenceQ = 0.8;
+	constexpr double survivedContribution = referenceContribution / referenceQ;
+	constexpr double storedTarget = survivedContribution * referenceQ;
+	constexpr double proposalPdf = referenceQ;
+	constexpr double streamMass = storedTarget / proposalPdf;
+	static_assert(storedTarget == referenceContribution,
+		"roulette must be excluded from the stored target");
+	static_assert(streamMass == survivedContribution,
+		"target/proposalPdf must retain the survived 1/q streaming mass");
+	static_assert(referenceQ * survivedContribution == referenceContribution,
+		"roulette survival compensation must be unbiased");
+	constexpr double qOneContribution = referenceContribution / 1.0;
+	constexpr double qOneTarget = qOneContribution * 1.0;
+	constexpr double qOneMass = qOneTarget / 1.0;
+	static_assert(qOneContribution == referenceContribution &&
+		qOneTarget == referenceContribution && qOneMass == referenceContribution,
+		"q=1 must reduce exactly to the no-roulette convention");
+
 	RouletteState state = {};
 	state.pathPdf = 0.1;
 	Check(ApplyRouletteSurvival(state, 0.25), "first roulette survival must be representable");

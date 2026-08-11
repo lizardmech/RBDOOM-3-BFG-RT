@@ -9,6 +9,13 @@ import upt04_initial_indirect;
 import upt04_initial_reservoir_stream;
 import upt05_material_set_openpbr;
 
+#ifndef UPT04_MULTI_BOUNCE_INITIAL
+#define UPT04_MULTI_BOUNCE_INITIAL 0
+#endif
+#if UPT04_MULTI_BOUNCE_INITIAL
+import upt04_initial_multibounce;
+#endif
+
 #ifndef UPT04_SPLIT_INITIAL_INDIRECT
 #define UPT04_SPLIT_INITIAL_INDIRECT 0
 #endif
@@ -73,6 +80,38 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         2u);
 #else
         1u);
+#endif
+
+#if UPT04_MULTI_BOUNCE_INITIAL
+    // The x2 NEE visibility and x2->x3 continuation are sibling techniques.
+    // Carry the visibility count into the second-continuation copy so its
+    // bounded state accounts for all rays actually emitted by this pixel.
+    Upt04InitialTraceWork secondSource = continuation;
+    if (indirect.neeWork.valid != 0u)
+    {
+        secondSource.transport.budget.visibilityRays = max(
+            secondSource.transport.budget.visibilityRays,
+            indirect.neeWork.transport.budget.visibilityRays);
+    }
+    const Upt04SecondContinuationResult secondContinuation =
+        Upt04PrepareSecondContinuation<Upt05OpenPbrMaterialSet>(
+            secondSource, indirect.secondarySurface);
+    hit = Upt04MissFacts(secondContinuation.work.ray.tMax);
+    if (secondContinuation.work.valid != 0u
+        && secondContinuation.work.traceRequired != 0u)
+        hit = Upt04TraceRayQuery(secondContinuation.work.ray);
+    const Upt04InitialTraceWork secondEndpoint =
+        Upt04EvaluateSecondEndpoint<Upt05OpenPbrMaterialSet>(
+            secondContinuation, indirect.secondarySurface, hit);
+    Upt04StreamInitialTraceWork(
+        reservoir,
+        secondEndpoint,
+        pixel,
+#if UPT04_SPLIT_INITIAL_INDIRECT
+        3u);
+#else
+        2u);
+#endif
 #endif
     Upt04WriteInitialReservoir(surfaceIndex, reservoir);
 }
