@@ -27,7 +27,17 @@ import upt04_random_white_hash;
 import upt04_transport_initial_bounded;
 import upt07_emissive_material;
 import upt07_indirect_material;
+#ifndef UPT09_SPATIAL_INDIRECT_REPLAY
+#define UPT09_SPATIAL_INDIRECT_REPLAY 0
+#endif
+#if UPT09_SPATIAL_INDIRECT_REPLAY
+import upt09_spatial_direct_bindings;
+#define gUpt07Control gUpt09Control
+#define gUpt07Scene gUpt09Scene
+#define Upt07LoadLight Upt09LoadLight
+#else
 import upt07_temporal_direct_bindings;
+#endif
 import upt07_temporal_reservoir;
 import upt07_work_budget;
 
@@ -452,6 +462,11 @@ public uint Upt07ResolveStoredSecondaryLight(
     denseIndex = source.identity0 - 1u;
     if (sourceIsHistory != 0u)
     {
+#if UPT09_SPATIAL_INDIRECT_REPLAY
+        // Spatial donors and receivers belong to the same current-frame light
+        // universe. A previous-frame identity is never legal on this route.
+        return 0u;
+#else
 #if UPT_FROZEN_FLAT_LIGHTS
         // Frozen light payload indices are invariant for the lifetime of the
         // captured scene; no previous/current identity translation exists.
@@ -462,6 +477,7 @@ public uint Upt07ResolveStoredSecondaryLight(
         denseIndex = gUpt07PreviousToCurrentLights[denseIndex];
         if (denseIndex == 0xffffffffu)
             return 0u;
+#endif
 #endif
     }
     if (denseIndex >= gUpt07Control.currentLightCount)
@@ -557,13 +573,29 @@ public uint Upt07ReplayStoredSecondaryLight(
                     & kUpt04EmissiveReplayTwoSided) != 0u);
         if (replay.status == kUpt04SampleInvalid)
             return 0u;
-        const float4 regionWeights = UptDirectEmissiveRegionWeights(
-            replay,
-            gUpt07Control.materialCount,
-            gUpt07Control.logicalTextureCount,
-            gUpt07Control.emissiveScale);
-        const uint region = Upt04EmissiveRegionFromBarycentrics(
-            replay.barycentrics);
+        float replayPdfScale;
+        const bool persistedReplayPdf = Upt04DecodeEmissiveReplayPdfScale(
+            source.proposalPdf, replayPdfScale);
+#if UPT09_SPATIAL_INDIRECT_REPLAY
+        // Same-frame S0 consumes D0/T0 reservoirs published by this exact
+        // contract. Fail closed on an untagged transition record so the
+        // spatial specialization contains no four-probe texture fallback.
+        if (!persistedReplayPdf)
+            return 0u;
+#else
+        if (!persistedReplayPdf)
+        {
+            const float4 regionWeights = UptDirectEmissiveRegionWeights(
+                replay,
+                gUpt07Control.materialCount,
+                gUpt07Control.logicalTextureCount,
+                gUpt07Control.emissiveScale);
+            const uint region = Upt04EmissiveRegionFromBarycentrics(
+                replay.barycentrics);
+            replayPdfScale = 4.0f * Upt04EmissiveRegionSelectionPdf(
+                regionWeights, region);
+        }
+#endif
         const Upt04MaterialEmissionEvaluation emission =
             UptDirectEvaluateEmissiveEndpoint(
                 replay.materialIndex,
@@ -583,9 +615,7 @@ public uint Upt07ReplayStoredSecondaryLight(
         sample.normal = replay.normal;
         sample.distance = replay.distance;
         sample.direction = replay.direction;
-        sample.solidAnglePdf = replay.solidAnglePdf
-            * (4.0f * Upt04EmissiveRegionSelectionPdf(
-                regionWeights, region));
+        sample.solidAnglePdf = replay.solidAnglePdf * replayPdfScale;
         sample.radiance = emission.radiance;
         return 1u;
     }

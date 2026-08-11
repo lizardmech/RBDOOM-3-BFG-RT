@@ -1562,3 +1562,220 @@ T30.3 passed that runtime gate after approximately twenty minutes of play. No
 image, ghosting, color or energy issue was observed, and temporal performance
 was less erratic overall. Proceed with S30.1 selected-center combined spatial
 admission while retaining the accepted T30.3 artifact as its temporal oracle.
+
+S30.1 is now built and deployed behind
+r_pathTracingUnifiedPtSharedSpatial. With the accepted temporal cvars and
+r_pathTracingUnifiedPtSpatial 1, it evaluates exactly one selected-center /
+selected-neighbor pair through the common direct/global shift and GRIS core.
+There is no empty-center rescue or multi-neighbor expansion. Same-frame global
+replay performs no previous-light remap, final secondary-NEE visibility remains
+winner-only, and equal nonzero replay keys are rejected as duplicate paths.
+
+The full Vulkan build and structural verifier pass: 26 bindings, 96-byte push
+constants, four RayQuery sites, no TraceRay. The deployed EXE SHA-256 is
+8F804CF61362C0F003065D55853C4A6514196634CF75665C3764630FC90B6F46; the only
+new spatial blob is
+6D96707AD0D4795C21EB2C8C173B1D29521F43D8BCE5B59C6525C506444B9B2C.
+Runtime acceptance of shared spatial 0/1 is the next gate. Do not begin S30.2
+or increase the neighbor count until it passes.
+
+The first S30.1 runtime artifact passed visual correctness but failed
+performance: emissive-enabled scenes lost approximately 50 to 80 percent of
+total frame rate. The cause was redundant reciprocal ownership, not a return of
+the emissive identity search. Each pixel paid both global shifts independently.
+
+A corrected artifact is deployed. One lane now owns a disjoint two-pixel pair,
+computes the two reciprocal shifts once and publishes both reservoirs. This
+reduces the maximum dynamic ray work over two output pixels from six to four
+without changing GRIS mass, Jacobian, duplicate rejection or winner-only
+visibility, and adds no dispatch, buffer or clear. Pair orientation/origin
+cycles through four adjacent-pixel phases. The runtime marker is
+UPT.S0 Shared Disjoint Reciprocal Pair GRIS; the pipeline line reports
+pairedPixels=2 mappingRaysMaxPerPair=2.
+
+The rebuilt Vulkan EXE SHA-256 is
+51F8F8FFD7F37A1FC6C6C9DF78CD4E4D967D09950EBA6B34CEFFB1949C9413B3. The only
+replaced SPIR-V blob is upt09_spatial_shared_selected_pair_light64.bin with
+SHA-256 8F16F2FEB5B93943858F6CC47572667A376AB7B2BFB9E53D134F25F03CDEC95A.
+Repeat the same emissive-heavy A/B before expanding spatial reuse.
+
+The disjoint pair recovered some performance, but its adjacent-only reuse was
+blotchier. With emissive scale zero, spatial performance was completely fine;
+the remaining cliff therefore follows selected secondary-emissive replay.
+
+That route was evaluating four coarse emissive texture probes to rebuild a
+receiver-invariant region PDF and then evaluating the exact endpoint texture.
+D0 now persists its already-computed selected-region PDF scale only after
+reservoir selection, in the otherwise structural proposalPdf word. This does
+not change D0 selection or weight. Temporal preserves it and keeps a transition
+fallback; same-frame shared spatial fails closed on an untagged record and
+compiles out all four coarse probes. Exact endpoint texture/material replay is
+unchanged.
+
+The full Vulkan build passes. The three deployed blobs are split indirect D0
+3470E6F2690D1D89E4E4D7D7713F698D6F5004E636715CEFC60E89D2FC8B888D, common
+temporal GRIS 9C0F3E5CA5A3125A75689BC6480C79A82D81393497B876910D95576063167529,
+and paired shared spatial
+324E8B0A5AD1E904A087DC7587C6DC7071872ECAEDD26C1E0847A422E47394FC. Re-test
+the same emissive-heavy pose before changing the adjacent-pair quality schedule.
+
+That persisted-scale build was subsequently removed as a benchmark authority
+before any route optimization. Compiled T0 and shared S0 read replay geometry
+class buffers at bindings 9 and 13, while the host omitted them. Resolve also
+treated the static-reconnection locator in reservoir words 13..15 as floating-
+point path metadata, rejecting instance-zero locators and misreading others.
+Finally, the positive persisted-scale sentinel overlapped valid proposal PDFs.
+
+The correction makes T0/S0 share one complete bindings-6..21 geometry replay
+contract, decodes the active reservoir union arm in resolve, and stores the
+regional emissive replay scale in the negative finite word12 domain. Actual
+PDFs remain positive, so the representation cannot collide. UPT packed-content
+ABI 11 rejects old history via page metadata and performs no full-buffer clear.
+Build gates now check shader/host binding 9/13 parity, the resolve union and
+signed payload contract, plus four-phase pairing involution/borders. Runtime
+image parity and a fresh fixed-pose emissive timing matrix are required before
+using the S30.1 measurements or changing any emissive route.
+
+The full Vulkan release build passes and no DX12 shader was compiled. Deployed
+SHA-256 values are EXE
+C36F79A12746ED8D2B94662F461827D35D4D725D1708968CEB95A285D7C6CED8,
+split indirect D0
+7E92A60184A9B137C8B3CFED485622A2EDF9BDA6926AC095ADE09BE5ACEFF30A,
+compact32 resolve
+00C5D3AB8151386554D83BD65EB82960020240530E55DBAAEB84822EC235C981,
+common temporal
+694EC92A032FD8AB79FA027C2D34B46D4CAF7AA4AC8A495986A0C72B83C66A08,
+and paired shared spatial
+9F41740D5F6C7F518A4310A8A6B58EA820038146B381EFDBF511C1A8FCA8CC28.
+
+The corrected baseline did not recover performance and slightly regressed the
+observed indirect RayQuery time. Treat the binding, packed-union and signed
+payload fixes as correctness prerequisites, not as the performance cause.
+
+UPT-31 now has a separate default-off direct source-target specialization:
+
+    r_pathTracingUnifiedPtSpatialStoredSourceTarget 0
+        accepted shared S0 artifact; freshly replays the direct emitter at its
+        source receiver solely to recover sourceTarget;
+
+    r_pathTracingUnifiedPtSpatialStoredSourceTarget 1
+        trusts the canonical selected.target already written in that source
+        receiver domain; all target shifting, visibility and GRIS math remain
+        unchanged.
+
+The writer audit covers D0, previous-best injection, both T0 winner branches,
+both shared-S0 winner branches and the read-only duplication pass. The new
+artifact retains 26 bindings, six static RayQuery sites, no TraceRay and the
+same four-rays-per-pair dynamic ceiling. It shrinks from 878884 to 749492
+bytes and reduces static explicit texture-sample sites from 26 to 22.
+
+Use r_pathTracingUnifiedPtSpatialGpuTiming 1 for the next comparison. It warms
+16 valid S0 dispatches, records 64 dispatch-only samples and reports robust
+statistics with the active variant and pairing phase. Set
+r_pathTracingUnifiedPtFixedSampleIndex to 0 for the first matched pair, toggle
+stored source target 0 then 1, and repeat. The timing mode change rearms the
+batch automatically; toggle timing off/on to repeat an unchanged mode. Test
+fixed phases 1..3 only after phase zero is reproducible. The quantized-sample
+coordinate caveat requires adversarial checks at alpha-masked emissives,
+stretched UVs and texture edges before acceptance.
+
+The full Vulkan release build passes; no DX12 shader was compiled. The new EXE
+SHA-256 is
+309C2DB011EBEB92293D7CC392C3363C5AB446445DE07C3E75D43A3AD4BEC39A and the
+new stored-target S0 blob SHA-256 is
+4EB27ECAB61B7F939827FBD79AC493CCB9929EC75263147B9C1BEA5A454F21A5. The
+accepted shared S0 blob was not rebuilt. Do not begin the two-pass paired
+prepass or pairing-texture work until this source-target A/B is measured.
+
+The first UPT-31 runtime batch is positive but not sufficient for acceptance.
+At fixed sample index/phase zero, the nearest repeated baseline was 11.435 ms
+median / 11.596 ms mean and stored source target was 10.786 ms / 10.901 ms.
+That is a 5.7 percent median and 6.0 percent mean S0 saving. It proves the
+source-side direct emitter replay was redundant, but leaves almost all of the
+pass cost intact. Visual parity was not reported with this timing log.
+
+More importantly, the accepted artifact measured 20.267-20.812 ms median with
+live sample indices but 11.435-12.330 ms at fixed sample index zero. The fixed
+cvar changes all UPT sample selection/history population as well as pairing
+phase, so do not attribute this gap to phase orientation. It makes event-route
+population the next diagnostic target. Obtain one more stored-target batch and
+one return-to-baseline batch, then add per-workgroup route/rejection counters
+for direct event 2, global event 2 and endpoint event 4 without a per-frame
+clear or globally contended per-pixel atomics.
+
+spatiallog2.txt completes the return baseline. The immediately preceding
+stored-target phase-zero batch was 7.447 ms median / 7.962 ms mean; returning
+to source replay produced 8.706 ms / 8.745 ms. This confirms a conservative
+14.5 percent median and 9.0 percent mean improvement. Combined with the first
+9.569 -> 6.963 ms transition and the tightly grouped 6.963/7.218/6.981 ms
+stored-target medians, the direction is decisive even though the magnitude
+varies with reservoir population.
+
+The implementation is performance-accepted but not yet visually accepted.
+Before changing its default, inspect alpha-masked and stretched-UV emitters,
+mirrors, portals and moving rigid/skinned geometry for target mismatch, color
+corruption or energy changes. Once visual parity is confirmed, promote stored
+source target and proceed to per-workgroup S0 event-route counters; about 7-9
+ms remains even in fixed-index phase zero.
+
+Temporal motion test interface, 2026-08-11
+-------------------------------------------
+
+A reported post-correction motion artifact was not immediately reproducible.
+Manual setup had become too large for reliable console paste and could retain
+incompatible diagnostic state. Use the checked-in one-command presets instead:
+
+    exec uptm0    production temporal baseline
+    exec uptm1    exact single-tap reprojection
+    exec uptm2    pre-common-GRIS merge
+    exec uptm3    direct temporal history only
+    exec uptm4    no-reuse D0/R0 reference
+
+All five select the accepted fast D0 layout (split initial, compact64 lights,
+native geometry), disable spatial, clear diagnostic specializations and reset
+history through a one-frame temporal-off transition. Compare the same moving
+rigid/skinned object or camera-disocclusion edge. If uptm1 alone fixes the
+artifact, audit multi-probe receiver acceptance. If uptm2 alone fixes it,
+audit common-GRIS history selection. If uptm3 fixes it, audit global replay;
+uptm4 is the non-reuse oracle.
+
+baseline.txt verifies that uptm0 reached the intended gates: shared adapter
+1/1, common GRIS 1/1, split direct+indirect D0, compact64 lights, indirect T0,
+nine history taps and spatial off. The user reported stable performance and
+good image quality, with no repeat of the suspected motion artifact. Treat the
+production temporal baseline as accepted and wait for a reproducible motion
+case before changing reprojection or merge policy.
+
+UPT-32 full-occupancy shared spatial, 2026-08-11
+-------------------------------------------------
+
+Feature completion resumed at S30.3. The prior leader artifact left half of
+every warp inactive. A new default-off workgroup specialization gives every
+lane one source-to-partner shift, exchanges mapped records through one 8x8
+group-shared barrier, and gives every lane one publication. A nonzero hashed
+XOR mask is a self-inverse 64-lane pair map and replaces the four adjacent-only
+phases. It adds no full-resolution buffer, page, clear or dispatch.
+
+The original S30.1 and UPT-31 artifacts remain available. Offline gates pass:
+26 bindings, triangle classes at 9/13, 96-byte push constants, one barrier,
+three static RayQuery sites, no TraceRay and the same four dynamic queries per
+pair. The moving-boundary SPIR-V is 477508 bytes with SHA-256
+F99D5582B81A1958572D62A8530A0D89A6C4B49258C03794F1F16E85BF514C71;
+the rebuilt executable SHA-256 is
+40014535871FE098691F20FD442535B4D7860F8924444286D72ADC38D4CCC780.
+
+Use `exec uptf0` for the stored-target leader oracle and `exec uptf1` for the
+new workgroup path. Require requested/effective=1/1 and workgroupPairing=1.
+Runtime must reject seams, black output, motion ghosts, color corruption,
+missing geometry or energy growth before widening the pair domain, adding
+multiple neighbors or re-admitting empty-center rescue. Document 47 owns the
+exact contract and remaining feature sequence.
+
+The first uptf1 runtime test reported a decent performance boost with broadly
+good image quality, validating full-lane ownership. Faint 8x8 squares remained
+occasionally visible. UPT-32 now translates the complete workgroup lattice by
+a frame-varying toroidal offset for extents divisible by eight. This keeps a
+one-to-one output mapping and exact reciprocal pairs while moving tile borders
+across frames; non-multiple extents retain the edge-safe unshifted schedule.
+Wrap-crossing pairs reject symmetrically rather than connecting opposite
+screen edges. Re-test uptf1 before adding more neighbors or rescue.

@@ -18,7 +18,15 @@ import upt04_path_event_contract;
 import upt05_material_openpbr;
 #endif
 import upt07_emissive_material;
+#ifndef UPT09_SPATIAL_INDIRECT_REPLAY
+#define UPT09_SPATIAL_INDIRECT_REPLAY 0
+#endif
+#if UPT09_SPATIAL_INDIRECT_REPLAY
+import upt09_spatial_direct_bindings;
+#define gUpt07Control gUpt09Control
+#else
 import upt07_temporal_direct_bindings;
+#endif
 import upt07_work_budget;
 
 public static const uint kUpt07MaterialAlphaClipTest = 0x00000001u;

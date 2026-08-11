@@ -229,8 +229,10 @@ add_custom_command(
         -DUPT10_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_shared_adapter.slang.spirv-reflection.json
         -DUPT10_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_shared_adapter.slang.spvasm
         -DUPT10_STAMP=${UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP}
+        -DUPT10_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
         -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10TemporalAdapter.cmake"
     DEPENDS ${temporal_unified_shared_adapter_outputs}
+        "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10TemporalAdapter.cmake"
     COMMENT "UPT-30 verifying compile-only temporal shared adapter ceiling"
     VERBATIM)
@@ -244,8 +246,10 @@ add_custom_command(
         -DUPT10_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris.slang.spvasm
         -DUPT10_STAMP=${UPT10_TEMPORAL_COMMON_GRIS_VERIFY_STAMP}
         -DUPT10_LABEL=common-GRIS
+        -DUPT10_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
         -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10TemporalAdapter.cmake"
     DEPENDS ${temporal_unified_common_gris_outputs}
+        "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10TemporalAdapter.cmake"
     COMMENT "UPT-30 verifying common GRIS temporal ceiling"
     VERBATIM)

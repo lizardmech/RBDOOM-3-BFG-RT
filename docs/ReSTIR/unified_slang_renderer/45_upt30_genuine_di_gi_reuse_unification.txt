@@ -350,3 +350,202 @@ correctness issue, ghosting, color corruption or energy instability. Runtime
 performance was also less erratic in general. This is sufficient to accept the
 T30.3 estimator and begin S30.1. It is not yet a fixed-pose quantitative timing
 claim; the important result is stable combined direct/global temporal reuse.
+
+S30.1 implementation, 2026-08-11
+---------------------------------
+
+The first combined spatial specialization is available behind
+r_pathTracingUnifiedPtSharedSpatial. It requires the accepted common temporal
+configuration and r_pathTracingUnifiedPtSpatial 1. It admits only a selected
+center and one selected, surface-compatible neighbor; empty-center rescue and
+multi-neighbor expansion remain disabled.
+
+Direct and global candidates use the same Upt10 shift-result and mapped-pair
+core. Same-frame global replay compiles out previous-to-current light remapping,
+but preserves exact endpoint/material evaluation, alpha traversal and deferred
+winner-only secondary-NEE visibility. Both shift directions are evaluated for
+pairwise MIS. The neighbor-to-center mass receives the forward Jacobian once;
+the canonical center uses identity Jacobian. An identical nonzero replay-key
+sample occupying both pixels is rejected before mapping so a temporally
+propagated path cannot be proposed twice.
+
+The proof artifact retains one 64-byte reservoir ABI and the two existing page
+roles. It adds no clear, sidecar or dispatch. Reflection/disassembly verifies
+26 bindings, a 96-byte push-constant block, four static RayQuery sites and no
+TraceRay. The full Vulkan release build passes. The deployed executable hash is
+8F804CF61362C0F003065D55853C4A6514196634CF75665C3764630FC90B6F46 and the
+new spatial blob hash is
+6D96707AD0D4795C21EB2C8C173B1D29521F43D8BCE5B59C6525C506444B9B2C.
+
+Runtime gate:
+
+    r_pathTracingUnifiedPtTemporal 1
+    r_pathTracingUnifiedPtTemporalIndirect 1
+    r_pathTracingUnifiedPtSharedReuseAdapter 1
+    r_pathTracingUnifiedPtTemporalPairwise 1
+    r_pathTracingUnifiedPtCommonGrisMerge 1
+    r_pathTracingUnifiedPtSpatial 1
+    r_pathTracingUnifiedPtSharedSpatial 0 / 1
+
+The activation line must report shared spatial requested/effective=1/1 and the
+spatial creation line sharedSpatial=1 with attempts=1/0. Compare fixed-pose
+brightness/noise and timing, then exercise emissives, portal crossings,
+mirrors, alpha blockers and moving rigid/skinned geometry. Do not expand to
+S30.2 or more neighbors until this bounded pair is stable.
+
+S30.1 performance rejection and paired correction, 2026-08-11
+-------------------------------------------------------------
+
+The first per-pixel selected-pair artifact was visually correct, but failed its
+performance gate decisively: enabling emissives reduced total frame rate by
+approximately 50 to 80 percent. Audit showed no restored emissive identity
+search. The structural error was redundant work ownership. Every pixel
+independently performed center-to-neighbor and neighbor-to-center global replay
+and could then perform winner visibility; nearby pixels repeated the same class
+of reciprocal work.
+
+The replacement retains the identical two-technique GRIS estimator but assigns
+each pixel to one disjoint reciprocal pair. One leader computes A-to-B and
+B-to-A once, then publishes both output reservoirs using independent per-pixel
+winner randoms and winner-only visibility. Four phases alternate horizontal
+and vertical adjacent pairs and shift the pairing origin. Orphan edge pixels,
+incompatible surfaces, invalid reservoirs and duplicate replay keys pass
+through without replay. There is no new buffer, clear, sidecar or dispatch.
+
+The rejected implementation admitted at most six dynamic rays over two output
+pixels: four mapping rays plus two winner-visibility rays. The paired artifact
+admits at most four over the same pair: two mappings plus two winner
+visibilities. Continuation endpoints with an existing visibility proof remain
+cheaper. SPIR-V contains six static RayQuery sites because the compiler emits
+separate direct/global winner routes for both publications; the verified
+dynamic ceiling is four rays per pair and TraceRay remains absent.
+
+The Vulkan release build passes. The deployed executable SHA-256 is
+51F8F8FFD7F37A1FC6C6C9DF78CD4E4D967D09950EBA6B34CEFFB1949C9413B3 and the
+sole replaced spatial blob SHA-256 is
+8F16F2FEB5B93943858F6CC47572667A376AB7B2BFB9E53D134F25F03CDEC95A. Runtime
+must confirm the marker UPT.S0 Shared Disjoint Reciprocal Pair GRIS and creation
+fields sharedSpatial=1 pairedPixels=2 mappingRaysMaxPerPair=2. Compare the same
+emissive-heavy pose against shared spatial off and against the rejected 50 to
+80 percent loss before admitting any additional pair or neighbor.
+
+S30.1 emissive replay PDF persistence, 2026-08-11
+------------------------------------------------
+
+Runtime of the disjoint pair recovered some performance and remained visually
+correct, but the adjacent-only schedule was visibly blotchier. More
+importantly, spatial performance became completely acceptable with emissive
+scale zero and remained poor with emissives enabled. This isolates the
+remaining cliff to selected secondary-emissive replay rather than pair
+scheduling, shared GRIS math, analytic reuse or a general spatial dispatch
+cost.
+
+Audit found that every secondary-emissive shift evaluated four coarse
+bindless-texture probes to reconstruct the selected triangle region's
+conditional PDF, then evaluated the exact endpoint texture a fifth time. The
+four-region distribution is fixed by triangle/material/sample coordinates and
+is receiver invariant. D0 already computes its exact selected-region scale.
+
+D0 now carries that scale transiently through inner RIS, leaving proposal
+selection and candidate weight untouched, then stores a tagged value in
+proposalPdf only after the top-level reservoir has finished selecting its
+winner. Temporal/global replay preserves the tag. Temporal retains the old
+four-probe fallback for a transition record, while same-frame shared spatial
+fails closed on an untagged record so its compiled artifact contains no
+coarse-probe replay path. Exact
+endpoint UV/material evaluation is unchanged, so black mask texels, small door
+panels and color remain exact.
+
+The full Vulkan build passes. Only the three live blobs for the accepted
+split-D0/compact-light/common-temporal/shared-spatial configuration were
+deployed:
+
+* split indirect D0 SHA-256
+  3470E6F2690D1D89E4E4D7D7713F698D6F5004E636715CEFC60E89D2FC8B888D;
+* common temporal GRIS SHA-256
+  9C0F3E5CA5A3125A75689BC6480C79A82D81393497B876910D95576063167529;
+* paired shared spatial SHA-256
+  324E8B0A5AD1E904A087DC7587C6DC7071872ECAEDD26C1E0847A422E47394FC.
+
+Test performance first at the same emissive-heavy pose. The adjacent-pair
+quality schedule remains intentionally unchanged for this A/B. If the removed
+four-probe replay recovers the expected cost, widen the disjoint pairing
+schedule separately so quality and performance evidence are not conflated.
+
+S30.1 benchmark-contract correction, 2026-08-11
+------------------------------------------------
+
+The persisted-scale result above was not yet a trustworthy performance base.
+A source/SPIR-V/host audit found three correctness blockers and all three were
+corrected before further emissive optimization:
+
+* production T0 and shared S0 statically read triangle-class buffers at set-0
+  bindings 9 and 13, but their host layouts, binding sets, preflight and state
+  transitions omitted both resources. T0 and S0 now share one complete replay-
+  geometry host helper covering bindings 6 through 21. The verifier checks the
+  exact shader bindings and their host providers;
+* packed words 13 through 15 are an event-specific union. Static secondary
+  hits store the reconnection instance/primitive/barycentrics there, while
+  other events store path PDF/Jacobian/roulette. Resolve now decodes and
+  validates only the active arm instead of interpreting every static locator
+  as floating-point transport metadata;
+* the original positive replay-scale tag overlapped the valid unbounded
+  positive PDF domain. The scale now occupies the negative finite interval
+  [-4,0), while real proposal PDFs remain strictly positive. The host packed-
+  content ABI advanced from 10 to 11, invalidating old page metadata without a
+  full-buffer clear.
+
+Offline recurrence gates now cover exact 9/13 SPIR-V/host descriptor parity,
+the resolve union/signed-word12 source contract, and exhaustive pairing
+involution for extents 1 through 17 over all four pairing phases. No current
+S0 performance number is accepted until this corrected executable and shader
+set run in game. First verify image parity and the absence of binding errors;
+then repeat the fixed-pose emissive-on/off timing matrix. Do not optimize the
+direct/global/endpoint emissive routes from the earlier measurements.
+
+The complete win64-pt-dev-release Vulkan build passes. The deployed corrected
+artifacts are:
+
+* executable SHA-256
+  C36F79A12746ED8D2B94662F461827D35D4D725D1708968CEB95A285D7C6CED8;
+* split indirect D0 SHA-256
+  7E92A60184A9B137C8B3CFED485622A2EDF9BDA6926AC095ADE09BE5ACEFF30A;
+* compact32 resolve SHA-256
+  00C5D3AB8151386554D83BD65EB82960020240530E55DBAAEB84822EC235C981;
+* common temporal GRIS SHA-256
+  694EC92A032FD8AB79FA027C2D34B46D4CAF7AA4AC8A495986A0C72B83C66A08;
+* paired shared spatial SHA-256
+  9F41740D5F6C7F518A4310A8A6B58EA820038146B381EFDBF511C1A8FCA8CC28.
+
+No DX12 shader was compiled.
+
+Temporal motion regression presets, 2026-08-11
+-----------------------------------------------
+
+Later play exposed a possible motion artifact after the replay-geometry and
+packed-reservoir correctness fixes. It was not immediately reproducible, and
+the required cvar wall made long-form testing unreliable. Five short exec
+presets now freeze the production-shaped split-D0/native-geometry/compact64-
+light configuration, disable S0, reset temporal history, and change one T0
+dimension at a time:
+
+    exec uptm0    production search-2/common-GRIS/indirect baseline
+    exec uptm1    exact single-tap search-0 reprojection
+    exec uptm2    pre-common-GRIS merge with the accepted shared adapter
+    exec uptm3    direct temporal history only
+    exec uptm4    no temporal or spatial reuse; D0/R0 reference
+
+Each preset first disables UPT and T0, applies every effective-gate input,
+reenables UPT, waits one rendered frame, and then enables T0 where applicable.
+This prevents inherited diagnostic cvars, ineffective requested states, and
+old history from contaminating a motion comparison. The presets are a test
+interface only and change no renderer default or estimator.
+
+The first preset run confirmed uptm0's complete intended route: split direct
+and indirect D0 with compact64 lights, unified indirect T0 with nine history
+taps, shared adapter requested/effective 1/1, common GRIS requested/effective
+1/1, and S0 disabled. Extended play reported good image quality and stable
+performance, and did not reproduce the suspected motion artifact. The
+production baseline therefore remains accepted. Keep the isolation presets for
+the next reproducible occurrence rather than weakening temporal reuse without
+evidence.

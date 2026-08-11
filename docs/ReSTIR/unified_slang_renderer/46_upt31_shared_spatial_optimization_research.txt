@@ -1,0 +1,1066 @@
+UPT-31: shared spatial reuse optimization research
+==================================================
+
+Status of this document
+-----------------------
+
+Research only. Nothing here was measured. Every performance claim is a
+hypothesis with a stated falsification test. The 2026-08-11 findings document
+(docs/optimize/pt_performance_findings_2026_08_11.md, section 10.6) records
+that source inspection produced roughly twelve confident, specific, plausible
+hypotheses and that nearly all of them were falsified by measurement. Treat
+this document the same way.
+
+Two classes of claim are mixed below and are labelled:
+
+    STATIC   provable from source without running anything
+    HYPO     a performance prediction that must be measured
+
+The STATIC claims are the load-bearing ones. The strongest result in this
+document (section 5) is STATIC: a function that is a pure per-triangle
+constant is being recomputed with five bindless texture samples at every
+evaluation site.
+
+Question
+--------
+
+S30.1 (doc 45) landed a shared DI/GI spatial estimator and its first artifact
+lost 50 to 80 percent of frame rate when emissives were enabled. The disjoint
+reciprocal pair replacement is built but not yet accepted at runtime. What is
+actually expensive, what does ReSTIR PT Enhanced section 3 actually prescribe,
+and how far apart are the two?
+
+Verified current state
+----------------------
+
+Shader: neo/shaders/slang_upt09/upt09_spatial_direct_rayquery.slang,
+UPT10_SHARED_SPATIAL region at lines 375-749, entry at line 772.
+Host: neo/renderer/NVRHI/PathTraceUnifiedPt.cpp, Upt30SharedSpatialEnabled at
+line 123, dispatch at lines 5760-5939.
+
+STATIC facts:
+
+* One compute dispatch, [numthreads(8,8,1)], one thread per pixel, full
+  resolution (PathTraceUnifiedPt.cpp:5930).
+* Pairing is nearest-neighbour: partnerPixel = pixel + (0,1) or (1,0)
+  (upt09_spatial_direct_rayquery.slang:628). Host reports radius 1.0 for the
+  shared path against UPT09_NEIGHBOR_RADIUS = 30.0f for the legacy path
+  (PathTraceUnifiedPt.cpp:5656, :101).
+* Four phases, selected by frameSampleIndex & 3, alternate horizontal and
+  vertical adjacency and shift the pairing origin (line 608-613).
+* Leader lanes only: a lane whose coordinate parity does not match
+  leaderParity returns without any work or write (line 620-621).
+* Both directions of a pair are computed by the leader
+  (Upt09ShiftSharedSample called twice, lines 693 and 708) and both output
+  pixels are published by the leader (Upt09PublishSharedPairDirection twice,
+  lines 726 and 737).
+* The pairwise MIS algebra is correct. For the publication to pixel A with
+  source B the two weights are M_B p_B(Y_B) / (M_B p_B(Y_B) + M_A p_A(Y_B))
+  and M_A p_A(Y_A) / (M_A p_A(Y_A) + M_B p_B(Y_A)); they sum to a partition of
+  unity over the pair, and all four targets are genuinely required. No
+  correctness problem was found in the estimator.
+* Ray ceiling per pair: two mapping RayQuery (global route only) plus two
+  winner-visibility RayQuery. Matches doc 45.
+
+1. The leader-lane structure cannot deliver the paper's saving
+--------------------------------------------------------------
+
+STATIC. With [numthreads(8,8,1)] a 32-lane warp covers x = 0..7, y = 0..3.
+
+    horizontal phase: leader iff x parity matches -> 16 of 32 lanes lead
+    vertical   phase: leader iff y parity matches -> rows 0 and 2 lead,
+                      again 16 of 32 lanes
+
+In every phase, in every warp, exactly half the lanes are leaders and they are
+interleaved with the idle half. No warp is ever fully idle, so no warp is ever
+retired early. The dispatch launches the same number of warps as the unpaired
+implementation did.
+
+HYPO. The consequence is that the paired scheme converts a work reduction into
+a time reduction only for costs that are serialized per active lane (ray
+traversal, scattered dependent loads, bindless texture sampling with divergent
+descriptors). It recovers nothing for instruction issue, and it halves the
+number of independent memory requests available to hide latency in a kernel
+that the findings document already characterises as latency-bound at 37 percent
+occupancy with nothing to switch to.
+
+Accounting per two output pixels:
+
+    rejected per-pixel artifact:  2 mappings + 1 winner visibility, per lane,
+                                  32 active lanes
+    paired leader artifact:       2 mappings + 2 winner visibilities, per
+                                  leader lane, 16 active lanes
+
+Total rays drop from 3N to 2N (33 percent). Per-warp serialized ray cost drops
+from 96 to 64 (33 percent). Instruction-issue cost per warp rises from 3 units
+to 4 units. Net expectation is a modest improvement, not the paper's 1.63x,
+and certainly not enough to recover a 50-80 percent regression.
+
+What the paper actually does. Lin 2026 section 3 (paper text line 1189):
+"Our paired spatial reuse does not fully halve costs, due to overhead from
+splitting spatial reuse in two: a pre-pass shifts each path to all paired
+neighbors, and a second pass performs resampling."
+
+The split is not an implementation detail, it is the mechanism. The pre-pass
+is one shift per pixel at full occupancy. Every lane does exactly the same
+work. The resampling pass is pure loads plus arithmetic plus one winner ray.
+There is no idle half.
+
+Proposed structure, matching the paper:
+
+    pass A (shift pre-pass), one thread per pixel, no parity gate:
+        compute Shift(Y_i -> receiver of partner(i))
+        publish {shifted candidate, p_partner(Y_i), p_i(Y_i), W_i, M_i,
+                 jacobian, mapping status} at index partner(i)
+
+    pass B (resample), one thread per pixel, no parity gate:
+        read entry[A]  -> Y_B shifted to A, p_A(Y_B), p_B(Y_B), W_B, M_B
+        read entry[B]  -> p_B(Y_A), needed for A's canonical MIS denominator
+        read inputPage[A] -> Y_A itself if the canonical wins
+        merge, winner-only visibility, publish
+
+Storage note. A naive pre-pass buffer at 2560x1440 is not affordable
+(128 B/px is 470 MB). It is avoidable: pass A can write the shifted candidate
+directly into the existing alternate reservoir page at the partner's index,
+which is precisely the page S0 already owns and overwrites. p_partner(Y_i) is
+already the shifted candidate's target field; the jacobian already has a
+partialJacobian word. The remaining scalars are p_i(Y_i), W_i and M_i. For
+direct events, pathPdf duplicates proposalPdf and partialJacobian and
+accumulatedRouletteProbability are constant 1.0 (see
+upt09_spatial_direct_rayquery.slang:268-271), so three words are already dead
+in the existing 64-byte ABI. Whether all three scalars fit without widening
+the ABI is the one real open design question in this section, and it should be
+settled on paper before any code is written.
+
+Falsification test for section 1: build the two-pass variant behind its own
+specialization and compare against the leader artifact at a fixed pose with
+the settled-batch protocol. If the leader artifact is already within noise of
+the two-pass variant, this entire section is wrong and the cost is elsewhere.
+
+Cheaper partial test that needs no new pass: change the leader parity from
+per-pixel to per-8x8-block (leader blocks pair with the block to their right).
+That makes whole warps idle instead of half of every warp. It is not a correct
+spatial reuse pattern, it is a pure occupancy probe: if the leader-lane
+hypothesis is right, the cost should drop by close to half; if it does not
+move, the idle-lane analysis is wrong.
+
+2. Pairing distance 1 is not spatial reuse
+-------------------------------------------
+
+STATIC. The shared artifact pairs each pixel with an immediately adjacent
+pixel. The paper pairs with a Gaussian-distributed partner at sigma = 16.0,
+chosen explicitly to match the mean sample distance of the uniform disk of
+radius rho = 30 that ReSTIR has used since Bitterli 2020 (paper text line
+1189, digest section 2). The legacy S0 path in this repo already uses radius
+30 with 3 neighbours (PathTraceUnifiedPt.cpp:99-101).
+
+Three consequences, all adverse:
+
+* Variance reduction. The whole value of spatial reuse is combining samples
+  drawn from decorrelated candidate streams. After T0, an adjacent pixel is
+  the most correlated reservoir in the image. The pass pays a full reciprocal
+  shift to merge a sample that is frequently the same sample.
+
+* Self-defeating admission. Line 675-685 rejects the pair outright when both
+  pixels carry the same nonzero replay key. That guard is correct and
+  necessary, but at distance 1 it is exactly where the duplicate rate is
+  highest. Lin section 5 measures duplication over a 17x17 window precisely
+  because propagated paths occupy contiguous neighbourhoods. A large fraction
+  of pairs therefore performs surface loads, reservoir decode and
+  compatibility tests, then bails without producing any reuse.
+
+* Structured correlation. Four fixed phases means each pixel ever sees at most
+  four partners, cycled deterministically by frameSampleIndex & 3. This is the
+  block-structure artifact class Lin section 3 explicitly designs against
+  (paper text line 397, contrasting with Bekaert 2002's N-rooks blocks): "We
+  avoid such structure by overlaying large different-sized Gaussian-permuted
+  reuse textures; each pixel follows a different, random reuse pattern with no
+  block borders."
+
+The paper's reuse-texture construction is fully specified and cheap to build
+offline (digest section 2, paper text lines 345-394):
+
+    1. even texture size, e.g. 254x254 (a multiple of 256 would need 16-bit
+       channels for deltas at +/-128)
+    2. fill with consecutive link indices
+    3. n rounds of tiled 2x2 random shuffles, every other round offset
+       diagonally by 1, wrapping at the edges;
+       n ~= sigma^2/2 + 0.5 (Equation 3; the negative-power terms are a
+       small-sigma curve fit - CHECK PDF before implementing)
+    4. pair pixels with matching link indices
+    5. break long links for tileability: subtract the width from deltas above
+       half-width, add it to deltas below minus half-width
+    6. pack x/y deltas into a two-channel 16-bit texture
+
+    per-frame: randomly flip / mirror / transpose / offset the texture,
+    because a self-inverting map must change every frame
+    per-neighbour: a different texture size (they use 254, 230, 210) to avoid
+    correlation from texture repeats
+
+Note that a pairing texture also removes the need for the parity/leader
+scheme entirely: the texture is self-inverting by construction, so "who is my
+partner" is a single texture fetch and every pixel has exactly one partner
+with no orphan handling beyond the tile edges.
+
+Interaction with section 1: the pre-pass structure and the pairing texture are
+independent. Either can be adopted first. But adopting the pre-pass while
+keeping distance-1 pairing produces a fast pass that still does not improve the
+image, and the acceptance gate in doc 45 is fixed-pose brightness and noise as
+well as timing.
+
+Interaction with Junkins 2026: that paper argues the binary depth+normal
+compatibility test in Upt09SpatialSurfacesCompatible (line 314-340) is the
+wrong criterion, and that world-space primary-hit distance plus normal, scored
+continuously and sampled by WRS over a wider candidate pool, is the right one.
+That is a separate lane. It is worth noting only that it is in tension with
+pairing textures: a self-inverting pairing map cannot also be compatibility-
+guided, because compatibility scoring is not symmetric under a fixed pairing.
+Reconciling the two is an open research question in both papers' own framing,
+and it should not block this work.
+
+3. Emissive cost anatomy
+-------------------------
+
+This is the part the user asked about. STATIC accounting, per reciprocal pair,
+for the case both pixels hold a direct emissive sample (eventKind 2).
+
+Upt09ShiftSharedSample (line 400-465) does two things per direction:
+
+    result.sourceTarget = Upt09PrimaryDirectTargetAtReceiver(source,
+                                                             sourceReceiver)
+    shiftedValid       = Upt09ShiftPrimaryDirectUnshadowed(source,
+                                                           targetReceiver, ...)
+
+Upt09PrimaryDirectTargetAtReceiver (line 301-312) is not a cheap accessor. It
+calls the full Upt09ShiftPrimaryDirectUnshadowed and discards everything except
+the target. So each direction performs two complete emissive light
+evaluations, and each pair performs four.
+
+One complete emissive evaluation, from Upt09EvaluateDirectSample (line 114) and
+Upt09ShiftPrimaryDirectUnshadowed (line 204):
+
+    Upt09LoadLight(denseIndex)                              line 137
+    Upt04ReplayEmissiveTriangleBarycentrics                 line 146
+        -> gUpt04EmissiveReplay[light.sourceIndex]          1 record load
+        -> Upt04ResolveTriangle                             up to 4 dependent
+                                                            levels on the
+                                                            rigid route
+        -> Upt04BuildGeometryHitSurface
+    UptDirectEmissiveRegionWeights                          line 155
+        -> 4 x material record load + 4 x bindless SampleGrad
+    UptDirectEvaluateEmissiveEndpoint                       line 162
+        -> 1 x material record load + 1 x bindless SampleGrad
+    TMaterialSet.EvaluatePrimaryDirect (receiver BSDF)      line 221
+    Upt09LoadLight(denseIndex) for the fingerprint          line 262
+    Upt09LoadLight(denseIndex) for the visibility ignore    line 294
+
+Totals per pair (four evaluations):
+
+    12 light record loads
+     4 emissive replay record loads
+     4 triangle resolves (up to 16 dependent loads on the rigid route)
+    20 material record loads
+    20 bindless SampleGrad with NonUniformResourceIndex
+
+That is ten bindless texture samples per output pixel, from the spatial pass
+alone, before any ray is traced. At 2560x1440 it is roughly 37 million
+SampleGrad per S0 dispatch. Bindless sampling under NonUniformResourceIndex
+serializes per distinct descriptor across the active lanes of a warp, so
+scattered emissive triangles multiply this further.
+
+HYPO: this is the mechanism behind the 50-80 percent emissive regression, and
+it is not primarily a ray-count problem. The doc 45 audit concluded "no
+restored emissive identity search", which is correct - the 16-probe reverse
+hash is not on this path - and then attributed the cost to redundant work
+ownership. The ownership analysis was right about the redundancy and wrong
+about which work was redundant.
+
+Falsification test: r_pathTracingToyEmissiveScale 0 with shared spatial on
+should collapse the S0 cost, as it did for T0 in UPT-25. If it does not, the
+cost is in the global route rather than the direct route and section 4 below
+becomes the priority instead.
+
+4. Three redundancies, in increasing order of confidence
+---------------------------------------------------------
+
+4a. The source target is already stored (STATIC, high confidence)
+
+UPT persists target-scaled UCW, and the target is the sample's target in its
+own receiver's domain. T0's common merge maintains that invariant explicitly:
+when history wins it writes historyToCurrent.shifted whose target is the
+target at the current receiver; when current wins it writes
+currentTargetAtCurrent (upt07_temporal_direct_rayquery.slang:718-728). So for
+S0's input page, source.target is exactly p_source(Y_source).
+
+The shared shift already relies on this for the global route
+(upt09_spatial_direct_rayquery.slang:440, result.sourceTarget = source.target)
+and recomputes it from scratch for the direct route (line 424-426). The two
+routes disagree about whether the stored target can be trusted, in the same
+function.
+
+Production legacy S0 also trusts the stored value (line 951 uses
+neighbor.logical.selected.target unless proof mode 5 or the pairwise proof is
+active). The shared path therefore unconditionally does what the accepted
+production path deliberately avoids.
+
+Effect if corrected: four emissive evaluations per pair become two. Zero new
+storage, zero ABI change.
+
+Risk: the comment at lines 940-946 warns that treating the packed target as
+immutable is unsafe after prior reuse. That warning predates the common GRIS
+merge. It needs to be re-checked against every writer of the page, not
+assumed. Specifically: D0's finalize, T0's common merge both branches, T0's
+rescue path, and S0's own output. If any writer publishes a weightSum scaled
+by one target and a candidate carrying a different target, this optimization
+is invalid and that writer is a bug independent of performance.
+
+4b. The four region weights are a per-triangle constant (STATIC, proven)
+
+UptDirectEmissiveRegionWeights (upt07_emissive_material.slang:59-88) is a pure
+function of the emissive triangle. Trace the inputs:
+
+    Upt04EmissiveUvAtBarycentrics reconstructs
+        uv0 = emissionTexCoord - bary.x*grad0 - bary.y*grad1
+    and emissionTexCoord is the UV at those same stored barycentrics
+    (upt04_emissive_replay.slang:106, :150-160), so uv0 is exactly the
+    triangle's vertex-0 UV - independent of the sampled barycentrics.
+
+    grad0 = uv1 - uv0, grad1 = uv2 - uv0 (lines 107-108): triangle constants.
+
+    Upt04EmissiveRegionProbeBarycentrics returns four fixed constants
+    (lines 139-148).
+
+    materialIndex and triangleClassAndFlags: triangle constants.
+    materialCount, logicalTextureCount, emissiveScale: frame constants.
+
+The receiver position never enters. The sampled barycentrics never enter.
+Furthermore Upt04EmissiveRegionSelectionPdf normalizes by the weight sum
+(line 181-192), so emissiveScale cancels and even the frame constant drops
+out except at the underflow boundary.
+
+Conclusion: four bindless texture samples per emissive evaluation are
+recomputing a value that is fixed for the lifetime of the triangle's material.
+
+Effect if corrected: five SampleGrad per evaluation become one (the endpoint
+evaluation genuinely depends on the sampled point and must stay). Combined
+with 4a, twenty SampleGrad per pair become two - a 10x reduction in spatial
+emissive texture work.
+
+Where to precompute: not on the CPU. PathTraceEmissiveCandidates.cpp builds
+the inventory from material.emissiveColor only (lines 208-212) and never
+samples a texture. The natural home is a small GPU pass over the emissive
+light inventory, one thread per emissive light, four SampleGrad each, writing
+packed normalized weights back. The inventory is thousands of entries, not
+millions. PathTraceSmokeEmissiveTriangle is 144 bytes with a padding0 word
+(PathTraceEmissiveCandidates.h:66) and several derived fields, so a packed
+4x8-bit quad needs no stride change.
+
+This also benefits D0 (upt04_initial_direct.slang:338,
+upt04_local_light_evaluation.slang:17,68) and T0
+(upt07_temporal_direct_rayquery.slang:272, upt07_temporal_indirect.slang:430,
+:588), not only S0. It is the single highest-confidence item in this document
+and it is worth doing regardless of what happens to the spatial architecture.
+
+Risk: low, but the precomputed value must be invalidated on material or
+texture change, and the underflow fallback (uniform 0.25 when the weight sum
+collapses) must be reproduced exactly or the estimator's proposal density
+shifts and energy moves.
+
+4c. The emissive triangle geometry is re-resolved through the geometry
+    pipeline (STATIC, medium confidence on feasibility)
+
+Upt04ReplayEmissiveTriangleBarycentrics calls Upt04ResolveTriangle
+(upt04_emissive_replay.slang:43), which the findings document records as a
+5-way route dispatch costing up to 4 dependent levels on the rigid route
+(findings section 9). Everything it needs afterwards is v0, v1-v0, v2-v0 plus
+the UV basis, and the CPU already has exactly those values in hand when it
+builds the record (PathTraceEmissiveCandidates.cpp:190-195).
+
+Storing p0 + edge01 + edge02 + uv0 + uvEdge0 + uvEdge1 is 15 floats. The
+existing 144-byte record carries centerAndArea, normalAndLuminance, uvBounds
+and centroidUvAndWeight, all of which are derivable from those 15 floats. A
+restructured record could be self-contained and no larger.
+
+Effect if corrected: the emissive replay touches no geometry buffer at all.
+This removes the dependent-load chain that the findings document names as the
+core failure mechanism, from every emissive evaluation in D0, T0 and S0.
+
+Risk: skinned and rigid emissive triangles move. Their vertices would have to
+be refreshed per frame or the route would have to fall back. This is the
+reason to treat 4c as a later item than 4b, and to scope it to the static
+bucket first with a measured coverage number, per the "no full-frame sidecar
+without measured coverage" boundary in doc 45.
+
+5. The representation question underneath all of this
+------------------------------------------------------
+
+The findings document already states the general form (section 5 and section
+8, RTXDI SDK): RTXDI_PTReservoir stores TranslatedWorldPosition, WorldNormal
+and Radiance - decoded geometry, directly usable - in the same 64 bytes that
+UPT uses to store identity plus seed. Its temporal resampling library contains
+no RAB_TraceRay at all.
+
+Applied to the direct emissive case specifically: if the candidate carried the
+sampled point's world position, normal and raw radiance, then shifting it to a
+new receiver would be
+
+    direction and distance from the new receiver         arithmetic
+    cosine at the light                                  arithmetic
+    solid-angle pdf = d^2 / (A * cos)                    arithmetic
+    BSDF at the new receiver                             already required
+    MIS balance heuristic                                arithmetic
+
+with zero light record loads, zero replay record loads, zero triangle
+resolves, zero material loads and zero texture samples. Sections 4a, 4b and 4c
+would all become moot on this route, because the quantities they are trying to
+avoid recomputing would not be recomputed at all.
+
+Budget sketch within the existing 16-word ABI, for direct events only:
+
+    freed: pathPdf (duplicates proposalPdf), partialJacobian (always 1.0),
+           accumulatedRouletteProbability (always 1.0)     -> 3 words
+    freed: sampleCoord0, sampleCoord1 (barycentrics, only needed to re-derive
+           the position we would now store directly)       -> 2 words
+    kept:  identity0 (dense light index, still needed for the visibility
+           ignore ids and for stale-light rejection)
+    kept:  identity1 (stable fingerprint)
+
+    needed: world position float3                          3 words
+            normal, octahedral                             1 word
+            raw radiance, RGB9E5 or similar                1 word
+            triangle area, or a folded area/cos term       1 word
+
+Six needed against five clearly free, with identity1 the obvious candidate for
+the sixth if the dense index plus range and type checks are sufficient
+validation. This is a paper exercise, not a proposal - but it is close enough
+to fitting that it should be settled before investing in 4c, because 4c is
+partly wasted work if 5 lands.
+
+Note the tension with doc 45's stated boundary: "one 64-byte shared reservoir
+ABI and its target-scaled-UCW convention" is a preserved invariant. Section 5
+changes what occupies the 64 bytes without changing the size. That is within
+the letter of the boundary but it is a large change and it invalidates page
+metadata across the transition, exactly as the common-merge transition did.
+
+6. The global route: forced NEE reconnection
+---------------------------------------------
+
+Sections 3 to 5 concern the direct route. The global route
+(Upt07ReplayIndirectSample, upt07_temporal_indirect.slang:910) has its own
+emissive cost, and it is the one the reverse hash lives on.
+
+For an endpoint event (eventKind 4, a BSDF ray that landed on an emitter),
+replay traces a fresh continuation ray from the new receiver, decodes whatever
+triangle it hits, and then calls Upt07ExactNeePdfForEmissiveHit (line 1130) to
+get the MIS balance weight. That function performs the 16-probe reverse hash
+(upt04_emissive_lookup.slang:64-88), a light record load, an emissive replay
+and another four-probe region weight evaluation
+(upt07_temporal_indirect.slang:371-442). Two of these per pair.
+
+Lin section 6.2.3 addresses exactly this: "During random replay, paths ending
+at NEE-sampled light vertices pay expensive light sampling. Since replayed
+random numbers usually select the same light, force reconnection at such
+vertices if no earlier reconnection was found." Their Table 1 effect is
+temporal 4.16 -> 3.40 and spatial 13.06 -> 9.73 ms.
+
+Forcing reconnection at the emissive vertex means the light identity is
+carried, not rediscovered: the reverse hash disappears, the fresh trace becomes
+a visibility query rather than a closest-hit query, and the new hit's geometry
+decode disappears. Section 4b still applies to what remains, and section 4c
+would remove the replay's triangle resolve as well.
+
+The repo already has UPT07_EARLY_RECONNECT and Upt07TryStaticSecondaryReconnect
+(lines 956-990), gated to reconnectionVertexLength == 2 and disabled when
+pairwise MIS is on. The findings document records the reconnection A/B as a
+30 percent gain that may be a warm-up artifact and was never retested settled.
+That retest is cheap and should happen before anything in this section is
+built.
+
+7. Work order
+-------------
+
+Ordered by confidence times effect divided by risk, not by dependency.
+
+    1. Retest the reconnection A/B settled (findings section 11). Zero cost,
+       resolves a standing open question that changes the value of item 6.
+
+    2. Occupancy probe: per-8x8-block leader parity instead of per-pixel.
+       One-line change, no correctness claim, directly tests section 1.
+
+    3. Precompute the four emissive region weights (4b). Highest confidence
+       item in this document, benefits D0/T0/S0 together, independent of every
+       architectural question below.
+
+    4. Read the stored source target on the direct route (4a), after auditing
+       every writer of the page for the target/weight consistency invariant.
+       Halves the direct emissive evaluation count in S0.
+
+    5. Settle the reservoir representation question (5) on paper. It decides
+       whether 4c and parts of 6 are worth building.
+
+    6. Split S0 into shift pre-pass plus resample pass (section 1). Only after
+       2 has confirmed the occupancy hypothesis.
+
+    7. Replace distance-1 pairing with the paper's reuse textures (section 2).
+       Required before any image-quality claim can be made about shared
+       spatial reuse at all.
+
+    8. Forced NEE reconnection on the global route (section 6).
+
+Items 3 and 4 are the ones that plausibly address the emissive regression as
+stated. Items 6 and 7 are what make shared spatial reuse worth having.
+
+8. Measurement protocol
+-----------------------
+
+Per findings section 1, unchanged:
+
+    r_pathTracingUnifiedPtFixedSampleIndex 0     freeze RNG streams
+    r_pathTracingUnifiedPtTemporalGpuTiming 1    16 warm-up frames, 64 samples
+    only record a value once two consecutive batches agree; warm-up bias
+    reaches 33 percent and reads pessimistic on the first batch
+
+Caution specific to this pass: the shared spatial phase is
+frameSampleIndex & 3 (line 608). Freezing the sample index freezes the phase,
+so a frozen measurement samples one of four pairing patterns, not their
+average. Horizontal and vertical phases have different memory access patterns
+against the row-major reservoir page. Measure all four phases or state which
+one was measured.
+
+Diagnostics worth adding before, not after, the next change, per findings
+section 12:
+
+    pairs reached / rejected by surface compatibility / rejected by duplicate
+    replay key / admitted
+    emissive evaluations executed per pair, declared versus measured
+    bindless SampleGrad count per pass
+    mapping rays and winner-visibility rays, separately, per pass
+
+The declared-versus-measured form matters. Every finding in the findings
+document would have been visibly wrong the day it landed if that instrument
+had existed.
+
+9. What this document does not establish
+-----------------------------------------
+
+* No timing was taken. The 50-80 percent figure is from doc 45's runtime
+  session, not reproduced here.
+* The relative split between the direct route (sections 3-5) and the global
+  route (section 6) in a real emissive-heavy Doom view is unknown. The
+  r_pathTracingToyEmissiveScale 0 test in section 3 resolves it.
+* Whether the paired leader artifact is better or worse than the per-pixel
+  artifact it replaced is unmeasured. Section 1 predicts a modest improvement;
+  doc 45 has not yet run its acceptance gate.
+* The exact reuse-texture repeat count (Equation 3) and the sigma-to-rho
+  matching relation are marked CHECK PDF in the digest. Open
+  lin2026restirptenhanced.pdf before implementing section 2 step 3.
+* Section 4a is invalid if any writer of the reservoir page publishes a
+  weightSum and a candidate target that were computed in different domains.
+  That audit has not been done.
+
+Addendum: the RTXDI sample rayquery toggle, 2026-08-11
+-------------------------------------------------------
+
+New evidence, measured by the user on the RTXDI FullSample under Vulkan, by
+toggling General Rendering > Use RayQuery:
+
+    disabling rayquery raises No Instructions stall by over 100 percent
+    rayquery mode: 99.9 percent stall rate; TraceRay mode: 83 percent
+    PT initial samples degrades by 400 percent
+    PT temporal and spatial show no flow-on impact
+
+What the toggle switches (RayTracingPass.cpp:23-109): a compute pipeline with
+inline RayQuery, versus a DXR 1.0 raytracing pipeline with a shader table,
+RayGen/Miss/ClosestHit/AnyHit, maxPayloadSize 40 and maxRecursionDepth 1. Ray
+flags, instance masks and alpha logic are byte-identical between the branches.
+On Vulkan the __spirv__ branch of RtxdiApplicationBridge.hlsli:72-77 sets both
+reordering macros to 0, so neither mode has SER. This is therefore a clean
+API-only A/B.
+
+The important result is not the 400 percent. It is the "no flow-on impact".
+
+STATIC, and this is the decisive fact of this document:
+
+    Rtxdi/PT/HybridShift.hlsli:60
+    bool NeedToRunRandomReplayPathTracer(const RTXDI_PTReservoir NeighborSample)
+    {
+        return NeighborSample.RcVertexLength > 2;
+    }
+
+RTXDI's PT temporal and spatial resampling run the random-replay path tracer
+only when the reconnection vertex sits at length three or beyond. Every shorter
+path is shifted with no trace at all: RTXDI_PTReservoir carries
+TranslatedWorldPosition, WorldNormal and Radiance (Reservoir.hlsli:46-59), so
+ComputeReconnectionJacobian is arithmetic on stored values.
+
+That is why a 2x more hostile API barely moved those two passes. Most threads
+in them never enter traversal. The cost collapsed into GenerateInitialSamples,
+which is the only PT pass that actually runs the bounce loop for every pixel.
+
+Consequence for this renderer
+-----------------------------
+
+UPT has one continuation. Maximum pathLength is 2 and maximum
+reconnectionVertexLength is 2 (upt07_temporal_indirect.slang:931-938; the
+findings document records section 6.2.4 Russian roulette as N/A for the same
+reason). Under RTXDI's own criterion, RcVertexLength > 2 is never true here,
+so **the entire T0 and S0 shift population qualifies for trace-free
+reconnection**.
+
+Caveat before relying on this: RTXDI's RcVertexLength and UPT's
+reconnectionVertexLength may differ by one in their indexing convention. Even
+allowing an off-by-one, UPT's maximum sits at the boundary rather than beyond
+it. Establish the mapping before quoting the "100 percent" figure.
+
+Today, T0 and S0 trace unconditionally. Upt07ReplayIndirectSample builds a
+continuation ray and calls Upt07TraceIndirect for every global candidate,
+endpoint and secondaryNee alike (upt07_temporal_indirect.slang:993-1038). The
+shared spatial path calls it twice per reciprocal pair.
+
+The one existing escape is compiled out of the shipped configuration.
+upt07_temporal_indirect.slang:955-961 requires all of:
+
+    UPT07_EARLY_RECONNECT specialization
+    kUpt07EarlyReconnectFlag set
+    kUpt07PairwiseMisFlag CLEAR
+    source.reconnectionVertexLength == 2 exactly
+    secondaryNee only - eventKind 4 endpoints are never reconnected
+
+Doc 45's accepted configuration for the common GRIS merge and shared spatial
+requires r_pathTracingUnifiedPtTemporalPairwise 1, and its T30.2 gate list
+requires r_pathTracingUnifiedPtTemporalEarlyReconnect 0. So the production
+configuration structurally forbids the one mechanism that makes the reference's
+temporal and spatial reuse cheap. The findings document's unretested "-30
+percent" for TemporalEarlyReconnect is a measurement of a route that current
+production cannot reach.
+
+The blocker is representation, not algorithm. Upt07TryStaticSecondaryReconnect
+is limited to a static x2 locator; dynamic, rigid and skinned samples fall back
+to random replay because the candidate stores identity plus barycentrics rather
+than decoded geometry. This is section 5 of this document, now supported by a
+measurement instead of by source reading, and it is promoted from "settle on
+paper" to the primary lane.
+
+Revised work order
+------------------
+
+Sections 3, 4a and 4b stand unchanged - they are direct-route emissive costs
+and they are real regardless of what happens to the shift architecture. Items
+1, 2 and 5 of section 7 are re-ranked:
+
+    A. Establish the RcVertexLength / reconnectionVertexLength mapping and
+       measure the actual distribution of reconnectionVertexLength across T0
+       and S0 candidates. If the population really is entirely <= 2, every
+       trace in both passes is avoidable in principle.
+    B. Retest TemporalEarlyReconnect settled, with pairwise MIS off, to recover
+       the -30 percent measurement under the current protocol.
+    C. Decide the reservoir representation (section 5). It is the precondition
+       for extending reconnection past the static x2 locator, and therefore the
+       precondition for A being reachable in practice rather than in principle.
+    D. Remove the kUpt07PairwiseMisFlag exclusion. Reconnection and pairwise
+       MIS are orthogonal in the reference; the exclusion here is an artifact of
+       the reciprocal Jacobian contract being incomplete when early reconnect
+       was written (doc 45, "T0 pairwise mode explicitly suppresses the
+       reconnect Jacobian for global samples"). T30.3 restored Jacobian
+       ownership, so the reason for the exclusion may no longer exist.
+    E. Extend reconnection to eventKind 4 endpoints. They are currently
+       excluded outright and they are the events that pay
+       Upt07ExactNeePdfForEmissiveHit and its 16-probe reverse hash
+       (section 6).
+
+The stall shape, and the profile it identifies
+-----------------------------------------------
+
+Corrected figures from the sample:
+
+                        No Instructions   Long Scoreboard   total stalled
+    rayquery on               18 %              62 %             99 %
+    rayquery off              38 %              40 %             50 %
+
+The component figures are shares of stall cycles; "total stalled" is the
+overall warp stall rate, so they are not meant to sum.
+
+Two distinct profiles, and the ratio is the diagnostic:
+
+    HEALTHY      Long Scoreboard dominant, No Instructions low, high total
+                 stall. Memory-latency bound with enough resident warps that
+                 the scheduler always has something to issue.
+
+    PATHOLOGICAL No Instructions dominant, Long Scoreboard falling, total
+                 stall low. Not stall-limited at all - issue-limited. Warps
+                 are eligible half the time and there are too few of them, or
+                 instruction fetch cannot keep the front end fed.
+
+Cross-referencing every capture available (findings document section 7):
+
+    sample, rayquery on          NI 18 %     LSB 62 %     fast
+    Cyberpunk 2077 DI            NI 11 %     LSB 57.8 %   reference
+    this renderer, resolve       NI  -       LSB 61.3 %   healthy
+
+    sample, rayquery off         NI 38 %     LSB 40 %     5x slower
+    this renderer, indirect D0   NI 40.5 %   LSB 20.6 %   the bottleneck
+
+The indirect D0 capture sits on the pathological side, slightly worse than the
+sample's deliberately degraded mode. The resolve pass sits on the healthy side
+alongside Cyberpunk and the sample's fast mode. This is the pattern match the
+toggle exposed.
+
+What produces the profile differs in the two cases and the distinction matters:
+
+    in the sample, shader-table indirection and continuation splitting - each
+    hit enters a different code region cold. Unavoidable; it is the API.
+
+    in this renderer, a single 15,621-instruction kernel carrying 2,197
+    instructions (14.1 percent) that see fewer than 200 samples each. Entirely
+    avoidable; it is a code-structure choice.
+
+Same symptom, two producers, one fix class: reduce the instruction working set
+on the hot path.
+
+GPU Trace resolution of the occupancy question, 2026-08-11
+-----------------------------------------------------------
+
+Nsight Graphics GPU Trace captures of both modes were taken. Figures below are
+read from the capture UI; re-derive them from the session file before quoting
+them anywhere load-bearing.
+
+                                    rayquery off      rayquery on
+    PTGenerateInitialSamples          81.98 ms          (within 19.75 ms)
+    selection duration                83.96 ms          19.75 ms
+
+    RTCORE throughput                  8.7 %            34.6 %
+    L2 throughput                     39.6 %            55.2 %
+    VRAM throughput / bandwidth       53.8 %            16.9 %
+    SM (instruction) throughput        7.65 %            5.72 %
+
+    active threads per warp            8.0              14.9
+    coherence                         14.9 %            46.4 %
+
+    unallocated warps in active SMs   65.9 %            73.2 %
+    allocated shader warps            21.9 % raygen     21.4 % compute
+                                       4.0 % RT internal
+                                       0.5 % anyhit/closesthit
+
+    dominant input dependency     Local Memory 69.6 %   RTCORE 96 %
+                                  Global Memory 31.3 %
+
+Occupancy is not the differentiator. Allocated warp share is 21.9 percent
+against 21.4 percent - effectively identical. The occupancy-starvation reading
+proposed above is wrong and is withdrawn.
+
+The differentiators are divergence and where the dependency sits:
+
+* active threads per warp halves, 14.9 -> 8.0, and coherence collapses from
+  46.4 to 14.9 percent;
+* instruction issue in the TraceRay mode is gated on LOCAL MEMORY 69.6 percent
+  of the time, against RTCORE ray tracing 96 percent in the RayQuery mode.
+
+Local memory is the DXR ray-tracing stack. That is a direct measurement of live
+state being spilled and restored across the trace boundary, and it confirms the
+spill mechanism proposed earlier in this addendum. LSU Local Memory Load is
+also 8.83 percent of the self instruction mix in that mode.
+
+The consequences follow from that one fact. The spill traffic pushes VRAM
+throughput to 53.8 percent while starving the RT cores down to 8.7 percent: the
+GPU spends its time moving saved registers instead of tracing. The fast mode
+inverts both - RT cores at 34.6 percent, VRAM at 16.9 percent, SM nearly idle
+at 5.72 percent. The fast mode is ray-core bound. The slow mode is
+spill-bandwidth bound.
+
+A target profile, and a caution about transfer
+-----------------------------------------------
+
+The rayquery-on column is a calibration reference for a correct ReSTIR PT
+initial-sampling pass on this class of hardware, and it is directly comparable
+against a GPU Trace of D0:
+
+    RT cores are the bottleneck, at roughly a third of peak
+    SM instruction throughput is near zero - the SM only feeds the RT cores
+    almost all issue dependency is RTCORE, not memory of any kind
+    VRAM is not stressed
+    active threads per warp 14.9, coherence 46.4 percent
+
+Note that 34.6 percent RTCORE sits inside the band the findings document
+already records as realistic for BSDF and reconnection rays (20-40 percent),
+against 80-90 percent for coherent primary rays. It is not a disappointing
+number; it is what this workload looks like when it is correct.
+
+Note also that this renderer's own measured 19.6 active threads per warp and
+61.4 percent coherence are BETTER than the reference's 14.9 and 46.4 percent.
+That independently confirms the findings document's conclusion that coherence
+and occupancy are not the lever here.
+
+Caution on transfer. The degraded mode's failure is spill-bandwidth saturation:
+VRAM at 53.8 percent, something clearly stressed. The findings document
+characterises this renderer's own signature as the opposite - heavy memory
+stalls with LOW DRAM and L2 throughput, "nothing is stressed." Those are
+different failures. What transfers is:
+
+    the rayquery-on column as a target profile to diff D0/T0/S0 against;
+    the knowledge that a Local Memory input dependency is the fingerprint of
+    live-state spill, so if it appears in a UPT capture the 108-register
+    indirect shader is spilling and the register footprint is a real target
+    rather than an inferred one;
+    the finding that occupancy does not separate the good case from the bad
+    case in this workload at all.
+
+Do not assume the degraded mode reproduces this renderer's failure mode. It
+reproduces one counter shape, not the mechanism.
+
+Where UPT carries the same debt, 2026-08-11
+--------------------------------------------
+
+UPT is RayQuery-only, so it never pays the DXR ray-stack spill. The underlying
+quantity - live state carried across traversal - is nonetheless larger here
+than in the sample, and RayQuery bills it as registers and occupancy instead of
+bandwidth. The findings document has already measured the bill: 108 max live
+registers in indirect D0, 76-83 live entering traversal, 37 percent occupancy,
+91 percent of samples above 64 registers.
+
+Structural dword counts (STATIC, from the declared structs):
+
+    Upt04PrimarySurfaceRecord       44   (11 x 16 bytes)
+    Upt07DecodedReservoir          ~33   (Upt03Candidate is ~28)
+    Upt10ShiftResult               ~36   (contains a full Upt03Candidate)
+    Upt07PendingIndirectVisibility  12
+    Upt04TraceRequest                8
+
+S0 shared reciprocal pair is the worst site in the codebase, because one leader
+lane owns two pixels. At the second Upt09ShiftSharedSample replay trace the
+function still holds:
+
+    receiver 44 + partnerReceiver 44 + center 33 + partner 33
+    + centerToPartner 36 + centerDirectVisibility 8 + ignore 3
+    + centerIndirectVisibility 12 + loop scalars
+
+    ~215 dwords, roughly 860 bytes
+
+and at the first Upt09PublishSharedPairDirection winner-visibility trace it
+still holds ~170 dwords (~680 bytes), because the second publication needs
+every one of those values afterwards.
+
+Compare Cyberpunk's TraceRay Live State Bytes: max 128, most 12-16.
+
+The important consequence is that there is no good outcome available to the
+compiler. Either it keeps the set in registers, which caps occupancy, or it
+rematerialises by reloading from memory, which produces exactly the scattered
+dependent loads the findings document names as the core failure mechanism. The
+only real fix is not to need the state - which is the trace-free shift of
+section 5, again.
+
+Ranking of sites by carried state: S0 shared pair, then T0 (same shape at
+roughly two thirds the size - current plus history plus both shift results),
+then D0.
+
+Separate and much cheaper: RayQuery<0>
+---------------------------------------
+
+Every traversal site in UPT declares RayQuery<0> and passes its flags at
+runtime (upt07_temporal_indirect.slang:228-233,
+upt07_temporal_direct_rayquery.slang:140,
+upt09_spatial_direct_rayquery.slang:75):
+
+    RayQuery<0> query = RayQuery<0>();
+    const uint flags = visibility != 0u
+        ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE;
+    query.TraceRayInline(gUpt07Scene, flags, 0xffu, ray);
+
+RTXDI's sample specialises the template instead:
+
+    RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES>
+    RayQuery<RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH>
+
+Template flags are compile-time. They let the compiler delete traversal paths
+it can prove unreachable. With RayQuery<0> the fully general Proceed loop is
+emitted at every site, including the complete alpha-clip candidate path
+(Upt04CanonicalizeHardwarePrimitive, Upt04VisibilityIgnoresCandidate,
+Upt07MaterialRejectsAlphaClipCandidate with its material load and texture
+fetch). T0 has four such sites; the S0 shared artifact has six, because the
+compiler emits separate direct and global winner routes for both publications
+(doc 45).
+
+That is a large, unconditional instruction footprint in the hot kernel, and
+instruction footprint is what the No Instructions counter measures.
+
+HYPO, and the cheapest experiment in this document: add
+RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES to the template at every site. The scene
+has no procedural primitives, so it is semantically free. Then split the
+visibility and closest-hit traces into two functions so the visibility one can
+carry ACCEPT_FIRST_HIT_AND_END_SEARCH in its template rather than in a runtime
+uniform. Measure SASS instruction count before and after; the timing question
+is secondary to whether the artifact shrinks at all.
+
+Note RAY_FLAG_CULL_NON_OPAQUE is NOT available here the way it is in the
+sample's conservative-visibility path: UPT's visibility rays deliberately run
+the alpha-clip and visibility-ignore logic on non-opaque candidates. Only the
+procedural flag is free.
+
+Why this converges with the RcVertexLength finding
+---------------------------------------------------
+
+These are not two separate results. In a RayQuery megakernel every code path is
+inlined into one instruction stream whether or not a given thread executes it.
+An unconditional continuation trace plus geometry decode plus material
+evaluation plus reverse-NEE lookup is not only runtime cost - it is several
+thousand SASS instructions permanently resident in the hot kernel's footprint,
+paid by every warp in instruction fetch pressure even when no thread takes the
+branch.
+
+RTXDI's temporal and spatial passes are small partly because
+NeedToRunRandomReplayPathTracer excludes the path tracer from the common case,
+and the trace-free shift needs almost no code: read three vectors from the
+reservoir, evaluate a BSDF, do arithmetic.
+
+So trace-free reconnection attacks both counters at once. It removes rays,
+which is the Long Scoreboard side, and it removes code, which is the No
+Instructions side that the D0 capture says is dominant here. That is the
+strongest available argument for putting the reservoir representation decision
+(section 5) ahead of everything else.
+
+Caveat: the No Instructions 40.5 percent figure is from an indirect D0 capture.
+T0 has never been captured (findings document section 7). Do not assume T0 and
+S0 share D0's profile - capture them before ranking work on this basis. That
+capture is now the single highest-value measurement outstanding.
+
+Do not conclude from this that SER is the answer. On D3D12 the sample enables
+NvReorderThread in RAB_PathTrace's bounce loop for the TraceRay path only
+(RtxdiApplicationBridge.hlsli:66-71), and that path still loses. Note also
+that the reorder inside ComputeHybridShift, whose own comment reads "this helps
+performance a lot", is disabled in every shipped configuration
+(RTXDI_PATHTRACER_USE_REORDERING is 0 in all three branches). It groups threads
+that do not need random replay. That is Lin section 6.2.2 stream compaction
+expressed in hardware. On Vulkan compute with RayQuery, compaction is the only
+available route to the same win, which is what the UPT-20 queue design in
+doc 35 was for.
+
+Measured implementation update, 2026-08-11
+-------------------------------------------
+
+The corrected binding/packed-union/signed-payload baseline produced no runtime
+improvement and slightly regressed the indirect RayQuery observation. Those
+repairs remain required correctness contracts, but this falsifies them as the
+cause of the spatial emissive performance cliff. Do not optimize or revert
+those contracts based on timing.
+
+The first bounded UPT-31 experiment implements section 4a without replacing
+the accepted shared artifact. A new default-off specialization selected by
+r_pathTracingUnifiedPtSpatialStoredSourceTarget trusts selected.target for the
+direct event-2 source receiver. The target-receiver shift, emitter triangle
+replay, material/PDF/BSDF evaluation, visibility, pairwise MIS, reservoir
+weight convention and all global routes are unchanged. The exact same six
+static RayQuery sites and dynamic four-rays-per-pair ceiling remain.
+
+The source-target invariant was audited through every active page writer:
+
+    D0 streams work.target evaluated at its current receiver;
+    T0 stores historyToCurrent.shifted when history wins;
+    T0 explicitly replaces the current winner target with
+        currentTargetAtCurrent;
+    shared S0 stores sourceToTarget.shifted when the donor wins;
+    shared S0 replaces the retained target winner with the reciprocal
+        sourceTarget evaluated in that receiver domain;
+    previous-best injection supplies a current-domain shifted candidate;
+    duplication reads/scores reservoirs and does not rewrite them.
+
+This makes stored source-target use structurally valid in steady state. It is
+still an A/B rather than a default because D0 computes the target before the
+sample coordinates are quantized into the packed reservoir. Alpha-masked
+emissives, highly stretched UVs and exact texture boundaries are the
+adversarial visual checks.
+
+The compiled result proves this is a material footprint change. The accepted
+shared blob is 878884 bytes; the stored-target blob is 749492 bytes. Static
+OpImageSampleExplicitLod sites fall from 26 to 22. Both variants retain 26
+bindings (including triangle classes 9/13), six static RayQuery sites, no
+TraceRay and the 96-byte push ABI. SHA-256 for the new blob is
+4EB27ECAB61B7F939827FBD79AC493CCB9929EC75263147B9C1BEA5A454F21A5.
+
+S0 now also owns dispatch-only timestamp batches through
+r_pathTracingUnifiedPtSpatialGpuTiming. It performs 16 valid-dispatch warm-up
+frames, records 64 samples through eight timer slots, then prints median,
+mean, minimum, p90 and maximum with the shared/stored-target/proof/pairing-phase
+state. It allocates no reservoir-sized diagnostics and performs no buffer
+clear. Fixed sample indices 0..3 produce phase-specific batches; -1 reports a
+mixed-phase batch. Toggle the timing cvar off/on to repeat an unchanged mode.
+
+Required runtime matrix at one fixed emissive-heavy pose:
+
+    fixed sample index 0, stored source target 0, one timing batch;
+    fixed sample index 0, stored source target 1, one timing batch;
+    repeat both once after settling;
+    repeat indices 1, 2 and 3 if phase zero differs materially;
+    check masked/stretched-UV emissives, mirrors, portal crossings and motion;
+    record whole-frame FPS only as supporting evidence, not the pass timing.
+
+If the new variant does not improve S0 dispatch time, section 4a is falsified
+for this workload despite its large static footprint reduction. The next step
+is route counters for direct event 2 / global event 2 / endpoint event 4 and
+their mapping/visibility rejection points, not another emitter optimization.
+
+First runtime result, 2026-08-11
+--------------------------------
+
+spatialtest.txt confirms both artifacts and the intended shared estimator were
+active at 2560x1440, proof mode zero. The accepted artifact reported 878884
+bytes with storedSourceTarget=0; the new artifact reported 749492 bytes with
+storedSourceTarget=1. The fixed comparison used sample index zero and therefore
+pairing phase zero.
+
+Measured dispatch-only batches:
+
+    live sample indices, accepted artifact:
+        median 20.812 ms, mean 20.791 ms
+        median 20.267 ms, mean 20.254 ms
+
+    fixed sample index 0, accepted artifact:
+        median 12.330 ms, mean 12.631 ms
+        median 11.435 ms, mean 11.596 ms
+
+    fixed sample index 0, stored-source-target artifact:
+        median 10.786 ms, mean 10.901 ms
+
+Against the nearest repeated fixed-index baseline, stored source target saves
+0.649 ms median (5.7 percent) and 0.695 ms mean (6.0 percent). This validates
+that the source replay is redundant executed work, but falsifies it as the
+main explanation for the remaining spatial cost. The single stored-target
+batch also has a wider 8.378..14.632 ms range and p90 13.550 ms, so its exact
+magnitude is not accepted without a second stored batch and a return-to-old
+A/B/A batch.
+
+The larger result is the roughly 9 ms difference between live and fixed sample
+indices in the same accepted artifact. FixedSampleIndex freezes every UPT
+random stream and consequently changes D0 selection, T0 history population,
+duplication and S0 route population in addition to selecting pairing phase
+zero. It is not evidence that horizontal phase zero is intrinsically twice as
+fast. It is evidence that the selected reservoir/route population controls a
+large fraction of S0 cost.
+
+Next measurement: repeat stored target 1 once, return to stored target 0 once,
+then capture route/rejection counts for direct event 2, global event 2 and
+endpoint event 4. The route capture should use per-workgroup aggregation and a
+tagged overwrite/readback so it introduces no per-frame clear and avoids
+millions of globally contended atomics. Do not pursue another broad emitter or
+RayQuery optimization before that route population is known.
+
+Return-baseline confirmation, 2026-08-11
+----------------------------------------
+
+spatiallog2.txt supplies the missing reversal. After a stored-target phase-zero
+batch at 7.447 ms median / 7.962 ms mean, switching back to the accepted
+source-replay artifact produced 8.706 ms / 8.745 ms. The immediate return pair
+therefore confirms a 1.259 ms (14.5 percent) median saving and a 0.783 ms
+(9.0 percent) mean saving. Its stored-target p90 was noisy because that batch
+contained several roughly 10 ms samples; use the medians as the robust result.
+
+Together with spatiallog.txt's initial 9.569 -> 6.963 ms transition and three
+repeat stored-target medians of 6.963, 7.218 and 6.981 ms, the A/B/A direction
+is decisive. The size of the saving varies with the selected path population,
+from roughly 9 to 27 percent in these batches. UPT-31 stored source target is a
+real optimization and can proceed to visual acceptance. It is not the complete
+S0 solution: approximately 7-9 ms remains at fixed sample index zero, and live
+sample indices remain materially more expensive.
+
+Do not make the cvar default-on until visual testing covers textured and
+untextured emissives, alpha-masked emitter boundaries, stretched UVs, mirrors,
+portal crossings and moving rigid/skinned geometry. If those pass, promote the
+stored target artifact and begin the per-workgroup route population capture.

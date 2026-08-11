@@ -13,6 +13,10 @@ set(UPT09_DIRECT_MODULES
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07/upt07_material_openpbr.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07/upt07_material_lambert_diagnostic.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07/upt07_emissive_material.slang"
+    "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07/upt07_temporal_indirect.slang"
+    "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07/upt07_indirect_material.slang"
+    "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07/upt07_work_budget.slang"
+    "${CMAKE_CURRENT_LIST_DIR}/../slang_upt10/upt10_reuse_contract.slangh"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_binary16.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_hit_contract.slang"
@@ -68,6 +72,73 @@ path_tracing_declare_slang_spirv_module(
     OUT_VAR spatial_direct_compact_outputs
     RAY_QUERY)
 
+# S30.1 bounded combined direct+global proof. One lane owns a disjoint
+# reciprocal two-pixel pair and publishes both directions from two shifts. The
+# accepted multi-neighbor direct S0 remains a separate runtime artifact.
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_shared_selected_pair_light64
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_PACKED_LIGHT_RECORD=1 UPT09_SPATIAL_GEOMETRY_REPLAY=1
+        UPT09_SPATIAL_INDIRECT_REPLAY=1 UPT10_SHARED_SPATIAL=1
+    OUT_VAR spatial_shared_selected_pair_outputs
+    RAY_QUERY)
+
+# UPT-31 source-target A/B. This is deliberately a separate artifact: the
+# accepted shared estimator remains byte-for-byte available while this variant
+# removes only the redundant direct-event source-receiver emitter evaluation.
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_shared_selected_pair_stored_target_light64
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_PACKED_LIGHT_RECORD=1 UPT09_SPATIAL_GEOMETRY_REPLAY=1
+        UPT09_SPATIAL_INDIRECT_REPLAY=1 UPT10_SHARED_SPATIAL=1
+        UPT31_STORED_DIRECT_SOURCE_TARGET=1
+    OUT_VAR spatial_shared_stored_target_outputs
+    RAY_QUERY)
+
+# UPT-32 full-occupancy reciprocal pair. Every lane computes one mapping,
+# publishes it through group-shared memory, then consumes the partner mapping
+# and writes exactly its own output pixel. The accepted leader and UPT-31
+# stored-target artifacts remain available as byte-distinct rollback oracles.
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_shared_workgroup_pair_stored_target_light64
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_PACKED_LIGHT_RECORD=1 UPT09_SPATIAL_GEOMETRY_REPLAY=1
+        UPT09_SPATIAL_INDIRECT_REPLAY=1 UPT10_SHARED_SPATIAL=1
+        UPT31_STORED_DIRECT_SOURCE_TARGET=1
+        UPT32_WORKGROUP_RECIPROCAL_PAIRING=1
+    OUT_VAR spatial_shared_workgroup_pair_outputs
+    RAY_QUERY)
+
 path_tracing_declare_slang_spirv_module(
     NAME upt09_spatial_direct_rayquery_lambert
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
@@ -107,6 +178,30 @@ add_custom_command(
     COMMENT "UPT-09 verifying direct spatial rescue provider"
     VERBATIM)
 
+set(UPT10_SPATIAL_SHARED_VERIFY_STAMP
+    "${UPT09_OUTPUT_DIR}/upt10_spatial_shared_selected_pair_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT10_SPATIAL_SHARED_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT10_REFLECTION=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_selected_pair_light64.slang.spirv-reflection.json
+        -DUPT10_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_selected_pair_light64.slang.spvasm
+        -DUPT31_REFLECTION=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_selected_pair_stored_target_light64.slang.spirv-reflection.json
+        -DUPT31_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_selected_pair_stored_target_light64.slang.spvasm
+        -DUPT32_REFLECTION=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_stored_target_light64.slang.spirv-reflection.json
+        -DUPT32_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_stored_target_light64.slang.spvasm
+        -DUPT10_STAMP=${UPT10_SPATIAL_SHARED_VERIFY_STAMP}
+        -DUPT10_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
+        -DUPT10_SHADER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10SpatialShared.cmake"
+    DEPENDS ${spatial_shared_selected_pair_outputs}
+        ${spatial_shared_stored_target_outputs}
+        ${spatial_shared_workgroup_pair_outputs}
+        "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10SpatialShared.cmake"
+    COMMENT "UPT-32 verifying full-occupancy reciprocal-pair spatial ceiling"
+    VERBATIM)
+
 set(UPT09_RUNTIME_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../../../base/renderprogs2/spirv/builtin/pathtracing/slang_upt09")
 set(UPT09_RUNTIME_OUTPUT
@@ -117,6 +212,12 @@ set(UPT09_LAMBERT_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_direct_rayquery_lambert.bin")
 set(UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_direct_rayquery_light64_lambert.bin")
+set(UPT10_SPATIAL_SHARED_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_selected_pair_light64.bin")
+set(UPT31_SPATIAL_STORED_TARGET_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_selected_pair_stored_target_light64.bin")
+set(UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_workgroup_pair_stored_target_light64.bin")
 add_custom_command(
     OUTPUT "${UPT09_RUNTIME_OUTPUT}" "${UPT09_COMPACT_RUNTIME_OUTPUT}"
         "${UPT09_LAMBERT_RUNTIME_OUTPUT}"
@@ -139,12 +240,39 @@ add_custom_command(
         "${UPT09_VERIFY_STAMP}"
     COMMENT "UPT-09 verified Vulkan runtime artifacts: direct spatial rescue"
     VERBATIM)
+add_custom_command(
+    OUTPUT "${UPT10_SPATIAL_SHARED_RUNTIME_OUTPUT}"
+        "${UPT31_SPATIAL_STORED_TARGET_RUNTIME_OUTPUT}"
+        "${UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT09_RUNTIME_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT09_OUTPUT_DIR}/upt09_spatial_shared_selected_pair_light64.slang.spv"
+        "${UPT10_SPATIAL_SHARED_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT09_OUTPUT_DIR}/upt09_spatial_shared_selected_pair_stored_target_light64.slang.spv"
+        "${UPT31_SPATIAL_STORED_TARGET_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_stored_target_light64.slang.spv"
+        "${UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT}"
+    DEPENDS ${spatial_shared_selected_pair_outputs}
+        ${spatial_shared_stored_target_outputs}
+        ${spatial_shared_workgroup_pair_outputs}
+        "${UPT10_SPATIAL_SHARED_VERIFY_STAMP}"
+    COMMENT "UPT-32 Vulkan opt-in full-occupancy reciprocal-pair spatial artifact"
+    VERBATIM)
 
 add_custom_target(PathTraceSlangUpt09Spatial
     DEPENDS ${spatial_direct_outputs} ${spatial_direct_compact_outputs}
+        ${spatial_shared_selected_pair_outputs}
+        ${spatial_shared_stored_target_outputs}
+        ${spatial_shared_workgroup_pair_outputs}
+        "${UPT10_SPATIAL_SHARED_VERIFY_STAMP}"
         "${UPT09_VERIFY_STAMP}" "${UPT09_RUNTIME_OUTPUT}"
         "${UPT09_COMPACT_RUNTIME_OUTPUT}" "${UPT09_LAMBERT_RUNTIME_OUTPUT}"
-        "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}")
+        "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}"
+        "${UPT10_SPATIAL_SHARED_RUNTIME_OUTPUT}"
+        "${UPT31_SPATIAL_STORED_TARGET_RUNTIME_OUTPUT}"
+        "${UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt09Spatial PROPERTIES FOLDER "Shaders/UPT-09")
 if(TARGET RBDoom3BFG)
     add_dependencies(RBDoom3BFG PathTraceSlangUpt09Spatial)

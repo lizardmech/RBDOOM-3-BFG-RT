@@ -56,8 +56,12 @@ add_custom_command(
         -DUPT05_REFLECTION=${UPT05_OUTPUT_DIR}/upt05_resolve_compact32.slang.spirv-reflection.json
         -DUPT05_DISASSEMBLY=${UPT05_OUTPUT_DIR}/upt05_resolve_compact32.slang.spvasm
         -DUPT05_STAMP=${UPT05_VERIFY_STAMP}
+        -DUPT05_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt05_resolve.slang
+        -DUPT03_CONTRACT=${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang
         -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt05Resolve.cmake"
     DEPENDS ${resolve_outputs}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt05_resolve.slang"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang"
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt05Resolve.cmake"
     COMMENT "UPT-05 verifying trace-free RGBA16F resolve closure"
     VERBATIM)

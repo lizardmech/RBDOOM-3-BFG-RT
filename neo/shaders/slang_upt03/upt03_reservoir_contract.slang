@@ -119,6 +119,28 @@ public bool Upt03FiniteNonNegative(float value)
     return isfinite(value) && value >= 0.0f;
 }
 
+// Packed word12 is a small event-specific union after D0 finalization.
+// Ordinary candidates retain a strictly positive proposal PDF. A positive
+// secondary-emissive global candidate may instead carry its four-region replay
+// scale as a negative finite value in [-4, 0). The disjoint sign domains make
+// this representation collision-free without consuming another packed word.
+public bool Upt03EmissiveReplayPdfScalePayloadValid(
+    Upt03Candidate candidate,
+    float payload)
+{
+    return candidate.status == 2u
+        && candidate.eventKind == 2u
+        && (candidate.flags & (1u << 1u)) != 0u
+        && isfinite(payload) && payload < 0.0f && payload >= -4.0f;
+}
+
+public bool Upt03StoredProposalPayloadValid(Upt03Candidate candidate)
+{
+    return Upt03FinitePositive(candidate.proposalPdf)
+        || Upt03EmissiveReplayPdfScalePayloadValid(
+            candidate, candidate.proposalPdf);
+}
+
 public bool Upt03HasStaticReconnectionLocator(Upt03Candidate candidate)
 {
     return (candidate.eventKind == 1u || candidate.eventKind == 2u)
@@ -181,7 +203,7 @@ public bool Upt03StructurallyValid(Upt03Candidate candidate)
         || !Upt03SampleCoordinatesValid(candidate)
         || candidate.age > 63u || candidate.pathLength > 15u
         || candidate.reconnectionVertexLength > candidate.pathLength
-        || !Upt03FinitePositive(candidate.proposalPdf)
+        || !Upt03StoredProposalPayloadValid(candidate)
         || (Upt03HasStaticReconnectionLocator(candidate)
             ? !Upt03StaticReconnectionLocatorValid(candidate)
             : (!Upt03FinitePositive(candidate.pathPdf)

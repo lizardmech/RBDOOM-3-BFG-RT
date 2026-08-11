@@ -68,6 +68,16 @@ public Upt03PackedReservoir Upt04FinalizeInitialReservoir(
         // output whenever another valid path term is admitted.
         reservoir.effectiveM = 1u;
     }
+    if (reservoir.hasSelectedSample != 0u
+        && reservoir.selected.eventKind == 2u
+        && (reservoir.selected.flags & kUpt04CandidateFlagGlobal) != 0u)
+    {
+        const float replayPdfPayload = Upt04EncodeEmissiveReplayPdfScale(
+            reservoir.selected.partialJacobian);
+        if (Upt03EmissiveReplayPdfScalePayloadValid(
+                reservoir.selected, replayPdfPayload))
+            reservoir.selected.proposalPdf = replayPdfPayload;
+    }
     return Upt03PackReservoir(reservoir);
 }
 

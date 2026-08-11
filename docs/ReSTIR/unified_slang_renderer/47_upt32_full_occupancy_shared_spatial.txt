@@ -1,0 +1,131 @@
+UPT-32: full-occupancy shared spatial pairing
+================================================
+
+Status
+------
+
+Built, statically verified and deployed behind
+r_pathTracingUnifiedPtSpatialWorkgroupPairing. Runtime image and performance
+acceptance of the moving-boundary correction is pending. The first runtime run
+confirmed a decent performance boost and only exposed faint tile boundaries.
+The accepted T30.3 temporal artifact, S30.1 leader-pair
+artifact and UPT-31 stored-source-target artifact remain intact as rollback
+oracles.
+
+Reason for this slice
+---------------------
+
+S30.1 assigns both directions of a reciprocal pair to one leader lane. Exactly
+half of every warp is therefore inactive, but no warp can retire. The paper's
+paired spatial design separates mapping from resampling so every lane performs
+one mapping and one publication. A literal full-frame pre-pass needs original,
+mapped and final records concurrently; with only two reservoir pages, using
+the alternate page for both mapped input and final output is a cross-workgroup
+read/write race. A third 64-byte full-resolution reservoir would violate the
+accepted resource boundary and cost approximately 236 MiB at 2560x1440.
+
+Implementation
+--------------
+
+The default-off UPT-32 artifact implements the same two stages inside each 8x8
+workgroup:
+
+1. Every lane chooses the same nonzero six-bit XOR mask for its workgroup.
+   lane ^ mask is fixed-point-free and self-inverse over all 64 lanes.
+2. Every valid lane shifts its selected reservoir exactly once to its partner
+   receiver and writes the mapped candidate, source/target targets, Jacobian,
+   route, and deferred visibility request into group-shared storage.
+3. One group barrier completes the mapping pre-pass.
+4. Every lane reads its partner's mapped record, applies the existing UPT-10
+   pairwise GRIS core, performs at most one winner-only visibility query, and
+   publishes only its own output pixel.
+
+The mask is hashed from frame sample index and workgroup coordinate. It changes
+over time and permits partners across the full 8x8 tile instead of the former
+four adjacent-only phases. Duplicate replay keys and incompatible surfaces
+still fail closed. Partial edge groups pass through any pair containing an
+invalid lane. No new full-resolution buffer, clear, dispatch or reservoir ABI
+is introduced.
+
+Runtime boundary correction
+---------------------------
+
+The first runtime test produced a decent performance improvement and generally
+good image quality, but faint 8x8 squares could occasionally be distinguished.
+That is direct evidence of the fixed workgroup partition, not a denoiser
+problem. For render extents divisible by eight, the dispatch lattice now uses
+a frame-varying toroidal x/y offset in [0,7]. The translation is a bijection:
+every output remains written exactly once, reciprocal ownership is unchanged,
+and the workgroup boundary moves across the image so pixels pair across the
+previous frame's tile edges. Non-multiple extents retain the unshifted,
+partial-group-safe mapping. This changes only partner scheduling, not GRIS
+weights, replay, visibility, resources or ray ceilings.
+
+Toroidal translation is scheduling only. A reciprocal pair which crosses the
+screen wrap is rejected symmetrically before mapping because the existing
+coplanar surface test can legitimately accept distant points on one plane.
+Those edge pixels retain their input reservoir; opposite screen edges are
+never treated as local spatial neighbors.
+
+Estimator and work bounds
+-------------------------
+
+The estimator is unchanged from S30.1. A reciprocal pair still owns:
+
+    two source-to-partner mappings maximum;
+    two winner-only final visibility queries maximum;
+    one canonical plus one mapped proposal per output pixel;
+    one forward Jacobian on mapped mass;
+    exact stable-light/emissive replay and alpha traversal;
+    target-scaled UPT reservoir weight convention.
+
+Invalid, zero-target, incompatible, duplicate or invisible mapped samples add
+no selectable mass. UPT-31's stored direct source target is required because
+it is already performance-accepted and prevents redundant source-emitter
+replay from bloating the new common mapping body.
+
+Verified offline evidence
+-------------------------
+
+The complete Vulkan release build passes. No DX12 shader was compiled.
+
+    resource bindings                 26
+    triangle-class bindings           9 and 13, host/shader exact
+    push constants                    96 bytes
+    workgroup barrier                 1
+    static RayQuery sites             3, down from 6
+    dynamic RayQuery ceiling          4 per reciprocal pair
+    TraceRay sites                    0
+    explicit texture-sample sites     22
+    SPIR-V bytes                      477508
+    SPIR-V SHA-256                    F99D5582B81A1958572D62A8530A0D89A6C4B49258C03794F1F16E85BF514C71
+    executable SHA-256                40014535871FE098691F20FD442535B4D7860F8924444286D72ADC38D4CCC780
+
+Runtime gate
+------------
+
+Use the one-command presets:
+
+    exec uptf0    stored-target leader-owned S0 oracle
+    exec uptf1    UPT-32 full-occupancy workgroup S0
+
+The new run must print workgroup pairing requested/effective=1/1 and the S0
+pipeline line must report workgroupPairing=1. Check ordinary motion, moving
+rigid/skinned geometry, portal crossings, mirrors, alpha-masked emitters,
+stretched UVs, disocclusions and emissive-heavy rooms. Reject black output,
+workgroup seams, ghost samples, color corruption, energy growth or missing
+geometry. Compare performance only after visual stability.
+
+Remaining feature boundary
+--------------------------
+
+This is the first S30.3 slice, not the last. It replaces half-lane ownership
+and adjacent-only pairs, but its partner domain is one moving 8x8 tile rather
+than the paper's large Gaussian reuse textures. It still admits one selected
+neighbor and does not rescue empty centers. After runtime acceptance:
+
+1. widen the self-inverse partner domain without adding a third reservoir;
+2. add the configured bounded neighbor count through a race-free mapped-work
+   representation or independently verified sequential schedule;
+3. re-admit one-frame, non-donating empty-center rescue;
+4. only then measure the completed combined T0/S0 feature set.

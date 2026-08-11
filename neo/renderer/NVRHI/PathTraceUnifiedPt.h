@@ -177,6 +177,10 @@ private:
     bool EnsureDuplicationBindingSets(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureSpatialPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureSpatialBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    void UpdateSpatialGpuTiming(const PathTraceUnifiedPtDispatchInputs& inputs);
+    void PollSpatialGpuTiming(const PathTraceUnifiedPtDispatchInputs& inputs);
+    nvrhi::TimerQueryHandle BeginSpatialGpuTiming(
+        const PathTraceUnifiedPtDispatchInputs& inputs);
     void DrainDiagnosticReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
     void ReportProofStage(
         uint32_t stage,
@@ -392,6 +396,9 @@ private:
     bool m_duplicationPipelineAttempted = false;
 
     bool m_spatialCompactLights = false;
+    bool m_spatialSharedReuse = false;
+    bool m_spatialStoredSourceTarget = false;
+    bool m_spatialWorkgroupPairing = false;
     bool m_spatialLambertDiagnostic = false;
     bool m_spatialPipelineAttempted = false;
     nvrhi::BindingLayoutHandle m_spatialBindingLayout;
@@ -400,6 +407,30 @@ private:
     std::array<bool, 2> m_spatialBindingSetDescValid = { false, false };
     nvrhi::ShaderHandle m_spatialShader;
     nvrhi::ComputePipelineHandle m_spatialPipeline;
+
+    static constexpr uint32_t SPATIAL_GPU_TIMER_SLOT_COUNT = 8u;
+    static constexpr uint32_t SPATIAL_GPU_TIMING_WARMUP_FRAMES = 16u;
+    static constexpr uint32_t SPATIAL_GPU_TIMING_SAMPLE_COUNT = 64u;
+    struct SpatialGpuTimerSlot
+    {
+        nvrhi::TimerQueryHandle query;
+        bool pending = false;
+        bool collect = false;
+        uint32_t mode = UINT32_MAX;
+        uint32_t sampleIndex = UINT32_MAX;
+        int earliestPollFrame = 0;
+    };
+    std::array<SpatialGpuTimerSlot, SPATIAL_GPU_TIMER_SLOT_COUNT>
+        m_spatialGpuTimers;
+    std::array<double, SPATIAL_GPU_TIMING_SAMPLE_COUNT>
+        m_spatialGpuTimingSamples = {};
+    uint32_t m_spatialGpuTimerCursor = 0u;
+    uint32_t m_spatialGpuTimingMode = UINT32_MAX;
+    uint32_t m_spatialGpuTimingWarmupRemaining = 0u;
+    uint32_t m_spatialGpuTimingSubmitted = 0u;
+    uint32_t m_spatialGpuTimingCompleted = 0u;
+    bool m_spatialGpuTimingBatchComplete = false;
+    bool m_spatialGpuTimingQueryFailureLogged = false;
 
     uint32_t m_resolveWidth = 0;
     uint32_t m_resolveHeight = 0;

@@ -63,6 +63,7 @@ public struct Upt04SecondaryNeeProposal
     public float3 rawContribution;
     public float target;
     public float sourcePdf;
+    public float emissiveReplayPdfScale;
     public float3 sampleDirection;
     public float sampleDistance;
 };
@@ -145,6 +146,12 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
     proposal.rawContribution = rawContribution;
     proposal.target = target;
     proposal.sourcePdf = sourcePdf;
+    proposal.emissiveReplayPdfScale =
+        selection.type == kUpt04LightEmissiveTriangle
+        ? asfloat(evaluated.sample.reserved) : 1.0f;
+    if (!Upt04FinitePositive(proposal.emissiveReplayPdfScale)
+        || proposal.emissiveReplayPdfScale > 4.0f)
+        return (Upt04SecondaryNeeProposal)0;
     proposal.sampleDirection = evaluated.sample.direction;
     proposal.sampleDistance = evaluated.sample.distance;
     return proposal;
@@ -464,6 +471,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     }
     nee.proposalPdf = effectiveProposalPdf;
     nee.pathPdf = work.pathPdf * selected.sourcePdf;
+    nee.partialJacobian = selected.emissiveReplayPdfScale;
     nee.lobeMask = work.lobeMask | selected.lobeMask;
     // Preserve the inner-RIS estimator while retaining the physical target
     // needed by temporal shift mapping. Streaming target / proposalPdf still

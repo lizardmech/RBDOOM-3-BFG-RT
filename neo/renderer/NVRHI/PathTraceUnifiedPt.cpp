@@ -55,7 +55,10 @@ static constexpr uint32_t UPT04_NEE_RIS_BASELINE_CANDIDATE_COUNT = 8u;
 static constexpr uint32_t UPT04_NEE_RIS_PARITY_ANALYTIC_CANDIDATE_COUNT = 32u;
 static constexpr uint32_t UPT04_NEE_RIS_MAX_EMISSIVE_CANDIDATE_COUNT = 16u;
 static constexpr uint32_t UPT04_SECONDARY_NEE_BOUNCE_INDEX = 2u;
-static constexpr uint32_t UPT04_ABI_VERSION = 10u;
+// Version 11 makes the packed word12 secondary-emissive replay-scale payload
+// unambiguous (negative finite values) and invalidates pages written by the
+// older collision-prone positive sentinel encoding without clearing buffers.
+static constexpr uint32_t UPT04_ABI_VERSION = 11u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 107u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
@@ -94,7 +97,7 @@ static constexpr uint32_t UPT07_WORK_BUDGET_VIOLATION_WORD =
 static constexpr uint32_t UPT07_WORK_BUDGET_WORDS_PER_PIXEL =
     UPT07_WORK_BUDGET_VIOLATION_WORD + 1u;
 static constexpr uint32_t UPT08_PUSH_CONSTANT_BYTES = 16u;
-static constexpr uint32_t UPT09_PUSH_CONSTANT_BYTES = 88u;
+static constexpr uint32_t UPT09_PUSH_CONSTANT_BYTES = 96u;
 static constexpr uint32_t UPT09_MAXIMUM_INPUT_M = 32u;
 static constexpr uint32_t UPT09_REGULAR_NEIGHBOR_COUNT = 3u;
 static constexpr uint32_t UPT09_RESCUE_NEIGHBOR_COUNT = 12u;
@@ -118,6 +121,26 @@ static const char* Upt04FamilyName(PathTraceUnifiedPtFamily family)
     default:
         return "direct-only";
     }
+}
+
+static bool Upt30SharedSpatialEnabled(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    return r_pathTracingUnifiedPtSharedSpatial.GetBool()
+        && inputs.temporal
+        && r_pathTracingUnifiedPtTemporalIndirect.GetBool()
+        && r_pathTracingUnifiedPtSharedReuseAdapter.GetBool()
+        && r_pathTracingUnifiedPtCommonGrisMerge.GetBool()
+        && r_pathTracingUnifiedPtTemporalPairwise.GetBool()
+        && inputs.family == PathTraceUnifiedPtFamily::Unified
+        && inputs.compactLights
+        && inputs.duplication
+        && !inputs.lambertDiagnostic
+        && !inputs.frozenStaticDiagnostic
+        && !inputs.frozenLightDiagnostic
+        && inputs.temporalBottleneckProbe == 0u
+        && !r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
+        && !r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool();
 }
 
 static uint32_t Upt04FamilyMask(PathTraceUnifiedPtFamily family)
@@ -656,6 +679,8 @@ struct Upt09SpatialDirectControl
     uint32_t compactPrimaryHistory;
     uint32_t materialCount;
     uint32_t logicalTextureCount;
+    uint32_t emissiveDistributionCountAndValid;
+    uint32_t emissiveLookupCapacityAndValid;
 };
 static_assert(sizeof(Upt09SpatialDirectControl) == UPT09_PUSH_CONSTANT_BYTES,
     "UPT-09 host push constants must match Slang reflection");
@@ -878,6 +903,80 @@ static void Upt04AddDirectBindingLayoutItems(nvrhi::BindingLayoutDesc& desc)
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT04_PUSH_CONSTANT_BYTES));
+}
+
+// T0 and shared S0 import the same geometry replay module. Keep its complete
+// set-0 descriptor contract in one host helper so a shader-visible route
+// buffer cannot be omitted from one reuse pass while remaining present in the
+// other. Bindings 9 and 13 are the hardware-opaque triangle-class streams.
+static void Upt04AddReplayGeometryLayoutItems(nvrhi::BindingLayoutDesc& desc)
+{
+    for (uint32_t slot = 6u; slot <= 21u; ++slot)
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
+}
+
+static bool Upt04ReplayGeometryBindingsValid(
+    const RtPathTraceSceneInputs& inputs)
+{
+    const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
+    return inputs.lights.emissiveTriangleBuffer
+        && geometry.staticVertexBuffer && geometry.staticIndexBuffer
+        && geometry.staticTriangleClassBuffer
+        && geometry.staticTriangleMaterialIndexBuffer
+        && geometry.dynamicVertexBuffer && geometry.dynamicIndexBuffer
+        && geometry.dynamicTriangleClassBuffer
+        && geometry.dynamicTriangleMaterialIndexBuffer
+        && geometry.rigidRouteVertexBuffer && geometry.rigidRouteIndexBuffer
+        && geometry.rigidRouteInstanceBuffer
+        && Upt04SkinnedVertexBuffer(inputs) && Upt04SkinnedIndexBuffer(inputs)
+        && geometry.skinnedHitRouteRecordBuffer
+        && geometry.skinnedHitRouteTriangleBuffer;
+}
+
+static void Upt04AddReplayGeometryBindingItems(
+    nvrhi::BindingSetDesc& desc,
+    const RtPathTraceSceneInputs& inputs)
+{
+    const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, inputs.lights.emissiveTriangleBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, geometry.staticVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, geometry.staticIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(9, geometry.staticTriangleClassBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, geometry.staticTriangleMaterialIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, geometry.dynamicVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, geometry.dynamicIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(13, geometry.dynamicTriangleClassBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(14, geometry.dynamicTriangleMaterialIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(15, geometry.rigidRouteVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, geometry.rigidRouteIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(17, geometry.rigidRouteInstanceBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, Upt04SkinnedVertexBuffer(inputs)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, Upt04SkinnedIndexBuffer(inputs)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(20, geometry.skinnedHitRouteRecordBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(21, geometry.skinnedHitRouteTriangleBuffer));
+}
+
+static void Upt04SetReplayGeometrySrvStates(
+    nvrhi::ICommandList* commandList,
+    const RtPathTraceSceneInputs& inputs)
+{
+    const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
+    commandList->setBufferState(inputs.lights.emissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.staticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.staticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.staticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.staticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.dynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.dynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.dynamicTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.dynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.rigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.rigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.rigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(Upt04SkinnedVertexBuffer(inputs), nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(Upt04SkinnedIndexBuffer(inputs), nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.skinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(geometry.skinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
 }
 
 static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
@@ -1415,6 +1514,18 @@ void PathTraceUnifiedPtState::Release()
     m_temporalGpuTimingCompleted = 0u;
     m_temporalGpuTimingBatchComplete = false;
     m_temporalGpuTimingQueryFailureLogged = false;
+    for (SpatialGpuTimerSlot& slot : m_spatialGpuTimers)
+    {
+        slot.query = nullptr;
+        slot.pending = false;
+    }
+    m_spatialGpuTimerCursor = 0u;
+    m_spatialGpuTimingMode = UINT32_MAX;
+    m_spatialGpuTimingWarmupRemaining = 0u;
+    m_spatialGpuTimingSubmitted = 0u;
+    m_spatialGpuTimingCompleted = 0u;
+    m_spatialGpuTimingBatchComplete = false;
+    m_spatialGpuTimingQueryFailureLogged = false;
     m_page0 = nullptr;
     m_page1 = nullptr;
     m_page0Metadata.Invalidate();
@@ -4353,11 +4464,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(3));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
-    for (const uint32_t slot : { 6u, 7u, 8u, 10u, 11u, 12u, 14u,
-            15u, 16u, 17u, 18u, 19u, 20u, 21u })
-    {
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
-    }
+    Upt04AddReplayGeometryLayoutItems(layoutDesc);
     if (indirect)
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(23));
@@ -5050,17 +5157,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
     if (!lightBuffer || !CurrentPage() || !HistoryPage() || !geometry.tlas
         || (inputs.duplication && !m_duplicationScores[m_historyPageIndex])
         || !lights.restirLightManagerPreviousToCurrentBuffer
-        || !lights.emissiveTriangleBuffer
-        || !geometry.staticVertexBuffer || !geometry.staticIndexBuffer
-        || !geometry.staticTriangleMaterialIndexBuffer
-        || !geometry.dynamicVertexBuffer || !geometry.dynamicIndexBuffer
-        || !geometry.dynamicTriangleMaterialIndexBuffer
-        || !geometry.rigidRouteVertexBuffer || !geometry.rigidRouteIndexBuffer
-        || !geometry.rigidRouteInstanceBuffer
-        || !Upt04SkinnedVertexBuffer(*inputs.sceneInputs)
-        || !Upt04SkinnedIndexBuffer(*inputs.sceneInputs)
-        || !geometry.skinnedHitRouteRecordBuffer
-        || !geometry.skinnedHitRouteTriangleBuffer
+        || !Upt04ReplayGeometryBindingsValid(*inputs.sceneInputs)
         || (indirect && !lights.unifiedPtEmissiveLookupBuffer)
         || !materials.materialTableBuffer || !materials.textureSampler
         || !materials.textureBindlessLayout || !materials.textureDescriptorTable)
@@ -5079,20 +5176,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(3, CurrentPage()));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, HistoryPage()));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(5, lightBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, lights.emissiveTriangleBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, geometry.staticVertexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, geometry.staticIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, geometry.staticTriangleMaterialIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, geometry.dynamicVertexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, geometry.dynamicIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(14, geometry.dynamicTriangleMaterialIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(15, geometry.rigidRouteVertexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, geometry.rigidRouteIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(17, geometry.rigidRouteInstanceBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, Upt04SkinnedVertexBuffer(*inputs.sceneInputs)));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, Upt04SkinnedIndexBuffer(*inputs.sceneInputs)));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(20, geometry.skinnedHitRouteRecordBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(21, geometry.skinnedHitRouteTriangleBuffer));
+    Upt04AddReplayGeometryBindingItems(desc, *inputs.sceneInputs);
     if (indirect)
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
             22, lights.unifiedPtEmissiveLookupBuffer));
@@ -5391,34 +5475,8 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
         inputs.commandList->setBufferState(
             lights.restirLightManagerPreviousToCurrentBuffer,
             nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            lights.emissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.staticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.staticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.staticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.dynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.dynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.dynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.rigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.rigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.rigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            Upt04SkinnedVertexBuffer(*inputs.sceneInputs), nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            Upt04SkinnedIndexBuffer(*inputs.sceneInputs), nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.skinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.skinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        Upt04SetReplayGeometrySrvStates(
+            inputs.commandList, *inputs.sceneInputs);
         inputs.commandList->setBufferState(
             lights.unifiedPtEmissiveLookupBuffer, nvrhi::ResourceStates::ShaderResource);
         inputs.commandList->setBufferState(
@@ -5514,19 +5572,198 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
     return true;
 }
 
+void PathTraceUnifiedPtState::UpdateSpatialGpuTiming(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    uint32_t requestedMode = UINT32_MAX;
+    if (r_pathTracingUnifiedPtSpatialGpuTiming.GetBool() && inputs.spatial)
+    {
+        const bool sharedSpatial = Upt30SharedSpatialEnabled(inputs);
+        const bool storedSourceTarget = sharedSpatial
+            && r_pathTracingUnifiedPtSpatialStoredSourceTarget.GetBool();
+        const bool workgroupPairing = storedSourceTarget
+            && r_pathTracingUnifiedPtSpatialWorkgroupPairing.GetBool();
+        const uint32_t proofMode = static_cast<uint32_t>(idMath::ClampInt(
+            0, 6, r_pathTracingUnifiedPtSpatialProofMode.GetInteger()));
+        const bool fixedPhase =
+            r_pathTracingUnifiedPtFixedSampleIndex.GetInteger() >= 0;
+        const uint32_t phaseState = fixedPhase
+            ? (inputs.frameSampleIndex & 3u) : 4u;
+        requestedMode = (sharedSpatial ? 1u : 0u)
+            | (storedSourceTarget ? 2u : 0u)
+            | (workgroupPairing ? 4u : 0u)
+            | (proofMode << 4u)
+            | (phaseState << 8u);
+    }
+    if (requestedMode == m_spatialGpuTimingMode)
+        return;
+
+    m_spatialGpuTimingMode = requestedMode;
+    m_spatialGpuTimingWarmupRemaining = requestedMode == UINT32_MAX
+        ? 0u : SPATIAL_GPU_TIMING_WARMUP_FRAMES;
+    m_spatialGpuTimingSubmitted = 0u;
+    m_spatialGpuTimingCompleted = 0u;
+    m_spatialGpuTimingBatchComplete = false;
+    m_spatialGpuTimingSamples.fill(0.0);
+    if (requestedMode != UINT32_MAX)
+    {
+        const uint32_t phaseState = (requestedMode >> 8u) & 7u;
+        common->Printf(
+            "PathTraceUnifiedPt: spatial GPU timing armed shared=%u storedSourceTarget=%u workgroupPairing=%u proof=%u phase=%s warmup=%u samples=%u scope=dispatch-only\n",
+            requestedMode & 1u,
+            (requestedMode >> 1u) & 1u,
+            (requestedMode >> 2u) & 1u,
+            (requestedMode >> 4u) & 0xfu,
+            phaseState < 4u ? va("%u", phaseState) : "mixed",
+            SPATIAL_GPU_TIMING_WARMUP_FRAMES,
+            SPATIAL_GPU_TIMING_SAMPLE_COUNT);
+    }
+}
+
+void PathTraceUnifiedPtState::PollSpatialGpuTiming(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.device)
+        return;
+
+    const int currentFrame = idLib::frameNumber;
+    for (SpatialGpuTimerSlot& slot : m_spatialGpuTimers)
+    {
+        if (!slot.pending || !slot.query
+            || currentFrame < slot.earliestPollFrame
+            || !inputs.device->pollTimerQuery(slot.query))
+        {
+            continue;
+        }
+        if (slot.collect && slot.mode == m_spatialGpuTimingMode
+            && slot.sampleIndex < SPATIAL_GPU_TIMING_SAMPLE_COUNT
+            && !m_spatialGpuTimingBatchComplete)
+        {
+            m_spatialGpuTimingSamples[slot.sampleIndex] =
+                static_cast<double>(inputs.device->getTimerQueryTime(slot.query))
+                * 1000.0;
+            ++m_spatialGpuTimingCompleted;
+        }
+        slot.pending = false;
+    }
+
+    if (m_spatialGpuTimingBatchComplete
+        || m_spatialGpuTimingCompleted != SPATIAL_GPU_TIMING_SAMPLE_COUNT)
+    {
+        return;
+    }
+
+    std::array<double, SPATIAL_GPU_TIMING_SAMPLE_COUNT> sorted =
+        m_spatialGpuTimingSamples;
+    std::sort(sorted.begin(), sorted.end());
+    double sum = 0.0;
+    for (const double sample : sorted)
+        sum += sample;
+    const double median = 0.5 * (sorted[31] + sorted[32]);
+    const double mean = sum / double(SPATIAL_GPU_TIMING_SAMPLE_COUNT);
+    const double p90 = sorted[57];
+    const uint32_t phaseState = (m_spatialGpuTimingMode >> 8u) & 7u;
+    common->Printf(
+        "PathTraceUnifiedPt: spatial GPU timing shared=%u storedSourceTarget=%u workgroupPairing=%u proof=%u phase=%s samples=%u resolution=%ux%u medianMs=%.3f meanMs=%.3f minMs=%.3f p90Ms=%.3f maxMs=%.3f scope=dispatch-only\n",
+        m_spatialGpuTimingMode & 1u,
+        (m_spatialGpuTimingMode >> 1u) & 1u,
+        (m_spatialGpuTimingMode >> 2u) & 1u,
+        (m_spatialGpuTimingMode >> 4u) & 0xfu,
+        phaseState < 4u ? va("%u", phaseState) : "mixed",
+        SPATIAL_GPU_TIMING_SAMPLE_COUNT,
+        inputs.width,
+        inputs.height,
+        median,
+        mean,
+        sorted.front(),
+        p90,
+        sorted.back());
+    m_spatialGpuTimingBatchComplete = true;
+}
+
+nvrhi::TimerQueryHandle PathTraceUnifiedPtState::BeginSpatialGpuTiming(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (m_spatialGpuTimingMode == UINT32_MAX
+        || m_spatialGpuTimingBatchComplete
+        || !inputs.device || !inputs.commandList)
+    {
+        return nullptr;
+    }
+    if (m_spatialGpuTimingWarmupRemaining == 0u
+        && m_spatialGpuTimingSubmitted >= SPATIAL_GPU_TIMING_SAMPLE_COUNT)
+    {
+        return nullptr;
+    }
+
+    for (uint32_t slotOffset = 0u;
+        slotOffset < SPATIAL_GPU_TIMER_SLOT_COUNT;
+        ++slotOffset)
+    {
+        const uint32_t slotIndex = (m_spatialGpuTimerCursor + slotOffset)
+            % SPATIAL_GPU_TIMER_SLOT_COUNT;
+        SpatialGpuTimerSlot& slot = m_spatialGpuTimers[slotIndex];
+        if (slot.pending)
+            continue;
+        if (!slot.query)
+            slot.query = inputs.device->createTimerQuery();
+        if (!slot.query)
+        {
+            if (!m_spatialGpuTimingQueryFailureLogged)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: spatial GPU timing query creation failed\n");
+                m_spatialGpuTimingQueryFailureLogged = true;
+            }
+            return nullptr;
+        }
+
+        slot.pending = true;
+        slot.mode = m_spatialGpuTimingMode;
+        slot.collect = m_spatialGpuTimingWarmupRemaining == 0u;
+        if (slot.collect)
+            slot.sampleIndex = m_spatialGpuTimingSubmitted++;
+        else
+        {
+            slot.sampleIndex = UINT32_MAX;
+            --m_spatialGpuTimingWarmupRemaining;
+        }
+        slot.earliestPollFrame = idLib::frameNumber + int(NUM_FRAME_DATA);
+        m_spatialGpuTimerCursor =
+            (slotIndex + 1u) % SPATIAL_GPU_TIMER_SLOT_COUNT;
+        inputs.commandList->beginTimerQuery(slot.query);
+        return slot.query;
+    }
+    return nullptr;
+}
+
 bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
+    const bool sharedSpatial = Upt30SharedSpatialEnabled(inputs);
+    const bool storedSourceTarget = sharedSpatial
+        && r_pathTracingUnifiedPtSpatialStoredSourceTarget.GetBool();
+    const bool workgroupPairing = storedSourceTarget
+        && r_pathTracingUnifiedPtSpatialWorkgroupPairing.GetBool();
     if (m_spatialPipeline && m_spatialCompactLights == inputs.compactLights
+        && m_spatialSharedReuse == sharedSpatial
+        && m_spatialStoredSourceTarget == storedSourceTarget
+        && m_spatialWorkgroupPairing == workgroupPairing
         && m_spatialLambertDiagnostic == inputs.lambertDiagnostic)
     {
         return true;
     }
     if (m_spatialCompactLights != inputs.compactLights
+        || m_spatialSharedReuse != sharedSpatial
+        || m_spatialStoredSourceTarget != storedSourceTarget
+        || m_spatialWorkgroupPairing != workgroupPairing
         || m_spatialLambertDiagnostic != inputs.lambertDiagnostic)
     {
         ReleaseSpatial();
         m_spatialCompactLights = inputs.compactLights;
+        m_spatialSharedReuse = sharedSpatial;
+        m_spatialStoredSourceTarget = storedSourceTarget;
+        m_spatialWorkgroupPairing = workgroupPairing;
         m_spatialLambertDiagnostic = inputs.lambertDiagnostic;
     }
     if (m_spatialPipelineAttempted)
@@ -5556,11 +5793,9 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(3));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
-    for (const uint32_t slot : { 6u, 7u, 8u, 10u, 11u, 12u, 14u,
-            15u, 16u, 17u, 18u, 19u, 20u, 21u })
-    {
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
-    }
+    Upt04AddReplayGeometryLayoutItems(layoutDesc);
+    if (sharedSpatial)
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(28));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
@@ -5573,13 +5808,19 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         return false;
     }
 
-    const char* path = inputs.lambertDiagnostic
+    const char* path = sharedSpatial
+        ? (workgroupPairing
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_workgroup_pair_stored_target_light64.bin"
+            : storedSourceTarget
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_selected_pair_stored_target_light64.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_selected_pair_light64.bin")
+        : (inputs.lambertDiagnostic
         ? (inputs.compactLights
             ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery_light64_lambert.bin"
             : "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery_lambert.bin")
         : (inputs.compactLights
             ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery_light64.bin"
-            : "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery.bin");
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_direct_rayquery.bin"));
     void* data = nullptr;
     int size = 0;
     ID_TIME_T timestamp = 0;
@@ -5616,14 +5857,20 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=1 shading=%s createUs=%llu\n",
+        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=%u sharedSpatial=%u storedSourceTarget=%u workgroupPairing=%u pairedPixels=%u mappingRaysMaxPerPair=%u shading=%s createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
         inputs.compactLights ? UPT04_COMPACT_LIGHT_STRIDE : 112u,
-        UPT09_REGULAR_NEIGHBOR_COUNT,
-        UPT09_RESCUE_NEIGHBOR_COUNT,
-        UPT09_NEIGHBOR_RADIUS,
+        sharedSpatial ? 1u : UPT09_REGULAR_NEIGHBOR_COUNT,
+        sharedSpatial ? 0u : UPT09_RESCUE_NEIGHBOR_COUNT,
+        sharedSpatial ? 1.0f : UPT09_NEIGHBOR_RADIUS,
+        1u,
+        sharedSpatial ? 1u : 0u,
+        storedSourceTarget ? 1u : 0u,
+        workgroupPairing ? 1u : 0u,
+        sharedSpatial ? 2u : 1u,
+        sharedSpatial ? 2u : 0u,
         inputs.lambertDiagnostic ? "lambert-diagnostic" : "openpbr",
         static_cast<unsigned long long>(pipelineUs));
     return true;
@@ -5632,6 +5879,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
 bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
+    const bool sharedSpatial = m_spatialSharedReuse;
     if (!inputs.compactPrimaryHistory ||
         !inputs.primarySurfaceCurrentBuffer ||
         !inputs.primaryHistorySidecarCurrentBuffer ||
@@ -5651,17 +5899,8 @@ bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
     const RtPathTraceSceneInputMaterials& materials = inputs.sceneInputs->materials;
     const RtPathTraceSceneInputLights& lights = inputs.sceneInputs->lights;
     if (!lightBuffer || !CurrentPage() || !HistoryPage()
-        || !lights.emissiveTriangleBuffer
-        || !geometry.staticVertexBuffer || !geometry.staticIndexBuffer
-        || !geometry.staticTriangleMaterialIndexBuffer
-        || !geometry.dynamicVertexBuffer || !geometry.dynamicIndexBuffer
-        || !geometry.dynamicTriangleMaterialIndexBuffer
-        || !geometry.rigidRouteVertexBuffer || !geometry.rigidRouteIndexBuffer
-        || !geometry.rigidRouteInstanceBuffer
-        || !Upt04SkinnedVertexBuffer(*inputs.sceneInputs)
-        || !Upt04SkinnedIndexBuffer(*inputs.sceneInputs)
-        || !geometry.skinnedHitRouteRecordBuffer
-        || !geometry.skinnedHitRouteTriangleBuffer
+        || !Upt04ReplayGeometryBindingsValid(*inputs.sceneInputs)
+        || (sharedSpatial && !lights.unifiedPtEmissiveLookupBuffer)
         || !materials.materialTableBuffer || !materials.textureSampler
         || !materials.textureBindlessLayout || !materials.textureDescriptorTable)
     {
@@ -5679,20 +5918,10 @@ bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, lightBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         5, inputs.primaryHistorySidecarCurrentBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, lights.emissiveTriangleBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, geometry.staticVertexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, geometry.staticIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, geometry.staticTriangleMaterialIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, geometry.dynamicVertexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, geometry.dynamicIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(14, geometry.dynamicTriangleMaterialIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(15, geometry.rigidRouteVertexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, geometry.rigidRouteIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(17, geometry.rigidRouteInstanceBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, Upt04SkinnedVertexBuffer(*inputs.sceneInputs)));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, Upt04SkinnedIndexBuffer(*inputs.sceneInputs)));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(20, geometry.skinnedHitRouteRecordBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(21, geometry.skinnedHitRouteTriangleBuffer));
+    Upt04AddReplayGeometryBindingItems(desc, *inputs.sceneInputs);
+    if (sharedSpatial)
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            22, lights.unifiedPtEmissiveLookupBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         27, materials.materialTableBuffer));
     desc.addItem(nvrhi::BindingSetItem::Sampler(28, materials.textureSampler));
@@ -5720,12 +5949,15 @@ bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
 bool PathTraceUnifiedPtState::ExecuteSpatial(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
+    UpdateSpatialGpuTiming(inputs);
+    PollSpatialGpuTiming(inputs);
     m_spatialExecutedThisFrame = false;
     if (!inputs.spatial)
     {
         return false;
     }
-    if (inputs.family != PathTraceUnifiedPtFamily::DirectOnly)
+    const bool sharedSpatial = Upt30SharedSpatialEnabled(inputs);
+    if (inputs.family != PathTraceUnifiedPtFamily::DirectOnly && !sharedSpatial)
     {
         common->Printf(
             "PathTraceUnifiedPt: UPT-09 spatial baseline is direct-only; dispatch skipped for family=%s\n",
@@ -5780,7 +6012,8 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
         | (r_pathTracingUnifiedPtAnalyticPortalDomain.GetBool()
             ? UPT04_ANALYTIC_PORTAL_DOMAIN : 0u)
         | (r_pathTracingReservoirTwoSidedEmissives.GetBool()
-            ? UPT04_TWO_SIDED_EMISSIVES : 0u);
+            ? UPT04_TWO_SIDED_EMISSIVES : 0u)
+        | (sharedSpatial ? UPT07_GEOMETRY_FLAG_INDIRECT_REPLAY : 0u);
     control.emissiveScale = Max(0.0f, inputs.emissiveScale);
     control.proofMode = static_cast<uint32_t>(idMath::ClampInt(
         0, 6, r_pathTracingUnifiedPtSpatialProofMode.GetInteger()));
@@ -5791,12 +6024,28 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
         0, inputs.sceneInputs->materials.materialTableEntryCount));
     control.logicalTextureCount = static_cast<uint32_t>(Max(
         0, inputs.sceneInputs->materials.logicalTextureDescriptorCount));
+    const uint32_t distributionCount = static_cast<uint32_t>(Max(
+        0, lights.emissiveDistributionCount));
+    control.emissiveDistributionCountAndValid =
+        (distributionCount & UPT04_CONTROL_METADATA_COUNT_MASK)
+        | (lights.emissiveDistributionValid && distributionCount != 0u
+            ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
+    const uint32_t lookupCapacity = static_cast<uint32_t>(Max(
+        0, lights.unifiedPtEmissiveLookupCount));
+    control.emissiveLookupCapacityAndValid =
+        (lookupCapacity & UPT04_CONTROL_METADATA_COUNT_MASK)
+        | (lights.unifiedPtEmissiveLookupExact && lookupCapacity >= 2u
+            ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
 
     const nvrhi::BufferHandle lightBuffer = inputs.compactLights
         ? m_compactLightsBuffer
         : lights.restirLightManagerCurrentPayloadBuffer;
     {
-        const char* spatialMarker = "UPT.S0 Spatial Unique BasicCorrection";
+        const char* spatialMarker = sharedSpatial
+            ? (m_spatialWorkgroupPairing
+                ? "UPT.S0 Shared Workgroup Reciprocal Pair GRIS"
+                : "UPT.S0 Shared Disjoint Reciprocal Pair GRIS")
+            : "UPT.S0 Spatial Unique BasicCorrection";
         if (control.proofMode == 1u)
             spatialMarker = "UPT.S0 Proof PassThrough";
         else if (control.proofMode == 2u)
@@ -5828,34 +6077,12 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
             HistoryPage(), nvrhi::ResourceStates::UnorderedAccess);
         inputs.commandList->setBufferState(
             lightBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            lights.emissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.staticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.staticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.staticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.dynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.dynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.dynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.rigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.rigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.rigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            Upt04SkinnedVertexBuffer(*inputs.sceneInputs), nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            Upt04SkinnedIndexBuffer(*inputs.sceneInputs), nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.skinnedHitRouteRecordBuffer, nvrhi::ResourceStates::ShaderResource);
-        inputs.commandList->setBufferState(
-            geometry.skinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        Upt04SetReplayGeometrySrvStates(
+            inputs.commandList, *inputs.sceneInputs);
+        if (sharedSpatial)
+            inputs.commandList->setBufferState(
+                lights.unifiedPtEmissiveLookupBuffer,
+                nvrhi::ResourceStates::ShaderResource);
         inputs.commandList->setBufferState(
             inputs.sceneInputs->materials.materialTableBuffer,
             nvrhi::ResourceStates::ShaderResource);
@@ -5868,10 +6095,14 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
             inputs.sceneInputs->materials.textureDescriptorTable };
         inputs.commandList->setComputeState(state);
         inputs.commandList->setPushConstants(&control, sizeof(control));
+        const nvrhi::TimerQueryHandle spatialGpuTimer =
+            BeginSpatialGpuTiming(inputs);
         inputs.commandList->dispatch(
             (inputs.width + 7u) / 8u,
             (inputs.height + 7u) / 8u,
             1u);
+        if (spatialGpuTimer)
+            inputs.commandList->endTimerQuery(spatialGpuTimer);
         nvrhi::utils::BufferUavBarrier(inputs.commandList, HistoryPage());
     }
     HistoryPageMetadata() = currentMetadata;

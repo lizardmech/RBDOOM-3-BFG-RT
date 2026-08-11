@@ -93,17 +93,49 @@ public bool Upt05DecodeEstimate(
     const float selectedTarget = asfloat(packed.word10);
     const float meanWeight = asfloat(packed.word11);
     const float proposalPdf = asfloat(packed.word12);
-    const float pathPdf = asfloat(packed.word13);
-    const float partialJacobian = asfloat(packed.word14);
-    const float rouletteProbability = asfloat(packed.word15);
+
+    // Words 13..15 are an event-specific union. Static secondary hits carry a
+    // reconnection locator there; all other events carry the path-PDF,
+    // Jacobian and roulette tuple. Resolve must validate the active arm only.
+    Upt03Candidate metadata = (Upt03Candidate)0;
+    metadata.status = 2u;
+    metadata.eventKind = eventKind;
+    metadata.flags = flags;
+    metadata.pathLength = (packed.word0 >> 24u) & 0x0fu;
+    metadata.reconnectionVertexLength = (packed.word0 >> 28u) & 0x0fu;
+    metadata.proposalPdf = proposalPdf;
+    const bool hasStaticLocator = Upt03HasStaticReconnectionLocator(metadata);
+    bool metadataValid = false;
+    if (hasStaticLocator)
+    {
+        metadata.reconnectionInstanceId = packed.word13
+            & kUpt03PackedReconnectInstanceMask;
+        metadata.reconnectionFrontFace = (packed.word13
+            & kUpt03PackedReconnectFrontFaceBit) != 0u ? 1u : 0u;
+        metadata.reconnectionPrimitiveId = packed.word14;
+        metadata.reconnectionBarycentrics =
+            Upt03UnpackReconnectBarycentrics(packed.word15);
+        const uint locatorReservedBits = packed.word13
+            & ~(kUpt03PackedReconnectInstanceMask
+                | kUpt03PackedReconnectFrontFaceBit);
+        metadataValid = locatorReservedBits == 0u
+            && Upt03StaticReconnectionLocatorValid(metadata);
+    }
+    else
+    {
+        const float pathPdf = asfloat(packed.word13);
+        const float partialJacobian = asfloat(packed.word14);
+        const float rouletteProbability = asfloat(packed.word15);
+        metadataValid = isfinite(pathPdf) && pathPdf > 0.0f
+            && isfinite(partialJacobian) && partialJacobian > 0.0f
+            && isfinite(rouletteProbability) && rouletteProbability > 0.0f
+            && rouletteProbability <= 1.0f;
+    }
     if (!Upt05FiniteNonNegative3(selectedContribution)
         || !isfinite(selectedTarget) || selectedTarget <= 0.0f
         || !isfinite(meanWeight) || meanWeight <= 0.0f
-        || !isfinite(proposalPdf) || proposalPdf <= 0.0f
-        || !isfinite(pathPdf) || pathPdf <= 0.0f
-        || !isfinite(partialJacobian) || partialJacobian <= 0.0f
-        || !isfinite(rouletteProbability) || rouletteProbability <= 0.0f
-        || rouletteProbability > 1.0f)
+        || !Upt03StoredProposalPayloadValid(metadata)
+        || !metadataValid)
         return false;
 
     normalization = meanWeight / selectedTarget;

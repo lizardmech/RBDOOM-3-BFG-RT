@@ -30,6 +30,8 @@ public struct Upt09SpatialDirectControl
     public uint compactPrimaryHistory;
     public uint materialCount;
     public uint logicalTextureCount;
+    public uint emissiveDistributionCountAndValid;
+    public uint emissiveLookupCapacityAndValid;
 };
 
 public [[vk::binding(0, 0)]] RaytracingAccelerationStructure gUpt09Scene;

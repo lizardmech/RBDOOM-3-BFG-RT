@@ -109,6 +109,8 @@ public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
         result.sample.solidAnglePdf = replay.solidAnglePdf
             * (4.0f * Upt04EmissiveRegionSelectionPdf(
                 regionWeights, region));
+        result.sample.reserved = asuint(
+            4.0f * Upt04EmissiveRegionSelectionPdf(regionWeights, region));
         result.sample.radiance = replayRadiance;
         result.storedSampleCoordinates = replay.barycentrics;
     }

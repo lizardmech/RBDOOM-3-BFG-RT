@@ -427,6 +427,76 @@ Packet index
         remapping, Vulkan UPT/legacy ray-flag changes, rollback control and
         chunk-opacity diagnostics.
 
+    35_upt20_temporal_indirect_replay_compaction.txt
+        Uses the wall/orb split-continuation captures to isolate the remaining
+        view-dependent cost to T0 indirect replay, then defines a bounded
+        tracing-work compaction that preserves the unified reservoir, replay
+        algebra, visibility rules, ray ceiling and no-clear contract.
+
+    36_upt21_lambert_material_isolation.txt
+        Adds a static constant-gray Lambert D0/T0 profiling specialization that
+        omits OpenPBR receiver/secondary shading while preserving real emitter
+        textures, alpha traversal, identities, reservoir algebra and ray count.
+
+    37_upt22_temporal_bottleneck_ladder.txt
+        Adds five cumulative static T0 probe shaders whose adjacent marker-time
+        deltas isolate reprojection/history traffic, first replay, reciprocal
+        cross evaluation, merge and final visibility under identical D0 input;
+        modes 6--11 further split the measured reciprocal hotspot into
+        bookkeeping, current/direct-cross targets, reciprocal traversal/decode
+        and post-hit evaluation, including request-only and committed-hit-only
+        boundaries around the second RayQuery.
+
+    38_upt23_frozen_scene_isolation.txt
+        Adds a persistent production-package freeze and a static-only flat
+        geometry/analytic-light specialization so matched timing can separate
+        scene/BVH work, GPU lookup/routing, traversal/reservoir work and
+        OpenPBR shading without changing the production estimator.
+
+    39_upt24_rigid_skinned_resolver.txt
+        Uses the frozen/view evidence to narrow rigid/skinned current-hit route
+        loads, removes the skinned header classification load, gives T0 alpha
+        traversal the accepted material-first gate, and defines the measured
+        escalation to a common instance/geometry resolver.
+
+    40_upt25_emissive_temporal_pdf_lookup.txt
+        Removes the redundant temporal emissive identity hash lookup after
+        stable dense remapping by preserving the exact source PDF in compact64.
+
+    41_upt26_alpha_clip_geometry_isolation.txt
+        Adds a default-off destructive diagnostic that omits authored alpha-test
+        surfaces from every RT geometry producer and performs a one-time cache
+        invalidation, separating executed alpha traversal/material cost from
+        the remaining UPT workload.
+
+    42_upt27_executed_work_budgets.txt
+        Adds a build-failing T0 structural budget and an atomics-free per-pixel
+        executed-work capture for rays, programmable candidates, stable remaps,
+        emissive hash loads, light/geometry/material loads and texture samples.
+
+    43_upt28_diagnostic_configuration_parity.txt
+        Decouples compact64 lights from compact geometry for split D0 and moves
+        the temporal probe ladder onto production OpenPBR, allowing diagnostics
+        to retain the measured-fast native-geometry/split-initial configuration.
+
+    44_upt29_temporal_ray_site_workgroups.txt
+        Records the temporal RayQuery site/workgroup investigation and the
+        measured constraints on replay scheduling experiments.
+
+    45_upt30_genuine_di_gi_reuse_unification.txt
+        Owns the shared DI/GI temporal adapter, common GRIS merge and bounded
+        disjoint reciprocal-pair spatial implementation and acceptance gates.
+
+    46_upt31_shared_spatial_optimization_research.txt
+        Audits shared-S0 emissive routes, paired scheduling, the stored source
+        target invariant, instruction footprint and the controlled timing
+        matrix for the first default-off UPT-31 experiment.
+
+    47_upt32_full_occupancy_shared_spatial.txt
+        Replaces interleaved half-lane reciprocal ownership with one mapping
+        and one publication per lane through an 8x8 group-shared handoff,
+        retaining the two-page ABI, exact GRIS estimator and four-ray ceiling.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

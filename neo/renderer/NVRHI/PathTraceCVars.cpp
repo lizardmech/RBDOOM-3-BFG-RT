@@ -1557,6 +1557,30 @@ idCVar r_pathTracingUnifiedPtSpatial(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-09 bounded direct spatial rescue: reads the completed D0/T0 page and fully writes the other existing 64-byte page; 3 regular or 12 empty-center attempts, 30-pixel radius, at most one visibility RayQuery; default off" );
 
+idCVar r_pathTracingUnifiedPtSharedSpatial(
+    "r_pathTracingUnifiedPtSharedSpatial",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-30 combined spatial A/B: one selected center and one selected neighbor use the shared direct/global shift and GRIS pairwise core; requires the accepted unified temporal configuration and remains default off" );
+
+idCVar r_pathTracingUnifiedPtSpatialStoredSourceTarget(
+    "r_pathTracingUnifiedPtSpatialStoredSourceTarget",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-31 shared-S0 direct-event A/B: trust the reservoir's canonical source-receiver target instead of replaying the selected emitter a second time at its source; requires shared spatial and selects a separate Vulkan shader artifact" );
+
+idCVar r_pathTracingUnifiedPtSpatialWorkgroupPairing(
+    "r_pathTracingUnifiedPtSpatialWorkgroupPairing",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-32 shared-S0 feature A/B: every lane shifts once into group-shared storage, synchronizes, and publishes its own side of a randomized self-inverse 8x8 pair; requires shared spatial plus stored source target and adds no full-resolution buffer" );
+
+idCVar r_pathTracingUnifiedPtSpatialGpuTiming(
+    "r_pathTracingUnifiedPtSpatialGpuTiming",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Vulkan UPT S0 dispatch-only timestamp batch: after 16 valid-spatial warm-up frames, collect 64 samples and print median/mean/min/p90/max plus shared/stored-target/workgroup-pair/proof/pairing-phase state; toggle off/on to rearm an unchanged mode" );
+
 idCVar r_pathTracingUnifiedPtSpatialProofMode(
     "r_pathTracingUnifiedPtSpatialProofMode",
     "0",

@@ -14,6 +14,27 @@ public static const uint kUpt04CandidateFlagVisibilityPassed = 1u << 3u;
 public static const uint kUpt04CandidateFlagReplayable = 1u << 4u;
 public static const uint kUpt04CandidateFlagNeedsShift = 1u << 5u;
 
+// Once D0 has completed reservoir selection, proposalPdf is no longer read by
+// the estimator. Secondary-emissive winners persist their receiver-invariant
+// four-region PDF scale as a negative finite value in word12. All actual
+// proposal PDFs are strictly positive, so the sign is a collision-free union
+// discriminator. UPT04_ABI_VERSION owns cross-frame invalidation.
+
+public float Upt04EncodeEmissiveReplayPdfScale(float scale)
+{
+    return isfinite(scale) && scale > 0.0f && scale <= 4.0f
+        ? -scale : 0.0f;
+}
+
+public bool Upt04DecodeEmissiveReplayPdfScale(
+    float payload,
+    out float scale)
+{
+    scale = -payload;
+    return isfinite(payload) && payload < 0.0f
+        && scale > 0.0f && scale <= 4.0f;
+}
+
 // Diagnostic-only D0 acquisition stages. These remain in transient work and
 // are never packed into the six-bit persistent candidate flag field.
 public static const uint kUpt04D0DiagPreviousLookupAttempted = 1u << 0u;
