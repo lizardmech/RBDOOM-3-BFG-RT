@@ -5583,6 +5583,8 @@ void PathTraceUnifiedPtState::UpdateSpatialGpuTiming(
             && r_pathTracingUnifiedPtSpatialStoredSourceTarget.GetBool();
         const bool workgroupPairing = storedSourceTarget
             && r_pathTracingUnifiedPtSpatialWorkgroupPairing.GetBool();
+        const bool emptyRescue = workgroupPairing
+            && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool();
         const uint32_t proofMode = static_cast<uint32_t>(idMath::ClampInt(
             0, 6, r_pathTracingUnifiedPtSpatialProofMode.GetInteger()));
         const bool fixedPhase =
@@ -5592,6 +5594,7 @@ void PathTraceUnifiedPtState::UpdateSpatialGpuTiming(
         requestedMode = (sharedSpatial ? 1u : 0u)
             | (storedSourceTarget ? 2u : 0u)
             | (workgroupPairing ? 4u : 0u)
+            | (emptyRescue ? 8u : 0u)
             | (proofMode << 4u)
             | (phaseState << 8u);
     }
@@ -5609,10 +5612,11 @@ void PathTraceUnifiedPtState::UpdateSpatialGpuTiming(
     {
         const uint32_t phaseState = (requestedMode >> 8u) & 7u;
         common->Printf(
-            "PathTraceUnifiedPt: spatial GPU timing armed shared=%u storedSourceTarget=%u workgroupPairing=%u proof=%u phase=%s warmup=%u samples=%u scope=dispatch-only\n",
+            "PathTraceUnifiedPt: spatial GPU timing armed shared=%u storedSourceTarget=%u workgroupPairing=%u emptyRescue=%u proof=%u phase=%s warmup=%u samples=%u scope=dispatch-only\n",
             requestedMode & 1u,
             (requestedMode >> 1u) & 1u,
             (requestedMode >> 2u) & 1u,
+            (requestedMode >> 3u) & 1u,
             (requestedMode >> 4u) & 0xfu,
             phaseState < 4u ? va("%u", phaseState) : "mixed",
             SPATIAL_GPU_TIMING_WARMUP_FRAMES,
@@ -5664,10 +5668,11 @@ void PathTraceUnifiedPtState::PollSpatialGpuTiming(
     const double p90 = sorted[57];
     const uint32_t phaseState = (m_spatialGpuTimingMode >> 8u) & 7u;
     common->Printf(
-        "PathTraceUnifiedPt: spatial GPU timing shared=%u storedSourceTarget=%u workgroupPairing=%u proof=%u phase=%s samples=%u resolution=%ux%u medianMs=%.3f meanMs=%.3f minMs=%.3f p90Ms=%.3f maxMs=%.3f scope=dispatch-only\n",
+        "PathTraceUnifiedPt: spatial GPU timing shared=%u storedSourceTarget=%u workgroupPairing=%u emptyRescue=%u proof=%u phase=%s samples=%u resolution=%ux%u medianMs=%.3f meanMs=%.3f minMs=%.3f p90Ms=%.3f maxMs=%.3f scope=dispatch-only\n",
         m_spatialGpuTimingMode & 1u,
         (m_spatialGpuTimingMode >> 1u) & 1u,
         (m_spatialGpuTimingMode >> 2u) & 1u,
+        (m_spatialGpuTimingMode >> 3u) & 1u,
         (m_spatialGpuTimingMode >> 4u) & 0xfu,
         phaseState < 4u ? va("%u", phaseState) : "mixed",
         SPATIAL_GPU_TIMING_SAMPLE_COUNT,
@@ -5745,10 +5750,13 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         && r_pathTracingUnifiedPtSpatialStoredSourceTarget.GetBool();
     const bool workgroupPairing = storedSourceTarget
         && r_pathTracingUnifiedPtSpatialWorkgroupPairing.GetBool();
+    const bool emptyRescue = workgroupPairing
+        && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool();
     if (m_spatialPipeline && m_spatialCompactLights == inputs.compactLights
         && m_spatialSharedReuse == sharedSpatial
         && m_spatialStoredSourceTarget == storedSourceTarget
         && m_spatialWorkgroupPairing == workgroupPairing
+        && m_spatialEmptyRescue == emptyRescue
         && m_spatialLambertDiagnostic == inputs.lambertDiagnostic)
     {
         return true;
@@ -5757,6 +5765,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         || m_spatialSharedReuse != sharedSpatial
         || m_spatialStoredSourceTarget != storedSourceTarget
         || m_spatialWorkgroupPairing != workgroupPairing
+        || m_spatialEmptyRescue != emptyRescue
         || m_spatialLambertDiagnostic != inputs.lambertDiagnostic)
     {
         ReleaseSpatial();
@@ -5764,6 +5773,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         m_spatialSharedReuse = sharedSpatial;
         m_spatialStoredSourceTarget = storedSourceTarget;
         m_spatialWorkgroupPairing = workgroupPairing;
+        m_spatialEmptyRescue = emptyRescue;
         m_spatialLambertDiagnostic = inputs.lambertDiagnostic;
     }
     if (m_spatialPipelineAttempted)
@@ -5810,7 +5820,9 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
 
     const char* path = sharedSpatial
         ? (workgroupPairing
-            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_workgroup_pair_stored_target_light64.bin"
+            ? (emptyRescue
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_workgroup_pair_stored_target_light64.bin")
             : storedSourceTarget
             ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_selected_pair_stored_target_light64.bin"
             : "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_selected_pair_light64.bin")
@@ -5857,7 +5869,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=%u sharedSpatial=%u storedSourceTarget=%u workgroupPairing=%u pairedPixels=%u mappingRaysMaxPerPair=%u shading=%s createUs=%llu\n",
+        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=%u sharedSpatial=%u storedSourceTarget=%u workgroupPairing=%u emptyRescue=%u pairedPixels=%u mappingRaysMaxPerPair=%u shading=%s createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -5869,6 +5881,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         sharedSpatial ? 1u : 0u,
         storedSourceTarget ? 1u : 0u,
         workgroupPairing ? 1u : 0u,
+        emptyRescue ? 1u : 0u,
         sharedSpatial ? 2u : 1u,
         sharedSpatial ? 2u : 0u,
         inputs.lambertDiagnostic ? "lambert-diagnostic" : "openpbr",

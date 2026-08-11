@@ -269,6 +269,7 @@ extern idCVar r_pathTracingUnifiedPtSpatial;
 extern idCVar r_pathTracingUnifiedPtSharedSpatial;
 extern idCVar r_pathTracingUnifiedPtSpatialStoredSourceTarget;
 extern idCVar r_pathTracingUnifiedPtSpatialWorkgroupPairing;
+extern idCVar r_pathTracingUnifiedPtSpatialEmptyRescue;
 extern idCVar r_pathTracingUnifiedPtSpatialGpuTiming;
 extern idCVar r_pathTracingUnifiedPtSpatialProofMode;
 extern idCVar r_pathTracingUnifiedPtDirectTargetPdfParity;

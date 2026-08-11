@@ -4,10 +4,10 @@ UPT-32: full-occupancy shared spatial pairing
 Status
 ------
 
-Built, statically verified and deployed behind
-r_pathTracingUnifiedPtSpatialWorkgroupPairing. Runtime image and performance
-acceptance of the moving-boundary correction is pending. The first runtime run
-confirmed a decent performance boost and only exposed faint tile boundaries.
+Built, statically verified, deployed and runtime accepted behind
+r_pathTracingUnifiedPtSpatialWorkgroupPairing. The final runtime run confirmed
+the performance boost and removed the faint tile boundaries without relying
+on DLSS-RR.
 The accepted T30.3 temporal artifact, S30.1 leader-pair
 artifact and UPT-31 stored-source-target artifact remain intact as rollback
 oracles.
@@ -109,7 +109,7 @@ Use the one-command presets:
     exec uptf0    stored-target leader-owned S0 oracle
     exec uptf1    UPT-32 full-occupancy workgroup S0
 
-The new run must print workgroup pairing requested/effective=1/1 and the S0
+The accepted run prints workgroup pairing requested/effective=1/1 and the S0
 pipeline line must report workgroupPairing=1. Check ordinary motion, moving
 rigid/skinned geometry, portal crossings, mirrors, alpha-masked emitters,
 stretched UVs, disocclusions and emissive-heavy rooms. Reject black output,
@@ -119,7 +119,7 @@ geometry. Compare performance only after visual stability.
 Remaining feature boundary
 --------------------------
 
-This is the first S30.3 slice, not the last. It replaces half-lane ownership
+This completes the accepted full-occupancy S30.3 pairing slice. It replaces half-lane ownership
 and adjacent-only pairs, but its partner domain is one moving 8x8 tile rather
 than the paper's large Gaussian reuse textures. It still admits one selected
 neighbor and does not rescue empty centers. After runtime acceptance:

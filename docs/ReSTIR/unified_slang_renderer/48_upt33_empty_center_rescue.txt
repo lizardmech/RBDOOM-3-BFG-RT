@@ -1,0 +1,108 @@
+UPT-33: bounded non-donating empty-center rescue
+================================================
+
+Status
+------
+
+Built, statically verified and runtime accepted behind
+r_pathTracingUnifiedPtSpatialEmptyRescue. The user reported stable visuals and
+performance in the `exec uptf2` run. `exec uptf1` remains the byte-identical
+accepted UPT-32 oracle; `exec uptf2` selects this separate specialization.
+
+Admission contract
+------------------
+
+Rescue is not ordinary spatial density. A target may borrow only when:
+
+* its current receiver is valid;
+* its decoded reservoir is structurally valid;
+* it has no selected sample;
+* its explicit needs-rescue bit is set;
+* the reciprocal donor is an ordinary eligible direct or global sample;
+* both receivers pass the existing symmetric material, alpha, normal, depth
+  and plane compatibility checks;
+* donor-to-target mapping produces a finite positive current-domain target;
+* final winner visibility passes.
+
+Missing, stale, already-rescued, incompatible, duplicate, zero-target or
+invisible donors add no selectable mass. Failure copies the input reservoir;
+it never manufactures a sample for density.
+
+Estimator contract
+------------------
+
+The donor uses the accepted UPT-10 mapping provider and target-scaled UCW
+conversion. The empty/count-only center is represented as a valid-zero mapped
+proposal: its capped M enters output confidence and the donor's pairwise MIS
+denominator, but it has zero mass and cannot win. The donor supplies the only
+selectable mass. This preserves the established UPT reservoir convention and
+does not add an estimator-specific normalization path.
+
+The work ceiling is unchanged. A selected-selected pair may still execute two
+mappings plus two winner-only visibility queries. A selected-empty pair
+executes only the donor mapping and rescue visibility; the other output falls
+back. There is no new dispatch, buffer, clear, reservoir word or binding.
+
+Non-donation contract
+---------------------
+
+A successful rescue:
+
+* sets the reserved replay-key rescue bit;
+* resets age to zero;
+* clears Replayable and NeedsShift on global paths;
+* publishes current visibility known and passed.
+
+Direct T0/S0 already rejects the rescue-key bit. Indirect T0/S0 already
+requires Replayable and NeedsShift. The borrowed sample can therefore shade
+this frame but cannot donate through later temporal or spatial reuse. No
+temporal specialization or new ABI state is required.
+
+Verified evidence
+-----------------
+
+The targeted Vulkan UPT-09 build and structural verifier pass:
+
+    resource bindings                 26
+    triangle-class bindings           9 and 13, host/shader exact
+    push constants                    96 bytes
+    workgroup barriers                1
+    static RayQuery sites             5
+    dynamic RayQuery ceiling          4 per reciprocal pair
+    TraceRay sites                    0
+    UPT-33 SPIR-V bytes               519800
+    UPT-33 SHA-256                    0BBB146E7421C9EA18C5BEE36EB9FCE3A7D9F437D5C5F9A04FD71D62F1E9B956
+    accepted UPT-32 SHA-256           F99D5582B81A1958572D62A8530A0D89A6C4B49258C03794F1F16E85BF514C71
+    executable bytes                  16347648
+    executable SHA-256                06D1ED92C0C6FBF53DA8C0FDB25956EBA809854D26552BFD269501848DDF4300
+
+The accepted UPT-32 hash returning exactly after specialization isolation is a
+required regression proof. No DX12 shader was compiled.
+
+uptf2.txt confirms exact runtime activation: shared adapter, common GRIS,
+shared spatial and workgroup pairing all reached requested/effective=1/1; S0
+reported blobBytes=519800, workgroupPairing=1 and emptyRescue=1. There was no
+binding, validation or shader error. The user reported that performance and
+visuals seemed fine, so UPT-33 passes its runtime gate.
+
+Runtime gate
+------------
+
+Run `exec uptf2`. The S0 pipeline must report workgroupPairing=1 and
+emptyRescue=1. Compare directly with `exec uptf1` at disocclusions, newly
+visible portal edges, small door lights, moving rigid/skinned silhouettes,
+alpha-masked emitters, mirrors and emissive-heavy areas.
+
+Accept only if empty/disoccluded pixels gain plausible one-frame coverage
+without persistent ghosts, bright islands, progressive darkness, energy
+growth, color corruption, missing geometry or renewed 8x8 boundaries. Timing
+should remain close to uptf1 outside actual rescue populations.
+
+Remaining feature boundary
+--------------------------
+
+UPT-33 completes bounded one-neighbor rescue, not generalized multi-neighbor
+resampling. Do not repeat pairwise two-proposal merges and call that a
+three-neighbor estimator. The next slice must first specify the simultaneous
+multi-technique MIS/GRIS weights or adopt the paper's prepass/resample
+representation with exact reciprocal cross targets.

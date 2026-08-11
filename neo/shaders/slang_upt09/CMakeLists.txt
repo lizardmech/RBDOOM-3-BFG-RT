@@ -139,6 +139,29 @@ path_tracing_declare_slang_spirv_module(
     OUT_VAR spatial_shared_workgroup_pair_outputs
     RAY_QUERY)
 
+# UPT-33 preserves UPT-32 byte-for-byte as the rollback oracle and adds only
+# explicit one-frame, non-donating empty-center rescue.
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_PACKED_LIGHT_RECORD=1 UPT09_SPATIAL_GEOMETRY_REPLAY=1
+        UPT09_SPATIAL_INDIRECT_REPLAY=1 UPT10_SHARED_SPATIAL=1
+        UPT31_STORED_DIRECT_SOURCE_TARGET=1
+        UPT32_WORKGROUP_RECIPROCAL_PAIRING=1
+        UPT33_EMPTY_CENTER_RESCUE=1
+    OUT_VAR spatial_shared_workgroup_pair_rescue_outputs
+    RAY_QUERY)
+
 path_tracing_declare_slang_spirv_module(
     NAME upt09_spatial_direct_rayquery_lambert
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
@@ -189,6 +212,8 @@ add_custom_command(
         -DUPT31_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_selected_pair_stored_target_light64.slang.spvasm
         -DUPT32_REFLECTION=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_stored_target_light64.slang.spirv-reflection.json
         -DUPT32_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_stored_target_light64.slang.spvasm
+        -DUPT33_REFLECTION=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64.slang.spirv-reflection.json
+        -DUPT33_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64.slang.spvasm
         -DUPT10_STAMP=${UPT10_SPATIAL_SHARED_VERIFY_STAMP}
         -DUPT10_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
         -DUPT10_SHADER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang
@@ -196,10 +221,11 @@ add_custom_command(
     DEPENDS ${spatial_shared_selected_pair_outputs}
         ${spatial_shared_stored_target_outputs}
         ${spatial_shared_workgroup_pair_outputs}
+        ${spatial_shared_workgroup_pair_rescue_outputs}
         "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10SpatialShared.cmake"
-    COMMENT "UPT-32 verifying full-occupancy reciprocal-pair spatial ceiling"
+    COMMENT "UPT-33 verifying bounded non-donating shared spatial rescue"
     VERBATIM)
 
 set(UPT09_RUNTIME_DIR
@@ -218,6 +244,8 @@ set(UPT31_SPATIAL_STORED_TARGET_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_selected_pair_stored_target_light64.bin")
 set(UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_workgroup_pair_stored_target_light64.bin")
+set(UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64.bin")
 add_custom_command(
     OUTPUT "${UPT09_RUNTIME_OUTPUT}" "${UPT09_COMPACT_RUNTIME_OUTPUT}"
         "${UPT09_LAMBERT_RUNTIME_OUTPUT}"
@@ -244,6 +272,7 @@ add_custom_command(
     OUTPUT "${UPT10_SPATIAL_SHARED_RUNTIME_OUTPUT}"
         "${UPT31_SPATIAL_STORED_TARGET_RUNTIME_OUTPUT}"
         "${UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT}"
+        "${UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT09_RUNTIME_DIR}"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${UPT09_OUTPUT_DIR}/upt09_spatial_shared_selected_pair_light64.slang.spv"
@@ -254,11 +283,15 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_stored_target_light64.slang.spv"
         "${UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64.slang.spv"
+        "${UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT}"
     DEPENDS ${spatial_shared_selected_pair_outputs}
         ${spatial_shared_stored_target_outputs}
         ${spatial_shared_workgroup_pair_outputs}
+        ${spatial_shared_workgroup_pair_rescue_outputs}
         "${UPT10_SPATIAL_SHARED_VERIFY_STAMP}"
-    COMMENT "UPT-32 Vulkan opt-in full-occupancy reciprocal-pair spatial artifact"
+    COMMENT "UPT-33 Vulkan opt-in non-donating empty-center rescue artifact"
     VERBATIM)
 
 add_custom_target(PathTraceSlangUpt09Spatial
@@ -266,13 +299,15 @@ add_custom_target(PathTraceSlangUpt09Spatial
         ${spatial_shared_selected_pair_outputs}
         ${spatial_shared_stored_target_outputs}
         ${spatial_shared_workgroup_pair_outputs}
+        ${spatial_shared_workgroup_pair_rescue_outputs}
         "${UPT10_SPATIAL_SHARED_VERIFY_STAMP}"
         "${UPT09_VERIFY_STAMP}" "${UPT09_RUNTIME_OUTPUT}"
         "${UPT09_COMPACT_RUNTIME_OUTPUT}" "${UPT09_LAMBERT_RUNTIME_OUTPUT}"
         "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}"
         "${UPT10_SPATIAL_SHARED_RUNTIME_OUTPUT}"
         "${UPT31_SPATIAL_STORED_TARGET_RUNTIME_OUTPUT}"
-        "${UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT}")
+        "${UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT}"
+        "${UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt09Spatial PROPERTIES FOLDER "Shaders/UPT-09")
 if(TARGET RBDoom3BFG)
     add_dependencies(RBDoom3BFG PathTraceSlangUpt09Spatial)

@@ -1,6 +1,7 @@
 foreach(required UPT10_REFLECTION UPT10_DISASSEMBLY UPT10_STAMP
         UPT31_REFLECTION UPT31_DISASSEMBLY
         UPT32_REFLECTION UPT32_DISASSEMBLY
+        UPT33_REFLECTION UPT33_DISASSEMBLY
         UPT10_HOST_SOURCE UPT10_SHADER_SOURCE)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "UPT-30 shared spatial verification missing ${required}")
@@ -13,6 +14,8 @@ file(READ "${UPT31_REFLECTION}" stored_reflection)
 file(READ "${UPT31_DISASSEMBLY}" stored_disassembly)
 file(READ "${UPT32_REFLECTION}" workgroup_reflection)
 file(READ "${UPT32_DISASSEMBLY}" workgroup_disassembly)
+file(READ "${UPT33_REFLECTION}" rescue_reflection)
+file(READ "${UPT33_DISASSEMBLY}" rescue_disassembly)
 file(READ "${UPT10_HOST_SOURCE}" host_source)
 file(READ "${UPT10_SHADER_SOURCE}" shader_source)
 
@@ -35,6 +38,13 @@ list(LENGTH workgroup_bindings workgroup_binding_count)
 if(NOT workgroup_binding_count EQUAL 26)
     message(FATAL_ERROR
         "UPT-32 workgroup-pair spatial must preserve all 26 shared bindings")
+endif()
+string(REGEX MATCHALL "\"binding\"[ \t]*:" rescue_bindings
+    "${rescue_reflection}")
+list(LENGTH rescue_bindings rescue_binding_count)
+if(NOT rescue_binding_count EQUAL 26)
+    message(FATAL_ERROR
+        "UPT-33 rescue spatial must preserve all 26 shared bindings")
 endif()
 if(NOT reflection MATCHES
         "\"name\"[ \t]*:[ \t]*\"gUpt04StaticTriangleClasses\"[^}]*\"set\"[ \t]*:[ \t]*0[^}]*\"binding\"[ \t]*:[ \t]*9" OR
@@ -90,6 +100,15 @@ if(NOT workgroup_disassembly MATCHES "OpControlBarrier" OR
     message(FATAL_ERROR
         "UPT-32 workgroup-pair spatial lost its group-shared prepass/resample barrier")
 endif()
+string(REGEX MATCHALL "OpRayQueryInitializeKHR" rescue_ray_queries
+    "${rescue_disassembly}")
+list(LENGTH rescue_ray_queries rescue_ray_query_count)
+if(rescue_ray_query_count LESS 3 OR rescue_ray_query_count GREATER 6
+        OR rescue_disassembly MATCHES "OpTraceRay"
+        OR NOT rescue_disassembly MATCHES "OpControlBarrier")
+    message(FATAL_ERROR
+        "UPT-33 rescue spatial must retain 3..6 static RayQuery sites, one barrier, and no TraceRay site")
+endif()
 
 # The bounded variant must actually remove source-side direct emitter work,
 # rather than merely select a differently named but equivalent artifact.
@@ -118,6 +137,21 @@ foreach(required_source_pattern
     if(source_offset EQUAL -1)
         message(FATAL_ERROR
             "UPT-30 paired spatial schedule drifted from the involution oracle: ${required_source_pattern}")
+    endif()
+endforeach()
+
+foreach(required_upt33_source_pattern
+        "public bool Upt09SharedEmptyCenterRescueEligible"
+        "targetZero.status = kUpt10ShiftValidZero"
+        "output.selected.replayKey |= kUpt03ReplayKeyRescueBit"
+        "output.selected.flags &= ~(kUpt04CandidateFlagReplayable"
+        "Upt09PublishSharedEmptyCenterRescue"
+        "& kUpt03ReplayKeyRescueBit) != 0u")
+    string(FIND "${shader_source}" "${required_upt33_source_pattern}"
+        upt33_source_offset)
+    if(upt33_source_offset EQUAL -1)
+        message(FATAL_ERROR
+            "UPT-33 rescue/non-donation contract missing source pattern: ${required_upt33_source_pattern}")
     endif()
 endforeach()
 
@@ -170,4 +204,4 @@ foreach(extent RANGE 1 17)
 endforeach()
 
 file(WRITE "${UPT10_STAMP}"
-    "UPT-30/31/32 paired spatial verified: bindings=26, triangleClasses=9/13 host+shader, leaderPairing=involution(extents1..17,phases0..3), workgroupPairing=xor-involution(64 lanes), pushConstants=96, static RayQuery sites=6/workgroup${workgroup_ray_query_count}, dynamic rays<=4/pair, TraceRay=0, explicitTextureSampleSites=${baseline_texture_sample_count}->${stored_texture_sample_count}\n")
+    "UPT-30/31/32/33 paired spatial verified: bindings=26, triangleClasses=9/13 host+shader, leaderPairing=involution(extents1..17,phases0..3), workgroupPairing=xor-involution(64 lanes), pushConstants=96, static RayQuery sites=6/workgroup${workgroup_ray_query_count}/rescue${rescue_ray_query_count}, dynamic rays<=4/pair, TraceRay=0, explicitTextureSampleSites=${baseline_texture_sample_count}->${stored_texture_sample_count}\n")

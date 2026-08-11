@@ -1779,3 +1779,40 @@ one-to-one output mapping and exact reciprocal pairs while moving tile borders
 across frames; non-multiple extents retain the edge-safe unshifted schedule.
 Wrap-crossing pairs reject symmetrically rather than connecting opposite
 screen edges. Re-test uptf1 before adding more neighbors or rescue.
+
+The corrected uptf1 runtime test passed. The performance improvement remained,
+the moving boundary removed the faint 8x8 squares, and no DLSS-RR masking was
+required. Treat UPT-32 as runtime accepted. Its blob remains byte-identical at
+477508 bytes, SHA-256
+F99D5582B81A1958572D62A8530A0D89A6C4B49258C03794F1F16E85BF514C71.
+
+UPT-33 bounded empty-center rescue, 2026-08-11
+------------------------------------------------
+
+S30.4 now has a separate default-off artifact and `exec uptf2` preset. Only a
+valid current receiver carrying the explicit needs-rescue bit may borrow its
+reciprocal partner. The empty/count-only center is streamed as a valid-zero
+technique, so its confidence enters the common pairwise denominator but it can
+never be selected. Invalid, stale, incompatible, duplicate, zero-target or
+invisible donors still fail closed to the input reservoir.
+
+A successful rescue clears Replayable and NeedsShift on global paths and sets
+the reserved replay-key rescue bit. Existing direct and indirect T0/S0
+eligibility therefore rejects the borrowed output without any temporal shader
+change. It is useful for this frame's resolve only and cannot recursively
+poison reuse. UPT-32 remains the exact `exec uptf1` oracle.
+
+Offline verification passes with 26 bindings, triangle classes at 9/13,
+96-byte push constants, one barrier, five static RayQuery sites, zero TraceRay
+sites and the unchanged dynamic four-query ceiling per selected pair. UPT-33
+is 519800 bytes, SHA-256
+0BBB146E7421C9EA18C5BEE36EB9FCE3A7D9F437D5C5F9A04FD71D62F1E9B956.
+The executable is 16347648 bytes, SHA-256
+06D1ED92C0C6FBF53DA8C0FDB25956EBA809854D26552BFD269501848DDF4300.
+
+uptf2.txt confirmed exact activation: shared adapter, common GRIS, shared
+spatial and workgroup pairing all reached requested/effective=1/1, and S0
+reported blobBytes=519800, workgroupPairing=1, emptyRescue=1. There were no
+binding, validation or shader errors. The user reported that performance and
+visuals seemed fine. Treat UPT-33 as runtime accepted and preserve both uptf1
+and uptf2 as rollback oracles before multi-neighbor work.

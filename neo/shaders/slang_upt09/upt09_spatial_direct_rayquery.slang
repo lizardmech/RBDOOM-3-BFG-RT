@@ -32,6 +32,9 @@ import upt09_spatial_direct_bindings;
 #ifndef UPT32_WORKGROUP_RECIPROCAL_PAIRING
 #define UPT32_WORKGROUP_RECIPROCAL_PAIRING 0
 #endif
+#ifndef UPT33_EMPTY_CENTER_RESCUE
+#define UPT33_EMPTY_CENTER_RESCUE 0
+#endif
 #if UPT10_SHARED_SPATIAL
 import upt07_work_budget;
 import upt07_temporal_indirect;
@@ -396,10 +399,25 @@ public bool Upt09SharedReservoirEligible(Upt07DecodedReservoir decoded)
 {
     if (decoded.valid == 0u || decoded.logical.hasSelectedSample == 0u)
         return false;
+#if UPT33_EMPTY_CENTER_RESCUE
+    if ((decoded.logical.selected.replayKey
+            & kUpt03ReplayKeyRescueBit) != 0u)
+        return false;
+#endif
     if ((decoded.logical.selected.flags & kUpt04CandidateFlagGlobal) == 0u)
         return Upt09DirectReservoirEligible(decoded);
     return Upt07IndirectHistoryEligible(decoded);
 }
+
+#if UPT33_EMPTY_CENTER_RESCUE
+public bool Upt09SharedEmptyCenterRescueEligible(
+    Upt07DecodedReservoir decoded)
+{
+    return decoded.valid != 0u
+        && decoded.needsRescue != 0u
+        && decoded.logical.hasSelectedSample == 0u;
+}
+#endif
 
 public float Upt09SharedPairwiseWeight(
     float sourceTarget,
@@ -522,6 +540,93 @@ public bool Upt09SharedWinnerVisibilityPassed(
         work);
     return visibilityHit.status != kUpt04HitTriangle;
 }
+
+#if UPT33_EMPTY_CENTER_RESCUE
+public void Upt09PublishSharedEmptyCenterRescue(
+    uint2 targetPixel,
+    uint targetIndex,
+    Upt07DecodedReservoir target,
+    Upt07DecodedReservoir source,
+    Upt10ShiftResult sourceToTarget,
+    Upt04TraceRequest sourceDirectVisibility,
+    Upt04VisibilityIgnore sourceDirectVisibilityIgnore,
+    Upt07PendingIndirectVisibility sourceIndirectVisibility,
+    inout Upt07WorkCounters work)
+{
+    const uint targetM = min(
+        target.logical.effectiveM, gUpt09Control.maximumInputM);
+    const uint sourceM = min(
+        source.logical.effectiveM, gUpt09Control.maximumInputM);
+    if (sourceM == 0u || targetM > 0xffffffffu - sourceM
+        || sourceToTarget.mappingStatus != kUpt10ShiftValidPositive)
+    {
+        gUpt09OutputReservoirs[targetIndex] =
+            gUpt09InputReservoirs[targetIndex];
+        return;
+    }
+
+    Upt10MappedProposalInput sourceProposal =
+        (Upt10MappedProposalInput)0;
+    sourceProposal.status = sourceToTarget.mappingStatus;
+    sourceProposal.routeLabel = sourceToTarget.routeLabel;
+    sourceProposal.sourceConfidence = sourceM;
+    sourceProposal.sourceScaledWeight = source.logical.weightSum;
+    sourceProposal.sourceTarget = sourceToTarget.sourceTarget;
+    sourceProposal.targetTarget = sourceToTarget.targetTarget;
+    sourceProposal.shiftJacobian = sourceToTarget.shiftJacobian;
+    sourceProposal.pairwiseMis = Upt09SharedPairwiseWeight(
+        sourceToTarget.sourceTarget,
+        sourceToTarget.targetTarget,
+        sourceM,
+        targetM);
+
+    // Preserve an explicit empty/count-only center as a valid zero trial. It
+    // contributes confidence and pairwise support but can never be selected.
+    Upt10MappedProposalInput targetZero =
+        (Upt10MappedProposalInput)0;
+    targetZero.status = kUpt10ShiftValidZero;
+    targetZero.sourceConfidence = targetM;
+    targetZero.shiftJacobian = 1.0f;
+    targetZero.pairwiseMis = 1.0f;
+
+    Upt10MergeControl mergeControl = (Upt10MergeControl)0;
+    mergeControl.winnerRandom = Upt09Random(
+        targetPixel, 0u, 0x09110005u);
+    const Upt10MergeResult merge = Upt10MergeMappedPair(
+        sourceProposal, targetZero, mergeControl);
+    if (merge.selectedOrdinal != 0u
+        || !Upt04FinitePositive(merge.totalMappedMass)
+        || !Upt09SharedWinnerVisibilityPassed(
+            sourceToTarget.shifted,
+            sourceDirectVisibility,
+            sourceDirectVisibilityIgnore,
+            sourceIndirectVisibility,
+            work))
+    {
+        gUpt09OutputReservoirs[targetIndex] =
+            gUpt09InputReservoirs[targetIndex];
+        return;
+    }
+
+    Upt03LogicalReservoir output = (Upt03LogicalReservoir)0;
+    output.hasSelectedSample = 1u;
+    output.effectiveM = merge.outputConfidence;
+    output.weightSum = merge.totalMappedMass;
+    output.selected = sourceToTarget.shifted;
+    output.selected.age = 0u;
+    output.selected.replayKey |= kUpt03ReplayKeyRescueBit;
+    // Existing indirect T0/S0 eligibility requires both of these bits. Clear
+    // them on borrowed global paths so non-donation is structural and does
+    // not require a temporal specialization or a new reservoir ABI.
+    output.selected.flags &= ~(kUpt04CandidateFlagReplayable
+        | kUpt04CandidateFlagNeedsShift);
+    const uint visibilityProof = kUpt04CandidateFlagVisibilityKnown
+        | kUpt04CandidateFlagVisibilityPassed;
+    output.selected.flags =
+        (output.selected.flags & ~visibilityProof) | visibilityProof;
+    gUpt09OutputReservoirs[targetIndex] = Upt03PackReservoir(output);
+}
+#endif
 
 // Publish one direction of a reciprocal pair. sourceToTarget is the only
 // mapped proposal; targetToSource supplies the reciprocal target needed by the
@@ -869,18 +974,38 @@ public void Upt32PrepareLaneShift(
         gUpt09InputReservoirs[index]);
     const Upt07DecodedReservoir partner = Upt07DecodeReservoir(
         gUpt09InputReservoirs[partnerIndex]);
+#if UPT33_EMPTY_CENTER_RESCUE
+    const bool centerEligible = Upt09SharedReservoirEligible(center);
+    const bool partnerEligible = Upt09SharedReservoirEligible(partner);
+    const bool partnerRescueEligible =
+        Upt09SharedEmptyCenterRescueEligible(partner);
+    if (!centerEligible || (!partnerEligible && !partnerRescueEligible))
+#else
     if (!Upt09SharedReservoirEligible(center)
         || !Upt09SharedReservoirEligible(partner))
+#endif
     {
         return;
     }
 
+#if UPT33_EMPTY_CENTER_RESCUE
+    if (!partnerEligible)
+    {
+        // The source may map into an explicitly empty partner, but the empty
+        // reservoir has no reverse selected sample and no duplicate identity.
+    }
+    else
+    {
+#endif
     const uint centerSampleId = center.logical.selected.replayKey
         & ~kUpt03ReplayKeyRescueBit;
     const uint partnerSampleId = partner.logical.selected.replayKey
         & ~kUpt03ReplayKeyRescueBit;
     if (centerSampleId != 0u && centerSampleId == partnerSampleId)
         return;
+#if UPT33_EMPTY_CENTER_RESCUE
+    }
+#endif
 
     Upt07WorkCounters work = (Upt07WorkCounters)0;
     Upt07WorkInitialize(work);
@@ -973,13 +1098,48 @@ public void Upt32ExecuteWorkgroupReciprocalPair(
     if (laneValid == 0u)
         return;
     if (partnerValid == 0u
+#if !UPT33_EMPTY_CENTER_RESCUE
         || gUpt32ShiftValid[laneIndex] == 0u
         || gUpt32ShiftValid[partnerLaneIndex] == 0u)
+#else
+        )
+#endif
     {
         Upt09PublishSharedFallback(index);
         return;
     }
 
+#if UPT33_EMPTY_CENTER_RESCUE
+    const Upt07DecodedReservoir center = Upt07DecodeReservoir(
+        gUpt09InputReservoirs[index]);
+    const Upt07DecodedReservoir partner = Upt07DecodeReservoir(
+        gUpt09InputReservoirs[partnerIndex]);
+    const bool centerEligible = Upt09SharedReservoirEligible(center);
+    const bool partnerEligible = Upt09SharedReservoirEligible(partner);
+    if (Upt09SharedEmptyCenterRescueEligible(center)
+        && partnerEligible
+        && gUpt32ShiftValid[partnerLaneIndex] != 0u)
+    {
+        const Upt10ShiftResult partnerToCenter =
+            Upt32LoadShiftResult(partnerLaneIndex);
+        Upt07WorkCounters rescueWork = (Upt07WorkCounters)0;
+        Upt07WorkInitialize(rescueWork);
+        Upt09PublishSharedEmptyCenterRescue(
+            pixel,
+            index,
+            center,
+            partner,
+            partnerToCenter,
+            gUpt32DirectVisibility[partnerLaneIndex],
+            gUpt32DirectVisibilityIgnore[partnerLaneIndex],
+            gUpt32IndirectVisibility[partnerLaneIndex],
+            rescueWork);
+        return;
+    }
+    if (!centerEligible || !partnerEligible
+        || gUpt32ShiftValid[laneIndex] == 0u
+        || gUpt32ShiftValid[partnerLaneIndex] == 0u)
+#else
     const Upt04PrimarySurfaceRecord receiver = Upt09LoadSurface(index);
     const Upt07DecodedReservoir center = Upt07DecodeReservoir(
         gUpt09InputReservoirs[index]);
@@ -988,6 +1148,7 @@ public void Upt32ExecuteWorkgroupReciprocalPair(
     if (!Upt04PrimarySurfaceRecordValid(receiver)
         || !Upt09SharedReservoirEligible(center)
         || !Upt09SharedReservoirEligible(partner))
+#endif
     {
         Upt09PublishSharedFallback(index);
         return;

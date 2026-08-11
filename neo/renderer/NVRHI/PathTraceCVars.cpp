@@ -1575,6 +1575,12 @@ idCVar r_pathTracingUnifiedPtSpatialWorkgroupPairing(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-32 shared-S0 feature A/B: every lane shifts once into group-shared storage, synchronizes, and publishes its own side of a randomized self-inverse 8x8 pair; requires shared spatial plus stored source target and adds no full-resolution buffer" );
 
+idCVar r_pathTracingUnifiedPtSpatialEmptyRescue(
+    "r_pathTracingUnifiedPtSpatialEmptyRescue",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-33 shared-S0 feature A/B: let an explicitly rescue-marked empty center borrow its reciprocal partner once; the result is stamped non-donating and requires workgroup pairing" );
+
 idCVar r_pathTracingUnifiedPtSpatialGpuTiming(
     "r_pathTracingUnifiedPtSpatialGpuTiming",
     "0",

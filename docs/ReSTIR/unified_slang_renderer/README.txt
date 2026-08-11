@@ -497,6 +497,12 @@ Packet index
         and one publication per lane through an 8x8 group-shared handoff,
         retaining the two-page ABI, exact GRIS estimator and four-ray ceiling.
 
+    48_upt33_empty_center_rescue.txt
+        Re-admits only explicitly marked empty centers through one reciprocal
+        donor, preserves count-only confidence as a valid-zero technique, and
+        stamps the result structurally non-donating for both direct and global
+        paths.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math
