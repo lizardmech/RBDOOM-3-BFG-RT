@@ -2943,8 +2943,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, optionalSrv));
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(94, m_liquidPoolStatusBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(89, m_frameResources.unifiedPtPrimaryReceiver32Buffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(90, m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer));
+                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(97, m_frameResources.unifiedPtPrimaryReceiver32Buffer));
+                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(98, m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer));
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING, m_smokeCleanRtxdiDiBlueNoise.texture));
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
                 unifiedPtGlassBindingSet = device->createBindingSet(
@@ -4510,9 +4510,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(94, m_liquidPoolStatusBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
-            89, m_frameResources.unifiedPtPrimaryReceiver32Buffer));
+            97, m_frameResources.unifiedPtPrimaryReceiver32Buffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
-            90, m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer));
+            98, m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING, m_smokeCleanRtxdiDiBlueNoise.texture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
         nvrhi::BindingSetHandle cleanBindingSet = device->createBindingSet(cleanBindingSetDesc, m_smokeCleanRtxdiDiSentinelBindingLayout);

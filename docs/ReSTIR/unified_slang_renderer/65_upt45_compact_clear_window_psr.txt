@@ -32,13 +32,19 @@ compact32 receiver. Therefore dispatching the existing producer unchanged
 would make RR guides and clean DI see the resolved surface while UPT continued
 to shade the front glass pane.
 
-The global Vulkan smoke binding ABI already reserves and binds compact UAVs:
+The global Vulkan smoke binding ABI already reserves and binds the canonical
+compact UAVs used by P0 and UPT D0:
 
-    u89  current compact32 primary receiver
-    u90  current compact32 history sidecar
+    u89  canonical current compact32 primary receiver
+    u90  canonical current compact32 history sidecar
 
-No new GPU buffer or descriptor slot is required. The missing contract is
-successful-PSR dual publication in the glass producer.
+The clean material-feature layout already owns t89/t90. Vulkan applies zero
+SRV/UAV binding offsets here, so declaring the producer writes at u89/u90
+would collide with those texture descriptors. The producer therefore binds
+the same two allocated buffers through clean-layout-local aliases u97/u98.
+This adds two layout descriptors, but no GPU buffer, copy, clear, or alternate
+history stream. The missing data contract remains successful-PSR dual
+publication in the glass producer.
 
 Pass graph
 ----------
@@ -76,7 +82,8 @@ The producer remains bounded to the existing glass budget:
     no ray for an ineligible or unsupported primary material.
 
 The compact publication is executed only after a replacement surface has been
-accepted. It overwrites u89/u90 at the same linear pixel as the wide record.
+accepted. Through the producer-local u97/u98 aliases it overwrites the same
+canonical compact buffers at the same linear pixel as the wide record.
 Rejected, missed, incompatible and ordinary opaque pixels retain the compact
 record already written by the shared primary producer.
 
@@ -97,7 +104,8 @@ The compact publisher uses the exact existing packers:
 The sidecar is packed from the exact resolved wide record written at u30, so
 surface class, material identity, material flags, alpha cutoff and previous
 position remain coherent with T0/S0 validation. The clean-DI route must not
-write u89/u90; compact publication is guarded by the UPT-45 route flag.
+write the u97/u98 aliases; compact publication is guarded by the UPT-45 route
+flag. P0 and UPT D0 retain their accepted canonical u89/u90 ABI.
 
 The clean producer and composer remain the source of truth for glass energy,
 reflection/transmission lane ownership and RR guide policy. UPT does not grow
@@ -108,9 +116,9 @@ Staged implementation
 
 S45.1 compact publication
 
-    Add u89/u90 declarations to the transmission producer and an explicit
-    UPT-only publication flag. On every successful wide-record PSR publish,
-    write the exact matching compact receiver and sidecar.
+    Add clean-layout-local u97/u98 declarations to the transmission producer
+    and an explicit UPT-only publication flag. On every successful wide-record
+    PSR publish, write the exact matching compact receiver and sidecar.
 
 S45.2 opt-in UPT producer dispatch
 

@@ -7,9 +7,9 @@
 #include "pathtrace_clean_rtxdi_di_shared.hlsli"
 #include "../PathTraceUnifiedPtPrimaryReceiver.hlsli"
 RWStructuredBuffer<PathTraceUnifiedPtPrimaryReceiver32>
-    PathTraceUnifiedPtPrimaryReceivers32 : register(u89);
+    PathTraceUnifiedPtPrimaryReceivers32 : register(u97);
 RWStructuredBuffer<PathTraceUnifiedPtPrimaryHistorySidecar>
-    PathTraceUnifiedPtPrimaryHistorySidecars : register(u90);
+    PathTraceUnifiedPtPrimaryHistorySidecars : register(u98);
 #include "pathtrace_clean_rtxdi_di_math.hlsli"
 #include "pathtrace_clean_rtxdi_di_material_adapter.hlsli"
 #include "pathtrace_clean_rtxdi_di_glass_feature.hlsli"

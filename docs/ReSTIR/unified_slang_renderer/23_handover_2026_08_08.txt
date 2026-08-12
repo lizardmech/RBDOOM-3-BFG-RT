@@ -2637,8 +2637,9 @@ it unchanged would therefore give clean DI and RR the resolved behind-glass
 surface while UPT D0 shaded the stale front pane.
 
 S45.1 adds no buffer, clear, copy, ray or estimator work. The existing Vulkan
-layout now exposes the already allocated u89/u90 compact resources to the
-transmission producer. A successful PSR publish packs the exact accepted
+layout exposes the already allocated compact resources to the transmission
+producer through clean-layout-local u97/u98 aliases; P0 and UPT D0 retain the
+canonical u89/u90 ABI. A successful PSR publish packs the exact accepted
 surface into the same compact32 receiver and packs its sidecar from the exact
 wide record written to u30. Compact writes are guarded by reserved producer
 status 3; the clean-DI route remains status 2 and pays no added traffic.
@@ -2650,6 +2651,18 @@ full Vulkan `win64-pt-dev-release` build passes. S45.2/S45.3 remain: extract a
 shared material-feature pass context, dispatch the producer before UPT D0,
 and dispatch only glass composition after R0 and before optional RR. Do not
 duplicate the large clean binding table inside the UPT branch.
+
+UPT-45 Vulkan descriptor collision correction, 2026-08-13
+----------------------------------------------------------
+
+The first runtime launch after S45.2/S45.3 failed while creating the clean
+material-feature layout: clean glass inputs already occupy t89/t90, while the
+new compact publication aliases were initially declared as u89/u90. Vulkan's
+NVRHI layout uses zero SRV/UAV offsets, so both resource classes mapped to
+descriptor bindings 89/90. The producer aliases, clean layout and both clean
+binding sets now consistently use unused u97/u98 while referencing the exact
+same compact buffers. This is an adapter-slot correction only; the canonical
+UPT P0/D0 u89/u90 contract and buffer ownership are unchanged.
 
 UPT-45 S45.2/S45.3 opt-in pass graph ready for runtime validation, 2026-08-13
 -----------------------------------------------------------------------------
