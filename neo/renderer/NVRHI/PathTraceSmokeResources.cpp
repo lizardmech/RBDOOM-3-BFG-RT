@@ -1167,6 +1167,10 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(78));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(94));
+    // UPT-45 compact clear-window PSR publication. These bindings are inert
+    // for clean DI and share the already allocated UPT primary resources.
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(89));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(90));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeCleanRtxdiDiSentinelBindingLayout = device->createBindingLayout(cleanRtxdiDiSentinelBindingLayoutDesc);

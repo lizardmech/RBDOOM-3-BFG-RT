@@ -1228,7 +1228,9 @@ void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
             if (MotionVectorInfo.z >= 1.5)
             {
                 PathTraceUnifiedPtPrimaryReceivers32[index] =
-                    PackPathTraceUnifiedPtPrimaryReceiver32(surface);
+                    PackPathTraceUnifiedPtPrimaryReceiver32(
+                        surface,
+                        CameraOriginAndTMax.xyz);
                 if (MotionVectorInfo.z >= 2.5)
                 {
                     // Pack motion/material identity into a cold sidecar. D0

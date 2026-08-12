@@ -2625,3 +2625,28 @@ This task changes configuration and documentation only; it adds no shader,
 resource, dispatch, ray, clear, estimator or ABI. Runtime activation and visual
 acceptance remain pending. Exact expected requested/effective and compiler-line
 proof is in document 64.
+
+UPT-45 S45.1 compact clear-window publication, 2026-08-13
+----------------------------------------------------------
+
+The clear-window PSR ownership audit is recorded in document 65. The existing
+clean transmission producer already owns bounded reflection/transmission
+tracing, wide primary replacement, glass sidecars and RR guide policy, but it
+did not update UPT's separate compact32 receiver/history streams. Dispatching
+it unchanged would therefore give clean DI and RR the resolved behind-glass
+surface while UPT D0 shaded the stale front pane.
+
+S45.1 adds no buffer, clear, copy, ray or estimator work. The existing Vulkan
+layout now exposes the already allocated u89/u90 compact resources to the
+transmission producer. A successful PSR publish packs the exact accepted
+surface into the same compact32 receiver and packs its sidecar from the exact
+wide record written to u30. Compact writes are guarded by reserved producer
+status 3; the clean-DI route remains status 2 and pays no added traffic.
+
+The compact packer now takes camera position explicitly, removing its hidden
+dependency on the primary producer's `CameraOriginAndTMax` symbol. Both the
+shared primary producer and glass producer use the same implementation. The
+full Vulkan `win64-pt-dev-release` build passes. S45.2/S45.3 remain: extract a
+shared material-feature pass context, dispatch the producer before UPT D0,
+and dispatch only glass composition after R0 and before optional RR. Do not
+duplicate the large clean binding table inside the UPT branch.

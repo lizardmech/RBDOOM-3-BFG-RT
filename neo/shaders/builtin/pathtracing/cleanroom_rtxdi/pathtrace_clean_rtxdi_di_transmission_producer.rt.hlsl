@@ -5,6 +5,11 @@
 // CPU cutover remains closed for clean-DI view 16.
 #define RB_PT_ENABLE_STATIC_BUCKET_SHADER_CONSUMERS 1
 #include "pathtrace_clean_rtxdi_di_shared.hlsli"
+#include "../PathTraceUnifiedPtPrimaryReceiver.hlsli"
+RWStructuredBuffer<PathTraceUnifiedPtPrimaryReceiver32>
+    PathTraceUnifiedPtPrimaryReceivers32 : register(u89);
+RWStructuredBuffer<PathTraceUnifiedPtPrimaryHistorySidecar>
+    PathTraceUnifiedPtPrimaryHistorySidecars : register(u90);
 #include "pathtrace_clean_rtxdi_di_math.hlsli"
 #include "pathtrace_clean_rtxdi_di_material_adapter.hlsli"
 #include "pathtrace_clean_rtxdi_di_glass_feature.hlsli"

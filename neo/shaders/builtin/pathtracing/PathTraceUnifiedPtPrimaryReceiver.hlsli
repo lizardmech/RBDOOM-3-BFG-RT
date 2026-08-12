@@ -35,7 +35,10 @@ struct PathTraceUnifiedPtPrimaryHistorySidecar
 
 float2 PathTraceUptEncodeOctahedral(float3 value)
 {
-    value = SafeNormalize(value, float3(0.0, 0.0, 1.0));
+    const float lengthSquared = dot(value, value);
+    value = lengthSquared > 1.0e-12 && isfinite(lengthSquared)
+        ? value * rsqrt(lengthSquared)
+        : float3(0.0, 0.0, 1.0);
     value /= max(abs(value.x) + abs(value.y) + abs(value.z), 1.0e-6);
     float2 encoded = value.xy;
     if (value.z < 0.0)
@@ -135,7 +138,8 @@ PathTraceUnifiedPtPrimaryReceiver PackPathTraceUnifiedPtPrimaryReceiver(
 }
 
 PathTraceUnifiedPtPrimaryReceiver32 PackPathTraceUnifiedPtPrimaryReceiver32(
-    RAB_Surface surface)
+    RAB_Surface surface,
+    float3 cameraWorldPosition)
 {
     PathTraceUnifiedPtPrimaryReceiver32 receiver =
         (PathTraceUnifiedPtPrimaryReceiver32)0;
@@ -145,7 +149,7 @@ PathTraceUnifiedPtPrimaryReceiver32 PackPathTraceUnifiedPtPrimaryReceiver32(
         return receiver;
     }
 
-    const float3 toCamera = CameraOriginAndTMax.xyz - surface.worldPos;
+    const float3 toCamera = cameraWorldPosition - surface.worldPos;
     const float hitDistance = length(toCamera);
     const float3 viewDirection = hitDistance > 1.0e-6
         ? toCamera / hitDistance

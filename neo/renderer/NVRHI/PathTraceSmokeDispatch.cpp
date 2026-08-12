@@ -4095,6 +4095,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, cleanNeeCacheCandidateSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(94, m_liquidPoolStatusBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            89, m_frameResources.unifiedPtPrimaryReceiver32Buffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            90, m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING, m_smokeCleanRtxdiDiBlueNoise.texture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
         nvrhi::BindingSetHandle cleanBindingSet = device->createBindingSet(cleanBindingSetDesc, m_smokeCleanRtxdiDiSentinelBindingLayout);

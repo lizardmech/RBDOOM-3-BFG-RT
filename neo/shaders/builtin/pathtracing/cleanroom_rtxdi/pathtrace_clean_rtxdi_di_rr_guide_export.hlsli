@@ -395,8 +395,24 @@ bool PathTraceCleanRtxdiDiPublishResolvedPrimarySurfaceRecord(
     surface.linearDepth = dot(
         surface.worldPos - CleanRtxdiDiCameraOriginAndValid.xyz,
         CleanRtxdiDiCameraForwardAndTanX.xyz);
-    PrimarySurfaceHistoryCurrent[recordIndex] =
-        PathTraceCleanRtxdiDiPackResolvedPrimarySurfaceRecord(surface, psrResolvedFlag);
+    const PathTracePrimarySurfaceRecord resolvedRecord =
+        PathTraceCleanRtxdiDiPackResolvedPrimarySurfaceRecord(
+            surface,
+            psrResolvedFlag);
+    PrimarySurfaceHistoryCurrent[recordIndex] = resolvedRecord;
+#if defined(CLEAN_RTXDI_DI_TRANSMISSION_PRODUCER_ENTRY)
+    // UPT-45 S45.1: status 3 is reserved for the opt-in UPT PSR route. Clean
+    // DI keeps status 2 and therefore pays no compact publication traffic.
+    if (CleanRtxdiDiStatus == 3u)
+    {
+        PathTraceUnifiedPtPrimaryReceivers32[recordIndex] =
+            PackPathTraceUnifiedPtPrimaryReceiver32(
+                surface,
+                CleanRtxdiDiCameraOriginAndValid.xyz);
+        PathTraceUnifiedPtPrimaryHistorySidecars[recordIndex] =
+            PackPathTraceUnifiedPtPrimaryHistorySidecar(resolvedRecord);
+    }
+#endif
     return true;
 }
 
