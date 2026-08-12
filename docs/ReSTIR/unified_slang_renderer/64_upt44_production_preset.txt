@@ -14,6 +14,14 @@ UPT-44 adds one production entry point:
 
     exec upt
 
+The DLSS Ray Reconstruction entry point inherits that same complete contract:
+
+    exec uptrr
+
+`uptrr.cfg` executes `upt`, not an older `uptf*` experiment, before enabling
+Ray Reconstruction. This keeps temporal permutation, spatial reuse-texture
+pairing and the spatial shift prepass synchronized with production.
+
 This is a configuration consolidation only. It adds no shader, specialization,
 resource, dispatch, ray, clear, estimator or ABI change.
 
