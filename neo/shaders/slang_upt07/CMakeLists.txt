@@ -23,6 +23,23 @@ path_tracing_declare_slang_spirv_module(
         "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_primary_surface_live_contract.slang"
     OUT_VAR temporal_ownership_outputs)
 
+# UPT-43.6 is a bounded post-temporal pass. It deliberately owns only the
+# finalized reservoir page and therefore has no scene, light or RayQuery ABI.
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_boiling_filter
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_boiling_filter.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_boiling_filter.slang"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03/upt03_reservoir_contract.slang"
+    OUT_VAR temporal_boiling_filter_outputs)
+
 set(UPT07_DIRECT_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_bindings.slang"
@@ -339,6 +356,24 @@ add_custom_command(
         "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt43ReplayCompaction.cmake"
     COMMENT "UPT-43.4 verifying bounded temporal replay compaction"
+    VERBATIM)
+
+set(UPT436_TEMPORAL_BOILING_VERIFY_STAMP
+    "${UPT07_OUTPUT_DIR}/upt436_temporal_boiling_filter_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT436_TEMPORAL_BOILING_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT436_ASM=${UPT07_OUTPUT_DIR}/upt07_temporal_boiling_filter.slang.spvasm
+        -DUPT436_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_boiling_filter.slang.spirv-reflection.json
+        -DUPT436_SHADER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_boiling_filter.slang
+        -DUPT436_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
+        -DUPT436_STAMP=${UPT436_TEMPORAL_BOILING_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt436TemporalBoilingFilter.cmake"
+    DEPENDS ${temporal_boiling_filter_outputs}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_boiling_filter.slang"
+        "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt436TemporalBoilingFilter.cmake"
+    COMMENT "UPT-43.6 verifying bounded post-temporal boiling filter"
     VERBATIM)
 
 set(UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP
@@ -709,6 +744,18 @@ foreach(upt43_module
         VERBATIM)
     list(APPEND UPT43_TEMPORAL_RUNTIME_OUTPUTS "${upt43_runtime}")
 endforeach()
+set(UPT436_TEMPORAL_BOILING_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_boiling_filter.bin")
+add_custom_command(
+    OUTPUT "${UPT436_TEMPORAL_BOILING_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT07_RUNTIME_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_boiling_filter.slang.spv"
+        "${UPT436_TEMPORAL_BOILING_RUNTIME_OUTPUT}"
+    DEPENDS ${temporal_boiling_filter_outputs}
+        "${UPT436_TEMPORAL_BOILING_VERIFY_STAMP}"
+    COMMENT "UPT-43.6 Vulkan temporal boiling-filter artifact"
+    VERBATIM)
 set(UPT07_LAMBERT_RUNTIME_OUTPUTS)
 foreach(lambert_module
         upt07_temporal_unified_rayquery_lambert
@@ -847,7 +894,8 @@ add_custom_target(PathTraceSlangUpt07TemporalOwnership
         ${temporal_three_vertex_replay_classify_outputs}
         ${temporal_three_vertex_replay_compact_outputs}
         "${UPT43_REPLAY_COMPACTION_VERIFY_STAMP}"
-        ${UPT43_TEMPORAL_RUNTIME_OUTPUTS})
+        ${UPT43_TEMPORAL_RUNTIME_OUTPUTS}
+        "${UPT436_TEMPORAL_BOILING_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
     FOLDER "Shaders/UPT-07")
 
@@ -865,6 +913,7 @@ add_custom_target(PathTraceSlangUpt07ProductionRuntime
         "${UPT36_TEMPORAL_RUNTIME_OUTPUT}"
         "${UPT43_REPLAY_COMPACTION_VERIFY_STAMP}"
         ${UPT43_TEMPORAL_RUNTIME_OUTPUTS}
+        "${UPT436_TEMPORAL_BOILING_RUNTIME_OUTPUT}"
         "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication_lambert.bin")
 set_target_properties(PathTraceSlangUpt07ProductionRuntime PROPERTIES
     FOLDER "Shaders/UPT-07")

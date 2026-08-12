@@ -1545,6 +1545,18 @@ idCVar r_pathTracingUnifiedPtTemporalReplayCompactionDiagnostics(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-43.4 one-frame-delayed compact replay count, capacity and indirect-group diagnostics; no synchronous GPU readback" );
 
+idCVar r_pathTracingUnifiedPtTemporalBoilingFilter(
+    "r_pathTracingUnifiedPtTemporalBoilingFilter",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-43.6 biased post-temporal boiling filter: after compact replay is finalized, empty reservoirs whose target-scaled UCW exceeds the nonzero 8x8 group average by the strength-derived threshold; requires accepted replay compaction" );
+
+idCVar r_pathTracingUnifiedPtTemporalBoilingFilterStrength(
+    "r_pathTracingUnifiedPtTemporalBoilingFilterStrength",
+    "0.2",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "UPT-43.6 boiling-filter strength in (0,1]; 0.2 gives a 41x nonzero-group-average rejection threshold; this is deliberately biased" );
+
 idCVar r_pathTracingUnifiedPtTemporalEarlyReconnect(
     "r_pathTracingUnifiedPtTemporalEarlyReconnect",
     "0",

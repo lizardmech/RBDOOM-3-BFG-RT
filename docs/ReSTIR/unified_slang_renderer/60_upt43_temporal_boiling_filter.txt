@@ -1,0 +1,167 @@
+UPT-43.6: bounded post-temporal boiling filter
+================================================
+
+Status
+------
+
+Implemented, statically verified, Vulkan-built and deployed for runtime A/B.
+The feature is deliberately default-off. Runtime image, motion and timing
+acceptance are still required.
+
+Purpose
+-------
+
+S43.4 made expensive exact replay sparse, but a rare temporal reservoir can
+still carry an extreme target-scaled unbiased contribution weight (UCW). Such
+outliers appear as fireflies and can be amplified by later reuse or a
+reconstruction denoiser. NVIDIA's ReSTIR PT FullSample applies a deliberately
+biased post-temporal boiling filter for this case.
+
+This slice ports that bounded policy without changing temporal reprojection,
+shift mapping, replay, visibility, the reservoir ABI, or spatial reuse.
+
+Reference rule and UPT convention
+---------------------------------
+
+The reference filters
+
+    luminance(reservoir.TargetFunction) * reservoir.WeightSum
+
+against the average nonzero value in the 8x8 compute group. The rejection
+threshold multiplier is
+
+    multiplier = 10 / clamp(strength, 1e-6, 1) - 9.
+
+At the FullSample default strength 0.2 this is 41 times the nonzero group
+average.
+
+UPT word11 already persists the target-scaled UCW `pHat(selected) * W`.
+Therefore UPT consumes word11 directly. Multiplying by the selected target
+again would square the target term and corrupt the estimator-dependent
+ordering.
+
+Execution topology
+------------------
+
+The filter cannot execute inside the S43.4 T0a classifier. Queued pixels still
+contain their fresh D0 reservoir until the T0b compact replay dispatch has
+finished, and a workgroup barrier cannot synchronize separate dispatches.
+
+The accepted order is consequently:
+
+    T0a  full-screen temporal classify and cheap shifts;
+    T0b  compact exact replay over the bounded indirect queue;
+    UAV barrier on the finalized current reservoir page;
+    T0c  full-screen 8x8 boiling filter;
+    final UAV barrier before later consumers.
+
+T0c owns one binding only: the current 64-byte reservoir page as a structured
+UAV at binding 0. It has 16 bytes of push constants and no TLAS, geometry,
+material, light, bindless-texture or history-page bindings. It emits no rays.
+The existing temporal GPU timer encloses T0a, T0b and T0c so the A/B reports
+the total temporal cost rather than hiding the filter.
+
+Group reduction and rejection
+-----------------------------
+
+Every 8x8 lane publishes either its finite positive word11 value or zero to
+group-shared memory. A fixed 64-lane reduction computes:
+
+    sum of finite positive weights;
+    number of finite positive weights;
+    average = sum / count.
+
+Off-screen lanes contribute zero but still participate in every barrier. A
+valid positive reservoir is rejected only when
+
+    weight > average * multiplier.
+
+Rejection writes the canonical all-zero 64-byte reservoir. It does not retain
+M, age, identity, replay coordinates or a count-only ghost. This is intentional
+bias: no 1/p compensation is applied and the control explicitly reports
+`biased=1`.
+
+Runtime controls
+----------------
+
+    r_pathTracingUnifiedPtTemporalBoilingFilter 0|1
+        Requests T0c. Default 0.
+
+    r_pathTracingUnifiedPtTemporalBoilingFilterStrength 0.2
+        Runtime strength clamped to (1e-6, 1]. At 0.2 the threshold is 41x.
+
+The gate is effective only when the accepted S43.4 replay-compaction path is
+effective. The console reports requested/effective, replay-compaction gate,
+clamped strength, threshold multiplier and biased status.
+
+Static verification
+-------------------
+
+`VerifyUpt436TemporalBoilingFilter.cmake` proves:
+
+    8x8x1 local size;
+    one storage-buffer binding at binding 0 with 64-byte array stride;
+    zero RayQuery and zero TraceRay operations;
+    direct word11 target-scaled-UCW input;
+    the FullSample strength-to-threshold formula;
+    complete-reservoir zeroing;
+    post-T0b marker and UAV-barrier ownership in the host.
+
+The focused production shader target and full
+`cmake --build --preset win64-pt-dev-release` build pass. No DX12 shader was
+compiled or deployed.
+
+Runtime acceptance
+------------------
+
+Use the accepted `uptf2.cfg` S43.4 baseline, then compare:
+
+    r_pathTracingUnifiedPtTemporalReplayCompaction 1
+    r_pathTracingUnifiedPtTemporalBoilingFilter 0
+    r_pathTracingUnifiedPtTemporalGpuTiming 1
+
+against:
+
+    r_pathTracingUnifiedPtTemporalReplayCompaction 1
+    r_pathTracingUnifiedPtTemporalBoilingFilter 1
+    r_pathTracingUnifiedPtTemporalBoilingFilterStrength 0.2
+    r_pathTracingUnifiedPtTemporalGpuTiming 1
+
+`uptf2.cfg` does not set the S43.4 replay-compaction CVar. It must be enabled
+explicitly before either A/B arm; otherwise the boiling-filter report will be
+requested/effective=1/0 with gate(replayCompaction)=0.
+
+Acceptance requires:
+
+    requested/effective=1/1;
+    no binding or pipeline validation failure;
+    no portal-border, disocclusion or motion corruption;
+    no new dark 8x8 tiles or persistent holes around bright emitters;
+    reduced temporal firefly persistence under stressed motion;
+    bounded incremental temporal cost measured inside the existing timer.
+
+If image quality regresses, leave the feature default-off and record the exact
+failure. Do not compensate in spatial reuse or widen temporal replay.
+
+Runtime acceptance, 2026-08-13
+------------------------------
+
+The complete gate reported requested/effective=1/1 with replayCompaction=1,
+strength 0.2, multiplier 41 and biased=1. The runtime loaded the intended
+6068-byte boiling-filter blob. Visual validation passed with no observed
+issue.
+
+At 2560x1440 after 16 warm-up frames and 64 dispatch-only samples:
+
+    filter off median: 3.266 ms;
+    filter on median:  3.339 ms;
+    incremental cost: 0.073 ms / 2.2 percent.
+
+The enabled run reported mean 3.348 ms, minimum 3.299 ms, p90 3.363 ms and
+maximum 3.587 ms. The disabled run's mean was 3.398 ms, showing that the
+single-run tail variance exceeds the small median overhead; the median delta
+is the conservative acceptance result.
+
+S43.6 passes runtime correctness and performance acceptance. It remains
+default-off pending a later preset/default decision because the filter is
+deliberately biased, not because of a measured correctness or cost failure.

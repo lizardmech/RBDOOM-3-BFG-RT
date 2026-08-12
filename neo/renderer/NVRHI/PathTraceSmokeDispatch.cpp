@@ -3074,6 +3074,42 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 reportedTemporalReplayCompactionEffective =
                     temporalReplayCompactionEffective;
             }
+            const bool requestedTemporalBoilingFilter =
+                r_pathTracingUnifiedPtTemporalBoilingFilter.GetBool();
+            const bool effectiveTemporalBoilingFilter =
+                requestedTemporalBoilingFilter
+                && effectiveTemporalReplayCompaction;
+            static int reportedTemporalBoilingFilterRequest = -1;
+            static int reportedTemporalBoilingFilterEffective = -1;
+            static float reportedTemporalBoilingFilterStrength = -1.0f;
+            const int temporalBoilingFilterRequest =
+                requestedTemporalBoilingFilter ? 1 : 0;
+            const int temporalBoilingFilterEffective =
+                effectiveTemporalBoilingFilter ? 1 : 0;
+            const float temporalBoilingFilterStrength = idMath::ClampFloat(
+                1.0e-6f, 1.0f,
+                r_pathTracingUnifiedPtTemporalBoilingFilterStrength.GetFloat());
+            if (reportedTemporalBoilingFilterRequest
+                    != temporalBoilingFilterRequest
+                || reportedTemporalBoilingFilterEffective
+                    != temporalBoilingFilterEffective
+                || reportedTemporalBoilingFilterStrength
+                    != temporalBoilingFilterStrength)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: temporal boiling filter requested/effective=%d/%d gate(replayCompaction)=%u strength=%.6f multiplier=%.3f biased=1\n",
+                    temporalBoilingFilterRequest,
+                    temporalBoilingFilterEffective,
+                    effectiveTemporalReplayCompaction ? 1u : 0u,
+                    temporalBoilingFilterStrength,
+                    10.0f / temporalBoilingFilterStrength - 9.0f);
+                reportedTemporalBoilingFilterRequest =
+                    temporalBoilingFilterRequest;
+                reportedTemporalBoilingFilterEffective =
+                    temporalBoilingFilterEffective;
+                reportedTemporalBoilingFilterStrength =
+                    temporalBoilingFilterStrength;
+            }
             const bool requestedSharedSpatial =
                 r_pathTracingUnifiedPtSharedSpatial.GetBool();
             const bool effectiveSharedSpatial = requestedSharedSpatial

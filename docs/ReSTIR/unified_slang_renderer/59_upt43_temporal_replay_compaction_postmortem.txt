@@ -1,0 +1,331 @@
+UPT-43.4 Temporal Replay Compaction Postmortem
+================================================
+
+Status
+------
+
+Accepted and checkpointed in commit 7ee52962e on 2026-08-12.
+
+At 2560x1440, with the same production configuration, fixed view, 16 warm-up
+frames and 64 dispatch-only timing samples:
+
+    monolithic temporal median:       10.348 ms
+    compacted temporal median:         3.043 ms
+    absolute reduction:                7.305 ms
+    relative reduction:                 70.6 percent
+
+    compacted mean:                    3.068 ms
+    compacted minimum:                 2.991 ms
+    compacted p90:                     3.073 ms
+    compacted maximum:                 4.053 ms
+
+Only 127816 of 3686400 pixels entered exact continuation replay in the measured
+frame. That is 3.47 percent of the screen. The compact consumer dispatched
+exactly 1998 64-thread groups, matching ceil(127816 / 64), with zero overflow.
+Visual and motion validation found no issue.
+
+
+Summary of the problem
+----------------------
+
+The old temporal shader was a full-screen 8x8 kernel containing every temporal
+route, including the expensive exact indirect continuation-replay closure.
+Most pixels used a cheap direct shift or the cached-x2 reconnect path, but the
+rare fallback path still lived in the same compiled shader and executed inside
+the same warps.
+
+This produced a GPU work-topology failure:
+
+1. Every screen pixel launched the large monolithic shader.
+2. A small minority of lanes entered continuation replay and closest-hit
+   RayQuery traversal.
+3. Other lanes in those warps could not retire useful work while traversal,
+   dependent geometry loads and material reconstruction completed.
+4. The full replay closure increased the shader's instruction and live-state
+   footprint for the full-screen pass, even on routes returning before replay.
+5. The expensive population was sparse, so normal 8x8 screen dispatch grouped
+   it poorly: a few long-running lanes held up many cheap lanes.
+
+The key mistake was therefore not simply "too many rays." The measured frame
+needed exact replay for only 3.47 percent of pixels. The mistake was compiling
+and scheduling rare, high-latency replay work inside the full-screen temporal
+kernel.
+
+
+Original slow shape
+-------------------
+
+Before S43.4, the shared temporal shift fell directly through into exact
+continuation replay whenever direct and cached-x2 reconnection could not handle
+the sample. This code was reachable from the full-screen 8x8 entry point.
+
+Source: the pre-7ee52962e version of
+`neo/shaders/slang_upt07/upt07_temporal_indirect.slang`.
+
+```slang
+failureReason = kUpt07RejectIndirectContinuation;
+const Upt04PathEvent continuation = Upt07ReplayContinuation(
+    source, receiver);
+if (continuation.valid == 0u
+    || !Upt04FinitePositive(continuation.pdf))
+    return 0u;
+
+Upt04TraceRequest continuationRay;
+if (!Upt04BuildContinuationRequest(
+        receiver.worldPositionAndViewDepth.xyz,
+        receiver.geometricNormalAndRoughness.xyz,
+        receiver.shadingNormalAndOpacity.xyz,
+        continuation.direction,
+        continuationRay))
+    return 0u;
+
+failureReason = kUpt07RejectIndirectGeometry;
+const Upt04HitFacts hit = Upt07TraceIndirect(
+    continuationRay, 0u, Upt04NoVisibilityIgnore(), work);
+if (hit.status != kUpt04HitTriangle
+    || hit.instanceId == 0xffffffffu)
+    return 0u;
+
+Upt07WorkAdd(work, kUpt07WorkGeometryResolves);
+const Upt04GeometryHitSurface hitSurface = Upt04DecodeGeometryHit(hit);
+if (hitSurface.valid == 0u)
+    return 0u;
+
+// Endpoint/light/material reconstruction continues here.
+```
+
+The entry point itself was unconditionally screen-shaped:
+
+```slang
+[numthreads(8, 8, 1)]
+void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    const uint2 pixel = dispatchThreadId.xy;
+    if (pixel.x >= gUpt07Control.renderWidth
+        || pixel.y >= gUpt07Control.renderHeight)
+        return;
+
+    const uint index =
+        pixel.y * gUpt07Control.renderWidth + pixel.x;
+
+    // Reprojection, direct shifting, cached reconnect, exact replay,
+    // reciprocal evaluation, merge and winner visibility all lived here.
+}
+```
+
+The expensive path included a dependent sequence of replay-random generation,
+RayQuery traversal, committed-hit decoding, routed vertex/index/material
+loads, surface reconstruction, endpoint/light replay, target evaluation and
+possibly final winner visibility. Traversal latency and route divergence could
+not be hidden well when only a few lanes in a warp entered that sequence.
+
+
+The S43.4 fix
+-------------
+
+S43.4 introduced a compile-time boundary immediately after the cheap direct
+and cached-x2 routes. The full-screen specialization no longer contains the
+exact continuation closure. Instead it reports a distinct
+`kUpt07NeedsCompactReplay` result.
+
+Source: `neo/shaders/slang_upt07/upt07_temporal_indirect.slang`.
+
+```slang
+#if UPT43_TEMPORAL_REPLAY_CLASSIFY
+    // Direct and cached-x2 mappings have already completed. Do not let the
+    // full-screen specialization retain continuation trace or endpoint
+    // reconstruction.
+    failureReason = kUpt07NeedsCompactReplay;
+    return 0u;
+#else
+    failureReason = kUpt07RejectIndirectContinuation;
+    const Upt04PathEvent continuation = Upt07ReplayContinuation(
+        source, receiver);
+    // Exact replay continues only in the compact specialization.
+#endif
+```
+
+The classifier appends only the unresolved pixel index. It first preserves the
+authoritative fresh D0 reservoir, so queue overflow fails safely to D0 rather
+than publishing a partial temporal result.
+
+Source: `neo/shaders/slang_upt07/upt07_temporal_direct_rayquery.slang`.
+
+```slang
+public void Upt43AppendReplayPixel(uint index)
+{
+    uint slot;
+    InterlockedAdd(gUpt43ReplayMeta[0], 1u, slot);
+
+    const uint capacity = gUpt43ReplayMeta[1];
+    if (slot >= capacity)
+        return;
+
+    gUpt43ReplayQueue[slot] = index;
+
+    const uint requiredGroups = (slot + 64u) / 64u;
+    uint ignored;
+    InterlockedMax(
+        gUpt43ReplayDispatchArgs[0], requiredGroups, ignored);
+}
+
+public void Upt43DeferExactReplay(
+    uint index,
+    Upt03PackedReservoir currentPacked)
+{
+    Upt43AppendReplayPixel(index);
+
+    // The compact pass reloads and overwrites this authoritative D0 input.
+    // Overflow therefore retains fresh D0.
+    gUpt07CurrentReservoirs[index] = currentPacked;
+}
+```
+
+The same source builds a separate 64x1 compact consumer. It launches only over
+the bounded queue and reconstructs the original screen coordinate from the
+queued pixel index.
+
+```slang
+#if UPT43_TEMPORAL_REPLAY_COMPACT
+[numthreads(64, 1, 1)]
+#else
+[numthreads(8, 8, 1)]
+#endif
+void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+#if UPT43_TEMPORAL_REPLAY_COMPACT
+    const uint compactCount = min(
+        gUpt43ReplayMeta[0], gUpt43ReplayMeta[1]);
+    if (dispatchThreadId.x >= compactCount)
+        return;
+
+    const uint index = gUpt43ReplayQueue[dispatchThreadId.x];
+    if (index >= gUpt07Control.surfaceCount)
+        return;
+
+    const uint pixelY = index / gUpt07Control.renderWidth;
+    const uint2 pixel = uint2(
+        index - pixelY * gUpt07Control.renderWidth,
+        pixelY);
+#else
+    // Coalesced full-screen classifier and cheap temporal routes.
+#endif
+
+    // The original authoritative temporal algorithm follows. The compact
+    // specialization contains exact replay; the classifier does not.
+}
+```
+
+On the host, T0a runs full screen, barriers publish the queue/count/indirect
+arguments, and T0b executes through GPU-generated indirect dispatch arguments:
+
+```cpp
+// T0a: coalesced full-screen classifier and cheap temporal routes.
+commandList->dispatch(
+    (width + 7u) / 8u,
+    (height + 7u) / 8u,
+    1u);
+
+BufferUavBarrier(commandList, currentReservoirPage);
+BufferUavBarrier(commandList, temporalReplayQueue);
+BufferUavBarrier(commandList, temporalReplayMeta);
+BufferUavBarrier(commandList, temporalReplayDispatchArgs);
+
+// T0b: exact replay for queued pixels only.
+replayState.indirectParams = temporalReplayDispatchArgs;
+commandList->setComputeState(replayState);
+commandList->dispatchIndirect(0u);
+```
+
+
+Why this was faster
+-------------------
+
+The fix changed scheduling and shader reachability without changing the
+estimator:
+
+    before:
+        all pixels -> one large temporal shader -> rare divergent exact replay
+
+    after:
+        all pixels -> small classifier/cheap routes
+                   -> compact queue -> exact replay pixels only
+
+The full-screen shader's SPIR-V size fell from approximately 738 KB to 408 KB.
+Static verification found two RayQuery sites in the classifier versus four in
+the exact compact consumer. The expensive consumer retained all four sites,
+proving that correctness work was moved rather than deleted.
+
+Compacting the population also groups similar long-running lanes together.
+The replay kernel can spend its warps on replay instead of mixing a few
+traversing lanes with many lanes that have already finished their cheap route.
+The result is less instruction-footprint pressure in T0a, less traversal
+divergence, and 96.53 percent of the measured screen never entering the exact-
+replay kernel.
+
+
+Correctness and bounded-work invariants
+---------------------------------------
+
+S43.4 preserved these contracts:
+
+* Direct and cached-x2 mappings remain in the full-screen pass.
+* Exact continuation replay uses the original authoritative implementation.
+* The compact pass recomputes temporal state from D0/history inputs; it does
+  not consume a partially constructed classifier result.
+* Every queued record is one uint pixel index, four bytes per screen pixel at
+  capacity.
+* The queue is never cleared. Only 20 bytes are reset per frame: published
+  count, capacity, and the three indirect-dispatch words.
+* Shader reads use min(publishedCount, capacity).
+* Queue overflow retains fresh D0.
+* No per-frame full-buffer clear was added.
+* The GPU publishes ceil(boundedCount / 64) indirect groups.
+* The timing scope includes T0a, barriers and T0b.
+* Static verification requires classifier/consumer RayQuery counts 2/4,
+  bindings 33/34/35, no TraceRay, and no queue clear.
+* Compact32 receivers, compact64 lights, proposal parity, duplication,
+  common-GRIS merge and the accepted reservoir convention are unchanged.
+
+
+What the 70 percent result proves
+---------------------------------
+
+It does not prove that exact continuation replay itself became 70 percent
+cheaper. That code remains essentially the same inside T0b. It proves that
+nearly all of the previous cost came from exposing a sparse, expensive closure
+to a full-screen kernel and letting its code footprint and divergent latency
+contaminate cheap temporal work.
+
+The most important diagnostic was the queue density:
+
+    127816 / 3686400 = 3.47 percent exact replay
+
+That number made the old 10.348 ms cost structurally implausible. A route used
+by 3.47 percent of pixels should not dictate the cost of the other 96.53
+percent. Once the work population was separated, temporal time fell to
+3.043 ms without a visual change.
+
+
+Reusable lesson
+---------------
+
+When a GPU pass contains a rare path with RayQuery, dependent geometry loads,
+material evaluation or a large replay closure, a runtime branch is not enough.
+Check all three of these separately:
+
+1. How many pixels actually require the path?
+2. Does the expensive closure remain reachable in the full-screen compiled
+   shader?
+3. Are rare long-running lanes scheduled in the same warps as cheap lanes?
+
+If the population is sparse, use a compile-time classifier boundary and a
+bounded compact consumer. Measure queue density, include both dispatches and
+barriers in the timer, preserve an authoritative fallback on overflow, and
+verify the generated SPIR-V so the compiler cannot silently pull the expensive
+closure back into the classifier.
+
+This same principle later informed the S43.5 spatial shift-prepass work: make
+work populations explicit, keep full-screen stages narrow and coalesced, and
+move divergent high-latency work behind a bounded boundary rather than merely
+putting another branch around it.

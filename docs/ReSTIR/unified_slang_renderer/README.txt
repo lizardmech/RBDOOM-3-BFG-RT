@@ -28,6 +28,12 @@ previous-best reseed. Runtime testing reports legacy-equivalent behavior: the
 one-frame portal-border hitch remains, but emitters no longer suffer persistent
 or large-scale loss.
 
+UPT-43.4's accepted temporal replay-compaction postmortem is recorded in
+59_upt43_temporal_replay_compaction_postmortem.txt. It contains the exact old
+monolithic continuation-replay source shape, the classifier/queue/indirect-
+consumer replacement, the measured 10.348 to 3.043 ms result, and the general
+GPU work-topology lesson behind the 70.6 percent reduction.
+
 The first bounded one-continuation unified indirect/secondary-NEE estimator is
 now implemented and Vulkan-build verified. It keeps one shared initial
 reservoir, performs no temporal or spatial indirect reuse, adds no buffer/page
@@ -562,6 +568,16 @@ Packet index
         S43.1 persists exact direct-emissive PDF state; S43.2 adds the exact
         current-frame emissive geometry sidecar in ABI 13 and removes general
         triangle routing from selected-emissive D0/T0/S0 replay.
+
+    59_upt43_temporal_replay_compaction_postmortem.txt
+        Explains the S43.4 70.6 percent temporal reduction with before/after
+        code excerpts: full-screen exact replay was replaced by a cheap
+        classifier plus a bounded 64x1 compact replay queue.
+
+    60_upt43_temporal_boiling_filter.txt
+        Adds the default-off, ray-free FullSample-shaped post-T0 boiling
+        filter over finalized target-scaled UCW, including exact weight
+        convention, 8x8 threshold math, runtime controls and acceptance gate.
 
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,

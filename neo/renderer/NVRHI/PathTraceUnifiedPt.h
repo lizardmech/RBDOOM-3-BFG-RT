@@ -177,6 +177,8 @@ private:
     bool EnsureTemporalBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalReplayCompactionBuffers(
         const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureTemporalBoilingFilterBindingSet(
+        const PathTraceUnifiedPtDispatchInputs& inputs);
     void DrainTemporalReplayCompactionReadback(
         const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalBottleneckBuffer(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -351,6 +353,7 @@ private:
     bool m_temporalCommonGrisMerge = false;
     bool m_temporalThreeVertexReplay = false;
     bool m_temporalReplayCompaction = false;
+    bool m_temporalBoilingFilter = false;
     bool m_temporalEarlyReconnect = false;
     bool m_temporalRouteDiagnostics = false;
     bool m_temporalLambertDiagnostic = false;
@@ -370,6 +373,11 @@ private:
     nvrhi::ComputePipelineHandle m_temporalPipeline;
     nvrhi::ShaderHandle m_temporalReplayShader;
     nvrhi::ComputePipelineHandle m_temporalReplayPipeline;
+    nvrhi::BindingLayoutHandle m_temporalBoilingFilterBindingLayout;
+    std::array<nvrhi::BindingSetHandle, 2>
+        m_temporalBoilingFilterBindingSets;
+    nvrhi::ShaderHandle m_temporalBoilingFilterShader;
+    nvrhi::ComputePipelineHandle m_temporalBoilingFilterPipeline;
     uint32_t m_temporalReplayCapacity = 0u;
     nvrhi::BufferHandle m_temporalReplayQueue;
     nvrhi::BufferHandle m_temporalReplayMeta;

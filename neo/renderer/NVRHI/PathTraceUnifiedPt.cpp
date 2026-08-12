@@ -78,6 +78,7 @@ static constexpr uint32_t UPT04_DIAGNOSTIC_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_BYTES + UPT04_DIAGNOSTIC_PROBE_BYTES;
 static constexpr uint32_t UPT05_PUSH_CONSTANT_BYTES = 32u;
 static constexpr uint32_t UPT07_PUSH_CONSTANT_BYTES = 168u;
+static constexpr uint32_t UPT43_TEMPORAL_BOILING_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT07_MAXIMUM_HISTORY_AGE = 63u;
 static constexpr uint32_t UPT07_MAXIMUM_HISTORY_CONTRIBUTION_RATIO = 32u;
 static constexpr uint32_t UPT07_GEOMETRY_FLAG_PREVIOUS_BEST_SEED = 1u << 31u;
@@ -365,6 +366,13 @@ static bool Upt43TemporalReplayCompactionEnabled(
         && inputs.temporalBottleneckProbe == 0u
         && !r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
         && !r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool();
+}
+
+static bool Upt436TemporalBoilingFilterEnabled(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    return r_pathTracingUnifiedPtTemporalBoilingFilter.GetBool()
+        && Upt43TemporalReplayCompactionEnabled(inputs);
 }
 
 static bool Upt43SpatialShiftPrepassEnabled(
@@ -919,6 +927,17 @@ struct Upt07TemporalDirectControl
 };
 static_assert(sizeof(Upt07TemporalDirectControl) == UPT07_PUSH_CONSTANT_BYTES,
     "UPT-07 host push constants must match Slang reflection");
+
+struct Upt43TemporalBoilingControl
+{
+    uint32_t renderWidth;
+    uint32_t renderHeight;
+    uint32_t surfaceCount;
+    float strength;
+};
+static_assert(sizeof(Upt43TemporalBoilingControl) ==
+        UPT43_TEMPORAL_BOILING_PUSH_CONSTANT_BYTES,
+    "UPT-43.6 boiling-filter push constants must match Slang reflection");
 
 struct Upt08Control
 {
@@ -1756,13 +1775,17 @@ void PathTraceUnifiedPtState::ReleaseTemporal()
         m_temporalReplayBindingSets[page] = nullptr;
         m_temporalReplayBindingSetDescs[page] = nvrhi::BindingSetDesc();
         m_temporalReplayBindingSetDescValid[page] = false;
+        m_temporalBoilingFilterBindingSets[page] = nullptr;
     }
     m_temporalPipeline = nullptr;
     m_temporalShader = nullptr;
     m_temporalReplayPipeline = nullptr;
     m_temporalReplayShader = nullptr;
+    m_temporalBoilingFilterPipeline = nullptr;
+    m_temporalBoilingFilterShader = nullptr;
     m_temporalBindingLayout = nullptr;
     m_temporalReplayBindingLayout = nullptr;
+    m_temporalBoilingFilterBindingLayout = nullptr;
     m_temporalReplayQueue = nullptr;
     m_temporalReplayMeta = nullptr;
     m_temporalReplayDispatchArgs = nullptr;
@@ -1906,6 +1929,7 @@ void PathTraceUnifiedPtState::Release()
     m_temporalDuplication = false;
     m_temporalIndirect = false;
     m_temporalReplayCompaction = false;
+    m_temporalBoilingFilter = false;
     m_spatialCompactLights = false;
     m_resourceFailureLogged = false;
     m_reportedProofStage = UINT32_MAX;
@@ -2044,6 +2068,9 @@ bool PathTraceUnifiedPtState::EnsurePages(const PathTraceUnifiedPtDispatchInputs
         m_bindingSetDescValid[page] = false;
         m_temporalBindingSets[page] = nullptr;
         m_temporalBindingSetDescValid[page] = false;
+        m_temporalReplayBindingSets[page] = nullptr;
+        m_temporalReplayBindingSetDescValid[page] = false;
+        m_temporalBoilingFilterBindingSets[page] = nullptr;
         m_spatialBindingSets[page] = nullptr;
         m_spatialBindingSetDescValid[page] = false;
         m_resolveBindingSets[page] = nullptr;
@@ -4727,9 +4754,13 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         && commonGrisMerge;
     const bool replayCompaction = commonGrisMerge
         && Upt43TemporalReplayCompactionEnabled(inputs);
+    const bool boilingFilter = replayCompaction
+        && Upt436TemporalBoilingFilterEnabled(inputs);
     if (m_temporalPipeline
         && (!replayCompaction || (m_temporalReplayPipeline
             && m_temporalReplayBindingLayout))
+        && (!boilingFilter || (m_temporalBoilingFilterPipeline
+            && m_temporalBoilingFilterBindingLayout))
         && m_temporalCompactLights == inputs.compactLights
         && m_temporalDuplication == inputs.duplication
         && m_temporalIndirect == indirect
@@ -4737,6 +4768,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         && m_temporalCommonGrisMerge == commonGrisMerge
         && m_temporalThreeVertexReplay == threeVertexReplay
         && m_temporalReplayCompaction == replayCompaction
+        && m_temporalBoilingFilter == boilingFilter
         && m_temporalEarlyReconnect == earlyReconnect
         && m_temporalRouteDiagnostics == routeDiagnostics
         && m_temporalLambertDiagnostic == inputs.lambertDiagnostic
@@ -4755,6 +4787,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         || m_temporalCommonGrisMerge != commonGrisMerge
         || m_temporalThreeVertexReplay != threeVertexReplay
         || m_temporalReplayCompaction != replayCompaction
+        || m_temporalBoilingFilter != boilingFilter
         || m_temporalEarlyReconnect != earlyReconnect
         || m_temporalRouteDiagnostics != routeDiagnostics
         || m_temporalLambertDiagnostic != inputs.lambertDiagnostic
@@ -4785,6 +4818,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         m_temporalCommonGrisMerge = commonGrisMerge;
         m_temporalThreeVertexReplay = threeVertexReplay;
         m_temporalReplayCompaction = replayCompaction;
+        m_temporalBoilingFilter = boilingFilter;
         m_temporalEarlyReconnect = earlyReconnect;
         m_temporalRouteDiagnostics = routeDiagnostics;
         m_temporalLambertDiagnostic = inputs.lambertDiagnostic;
@@ -4899,6 +4933,30 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         {
             common->Printf(
                 "PathTraceUnifiedPt: failed to create UPT-43.4 compact replay binding layout\n");
+            return false;
+        }
+    }
+
+    if (boilingFilter)
+    {
+        nvrhi::BindingLayoutDesc boilingLayoutDesc;
+        boilingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
+        boilingLayoutDesc.registerSpace = 0;
+        boilingLayoutDesc.registerSpaceIsDescriptorSet = true;
+        boilingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+            .setShaderResourceOffset(0)
+            .setSamplerOffset(0)
+            .setUnorderedAccessViewOffset(0);
+        boilingLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_UAV(0));
+        boilingLayoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+            0, UPT43_TEMPORAL_BOILING_PUSH_CONSTANT_BYTES));
+        m_temporalBoilingFilterBindingLayout =
+            inputs.device->createBindingLayout(boilingLayoutDesc);
+        if (!m_temporalBoilingFilterBindingLayout)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: failed to create UPT-43.6 boiling-filter binding layout\n");
             return false;
         }
     }
@@ -5024,6 +5082,30 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         }
     }
 
+    int boilingSize = 0;
+    ID_TIME_T boilingTimestamp = 0;
+    uint64_t boilingHash = 0;
+    if (boilingFilter)
+    {
+        void* boilingData = nullptr;
+        if (!Upt04ReadShader(
+                "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_boiling_filter.bin",
+                boilingData, boilingSize, boilingTimestamp, boilingHash))
+            return false;
+        nvrhi::ShaderDesc boilingShaderDesc = shaderDesc;
+        boilingShaderDesc.debugName =
+            "PathTraceUnifiedPtTemporalBoilingFilter";
+        m_temporalBoilingFilterShader = inputs.device->createShader(
+            boilingShaderDesc, boilingData, boilingSize);
+        Mem_Free(boilingData);
+        if (!m_temporalBoilingFilterShader)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: failed to create UPT-43.6 boiling-filter shader\n");
+            return false;
+        }
+    }
+
     nvrhi::ComputePipelineDesc pipelineDesc;
     pipelineDesc.CS = m_temporalShader;
     pipelineDesc.bindingLayouts = {
@@ -5054,8 +5136,23 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
             return false;
         }
     }
+    if (boilingFilter)
+    {
+        nvrhi::ComputePipelineDesc boilingPipelineDesc;
+        boilingPipelineDesc.CS = m_temporalBoilingFilterShader;
+        boilingPipelineDesc.bindingLayouts = {
+            m_temporalBoilingFilterBindingLayout };
+        m_temporalBoilingFilterPipeline =
+            inputs.device->createComputePipeline(boilingPipelineDesc);
+        if (!m_temporalBoilingFilterPipeline)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: failed to create UPT-43.6 boiling-filter pipeline\n");
+            return false;
+        }
+    }
     common->Printf(
-        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u threeVertexReplay=%u family=%s sharedReuseAdapter(requested/effective)=%u/%u commonGrisMerge(requested/effective)=%u/%u replayCompaction=%u replayBlobBytes=%d replayHash=%016llx shading=%s bottleneckProbe=%u createUs=%llu\n",
+        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u threeVertexReplay=%u family=%s sharedReuseAdapter(requested/effective)=%u/%u commonGrisMerge(requested/effective)=%u/%u replayCompaction=%u replayBlobBytes=%d replayHash=%016llx boilingFilter=%u boilingBlobBytes=%d boilingHash=%016llx shading=%s bottleneckProbe=%u createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -5074,6 +5171,9 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         replayCompaction ? 1u : 0u,
         replaySize,
         static_cast<unsigned long long>(replayHash),
+        boilingFilter ? 1u : 0u,
+        boilingSize,
+        static_cast<unsigned long long>(boilingHash),
         (inputs.frozenStaticDiagnostic || inputs.frozenLightDiagnostic)
             ? (inputs.lambertDiagnostic
                 ? "frozen-factor-lambert"
@@ -5900,6 +6000,36 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
     return true;
 }
 
+bool PathTraceUnifiedPtState::EnsureTemporalBoilingFilterBindingSet(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_temporalBoilingFilter)
+        return true;
+    if (!CurrentPage() || !m_temporalBoilingFilterPipeline
+        || !m_temporalBoilingFilterBindingLayout)
+        return false;
+
+    const uint32_t pageIndex = m_currentPageIndex;
+    if (m_temporalBoilingFilterBindingSets[pageIndex])
+        return true;
+
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+        0, CurrentPage()));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT43_TEMPORAL_BOILING_PUSH_CONSTANT_BYTES));
+    m_temporalBoilingFilterBindingSets[pageIndex] =
+        inputs.device->createBindingSet(
+            desc, m_temporalBoilingFilterBindingLayout);
+    if (!m_temporalBoilingFilterBindingSets[pageIndex])
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create UPT-43.6 boiling-filter binding set\n");
+        return false;
+    }
+    return true;
+}
+
 bool PathTraceUnifiedPtState::ExecuteTemporal(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
@@ -5962,6 +6092,8 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
         return reportSkip(11, "replay-compaction-buffer-unavailable");
     if (!EnsureTemporalBindingSet(inputs))
         return reportSkip(6, "binding-set-unavailable");
+    if (!EnsureTemporalBoilingFilterBindingSet(inputs))
+        return reportSkip(12, "boiling-filter-binding-set-unavailable");
 
     const PathTraceUnifiedPtPageMetadata& historyMetadata = HistoryPageMetadata();
     const bool historyAvailable = inputs.primarySurfaceHistoryValid &&
@@ -6260,6 +6392,38 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             inputs.commandList->setComputeState(replayState);
             inputs.commandList->setPushConstants(&control, sizeof(control));
             inputs.commandList->dispatchIndirect(0u);
+        }
+        if (m_temporalBoilingFilter)
+        {
+            // T0b may have replaced queued D0 records. The boiling decision
+            // must observe the completed page, so it cannot live in T0a.
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, CurrentPage());
+            inputs.commandList->commitBarriers();
+
+            Upt04MarkerScope boilingMarker(
+                inputs.commandList,
+                "UPT.T0c Temporal Boiling Filter",
+                inputs.nsightMarkers);
+            nvrhi::ComputeState boilingState;
+            boilingState.pipeline = m_temporalBoilingFilterPipeline;
+            boilingState.bindings = {
+                m_temporalBoilingFilterBindingSets[m_currentPageIndex] };
+            inputs.commandList->setComputeState(boilingState);
+            Upt43TemporalBoilingControl boilingControl = {};
+            boilingControl.renderWidth = inputs.width;
+            boilingControl.renderHeight = inputs.height;
+            boilingControl.surfaceCount =
+                static_cast<uint32_t>(surfaceCount64);
+            boilingControl.strength = idMath::ClampFloat(
+                1.0e-6f, 1.0f,
+                r_pathTracingUnifiedPtTemporalBoilingFilterStrength.GetFloat());
+            inputs.commandList->setPushConstants(
+                &boilingControl, sizeof(boilingControl));
+            inputs.commandList->dispatch(
+                (inputs.width + 7u) / 8u,
+                (inputs.height + 7u) / 8u,
+                1u);
         }
         if (temporalGpuTimer)
             inputs.commandList->endTimerQuery(temporalGpuTimer);

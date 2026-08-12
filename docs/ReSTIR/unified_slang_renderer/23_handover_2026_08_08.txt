@@ -2483,3 +2483,37 @@ accepted and ready for checkpoint at 3.370 ms versus 8.316 ms Gaussian spatial
 median (-59.5 percent). Keep the experiment default-off; this validates the
 paper-shaped split, but does not yet justify replacing the approximately
 1.07 ms adjacent UPT-33 production default.
+
+UPT-43.6 temporal boiling filter ready for runtime A/B, 2026-08-12
+------------------------------------------------------------------
+
+The NVIDIA FullSample-shaped post-temporal boiling filter is implemented,
+Vulkan-built and deployed behind
+`r_pathTracingUnifiedPtTemporalBoilingFilter 1`. It requires effective S43.4
+replay compaction and runs after T0b so queued pixels are finalized before the
+8x8 group comparison. The pass is ray-free and owns only the current reservoir
+page at binding 0.
+
+UPT word11 already contains target-scaled UCW; the shader correctly consumes
+it directly. Strength 0.2 produces the reference 41x nonzero-group-average
+threshold. Rejected records are completely zeroed, including M and history
+age. The temporal timer includes the filter cost.
+
+Run the accepted `uptf2.cfg` baseline, explicitly set
+`r_pathTracingUnifiedPtTemporalReplayCompaction 1`, measure filter 0, then set
+filter 1 and strength 0.2 and measure again. `uptf2.cfg` does not itself enable
+the required S43.4 compaction gate. Check motion, disocclusion, portal/emissive
+boundaries, 8x8 dark holes and temporal firefly persistence. Do not enable by
+default until image and incremental-cost acceptance are recorded. See
+`60_upt43_temporal_boiling_filter.txt`.
+
+UPT-43.6 final acceptance, 2026-08-13
+-------------------------------------
+
+The effective gate reported 1/1 with replay compaction active, strength 0.2,
+multiplier 41 and the intended 6068-byte shader. Visual validation passed. At
+2560x1440, 16 warm-ups and 64 dispatch-only samples, enabling the filter moved
+temporal median time from 3.266 to 3.339 ms: +0.073 ms / +2.2 percent. S43.6
+passes correctness and performance acceptance and is ready for a scoped
+checkpoint. It remains default-off because its rejection is deliberately
+biased; default promotion belongs to a later preset decision.

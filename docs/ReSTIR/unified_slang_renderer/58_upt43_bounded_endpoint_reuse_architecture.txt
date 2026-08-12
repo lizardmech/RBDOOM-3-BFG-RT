@@ -746,3 +746,37 @@ spatial median versus 8.316 ms for the monolithic screen-leader implementation,
 a 59.5 percent reduction with exact image parity in the tested content. The
 gate remains default-off: promoting Gaussian reuse over the approximately
 1.07 ms adjacent UPT-33 production path is a later quality-versus-cost choice.
+
+S43.6 temporal boiling-filter implementation, 2026-08-12
+----------------------------------------------------------
+
+The first enhanced layer is implemented behind the default-off
+`r_pathTracingUnifiedPtTemporalBoilingFilter 1` gate. It requires accepted
+S43.4 replay compaction and runs as a separate ray-free 8x8 T0c dispatch after
+T0b has finalized queued pixels. One UAV barrier separates replay from the
+filter; the existing temporal timer encloses all three stages.
+
+The FullSample rule was translated to UPT's actual persisted convention:
+word11 is already target-scaled UCW, so it is consumed directly and is not
+multiplied by target again. Finite positive values are averaged over the 8x8
+group and values above `(10 / strength - 9) * average` are rejected. Rejection
+zeros the complete reservoir. Strength defaults to 0.2, giving a 41x threshold.
+
+The pass has one 64-byte-stride reservoir UAV, 16 bytes of push constants and
+no scene/light/material/history bindings or rays. Static verification and the
+full Vulkan release build pass. Runtime image, motion, firefly and incremental
+timing acceptance remain pending; details and exact A/B commands are in
+`60_upt43_temporal_boiling_filter.txt`. The test must explicitly enable
+`r_pathTracingUnifiedPtTemporalReplayCompaction 1`; `uptf2.cfg` does not set
+that prerequisite.
+
+S43.6 runtime acceptance, 2026-08-13
+------------------------------------
+
+With replay compaction explicitly enabled, the boiling-filter gate reported
+requested/effective=1/1, strength 0.2 and the expected 41x threshold. Visual
+testing passed without issue. At 2560x1440 over 64 samples after 16 warm-ups,
+the temporal median moved from 3.266 ms with the filter off to 3.339 ms with it
+on: 0.073 ms / 2.2 percent incremental cost. S43.6 is accepted and may be
+checkpointed. Keep it default-off until the later biased-quality preset
+decision.
