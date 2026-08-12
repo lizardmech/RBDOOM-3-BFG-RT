@@ -584,6 +584,11 @@ Packet index
         permutation A/B with no new specialization, storage, dispatch or rays,
         while deferring sparse disocclusion boost to a proper GRIS design.
 
+    62_upt43_sparse_disocclusion_boost.txt
+        Defines the remaining RTXDI PT enhanced layer as an rcLength-two,
+        short-history-only compact spatial side lane that reuses S43.4 queue
+        storage and never revives the rejected full-screen UPT-34 kernel.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

@@ -1635,6 +1635,24 @@ idCVar r_pathTracingUnifiedPtSpatialMultiNeighbor(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-34 shared-S0 feature A/B: simultaneously resample the canonical path plus three distinct reciprocal workgroup neighbors with k-technique pairwise MIS; requires accepted UPT-33 rescue configuration" );
 
+idCVar r_pathTracingUnifiedPtSpatialDisocclusionBoost(
+    "r_pathTracingUnifiedPtSpatialDisocclusionBoost",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-43.8 sparse RTXDI PT disocclusion A/B: queue only rcLength-2 reservoirs with effective M below 8, then run bounded simultaneous-GRIS extra neighbors; requires S43.4 and accepted UPT-33; default off" );
+
+idCVar r_pathTracingUnifiedPtSpatialDisocclusionBoostSamples(
+    "r_pathTracingUnifiedPtSpatialDisocclusionBoostSamples",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT-43.8 compact disocclusion neighbor count, clamped 1..8; RTXDI PT default is 8" );
+
+idCVar r_pathTracingUnifiedPtSpatialDisocclusionBoostDiagnostics(
+    "r_pathTracingUnifiedPtSpatialDisocclusionBoostDiagnostics",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-43.8 one-shot delayed queue/indirect-dispatch bounds proof; no per-frame queue clear" );
+
 idCVar r_pathTracingUnifiedPtSpatialReuseTexture(
     "r_pathTracingUnifiedPtSpatialReuseTexture",
     "0",

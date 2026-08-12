@@ -119,6 +119,8 @@ static constexpr uint32_t UPT42_REUSE_TEXTURE_DELTA_ENTRY_COUNT =
 static constexpr uint32_t UPT42_REUSE_TEXTURE_ENTRY_COUNT =
     UPT42_REUSE_TEXTURE_DELTA_ENTRY_COUNT;
 static constexpr uint32_t UPT43_SPATIAL_SHIFT_STRIDE = 16u;
+static constexpr uint32_t UPT438_DISOCCLUSION_HISTORY_M = 8u;
+static constexpr uint32_t UPT438_DISOCCLUSION_MAX_SAMPLES = 8u;
 
 struct Upt42ReuseTextureStats
 {
@@ -387,6 +389,22 @@ static bool Upt43SpatialShiftPrepassEnabled(
         && r_pathTracingUnifiedPtSpatialShiftPrepass.GetBool()
         && !r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool()
         && !r_pathTracingUnifiedPtThreeVertexInitial.GetBool()
+        && !inputs.threeVertexInitial;
+}
+
+static bool Upt438SpatialDisocclusionBoostEnabled(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    return r_pathTracingUnifiedPtSpatialDisocclusionBoost.GetBool()
+        && Upt43TemporalReplayCompactionEnabled(inputs)
+        && Upt30SharedSpatialEnabled(inputs)
+        && r_pathTracingUnifiedPtSpatialStoredSourceTarget.GetBool()
+        && r_pathTracingUnifiedPtSpatialWorkgroupPairing.GetBool()
+        && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool()
+        && !r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool()
+        && !r_pathTracingUnifiedPtSpatialReuseTexture.GetBool()
+        && !r_pathTracingUnifiedPtSpatialShiftPrepass.GetBool()
+        && !r_pathTracingUnifiedPtTemporalPermutationSampling.GetBool()
         && !inputs.threeVertexInitial;
 }
 
@@ -1834,12 +1852,18 @@ void PathTraceUnifiedPtState::ReleaseSpatial()
         m_spatialBindingSets[page] = nullptr;
         m_spatialBindingSetDescs[page] = nvrhi::BindingSetDesc();
         m_spatialBindingSetDescValid[page] = false;
+        m_spatialBoostBindingSets[page] = nullptr;
+        m_spatialBoostBindingSetDescs[page] = nvrhi::BindingSetDesc();
+        m_spatialBoostBindingSetDescValid[page] = false;
     }
     m_spatialPipeline = nullptr;
     m_spatialShader = nullptr;
     m_spatialShiftPipeline = nullptr;
     m_spatialShiftShader = nullptr;
     m_spatialBindingLayout = nullptr;
+    m_spatialBoostPipeline = nullptr;
+    m_spatialBoostShader = nullptr;
+    m_spatialBoostBindingLayout = nullptr;
     m_spatialPipelineAttempted = false;
     m_spatialExecutedThisFrame = false;
 }
@@ -1858,6 +1882,10 @@ void PathTraceUnifiedPtState::Release()
     m_spatialReuseTextureBuffer = nullptr;
     m_spatialShiftBuffer = nullptr;
     m_spatialShiftCapacity = 0u;
+    m_spatialBoostReadback = nullptr;
+    m_spatialBoostReadbackPending = false;
+    m_spatialBoostDiagnosticCaptured = false;
+    m_spatialBoostReadbackDelayFrames = 0;
     ReleaseResolve();
     for (TemporalGpuTimerSlot& slot : m_temporalGpuTimers)
     {
@@ -6530,6 +6558,8 @@ void PathTraceUnifiedPtState::UpdateSpatialGpuTiming(
             && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool();
         const bool multiNeighbor = emptyRescue
             && r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool();
+        const bool disocclusionBoost = Upt438SpatialDisocclusionBoostEnabled(
+            inputs);
         const uint32_t proofMode = static_cast<uint32_t>(idMath::ClampInt(
             0, 6, r_pathTracingUnifiedPtSpatialProofMode.GetInteger()));
         const bool fixedPhase =
@@ -6542,7 +6572,8 @@ void PathTraceUnifiedPtState::UpdateSpatialGpuTiming(
             | (emptyRescue ? 8u : 0u)
             | (proofMode << 4u)
             | (phaseState << 8u)
-            | (multiNeighbor ? 0x800u : 0u);
+            | (multiNeighbor ? 0x800u : 0u)
+            | (disocclusionBoost ? 0x1000u : 0u);
     }
     if (requestedMode == m_spatialGpuTimingMode)
         return;
@@ -6558,12 +6589,13 @@ void PathTraceUnifiedPtState::UpdateSpatialGpuTiming(
     {
         const uint32_t phaseState = (requestedMode >> 8u) & 7u;
         common->Printf(
-            "PathTraceUnifiedPt: spatial GPU timing armed shared=%u storedSourceTarget=%u workgroupPairing=%u emptyRescue=%u multiNeighbor=%u proof=%u phase=%s warmup=%u samples=%u scope=dispatch-only\n",
+            "PathTraceUnifiedPt: spatial GPU timing armed shared=%u storedSourceTarget=%u workgroupPairing=%u emptyRescue=%u multiNeighbor=%u disocclusionBoost=%u proof=%u phase=%s warmup=%u samples=%u scope=dispatch-only\n",
             requestedMode & 1u,
             (requestedMode >> 1u) & 1u,
             (requestedMode >> 2u) & 1u,
             (requestedMode >> 3u) & 1u,
             (requestedMode >> 11u) & 1u,
+            (requestedMode >> 12u) & 1u,
             (requestedMode >> 4u) & 0xfu,
             phaseState < 4u ? va("%u", phaseState) : "mixed",
             SPATIAL_GPU_TIMING_WARMUP_FRAMES,
@@ -6615,12 +6647,13 @@ void PathTraceUnifiedPtState::PollSpatialGpuTiming(
     const double p90 = sorted[57];
     const uint32_t phaseState = (m_spatialGpuTimingMode >> 8u) & 7u;
     common->Printf(
-        "PathTraceUnifiedPt: spatial GPU timing shared=%u storedSourceTarget=%u workgroupPairing=%u emptyRescue=%u multiNeighbor=%u proof=%u phase=%s samples=%u resolution=%ux%u medianMs=%.3f meanMs=%.3f minMs=%.3f p90Ms=%.3f maxMs=%.3f scope=dispatch-only\n",
+        "PathTraceUnifiedPt: spatial GPU timing shared=%u storedSourceTarget=%u workgroupPairing=%u emptyRescue=%u multiNeighbor=%u disocclusionBoost=%u proof=%u phase=%s samples=%u resolution=%ux%u medianMs=%.3f meanMs=%.3f minMs=%.3f p90Ms=%.3f maxMs=%.3f scope=dispatch-only\n",
         m_spatialGpuTimingMode & 1u,
         (m_spatialGpuTimingMode >> 1u) & 1u,
         (m_spatialGpuTimingMode >> 2u) & 1u,
         (m_spatialGpuTimingMode >> 3u) & 1u,
         (m_spatialGpuTimingMode >> 11u) & 1u,
+        (m_spatialGpuTimingMode >> 12u) & 1u,
         (m_spatialGpuTimingMode >> 4u) & 0xfu,
         phaseState < 4u ? va("%u", phaseState) : "mixed",
         SPATIAL_GPU_TIMING_SAMPLE_COUNT,
@@ -6783,6 +6816,8 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool();
     const bool multiNeighbor = emptyRescue
         && r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool();
+    const bool disocclusionBoost = emptyRescue && !multiNeighbor
+        && Upt438SpatialDisocclusionBoostEnabled(inputs);
     const bool reuseTexturePairing = emptyRescue && !multiNeighbor
         && r_pathTracingUnifiedPtSpatialReuseTexture.GetBool();
     const bool shiftPrepass = reuseTexturePairing
@@ -6806,12 +6841,45 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         reportedMultiNeighborRequested = multiNeighborRequested;
         reportedMultiNeighborEffective = multiNeighborEffective;
     }
+    static int reportedBoostRequested = -1;
+    static int reportedBoostEffective = -1;
+    const int boostRequested =
+        r_pathTracingUnifiedPtSpatialDisocclusionBoost.GetBool() ? 1 : 0;
+    const int boostEffective = disocclusionBoost ? 1 : 0;
+    if (reportedBoostRequested != boostRequested
+        || reportedBoostEffective != boostEffective)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: spatial disocclusion boost requested/effective=%d/%d gate(replayCompaction/shared/storedTarget/workgroup/rescue/noMulti/noReuseTexture/noShiftPrepass/noTemporalPermutation/noThreeVertex)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u samples=%d historyM=%u\n",
+            boostRequested,
+            boostEffective,
+            Upt43TemporalReplayCompactionEnabled(inputs) ? 1u : 0u,
+            sharedSpatial ? 1u : 0u,
+            storedSourceTarget ? 1u : 0u,
+            workgroupPairing ? 1u : 0u,
+            emptyRescue ? 1u : 0u,
+            multiNeighbor ? 0u : 1u,
+            reuseTexturePairing ? 0u : 1u,
+            r_pathTracingUnifiedPtSpatialShiftPrepass.GetBool() ? 0u : 1u,
+            r_pathTracingUnifiedPtTemporalPermutationSampling.GetBool()
+                ? 0u : 1u,
+            (inputs.threeVertexInitial
+                || r_pathTracingUnifiedPtThreeVertexInitial.GetBool())
+                ? 0u : 1u,
+            idMath::ClampInt(
+                1, UPT438_DISOCCLUSION_MAX_SAMPLES,
+                r_pathTracingUnifiedPtSpatialDisocclusionBoostSamples.GetInteger()),
+            UPT438_DISOCCLUSION_HISTORY_M);
+        reportedBoostRequested = boostRequested;
+        reportedBoostEffective = boostEffective;
+    }
     if (m_spatialPipeline && m_spatialCompactLights == inputs.compactLights
         && m_spatialSharedReuse == sharedSpatial
         && m_spatialStoredSourceTarget == storedSourceTarget
         && m_spatialWorkgroupPairing == workgroupPairing
         && m_spatialEmptyRescue == emptyRescue
         && m_spatialMultiNeighbor == multiNeighbor
+        && m_spatialDisocclusionBoost == disocclusionBoost
         && m_spatialReuseTexturePairing == reuseTexturePairing
         && m_spatialShiftPrepass == shiftPrepass
         && m_spatialThreeVertexReplay == threeVertexReplay
@@ -6825,6 +6893,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         || m_spatialWorkgroupPairing != workgroupPairing
         || m_spatialEmptyRescue != emptyRescue
         || m_spatialMultiNeighbor != multiNeighbor
+        || m_spatialDisocclusionBoost != disocclusionBoost
         || m_spatialReuseTexturePairing != reuseTexturePairing
         || m_spatialShiftPrepass != shiftPrepass
         || m_spatialThreeVertexReplay != threeVertexReplay
@@ -6837,6 +6906,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         m_spatialWorkgroupPairing = workgroupPairing;
         m_spatialEmptyRescue = emptyRescue;
         m_spatialMultiNeighbor = multiNeighbor;
+        m_spatialDisocclusionBoost = disocclusionBoost;
         m_spatialReuseTexturePairing = reuseTexturePairing;
         m_spatialShiftPrepass = shiftPrepass;
         m_spatialThreeVertexReplay = threeVertexReplay;
@@ -6878,6 +6948,15 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
     if (shiftPrepass)
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
+    if (disocclusionBoost)
+    {
+        layoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_UAV(33));
+        layoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_UAV(34));
+        layoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_UAV(35));
+    }
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT09_PUSH_CONSTANT_BYTES));
     m_spatialBindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -6888,7 +6967,9 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         return false;
     }
 
-    const char* path = shiftPrepass
+    const char* path = disocclusionBoost
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64_boost_classify.bin"
+        : shiftPrepass
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_reuse_texture_resample_light64.bin"
         : threeVertexReplay
         ? (reuseTexturePairing
@@ -6954,6 +7035,66 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
             return false;
     }
 
+    int boostSize = 0;
+    uint64_t boostHash = 0u;
+    if (disocclusionBoost)
+    {
+        nvrhi::BindingLayoutDesc boostLayoutDesc;
+        boostLayoutDesc.visibility = nvrhi::ShaderType::Compute;
+        boostLayoutDesc.registerSpace = 0;
+        boostLayoutDesc.registerSpaceIsDescriptorSet = true;
+        boostLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+            .setShaderResourceOffset(0)
+            .setSamplerOffset(0)
+            .setUnorderedAccessViewOffset(0);
+        boostLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+        boostLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
+        boostLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
+        boostLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_UAV(3));
+        boostLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+        boostLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
+        Upt04AddReplayGeometryLayoutItems(boostLayoutDesc);
+        boostLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
+        boostLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
+        boostLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(28));
+        boostLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(33));
+        boostLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(34));
+        boostLayoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+            0, UPT09_PUSH_CONSTANT_BYTES));
+        m_spatialBoostBindingLayout =
+            inputs.device->createBindingLayout(boostLayoutDesc);
+        if (!m_spatialBoostBindingLayout)
+            return false;
+
+        void* boostData = nullptr;
+        ID_TIME_T boostTimestamp = 0;
+        const char* boostPath =
+            "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_disocclusion_boost_compact_light64.bin";
+        if (!Upt04ReadShader(
+                boostPath, boostData, boostSize, boostTimestamp, boostHash))
+            return false;
+        nvrhi::ShaderDesc boostShaderDesc;
+        boostShaderDesc.shaderType = nvrhi::ShaderType::Compute;
+        boostShaderDesc.entryName = "main";
+        boostShaderDesc.debugName =
+            "PathTraceUnifiedPtSpatialDisocclusionBoost";
+        m_spatialBoostShader = inputs.device->createShader(
+            boostShaderDesc, boostData, boostSize);
+        Mem_Free(boostData);
+        if (!m_spatialBoostShader)
+            return false;
+    }
+
     nvrhi::ComputePipelineDesc pipelineDesc;
     pipelineDesc.CS = m_spatialShader;
     pipelineDesc.bindingLayouts = {
@@ -6980,8 +7121,20 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         if (!m_spatialShiftPipeline)
             return false;
     }
+    if (disocclusionBoost)
+    {
+        nvrhi::ComputePipelineDesc boostPipelineDesc;
+        boostPipelineDesc.CS = m_spatialBoostShader;
+        boostPipelineDesc.bindingLayouts = {
+            m_spatialBoostBindingLayout,
+            inputs.sceneInputs->materials.textureBindlessLayout };
+        m_spatialBoostPipeline = inputs.device->createComputePipeline(
+            boostPipelineDesc);
+        if (!m_spatialBoostPipeline)
+            return false;
+    }
     common->Printf(
-        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=%s lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=%u sharedSpatial=%u storedSourceTarget=%u workgroupPairing=%u reuseTexturePairing=%u reuseTextureSize=%u shiftPrepass=%u shiftBlobBytes=%d shiftHash=%016llx shiftRecordBytes=%u emptyRescue=%u multiNeighbor=%u threeVertexReplay=%u neighbors=%u pairedPixels=%u continuationRaysMaxPerMapping=%u mappingRaysMaxPerPair=%u shading=%s createUs=%llu\n",
+        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=%s lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=%u sharedSpatial=%u storedSourceTarget=%u workgroupPairing=%u reuseTexturePairing=%u reuseTextureSize=%u shiftPrepass=%u shiftBlobBytes=%d shiftHash=%016llx shiftRecordBytes=%u emptyRescue=%u multiNeighbor=%u disocclusionBoost=%u boostBlobBytes=%d boostHash=%016llx threeVertexReplay=%u neighbors=%u pairedPixels=%u continuationRaysMaxPerMapping=%u mappingRaysMaxPerPair=%u shading=%s createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -7006,6 +7159,9 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         shiftPrepass ? UPT43_SPATIAL_SHIFT_STRIDE : 0u,
         emptyRescue ? 1u : 0u,
         multiNeighbor ? 1u : 0u,
+        disocclusionBoost ? 1u : 0u,
+        boostSize,
+        static_cast<unsigned long long>(boostHash),
         threeVertexReplay ? 1u : 0u,
         multiNeighbor ? UPT09_REGULAR_NEIGHBOR_COUNT
             : (sharedSpatial ? 1u : UPT09_REGULAR_NEIGHBOR_COUNT),
@@ -7076,6 +7232,15 @@ bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
     if (shiftPrepass)
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
             30, m_spatialShiftBuffer));
+    if (m_spatialDisocclusionBoost)
+    {
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            33, m_temporalReplayQueue));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            34, m_temporalReplayMeta));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            35, m_temporalReplayDispatchArgs));
+    }
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT09_PUSH_CONSTANT_BYTES));
     if (m_spatialBindingSets[pageIndex] &&
@@ -7097,11 +7262,101 @@ bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
     return true;
 }
 
+bool PathTraceUnifiedPtState::EnsureSpatialBoostBindingSet(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_spatialDisocclusionBoost)
+        return true;
+    if (!m_spatialBoostBindingLayout || !m_temporalReplayQueue
+        || !m_temporalReplayMeta || !m_spatialBoostPipeline)
+        return false;
+    const nvrhi::BufferHandle lightBuffer = inputs.compactLights
+        ? m_compactLightsBuffer
+        : inputs.sceneInputs->lights.restirLightManagerCurrentPayloadBuffer;
+    if (!lightBuffer || !CurrentPage() || !HistoryPage())
+        return false;
+
+    const uint32_t pageIndex = m_currentPageIndex;
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(
+        0, inputs.sceneInputs->geometry.tlas));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        1, inputs.primarySurfaceCurrentBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        2, CurrentPage()));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+        3, HistoryPage()));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, lightBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        5, inputs.primaryHistorySidecarCurrentBuffer));
+    Upt04AddReplayGeometryBindingItems(desc, *inputs.sceneInputs);
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        22, inputs.sceneInputs->lights.unifiedPtEmissiveLookupBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        27, inputs.sceneInputs->materials.materialTableBuffer));
+    desc.addItem(nvrhi::BindingSetItem::Sampler(
+        28, inputs.sceneInputs->materials.textureSampler));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        33, m_temporalReplayQueue));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        34, m_temporalReplayMeta));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT09_PUSH_CONSTANT_BYTES));
+    if (m_spatialBoostBindingSets[pageIndex]
+        && m_spatialBoostBindingSetDescValid[pageIndex]
+        && m_spatialBoostBindingSetDescs[pageIndex] == desc)
+        return true;
+    m_spatialBoostBindingSets[pageIndex] =
+        inputs.device->createBindingSet(desc, m_spatialBoostBindingLayout);
+    if (!m_spatialBoostBindingSets[pageIndex])
+        return false;
+    m_spatialBoostBindingSetDescs[pageIndex] = desc;
+    m_spatialBoostBindingSetDescValid[pageIndex] = true;
+    return true;
+}
+
+void PathTraceUnifiedPtState::DrainSpatialBoostReadback(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_spatialBoostReadbackPending || !m_spatialBoostReadback
+        || !inputs.device)
+        return;
+    if (m_spatialBoostReadbackDelayFrames > 0)
+    {
+        --m_spatialBoostReadbackDelayFrames;
+        return;
+    }
+    const uint32_t* words = static_cast<const uint32_t*>(
+        inputs.device->mapBuffer(
+            m_spatialBoostReadback, nvrhi::CpuAccessMode::Read));
+    if (!words)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: spatial disocclusion boost readback map failed\n");
+        m_spatialBoostReadbackPending = false;
+        return;
+    }
+    const uint32_t bounded = Min(words[3], words[4]);
+    const uint32_t expectedGroups = (bounded + 63u) / 64u;
+    const uint64_t screenPixels = uint64_t(inputs.width) * inputs.height;
+    common->Printf(
+        "PathTraceUnifiedPt: spatial disocclusion boost published/bounded/capacity=%u/%u/%u fraction=%.4f groups(actual/expected,y,z)=%u/%u/%u/%u overflow=%u status=%s\n",
+        words[3], bounded, words[4],
+        screenPixels != 0u ? double(bounded) / double(screenPixels) : 0.0,
+        words[0], expectedGroups, words[1], words[2],
+        words[3] > words[4] ? words[3] - words[4] : 0u,
+        words[0] == expectedGroups && words[1] == 1u && words[2] == 1u
+            ? "PASS" : "FAIL");
+    inputs.device->unmapBuffer(m_spatialBoostReadback);
+    m_spatialBoostReadbackPending = false;
+}
+
 bool PathTraceUnifiedPtState::ExecuteSpatial(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
     UpdateSpatialGpuTiming(inputs);
     PollSpatialGpuTiming(inputs);
+    DrainSpatialBoostReadback(inputs);
     m_spatialExecutedThisFrame = false;
     if (!inputs.spatial)
     {
@@ -7125,6 +7380,10 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
         && !r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool();
     const bool shiftPrepass = reuseTexturePairing
         && Upt43SpatialShiftPrepassEnabled(inputs);
+    const bool disocclusionBoost =
+        Upt438SpatialDisocclusionBoostEnabled(inputs);
+    if (!r_pathTracingUnifiedPtSpatialDisocclusionBoostDiagnostics.GetBool())
+        m_spatialBoostDiagnosticCaptured = false;
     const PathTraceUnifiedPtPageMetadata& currentMetadata = CurrentPageMetadata();
     if (!productionFullFrame || !currentMetadata.fullyWritten ||
         currentMetadata.width != inputs.width ||
@@ -7173,7 +7432,27 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
                 UPT43_SPATIAL_SHIFT_STRIDE);
         }
     }
-    if (!EnsureSpatialBindingSet(inputs))
+    if (disocclusionBoost
+        && (!m_temporalReplayQueue || !m_temporalReplayMeta
+            || !m_temporalReplayDispatchArgs))
+        return false;
+    if (disocclusionBoost
+        && r_pathTracingUnifiedPtSpatialDisocclusionBoostDiagnostics.GetBool()
+        && !m_spatialBoostReadback)
+    {
+        nvrhi::BufferDesc readbackDesc;
+        readbackDesc.debugName =
+            "PathTraceUnifiedPtSpatialBoostReadback";
+        readbackDesc.byteSize = 5u * sizeof(uint32_t);
+        readbackDesc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        readbackDesc.initialState = nvrhi::ResourceStates::CopyDest;
+        readbackDesc.keepInitialState = true;
+        m_spatialBoostReadback = inputs.device->createBuffer(readbackDesc);
+        if (!m_spatialBoostReadback)
+            return false;
+    }
+    if (!EnsureSpatialBindingSet(inputs)
+        || !EnsureSpatialBoostBindingSet(inputs))
         return false;
     Upt09SpatialDirectControl control = {};
     control.renderWidth = inputs.width;
@@ -7187,8 +7466,14 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
     control.currentLightCount = static_cast<uint32_t>(Max(
         0, lights.restirLightManagerCurrentPayloadCount));
     control.maximumInputM = UPT09_MAXIMUM_INPUT_M;
-    control.regularNeighborCount = UPT09_REGULAR_NEIGHBOR_COUNT;
-    control.rescueNeighborCount = UPT09_RESCUE_NEIGHBOR_COUNT;
+    control.regularNeighborCount = disocclusionBoost
+        ? static_cast<uint32_t>(idMath::ClampInt(
+            1, UPT438_DISOCCLUSION_MAX_SAMPLES,
+            r_pathTracingUnifiedPtSpatialDisocclusionBoostSamples.GetInteger()))
+        : UPT09_REGULAR_NEIGHBOR_COUNT;
+    control.rescueNeighborCount = disocclusionBoost
+        ? UPT438_DISOCCLUSION_HISTORY_M
+        : UPT09_RESCUE_NEIGHBOR_COUNT;
     control.neighborRadius = UPT09_NEIGHBOR_RADIUS;
     control.geometryAvailabilityFlags =
         (geometry.staticBucketRoutePublicationValid
@@ -7290,6 +7575,27 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
             inputs.commandList->setBufferState(
                 m_spatialShiftBuffer,
                 nvrhi::ResourceStates::UnorderedAccess);
+        if (disocclusionBoost)
+        {
+            const uint32_t boostArgs[3] = { 0u, 1u, 1u };
+            const uint32_t boostMeta[2] = {
+                0u, m_temporalReplayCapacity };
+            inputs.commandList->writeBuffer(
+                m_temporalReplayDispatchArgs,
+                boostArgs, sizeof(boostArgs));
+            inputs.commandList->writeBuffer(
+                m_temporalReplayMeta,
+                boostMeta, sizeof(boostMeta));
+            inputs.commandList->setBufferState(
+                m_temporalReplayQueue,
+                nvrhi::ResourceStates::UnorderedAccess);
+            inputs.commandList->setBufferState(
+                m_temporalReplayMeta,
+                nvrhi::ResourceStates::UnorderedAccess);
+            inputs.commandList->setBufferState(
+                m_temporalReplayDispatchArgs,
+                nvrhi::ResourceStates::UnorderedAccess);
+        }
         inputs.commandList->commitBarriers();
 
         const nvrhi::TimerQueryHandle spatialGpuTimer =
@@ -7327,9 +7633,71 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
             (inputs.width + 7u) / 8u,
             (inputs.height + 7u) / 8u,
             1u);
+        if (disocclusionBoost)
+        {
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, HistoryPage());
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_temporalReplayQueue);
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_temporalReplayMeta);
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_temporalReplayDispatchArgs);
+            inputs.commandList->setBufferState(
+                m_temporalReplayQueue,
+                nvrhi::ResourceStates::ShaderResource);
+            inputs.commandList->setBufferState(
+                m_temporalReplayMeta,
+                nvrhi::ResourceStates::ShaderResource);
+            inputs.commandList->setBufferState(
+                m_temporalReplayDispatchArgs,
+                nvrhi::ResourceStates::IndirectArgument);
+            inputs.commandList->commitBarriers();
+
+            Upt04MarkerScope boostMarker(
+                inputs.commandList,
+                "UPT.S0b Spatial Compact Disocclusion Boost",
+                inputs.nsightMarkers);
+            nvrhi::ComputeState boostState;
+            boostState.pipeline = m_spatialBoostPipeline;
+            boostState.bindings = {
+                m_spatialBoostBindingSets[m_currentPageIndex],
+                inputs.sceneInputs->materials.textureDescriptorTable };
+            boostState.indirectParams = m_temporalReplayDispatchArgs;
+            inputs.commandList->setComputeState(boostState);
+            inputs.commandList->setPushConstants(&control, sizeof(control));
+            inputs.commandList->dispatchIndirect(0u);
+        }
         if (spatialGpuTimer)
             inputs.commandList->endTimerQuery(spatialGpuTimer);
         nvrhi::utils::BufferUavBarrier(inputs.commandList, HistoryPage());
+        if (disocclusionBoost
+            && r_pathTracingUnifiedPtSpatialDisocclusionBoostDiagnostics.GetBool()
+            && !m_spatialBoostReadbackPending
+            && !m_spatialBoostDiagnosticCaptured)
+        {
+            inputs.commandList->setBufferState(
+                m_temporalReplayDispatchArgs,
+                nvrhi::ResourceStates::CopySource);
+            inputs.commandList->setBufferState(
+                m_temporalReplayMeta,
+                nvrhi::ResourceStates::CopySource);
+            inputs.commandList->setBufferState(
+                m_spatialBoostReadback,
+                nvrhi::ResourceStates::CopyDest);
+            inputs.commandList->commitBarriers();
+            inputs.commandList->copyBuffer(
+                m_spatialBoostReadback, 0u,
+                m_temporalReplayDispatchArgs, 0u,
+                3u * sizeof(uint32_t));
+            inputs.commandList->copyBuffer(
+                m_spatialBoostReadback, 3u * sizeof(uint32_t),
+                m_temporalReplayMeta, 0u,
+                2u * sizeof(uint32_t));
+            m_spatialBoostReadbackPending = true;
+            m_spatialBoostDiagnosticCaptured = true;
+            m_spatialBoostReadbackDelayFrames = 2;
+        }
     }
     HistoryPageMetadata() = currentMetadata;
     HistoryPageMetadata().fullyWritten = true;

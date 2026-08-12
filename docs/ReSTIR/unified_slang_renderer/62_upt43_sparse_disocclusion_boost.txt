@@ -1,0 +1,182 @@
+UPT-43.8: sparse short-history x2 disocclusion boost
+====================================================
+
+Status
+------
+
+Vulkan implementation, focused static verification, full release build and
+deployment are complete. Runtime visual/timing acceptance is pending.
+
+Reference contract
+------------------
+
+RTXDI PT normally uses one spatial sample. It raises that count to eight only
+when both of these conditions hold:
+
+    reservoir.RcVertexLength == 2
+    currentSample.M < maxTemporalHistory
+
+The default maxTemporalHistory is 8. The reference explicitly excludes
+RcVertexLength greater than two because random-replay boost is expensive.
+With duplication-based history reduction enabled, RTXDI persists an equivalent
+ShouldBoostSpatialSamples bit from temporal into the reservoir. UPT does not
+need an age proxy: its packed reservoir already carries exact reconnection
+length and effective M.
+
+Why UPT-34 is not the implementation
+-------------------------------------
+
+UPT-34 applied canonical-plus-three-neighbor simultaneous GRIS to every pixel.
+It was visually correct but cost roughly 40 percent FPS. Turning that shader
+back on and naming it a disocclusion boost would violate the reference trigger
+and the accepted work ceiling.
+
+S43.8 keeps the accepted one-neighbor UPT-33 pass for ordinary pixels. Only
+short-history x2 pixels enter additional work.
+
+Execution topology
+------------------
+
+S0a remains the accepted coalesced 8x8 UPT-33 workgroup-pair pass and fully
+writes the output page. Its S43.8 specialization additionally appends a pixel
+index when the temporal input reservoir is selected, non-rescue,
+reconnectionVertexLength two, and effective M is below the configured history
+threshold.
+
+S0b is a 64x1 compute-indirect compact pass. It reads the temporal input page,
+performs one simultaneous canonical-plus-N-neighbor GRIS estimator for each
+queued pixel, and overwrites only that pixel in the already complete spatial
+output page. Donors are always read from the immutable temporal input page, so
+queued writes cannot feed later queued reads.
+
+The S43.4 temporal replay queue, metadata and indirect-argument buffers are
+reused after temporal has finished. Spatial resets only their existing three
+dispatch words and two metadata words. Queue contents are bounded by the new
+count and are never cleared. There is no third reservoir page and no new
+full-resolution allocation.
+
+Estimator boundary
+------------------
+
+The compact pass uses the already audited UPT-34 simultaneous-GRIS shape:
+
+    one canonical proposal;
+    N original neighbor techniques streamed together, never serially;
+    pairwise source/target MIS for each physical neighbor;
+    duplicate selected-path exclusion;
+    current-universe shared direct/global shift mapping;
+    winner-only visibility;
+    target-scaled UCW output convention unchanged.
+
+Invalid, incompatible, rescued/non-donating, duplicate, zero-target or
+invisible samples are rejected. Missing neighbor techniques contribute the
+canonical pair weight and cannot increase reservoir density by admitting an
+invalid sample.
+
+Runtime controls and gates
+--------------------------
+
+    r_pathTracingUnifiedPtSpatialDisocclusionBoost 0|1
+    r_pathTracingUnifiedPtSpatialDisocclusionBoostSamples 1..8
+    r_pathTracingUnifiedPtSpatialDisocclusionBoostDiagnostics 0|1
+
+The gate is default off and requires the accepted unified compact-light,
+duplication, common-GRIS temporal, S43.4 replay-compaction, UPT-33 shared
+spatial/stored-target/workgroup-pair/empty-rescue configuration. It rejects
+UPT-34 multi-neighbor, UPT-42 Gaussian pairing, S43.5 shift prepass, temporal
+permutation and optional three-vertex modes.
+
+The sample default is 8 to reproduce RTXDI PT's published default, with a hard
+ceiling of 8. The temporal-history threshold is exactly 8 for this first A/B.
+
+Diagnostics and acceptance
+--------------------------
+
+Optional delayed readback reports:
+
+    published, bounded and capacity;
+    actual and expected 64x1 groups;
+    overflow and PASS/FAIL;
+    queued fraction of the screen.
+
+Static verification must prove the exact `rcLength == 2 && M < 8` classifier,
+64x1 compact entry, maximum eight neighbors, duplicate exclusion, winner-only
+visibility, immutable input/output separation, 20-byte reset, and no TraceRay.
+
+Runtime acceptance requires:
+
+1. requested/effective is 1/1 under the accepted baseline;
+2. stationary mature views queue few or zero pixels rather than all pixels;
+3. motion/disocclusion queues remain bounded and report exact group counts;
+4. no ghost, duplicate, white/color-corrupted or recursively donating sample;
+5. no material regression in the ordinary approximately 1.07 ms S0 baseline;
+6. incremental cost scales with queued pixels and selected sample count;
+7. two- and four-sample A/Bs are allowed if the reference eight-sample default
+   is too expensive, but no setting is promoted without visual benefit;
+8. no DX12 shader is built or deployed.
+
+Build and deployment, 2026-08-13
+--------------------------------
+
+The S43.8 classifier and compact consumer compile as distinct Vulkan compute
+artifacts. Static verification proves the 8x8 classifier and 64x1 compact
+entry points, exact x2/M<8 trigger, canonical-sample duplicate exclusion,
+winner-only visibility, bounded reused queue and 5/4 static RayQuery-site
+ceilings. Neither artifact contains TraceRay or native 16-bit instructions.
+
+The focused UPT-09 target and `cmake --build --preset
+win64-pt-dev-release` both pass. The executable and exactly eight changed
+UPT-09 Vulkan blobs were deployed. No DX12 shader was compiled or deployed.
+
+Runtime A/B
+-----------
+
+Start from the accepted baseline and make the required exclusions explicit:
+
+    exec uptf2.cfg
+    r_pathTracingUnifiedPtSplitInitial 1
+    r_pathTracingUnifiedPtCompactLights 1
+    r_pathTracingUnifiedPtCompactGeometry 0
+    r_pathTracingUnifiedPtTemporalReplayCompaction 1
+    r_pathTracingUnifiedPtTemporalPermutationSampling 0
+    r_pathTracingUnifiedPtSpatialReuseTexture 0
+    r_pathTracingUnifiedPtSpatialShiftPrepass 0
+    r_pathTracingUnifiedPtSpatialMultiNeighbor 0
+    r_pathTracingUnifiedPtThreeVertexInitial 0
+
+Measure the accepted base first:
+
+    r_pathTracingUnifiedPtSpatialDisocclusionBoost 0
+    r_pathTracingUnifiedPtSpatialGpuTiming 0
+    r_pathTracingUnifiedPtSpatialGpuTiming 1
+
+Then enable the sparse reference setting:
+
+    r_pathTracingUnifiedPtSpatialGpuTiming 0
+    r_pathTracingUnifiedPtSpatialDisocclusionBoostSamples 8
+    r_pathTracingUnifiedPtSpatialDisocclusionBoostDiagnostics 1
+    r_pathTracingUnifiedPtSpatialDisocclusionBoost 1
+    r_pathTracingUnifiedPtSpatialGpuTiming 1
+
+The console must report requested/effective=1/1 and one delayed queue line
+with status=PASS. The spatial timing line must include
+disocclusionBoost=1. If eight samples are too expensive, repeat at 4 and 2;
+do not alter the M threshold or widen the eligible path class.
+
+Runtime result and disposition, 2026-08-13
+------------------------------------------
+
+At 2560x1440 the accepted UPT-33 baseline measured 1.063 ms. The exact
+eight-sample reference boost measured 3.735 ms, an incremental 2.672 ms or
+251.4 percent over the base spatial pass. The classifier published 199470 of
+3686400 pixels (5.41 percent), produced exactly 3117 expected 64x1 groups,
+overflowed zero entries and reported PASS. This proves that the intended
+sparse trigger and bounded dispatch were active; the cost is not accidental
+full-screen execution.
+
+Visual testing found no observable reduction in the reported temporal
+ghosting. S43.8 is therefore rejected for production promotion: it remains
+default-off as a bounded reference/diagnostic implementation. Do not spend
+more time tuning its sample count as a ghosting fix. The remaining artifact
+must be sought in temporal history validation, shift/replay acceptance or the
+final temporal consumer rather than spatial disocclusion sample density.

@@ -197,6 +197,10 @@ private:
     bool EnsureSpatialReuseTextureResources(
         const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureSpatialBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureSpatialBoostBindingSet(
+        const PathTraceUnifiedPtDispatchInputs& inputs);
+    void DrainSpatialBoostReadback(
+        const PathTraceUnifiedPtDispatchInputs& inputs);
     void UpdateSpatialGpuTiming(const PathTraceUnifiedPtDispatchInputs& inputs);
     void PollSpatialGpuTiming(const PathTraceUnifiedPtDispatchInputs& inputs);
     nvrhi::TimerQueryHandle BeginSpatialGpuTiming(
@@ -444,6 +448,7 @@ private:
     bool m_spatialWorkgroupPairing = false;
     bool m_spatialEmptyRescue = false;
     bool m_spatialMultiNeighbor = false;
+    bool m_spatialDisocclusionBoost = false;
     bool m_spatialReuseTexturePairing = false;
     bool m_spatialShiftPrepass = false;
     bool m_spatialThreeVertexReplay = false;
@@ -460,6 +465,16 @@ private:
     nvrhi::ComputePipelineHandle m_spatialPipeline;
     nvrhi::ShaderHandle m_spatialShiftShader;
     nvrhi::ComputePipelineHandle m_spatialShiftPipeline;
+    nvrhi::BindingLayoutHandle m_spatialBoostBindingLayout;
+    std::array<nvrhi::BindingSetHandle, 2> m_spatialBoostBindingSets;
+    std::array<nvrhi::BindingSetDesc, 2> m_spatialBoostBindingSetDescs;
+    std::array<bool, 2> m_spatialBoostBindingSetDescValid = { false, false };
+    nvrhi::ShaderHandle m_spatialBoostShader;
+    nvrhi::ComputePipelineHandle m_spatialBoostPipeline;
+    nvrhi::BufferHandle m_spatialBoostReadback;
+    bool m_spatialBoostReadbackPending = false;
+    bool m_spatialBoostDiagnosticCaptured = false;
+    int m_spatialBoostReadbackDelayFrames = 0;
 
     static constexpr uint32_t SPATIAL_GPU_TIMER_SLOT_COUNT = 8u;
     static constexpr uint32_t SPATIAL_GPU_TIMING_WARMUP_FRAMES = 16u;

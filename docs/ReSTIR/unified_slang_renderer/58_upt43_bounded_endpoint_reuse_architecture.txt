@@ -802,3 +802,53 @@ source/deployed hash matches. Runtime timing at 2560x1440 regressed from a
 a default-off diagnostic and is not promoted into production configurations.
 The exact contract and A/B are in
 `61_upt43_temporal_permutation_sampling.txt`.
+
+S43.8 sparse disocclusion-boost plan, 2026-08-13
+-------------------------------------------------
+
+The remaining RTXDI PT enhanced layer is now bounded by the exact reference
+trigger: reconnection vertex length two and effective M below eight. It is not
+an age-zero heuristic and it does not admit longer random-replay paths.
+
+The accepted UPT-33 pass remains the full-screen one-neighbor base. Its S43.8
+specialization appends only triggered pixels, then a 64x1 indirect compact pass
+replaces those outputs with one simultaneous canonical-plus-N-neighbor GRIS
+estimate. It reuses S43.4's queue/meta/indirect buffers after T0, resets only
+20 bytes and adds no full-resolution allocation or clear. Donors remain in the
+immutable temporal input page while the compact pass overwrites the completed
+spatial output page.
+
+The rejected UPT-34 full-screen multi-neighbor artifact remains rejected. The
+default-off S43.8 gate requires S43.4 and UPT-33, rejects Gaussian, permutation
+and three-vertex variants, caps the boost at eight reference samples, and owns
+explicit queue/group/overflow diagnostics. The full contract is document 62.
+
+S43.8 implementation ready for runtime A/B, 2026-08-13
+-------------------------------------------------------
+
+The sparse lane is implemented, Vulkan-built and deployed. The accepted
+UPT-33 8x8 pass publishes only exact non-rescue x2 reservoirs with effective M
+below eight. A 64x1 compute-indirect consumer performs up to eight
+simultaneous-GRIS neighbor techniques only for that queue and leaves the
+already complete UPT-33 output untouched on every failure.
+
+The compact lane excludes a donor whose replay identity equals the canonical
+center as well as duplicates among donors. It reads donors from the immutable
+temporal page, performs winner-only visibility, and writes only finite valid
+results. Static verification passes with bounded 5/4 classifier/compact
+RayQuery-site ceilings, no TraceRay and no native16. Full runtime visual,
+queue-density and incremental timing evidence remains required; use the exact
+commands in document 62.
+
+S43.8 runtime rejection, 2026-08-13
+-----------------------------------
+
+The sparse mechanism engaged correctly: 199470/3686400 pixels (5.41 percent),
+3117/3117 indirect groups, zero overflow and PASS. At 2560x1440 the spatial
+median rose from 1.063 ms to 3.735 ms, +2.672 ms / +251.4 percent over UPT-33.
+Despite that extra work, visual testing showed no observable improvement to
+the temporal ghosting under investigation. Keep S43.8 default-off as a
+verified diagnostic and do not promote or tune it as the ghosting remedy.
+This result narrows the next audit to temporal history validity, mapping/replay
+acceptance and consumption rather than insufficient spatial disocclusion
+neighbors.

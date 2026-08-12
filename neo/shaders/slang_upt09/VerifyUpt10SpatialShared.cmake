@@ -182,7 +182,7 @@ endforeach()
 if(NOT host_source MATCHES
         "upt09_spatial_shared_workgroup_multi3_rescue_stored_target_light64.bin" OR
    NOT host_source MATCHES
-        "multiNeighbor=.u neighbors=.u")
+        "multiNeighbor=.u[^\n]*neighbors=.u")
     message(FATAL_ERROR
         "UPT-34 host specialization or runtime diagnostic is missing")
 endif()

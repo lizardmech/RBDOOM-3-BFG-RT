@@ -47,6 +47,12 @@ import upt09_spatial_direct_bindings;
 #ifndef UPT43_SPATIAL_RESAMPLE
 #define UPT43_SPATIAL_RESAMPLE 0
 #endif
+#ifndef UPT438_SPATIAL_BOOST_CLASSIFY
+#define UPT438_SPATIAL_BOOST_CLASSIFY 0
+#endif
+#ifndef UPT438_SPATIAL_BOOST_COMPACT
+#define UPT438_SPATIAL_BOOST_COMPACT 0
+#endif
 #if UPT10_SHARED_SPATIAL
 import upt07_work_budget;
 import upt07_temporal_indirect;
@@ -421,6 +427,39 @@ public Upt03PackedReservoir Upt09PackSpatialResult(
         packed.word0 |= kUpt03PackedNeedsRescueBit;
     return packed;
 }
+
+#if UPT438_SPATIAL_BOOST_CLASSIFY || UPT438_SPATIAL_BOOST_COMPACT
+public bool Upt438ShortHistoryX2Eligible(Upt07DecodedReservoir decoded)
+{
+    return decoded.valid != 0u
+        && decoded.logical.hasSelectedSample != 0u
+        && (decoded.logical.selected.replayKey
+            & kUpt03ReplayKeyRescueBit) == 0u
+        && decoded.logical.selected.reconnectionVertexLength == 2u
+        && decoded.logical.effectiveM > 0u
+        && decoded.logical.effectiveM < gUpt09Control.rescueNeighborCount;
+}
+#endif
+
+#if UPT438_SPATIAL_BOOST_CLASSIFY
+public void Upt438AppendBoostPixel(uint index)
+{
+    const Upt07DecodedReservoir center = Upt07DecodeReservoir(
+        gUpt09InputReservoirs[index]);
+    if (!Upt438ShortHistoryX2Eligible(center))
+        return;
+    uint slot;
+    InterlockedAdd(gUpt438BoostMeta[0], 1u, slot);
+    const uint capacity = gUpt438BoostMeta[1];
+    if (slot >= capacity)
+        return;
+    gUpt438BoostQueue[slot] = index;
+    const uint requiredGroups = (slot + 64u) / 64u;
+    uint ignored;
+    InterlockedMax(
+        gUpt438BoostDispatchArgs[0], requiredGroups, ignored);
+}
+#endif
 
 #if UPT10_SHARED_SPATIAL
 public bool Upt09SharedReservoirEligible(Upt07DecodedReservoir decoded)
@@ -1565,6 +1604,11 @@ public void Upt32ExecuteWorkgroupReciprocalPair(
             && index < gUpt09Control.surfaceCount
         ? 1u : 0u;
 
+#if UPT438_SPATIAL_BOOST_CLASSIFY
+    if (laneValid != 0u)
+        Upt438AppendBoostPixel(index);
+#endif
+
     const uint pairMask = Upt32PairMask(groupId.xy);
     const uint partnerLaneIndex = laneIndex ^ pairMask;
     const uint2 partnerLocal = uint2(
@@ -1681,6 +1725,270 @@ public void Upt32ExecuteWorkgroupReciprocalPair(
         gUpt32IndirectVisibility[partnerLaneIndex],
         work);
 }
+
+#if UPT438_SPATIAL_BOOST_COMPACT
+public float Upt438NeighborPairwiseMis(
+    Upt10ShiftResult neighborToCenter,
+    uint neighborM,
+    uint centerM,
+    uint techniqueCount)
+{
+    const float neighborTerm = Upt04FinitePositive(
+            neighborToCenter.sourceTarget)
+        ? float(neighborM) * neighborToCenter.sourceTarget : 0.0f;
+    const float centerCrossTerm = Upt04FinitePositive(
+            neighborToCenter.targetTarget)
+        ? float(centerM) * neighborToCenter.targetTarget : 0.0f;
+    const float denominator = float(techniqueCount) * neighborTerm
+        + centerCrossTerm;
+    return neighborTerm > 0.0f && Upt04FinitePositive(denominator)
+        ? neighborTerm / denominator : 0.0f;
+}
+
+public float Upt438CanonicalPairwiseTerm(
+    Upt10ShiftResult centerToNeighbor,
+    uint centerM,
+    uint neighborM,
+    uint techniqueCount)
+{
+    const float centerTerm = Upt04FinitePositive(
+            centerToNeighbor.sourceTarget)
+        ? float(centerM) * centerToNeighbor.sourceTarget : 0.0f;
+    const float neighborCrossTerm = Upt04FinitePositive(
+            centerToNeighbor.targetTarget)
+        ? float(neighborM) * centerToNeighbor.targetTarget : 0.0f;
+    const float denominator = centerTerm
+        + float(techniqueCount) * neighborCrossTerm;
+    return centerTerm > 0.0f && Upt04FinitePositive(denominator)
+        ? centerTerm / denominator : 1.0f;
+}
+
+public void Upt438ExecuteCompactBoost(uint index)
+{
+    if (index >= gUpt09Control.surfaceCount)
+        return;
+    const uint2 dimensions = uint2(
+        gUpt09Control.renderWidth, gUpt09Control.renderHeight);
+    const uint2 pixel = uint2(index % dimensions.x, index / dimensions.x);
+    const Upt04PrimarySurfaceRecord receiver = Upt09LoadSurface(index);
+    const Upt07DecodedReservoir center = Upt07DecodeReservoir(
+        gUpt09InputReservoirs[index]);
+    if (!Upt04PrimarySurfaceRecordValid(receiver)
+        || !Upt438ShortHistoryX2Eligible(center)
+        || !Upt09SharedReservoirEligible(center))
+        return;
+
+    const uint centerM = min(
+        center.logical.effectiveM, gUpt09Control.maximumInputM);
+    const float canonicalTarget = center.logical.selected.target;
+    const uint techniqueCount = clamp(
+        gUpt09Control.regularNeighborCount, 1u, 8u);
+    if (centerM == 0u || !Upt04FinitePositive(canonicalTarget))
+        return;
+
+    float totalMass = 0.0f;
+    uint outputConfidence = 0u;
+    float canonicalMisSum = 0.0f;
+    uint pairCount = 0u;
+    uint acceptedSampleIds[8];
+    uint acceptedSampleCount = 0u;
+    int2 sampledPixels[8];
+    uint sampledPixelCount = 0u;
+    Upt03Candidate selected = (Upt03Candidate)0;
+    uint selectedFromNeighbor = 0u;
+    const uint centerSampleId = center.logical.selected.replayKey
+        & ~kUpt03ReplayKeyRescueBit;
+    Upt04TraceRequest selectedDirectVisibility =
+        (Upt04TraceRequest)0;
+    Upt04VisibilityIgnore selectedDirectVisibilityIgnore =
+        Upt04NoVisibilityIgnore();
+    Upt07PendingIndirectVisibility selectedIndirectVisibility =
+        (Upt07PendingIndirectVisibility)0;
+    selectedIndirectVisibility.ignore = Upt04NoVisibilityIgnore();
+
+    [loop]
+    for (uint ordinal = 0u; ordinal < techniqueCount; ++ordinal)
+    {
+        const int2 neighborPixel = Upt09NeighborPixel(
+            pixel, ordinal, dimensions);
+        if (all(neighborPixel == int2(pixel)))
+            continue;
+        bool duplicatePixel = false;
+        [loop]
+        for (uint sampledIndex = 0u;
+             sampledIndex < sampledPixelCount;
+             ++sampledIndex)
+        {
+            duplicatePixel = duplicatePixel
+                || all(sampledPixels[sampledIndex] == neighborPixel);
+        }
+        if (duplicatePixel)
+            continue;
+        sampledPixels[sampledPixelCount++] = neighborPixel;
+
+        const uint neighborIndex = uint(neighborPixel.y) * dimensions.x
+            + uint(neighborPixel.x);
+        const Upt04PrimarySurfaceRecord neighborReceiver =
+            Upt09LoadSurface(neighborIndex);
+        if (!Upt09SpatialSurfacesCompatible(receiver, neighborReceiver)
+            || !Upt09SpatialSurfacesCompatible(neighborReceiver, receiver))
+            continue;
+        const Upt07DecodedReservoir neighbor = Upt07DecodeReservoir(
+            gUpt09InputReservoirs[neighborIndex]);
+        if (!Upt09SharedReservoirEligible(neighbor))
+            continue;
+        const uint neighborM = min(
+            neighbor.logical.effectiveM, gUpt09Control.maximumInputM);
+        if (neighborM == 0u)
+            continue;
+
+        const uint neighborSampleId = neighbor.logical.selected.replayKey
+            & ~kUpt03ReplayKeyRescueBit;
+        if (neighborSampleId != 0u
+            && neighborSampleId == centerSampleId)
+            continue;
+        bool duplicateSample = false;
+        [loop]
+        for (uint acceptedIndex = 0u;
+             acceptedIndex < acceptedSampleCount;
+             ++acceptedIndex)
+        {
+            duplicateSample = duplicateSample
+                || (neighborSampleId != 0u
+                    && acceptedSampleIds[acceptedIndex]
+                        == neighborSampleId);
+        }
+        if (duplicateSample)
+            continue;
+
+        Upt07WorkCounters work = (Upt07WorkCounters)0;
+        Upt07WorkInitialize(work);
+        Upt10ShiftResult neighborToCenter;
+        Upt04TraceRequest neighborDirectVisibility;
+        Upt04VisibilityIgnore neighborDirectVisibilityIgnore;
+        Upt07PendingIndirectVisibility neighborIndirectVisibility;
+        if (Upt09ShiftSharedSample<UPT09_SELECTED_PRIMARY_MATERIAL_SET>(
+                neighbor.logical.selected,
+                neighborReceiver,
+                receiver,
+                neighborToCenter,
+                neighborDirectVisibility,
+                neighborDirectVisibilityIgnore,
+                neighborIndirectVisibility,
+                work) == 0u)
+            continue;
+
+        Upt10ShiftResult centerToNeighbor;
+        Upt04TraceRequest ignoredDirectVisibility;
+        Upt04VisibilityIgnore ignoredDirectVisibilityIgnore;
+        Upt07PendingIndirectVisibility ignoredIndirectVisibility;
+        if (Upt09ShiftSharedSample<UPT09_SELECTED_PRIMARY_MATERIAL_SET>(
+                center.logical.selected,
+                receiver,
+                neighborReceiver,
+                centerToNeighbor,
+                ignoredDirectVisibility,
+                ignoredDirectVisibilityIgnore,
+                ignoredIndirectVisibility,
+                work) == 0u)
+            continue;
+
+        Upt10MappedProposalInput proposal =
+            (Upt10MappedProposalInput)0;
+        proposal.status = neighborToCenter.mappingStatus;
+        proposal.routeLabel = neighborToCenter.routeLabel;
+        proposal.sourceConfidence = neighborM;
+        proposal.sourceScaledWeight = neighbor.logical.weightSum;
+        proposal.sourceTarget = neighborToCenter.sourceTarget;
+        proposal.targetTarget = neighborToCenter.targetTarget;
+        proposal.shiftJacobian = neighborToCenter.shiftJacobian;
+        proposal.pairwiseMis = Upt438NeighborPairwiseMis(
+            neighborToCenter, neighborM, centerM, techniqueCount);
+        const Upt10MappedProposal mapped = Upt10MapProposal(proposal);
+        if (mapped.valid == 0u || !Upt04FinitePositive(mapped.mass))
+            continue;
+
+        canonicalMisSum += Upt438CanonicalPairwiseTerm(
+            centerToNeighbor, centerM, neighborM, techniqueCount);
+        ++pairCount;
+        outputConfidence = Upt10SaturatingAdd(
+            outputConfidence, mapped.confidence);
+        if (neighborSampleId != 0u)
+            acceptedSampleIds[acceptedSampleCount++] = neighborSampleId;
+        const float newMass = totalMass + mapped.mass;
+        if (!Upt04FinitePositive(newMass))
+            continue;
+        if (selected.status != kUpt04SampleValidPositive
+            || Upt09Random(pixel, ordinal, 0x438d15c1u) * newMass
+                < mapped.mass)
+        {
+            selected = neighborToCenter.shifted;
+            selectedFromNeighbor = 1u;
+            selectedDirectVisibility = neighborDirectVisibility;
+            selectedDirectVisibilityIgnore =
+                neighborDirectVisibilityIgnore;
+            selectedIndirectVisibility = neighborIndirectVisibility;
+        }
+        totalMass = newMass;
+    }
+
+    const uint missingPairCount = techniqueCount - pairCount;
+    const float canonicalMis =
+        (canonicalMisSum + float(missingPairCount))
+        / float(techniqueCount);
+    Upt10MappedProposalInput canonicalProposal =
+        (Upt10MappedProposalInput)0;
+    canonicalProposal.status = kUpt10ShiftValidPositive;
+    canonicalProposal.sourceConfidence = centerM;
+    canonicalProposal.sourceScaledWeight = center.logical.weightSum;
+    canonicalProposal.sourceTarget = canonicalTarget;
+    canonicalProposal.targetTarget = canonicalTarget;
+    canonicalProposal.shiftJacobian = 1.0f;
+    canonicalProposal.pairwiseMis = canonicalMis;
+    const Upt10MappedProposal canonicalMapped =
+        Upt10MapProposal(canonicalProposal);
+    if (canonicalMapped.valid == 0u)
+        return;
+    outputConfidence = Upt10SaturatingAdd(
+        outputConfidence, canonicalMapped.confidence);
+    const float finalMass = totalMass + canonicalMapped.mass;
+    if (!Upt04FinitePositive(finalMass))
+        return;
+    if (selected.status != kUpt04SampleValidPositive
+        || Upt09Random(pixel, techniqueCount, 0x438d15c1u) * finalMass
+            < canonicalMapped.mass)
+    {
+        selected = center.logical.selected;
+        selected.target = canonicalTarget;
+        selectedFromNeighbor = 0u;
+    }
+
+    Upt07WorkCounters visibilityWork = (Upt07WorkCounters)0;
+    Upt07WorkInitialize(visibilityWork);
+    if (selectedFromNeighbor != 0u
+        && !Upt09SharedWinnerVisibilityPassed(
+            selected,
+            selectedDirectVisibility,
+            selectedDirectVisibilityIgnore,
+            selectedIndirectVisibility,
+            visibilityWork))
+        return;
+
+    Upt03LogicalReservoir output = center.logical;
+    output.hasSelectedSample = 1u;
+    output.effectiveM = outputConfidence;
+    output.weightSum = finalMass;
+    output.selected = selected;
+    if (selectedFromNeighbor != 0u)
+    {
+        const uint visibilityProof = kUpt04CandidateFlagVisibilityKnown
+            | kUpt04CandidateFlagVisibilityPassed;
+        output.selected.flags =
+            (output.selected.flags & ~visibilityProof) | visibilityProof;
+    }
+    gUpt09OutputReservoirs[index] = Upt03PackReservoir(output);
+}
+#endif
 
 #if UPT34_MULTI_NEIGHBOR_SPATIAL
 public uint Upt34PairMask(uint2 groupPixel, uint ordinal)
@@ -2131,12 +2439,25 @@ public void Upt34ExecuteWorkgroupMultiNeighbor(
 #endif
 #endif
 
+#if UPT438_SPATIAL_BOOST_COMPACT
+[numthreads(64, 1, 1)]
+#else
 [numthreads(8, 8, 1)]
+#endif
 void main(
     uint3 dispatchThreadId : SV_DispatchThreadID,
     uint3 groupThreadId : SV_GroupThreadID,
     uint3 groupId : SV_GroupID)
 {
+#if UPT438_SPATIAL_BOOST_COMPACT
+    const uint boundedCount = min(
+        gUpt438BoostMeta[0], gUpt438BoostMeta[1]);
+    if (dispatchThreadId.x >= boundedCount)
+        return;
+    Upt438ExecuteCompactBoost(
+        gUpt438BoostQueue[dispatchThreadId.x]);
+    return;
+#else
 #if UPT43_SPATIAL_SHIFT_PREPASS || UPT43_SPATIAL_RESAMPLE
     const uint2 pixel = dispatchThreadId.xy;
     if (pixel.x >= gUpt09Control.renderWidth
@@ -2527,6 +2848,7 @@ void main(
     result.weightSum = finalizedMeanWeight;
     result.selected = selected;
     gUpt09OutputReservoirs[index] = Upt09PackSpatialResult(result, 0u);
+#endif
 #endif
 #endif
 #endif

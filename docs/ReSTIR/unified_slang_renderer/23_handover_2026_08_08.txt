@@ -2540,3 +2540,47 @@ permutation 0 measured 3.570 ms median and permutation 1 measured 3.794 ms:
 diagnostic was present. Retain default 0 and do not add the toggle to production
 configs. The implementation remains available only as a bounded diagnostic A/B
 specified in `61_upt43_temporal_permutation_sampling.txt`.
+
+UPT-43.8 sparse disocclusion boost plan, 2026-08-13
+----------------------------------------------------
+
+The next implementation is not a revival of rejected UPT-34. RTXDI PT boosts
+spatial samples only for rcLength-two reservoirs whose effective M is below
+eight, and explicitly avoids longer replay paths. UPT can test that exact
+condition from its packed reservoir without using age as a proxy.
+
+S43.8 keeps UPT-33 as the ordinary full-screen pass, appends only triggered
+pixels, and runs a bounded 64x1 simultaneous-GRIS compact side lane over them.
+It reuses the accepted S43.4 queue/meta/indirect buffers after temporal, resets
+20 bytes, reads donors from the immutable temporal page and overwrites only
+queued pixels in the completed spatial output page. No new full-screen buffer
+or clear is permitted. Full controls, gates, estimator rules and acceptance
+criteria are in `62_upt43_sparse_disocclusion_boost.txt`.
+
+UPT-43.8 ready for runtime A/B, 2026-08-13
+-------------------------------------------
+
+The default-off sparse disocclusion lane is implemented and deployed. It
+classifies only non-rescue x2 samples with effective M below eight during the
+accepted UPT-33 pass, then uses a 64x1 indirect compact dispatch over the
+reused S43.4 queue. Ordinary pixels retain UPT-33 output and queued failures
+are fail-closed without overwriting it.
+
+The focused verifier and full `win64-pt-dev-release` build pass. Static proof
+includes exact classification, canonical and donor duplicate exclusion,
+winner-only visibility, immutable input/output separation, bounded queue
+dispatch, 5/4 RayQuery-site ceilings and no TraceRay/native16. The executable
+and exactly eight changed UPT-09 Vulkan blobs were deployed; no DX12 shader
+was built. Runtime acceptance commands and diagnostics are in document 62.
+
+UPT-43.8 runtime rejection, 2026-08-13
+--------------------------------------
+
+The implementation behaved exactly as bounded: it queued 199470/3686400
+pixels (5.41 percent), dispatched 3117/3117 groups, overflowed zero entries
+and reported PASS. Spatial time at 2560x1440 increased from 1.063 ms to 3.735
+ms (+2.672 ms), while visual testing found no observable effect on temporal
+ghosting. Retain the code only as a default-off reference diagnostic. The
+ghosting investigation should next target temporal history validation,
+shift/replay acceptance and the final temporal consumer, not additional
+spatial sample density.

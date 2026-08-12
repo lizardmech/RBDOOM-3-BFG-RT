@@ -11,15 +11,17 @@ file(READ "${UPT09_COMPACT_REFLECTION}" compact_reflection)
 file(READ "${UPT09_COMPACT_DISASSEMBLY}" compact_disassembly)
 
 foreach(kind full compact)
-    foreach(binding 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 27 28 32)
+    # Slang strips generic replay declarations 7..21 because the baseline
+    # direct-only shader resolves through the live endpoint bindings 6/32.
+    foreach(binding 0 1 2 3 4 5 6 27 28 32)
         if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*${binding}")
             message(FATAL_ERROR "UPT-09 ${kind} direct spatial lacks set 0 binding ${binding}")
         endif()
     endforeach()
     string(REGEX MATCHALL "\"binding\"[ \t]*:" bindings "${${kind}_reflection}")
     list(LENGTH bindings binding_count)
-    if(NOT binding_count EQUAL 26)
-        message(FATAL_ERROR "UPT-09 ${kind} direct spatial must expose exactly twenty-six replay bindings including the endpoint sidecar")
+    if(NOT binding_count EQUAL 11)
+        message(FATAL_ERROR "UPT-09 ${kind} direct spatial must expose exactly eleven live bindings including the bindless emitter set")
     endif()
     if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*1,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*0")
         message(FATAL_ERROR "UPT-09 ${kind} direct spatial lacks the bindless emitter texture set")
@@ -48,10 +50,10 @@ foreach(kind full compact)
     endif()
 endforeach()
 
-if(NOT full_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt09CurrentLights\"" OR
-   NOT compact_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"gUpt09CurrentLights\"")
-    message(FATAL_ERROR "UPT-09 direct spatial lacks its selected full/compact light stream")
+if(NOT full_reflection MATCHES "\"binding\"[ \t]*:[ \t]*4" OR
+   NOT compact_reflection MATCHES "\"binding\"[ \t]*:[ \t]*4")
+    message(FATAL_ERROR "UPT-09 direct spatial lacks its selected full/compact light binding")
 endif()
 
 file(WRITE "${UPT09_STAMP}"
-    "UPT-09 direct spatial verified: twenty-five bindings, compact 32-byte current receiver plus cold history sidecar, separate input/output 64-byte pages, exact emissive geometry and texture replay, bounded empty-center rescue, one RayQuery site, no native16\n")
+    "UPT-09 direct spatial verified: eleven live bindings, compact 32-byte current receiver plus cold history sidecar, separate input/output 64-byte pages, exact emissive endpoint and texture replay, bounded empty-center rescue, one RayQuery site, no native16\n")

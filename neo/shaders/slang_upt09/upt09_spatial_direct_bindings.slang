@@ -16,6 +16,12 @@ import upt04_primary_history_sidecar;
 #ifndef UPT43_SPATIAL_RESAMPLE
 #define UPT43_SPATIAL_RESAMPLE 0
 #endif
+#ifndef UPT438_SPATIAL_BOOST_CLASSIFY
+#define UPT438_SPATIAL_BOOST_CLASSIFY 0
+#endif
+#ifndef UPT438_SPATIAL_BOOST_COMPACT
+#define UPT438_SPATIAL_BOOST_COMPACT 0
+#endif
 
 public struct Upt09SpatialDirectControl
 {
@@ -65,6 +71,14 @@ public [[vk::binding(29, 0)]] StructuredBuffer<uint> gUpt09ReuseTextureDeltas;
 // sourceTarget, targetTarget, shiftJacobian, packed status/route. Every pixel
 // overwrites its own record before the resampling pass; no clear is required.
 public [[vk::binding(30, 0)]] RWStructuredBuffer<float4> gUpt43SpatialShifts;
+#endif
+#if UPT438_SPATIAL_BOOST_CLASSIFY
+public [[vk::binding(33, 0)]] RWStructuredBuffer<uint> gUpt438BoostQueue;
+public [[vk::binding(34, 0)]] RWStructuredBuffer<uint> gUpt438BoostMeta;
+public [[vk::binding(35, 0)]] RWStructuredBuffer<uint> gUpt438BoostDispatchArgs;
+#elif UPT438_SPATIAL_BOOST_COMPACT
+public [[vk::binding(33, 0)]] StructuredBuffer<uint> gUpt438BoostQueue;
+public [[vk::binding(34, 0)]] StructuredBuffer<uint> gUpt438BoostMeta;
 #endif
 public [[vk::push_constant]] ConstantBuffer<Upt09SpatialDirectControl> gUpt09Control;
 
