@@ -144,6 +144,23 @@ S45.1 through S45.3 implementation status (2026-08-13)
     The composer binds R0 directly at t89 and forwards ordinary pixels, so no
     R0 image copy is required. The Vulkan release build passes; runtime image,
     history, RR-guide and cost acceptance remains pending.
+
+Runtime gate correction (2026-08-13)
+------------------------------------
+
+The first post-layout-fix runtime log remained requested/effective=1/0 without
+attempting shader load. The UPT compact gate incorrectly required all four
+clean-DI reservoir pages, but those pages are allocated only later inside the
+mutually exclusive clean-DI route. UPT glass therefore could never reach its
+pipeline initializer.
+
+The producer/composer shared shader layout declares u69-u72, but neither live
+UPT glass entry point reads those reservoirs. The UPT binding set now satisfies
+the declarations with the existing persistent 64-byte status UAV and publishes
+CleanRtxdiDiReservoirCount=0. Thus any future accidental reservoir request
+fails its bounds test before a load, while UPT avoids allocating four unused
+full-resolution clean-DI reservoir pages. The gate diagnostic now separates
+this fallback-UAV prerequisite from actual pipeline readiness.
     D0-only operation requires only current compact32 plus its current sidecar;
     compact N-1 buffers are additionally required only when T0/S0 is enabled.
 

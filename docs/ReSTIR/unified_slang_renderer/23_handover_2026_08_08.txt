@@ -2664,6 +2664,21 @@ binding sets now consistently use unused u97/u98 while referencing the exact
 same compact buffers. This is an adapter-slot correction only; the canonical
 UPT P0/D0 u89/u90 contract and buffer ownership are unchanged.
 
+UPT-45 unreachable pipeline gate correction, 2026-08-13
+---------------------------------------------------------
+
+Runtime then reported every printed prerequisite as one except the final
+pipeline bit, with no material-feature shader-load attempt. The hidden cause
+was an impossible dependency on the four clean-DI reservoir pages: the UPT
+route checked them before pipeline creation, while their allocator lives later
+in the mutually exclusive clean-DI route. The UPT glass entry points do not
+read those buffers. Their shared-layout u69-u72 descriptors now use the
+persistent status UAV as a non-accessed fallback, with reservoirCount zero so
+any accidental access fails closed. No clean-DI reservoir pages are allocated
+for UPT glass. The diagnostic now prints fallbackUav and true pipeline-ready
+states separately instead of labeling the aggregate effective state as the
+pipeline result.
+
 UPT-45 S45.2/S45.3 opt-in pass graph ready for runtime validation, 2026-08-13
 -----------------------------------------------------------------------------
 

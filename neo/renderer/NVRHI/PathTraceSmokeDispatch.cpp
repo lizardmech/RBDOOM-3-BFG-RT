@@ -2234,15 +2234,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.glassDistortionSidecarTexture &&
             r_pathTracingCleanRtxdiDiTransmissionProducer.GetBool() &&
             r_pathTracingCleanRtxdiDiTransmissionCompose.GetBool() &&
-            m_smokeCleanRtxdiDiCurrentReservoirBuffer &&
-            m_smokeCleanRtxdiDiTemporalReservoirBuffer &&
-            m_smokeCleanRtxdiDiPreviousReservoirBuffer &&
-            m_smokeCleanRtxdiDiSpatialReservoirBuffer &&
+            // The shared clean layout declares u69-u72, but the UPT glass
+            // producer and composer do not consume clean-DI reservoirs.
+            // Bind the persistent status UAV below and leave reservoirCount
+            // zero instead of allocating four full-resolution DI pages.
+            m_liquidPoolStatusBuffer &&
             m_smokeReGIRState.placeholderSrvBuffer &&
             PathTraceCleanRtxdiDiMaterialFeatureOutputsAvailable(
                 unifiedPtGlassMaterialFeaturePasses,
                 m_frameResources);
         bool unifiedPtGlassPsrEffective = unifiedPtGlassPsrCompactGate;
+        bool unifiedPtGlassPsrPipelinesReady = false;
         if (unifiedPtGlassPsrEffective)
         {
             const RtPathTraceCleanRtxdiDiPipelineContext pipelineContext =
@@ -2250,10 +2252,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     m_smokeTestInitialized,
                     m_smokeCleanRtxdiDiSentinelBindingLayout,
                     m_smokeTextureBindlessLayout);
-            unifiedPtGlassPsrEffective =
+            unifiedPtGlassPsrPipelinesReady =
                 EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
                     unifiedPtGlassMaterialFeaturePasses,
                     pipelineContext);
+            unifiedPtGlassPsrEffective = unifiedPtGlassPsrPipelinesReady;
         }
         {
             static int reportedRequested = -1;
@@ -2263,7 +2266,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             if (requested != reportedRequested || effective != reportedEffective)
             {
                 common->Printf(
-                    "PathTraceUnifiedPt: glass PSR requested/effective=%d/%d gate(vulkan/compact32/history/wide/featureCvars/sidecars/pipelines)=%u/%u/%u/%u/%u/%u/%u order=P0-PSR-D0-T0-S0-R0-compose-RR default=off\n",
+                    "PathTraceUnifiedPt: glass PSR requested/effective=%d/%d gate(vulkan/compact32/history/wide/featureCvars/sidecars/fallbackUav/pipelines)=%u/%u/%u/%u/%u/%u/%u/%u order=P0-PSR-D0-T0-S0-R0-compose-RR default=off\n",
                     requested,
                     effective,
                     deviceManager && deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN ? 1u : 0u,
@@ -2272,7 +2275,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     m_frameResources.primarySurfaceHistoryBuffers.current && m_frameResources.primarySurfaceHistoryBuffers.previous ? 1u : 0u,
                     r_pathTracingCleanRtxdiDiTransmissionProducer.GetBool() && r_pathTracingCleanRtxdiDiTransmissionCompose.GetBool() ? 1u : 0u,
                     m_frameResources.transmissionTexture && m_frameResources.reflectionSidecarTexture && m_frameResources.glassDistortionSidecarTexture ? 1u : 0u,
-                    unifiedPtGlassPsrEffective ? 1u : 0u);
+                    m_liquidPoolStatusBuffer ? 1u : 0u,
+                    unifiedPtGlassPsrPipelinesReady ? 1u : 0u);
                 reportedRequested = requested;
                 reportedEffective = effective;
             }
@@ -2875,6 +2879,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         : nullptr;
                 const nvrhi::BufferHandle optionalSrv =
                     m_smokeReGIRState.placeholderSrvBuffer;
+                const nvrhi::BufferHandle unusedCleanReservoirUav =
+                    m_liquidPoolStatusBuffer;
                 nvrhi::BindingSetDesc bindingSetDesc;
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas));
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_frameResources.outputTexture));
@@ -2934,10 +2940,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(65, m_smokeRestirLightManagerPreviousToCurrentBuffer ? m_smokeRestirLightManagerPreviousToCurrentBuffer : optionalSrv));
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(66, m_smokeRestirLightManagerCurrentPayloadBuffer ? m_smokeRestirLightManagerCurrentPayloadBuffer : optionalSrv));
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(67, m_smokeRestirLightManagerPreviousPayloadBuffer ? m_smokeRestirLightManagerPreviousPayloadBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(69, m_smokeCleanRtxdiDiCurrentReservoirBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(70, m_smokeCleanRtxdiDiTemporalReservoirBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(71, m_smokeCleanRtxdiDiPreviousReservoirBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(72, m_smokeCleanRtxdiDiSpatialReservoirBuffer));
+                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(69, unusedCleanReservoirUav));
+                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(70, unusedCleanReservoirUav));
+                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(71, unusedCleanReservoirUav));
+                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(72, unusedCleanReservoirUav));
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, optionalSrv));
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, optionalSrv));
                 bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, optionalSrv));
