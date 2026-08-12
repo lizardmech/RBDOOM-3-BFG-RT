@@ -15,6 +15,10 @@ public static const uint kUpt07RejectIndirectEndpoint = 12u;
 public static const uint kUpt07RejectIndirectInnerRis = 13u;
 public static const uint kUpt07RejectIndirectVisibility = 14u;
 public static const uint kUpt07RejectIndirectStructure = 15u;
+// Internal S43.4 scheduling result. It is never persisted in a reservoir:
+// the classifier returns it immediately before exact continuation replay so
+// the owning pixel can be appended to the bounded compact dispatch.
+public static const uint kUpt07NeedsCompactReplay = 16u;
 
 public struct Upt07DecodedReservoir
 {

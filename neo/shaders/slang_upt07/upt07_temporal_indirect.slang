@@ -53,6 +53,10 @@ import upt07_temporal_direct_bindings;
 import upt07_temporal_reservoir;
 import upt07_work_budget;
 
+#ifndef UPT43_TEMPORAL_REPLAY_CLASSIFY
+#define UPT43_TEMPORAL_REPLAY_CLASSIFY 0
+#endif
+
 #ifndef UPT_FROZEN_STATIC_SCENE
 #define UPT_FROZEN_STATIC_SCENE 0
 #endif
@@ -842,6 +846,13 @@ public uint Upt07ReplayIndirectSample(
         Upt07WorkAddRoute(work, kUpt07WorkRouteCachedX2Fallback);
     }
 
+#if UPT43_TEMPORAL_REPLAY_CLASSIFY
+    // S43.4 classifier boundary. Direct and cached-x2 mappings have already
+    // completed. Do not let the full-screen specialization retain any of the
+    // continuation-trace or endpoint-reconstruction closure below.
+    failureReason = kUpt07NeedsCompactReplay;
+    return 0u;
+#else
     failureReason = kUpt07RejectIndirectContinuation;
     const Upt04PathEvent continuation = Upt07ReplayContinuation(
         source, receiver);
@@ -1244,4 +1255,5 @@ public uint Upt07ReplayIndirectSample(
     shifted.target = target;
     failureReason = 0u;
     return 1u;
+#endif
 }

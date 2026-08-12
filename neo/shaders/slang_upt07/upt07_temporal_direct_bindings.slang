@@ -23,6 +23,12 @@ import upt07_temporal_surface_contract;
 #ifndef UPT07_BOTTLENECK_STAGE
 #define UPT07_BOTTLENECK_STAGE 0
 #endif
+#ifndef UPT43_TEMPORAL_REPLAY_CLASSIFY
+#define UPT43_TEMPORAL_REPLAY_CLASSIFY 0
+#endif
+#ifndef UPT43_TEMPORAL_REPLAY_COMPACT
+#define UPT43_TEMPORAL_REPLAY_COMPACT 0
+#endif
 
 public struct Upt07TemporalDirectControl
 {
@@ -73,6 +79,16 @@ public [[vk::binding(30, 0)]] RWStructuredBuffer<uint> gUpt07ReconnectDiagnostic
 #endif
 #if UPT07_BOTTLENECK_STAGE > 0
 public [[vk::binding(31, 0)]] RWStructuredBuffer<uint> gUpt07BottleneckProbe;
+#endif
+#if UPT43_TEMPORAL_REPLAY_CLASSIFY
+public [[vk::binding(33, 0)]] RWStructuredBuffer<uint> gUpt43ReplayQueue;
+// words: publishedCount, capacity
+public [[vk::binding(34, 0)]] RWStructuredBuffer<uint> gUpt43ReplayMeta;
+// VkDispatchIndirectCommand words: groupCountX, groupCountY, groupCountZ
+public [[vk::binding(35, 0)]] RWStructuredBuffer<uint> gUpt43ReplayDispatchArgs;
+#elif UPT43_TEMPORAL_REPLAY_COMPACT
+public [[vk::binding(33, 0)]] StructuredBuffer<uint> gUpt43ReplayQueue;
+public [[vk::binding(34, 0)]] StructuredBuffer<uint> gUpt43ReplayMeta;
 #endif
 public [[vk::push_constant]] ConstantBuffer<Upt07TemporalDirectControl> gUpt07Control;
 

@@ -241,6 +241,106 @@ path_tracing_declare_slang_spirv_module(
         UPT07_THREE_VERTEX_REPLAY=1
     OUT_VAR temporal_unified_common_gris_three_vertex_outputs)
 
+# UPT-43.4 compiles exact replay out of the full-screen classifier and retains
+# it only in the compact 64x1 consumer. Both variants use the accepted common
+# GRIS estimator and reservoir ABI.
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_classify
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1
+        UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
+        UPT10_SHARED_REUSE_ADAPTER=1 UPT10_COMMON_GRIS_MERGE=1
+        UPT43_TEMPORAL_REPLAY_CLASSIFY=1
+    OUT_VAR temporal_common_gris_replay_classify_outputs)
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_compact
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1
+        UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
+        UPT10_SHARED_REUSE_ADAPTER=1 UPT10_COMMON_GRIS_MERGE=1
+        UPT43_TEMPORAL_REPLAY_COMPACT=1
+    OUT_VAR temporal_common_gris_replay_compact_outputs)
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex_replay_classify
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1
+        UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
+        UPT10_SHARED_REUSE_ADAPTER=1 UPT10_COMMON_GRIS_MERGE=1
+        UPT07_THREE_VERTEX_REPLAY=1 UPT43_TEMPORAL_REPLAY_CLASSIFY=1
+    OUT_VAR temporal_three_vertex_replay_classify_outputs)
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex_replay_compact
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1
+        UPT07_DUPLICATION_MAP=1 UPT07_INDIRECT_REPLAY=1
+        UPT10_SHARED_REUSE_ADAPTER=1 UPT10_COMMON_GRIS_MERGE=1
+        UPT07_THREE_VERTEX_REPLAY=1 UPT43_TEMPORAL_REPLAY_COMPACT=1
+    OUT_VAR temporal_three_vertex_replay_compact_outputs)
+
+set(UPT43_REPLAY_COMPACTION_VERIFY_STAMP
+    "${UPT07_OUTPUT_DIR}/upt43_temporal_replay_compaction_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT43_REPLAY_COMPACTION_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT43_CLASSIFY_ASM=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_classify.slang.spvasm
+        -DUPT43_COMPACT_ASM=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_compact.slang.spvasm
+        -DUPT43_THREE_CLASSIFY_ASM=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex_replay_classify.slang.spvasm
+        -DUPT43_THREE_COMPACT_ASM=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex_replay_compact.slang.spvasm
+        -DUPT43_CLASSIFY_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_classify.slang.spirv-reflection.json
+        -DUPT43_COMPACT_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_compact.slang.spirv-reflection.json
+        -DUPT43_TEMPORAL_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang
+        -DUPT43_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
+        -DUPT43_STAMP=${UPT43_REPLAY_COMPACTION_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt43ReplayCompaction.cmake"
+    DEPENDS ${temporal_common_gris_replay_classify_outputs}
+        ${temporal_common_gris_replay_compact_outputs}
+        ${temporal_three_vertex_replay_classify_outputs}
+        ${temporal_three_vertex_replay_compact_outputs}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang"
+        "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt43ReplayCompaction.cmake"
+    COMMENT "UPT-43.4 verifying bounded temporal replay compaction"
+    VERBATIM)
+
 set(UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP
     "${UPT07_OUTPUT_DIR}/upt10_temporal_shared_adapter_verified.txt")
 add_custom_command(
@@ -591,6 +691,24 @@ add_custom_command(
         "${UPT36_TEMPORAL_VERIFY_STAMP}"
     COMMENT "UPT-36 Vulkan opt-in three-vertex temporal artifact"
     VERBATIM)
+set(UPT43_TEMPORAL_RUNTIME_OUTPUTS)
+foreach(upt43_module
+        upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_classify
+        upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_compact
+        upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex_replay_classify
+        upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex_replay_compact)
+    set(upt43_runtime "${UPT07_RUNTIME_DIR}/${upt43_module}.bin")
+    add_custom_command(
+        OUTPUT "${upt43_runtime}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT07_RUNTIME_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${UPT07_OUTPUT_DIR}/${upt43_module}.slang.spv"
+            "${upt43_runtime}"
+        DEPENDS "${UPT07_OUTPUT_DIR}/${upt43_module}.slang.spv"
+        COMMENT "UPT-43.4 Vulkan temporal replay compaction artifact: ${upt43_module}"
+        VERBATIM)
+    list(APPEND UPT43_TEMPORAL_RUNTIME_OUTPUTS "${upt43_runtime}")
+endforeach()
 set(UPT07_LAMBERT_RUNTIME_OUTPUTS)
 foreach(lambert_module
         upt07_temporal_unified_rayquery_lambert
@@ -723,7 +841,13 @@ add_custom_target(PathTraceSlangUpt07TemporalOwnership
         "${UPT10_TEMPORAL_COMMON_GRIS_RUNTIME_OUTPUT}"
         ${temporal_unified_common_gris_three_vertex_outputs}
         "${UPT36_TEMPORAL_VERIFY_STAMP}"
-        "${UPT36_TEMPORAL_RUNTIME_OUTPUT}")
+        "${UPT36_TEMPORAL_RUNTIME_OUTPUT}"
+        ${temporal_common_gris_replay_classify_outputs}
+        ${temporal_common_gris_replay_compact_outputs}
+        ${temporal_three_vertex_replay_classify_outputs}
+        ${temporal_three_vertex_replay_compact_outputs}
+        "${UPT43_REPLAY_COMPACTION_VERIFY_STAMP}"
+        ${UPT43_TEMPORAL_RUNTIME_OUTPUTS})
 set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
     FOLDER "Shaders/UPT-07")
 
@@ -739,6 +863,8 @@ add_custom_target(PathTraceSlangUpt07ProductionRuntime
         "${UPT10_TEMPORAL_SHARED_ADAPTER_RUNTIME_OUTPUT}"
         "${UPT10_TEMPORAL_COMMON_GRIS_RUNTIME_OUTPUT}"
         "${UPT36_TEMPORAL_RUNTIME_OUTPUT}"
+        "${UPT43_REPLAY_COMPACTION_VERIFY_STAMP}"
+        ${UPT43_TEMPORAL_RUNTIME_OUTPUTS}
         "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication_lambert.bin")
 set_target_properties(PathTraceSlangUpt07ProductionRuntime PROPERTIES
     FOLDER "Shaders/UPT-07")

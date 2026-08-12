@@ -2401,3 +2401,45 @@ Corrected-build visual and motion validation passed without issue. S43.3 is
 accepted at 9.994 ms temporal / 1.072 ms spatial median at 2560x1440, a 10.0
 percent temporal improvement over S43.2 with no spatial regression. Proceed to
 bounded replay-prefix compaction only after the scoped S43.3 checkpoint.
+
+UPT-43.4 implementation and deployment, 2026-08-12
+---------------------------------------------------
+
+Temporal replay compaction is built and deployed behind the default-off
+`r_pathTracingUnifiedPtTemporalReplayCompaction` gate. T0a keeps direct and
+cached-x2 shifts in the coalesced 8x8 screen pass and appends only at the exact
+continuation-replay boundary. T0b reloads authoritative state and runs the
+unmodified exact path over a uint pixel queue via 64x1 compute-indirect.
+
+The queue is never cleared. The CPU resets only 20 bytes of dispatch/meta state
+per frame; shader reads are bounded by min(publishedCount, capacity), and
+overflow leaves fresh D0 intact. The timestamp scope includes T0a, barriers
+and T0b. Static SPIR-V inspection reports two RayQuery sites for the classifier
+and four for the compact consumer versus four in the monolithic oracle; the
+three-vertex pair reports two/six.
+
+Enable optional aggregate proof with
+`r_pathTracingUnifiedPtTemporalReplayCompactionDiagnostics 1`. Runtime visual,
+motion, count and timing validation are still required before checkpoint or
+default promotion.
+
+UPT-43.4 first runtime performance result, 2026-08-12
+-----------------------------------------------------
+
+The complete accepted gate reported 1 in all eleven positions. At 2560x1440,
+16 warm-ups and 64 dispatch-only samples, compaction reduced temporal median
+time from 10.348 ms to 3.043 ms (-7.305 ms / -70.6 percent). The queue contained
+127816 of 3686400 pixels (3.47 percent), dispatched exactly 1998 expected 64x1
+groups and reported zero overflow / PASS.
+
+The performance and bounded-work proof pass. Do not checkpoint or promote the
+default yet: visual and motion parity still need explicit confirmation for this
+exact compacted build.
+
+UPT-43.4 final acceptance, 2026-08-12
+-------------------------------------
+
+Visual and motion validation passed without an observed issue on the same
+compacted build. UPT-43.4 is accepted and ready for a scoped checkpoint:
+3.043 ms temporal median, 70.6 percent below its 10.348 ms non-compacted A/B,
+3.47 percent queued replay density, exact group count and zero overflow.

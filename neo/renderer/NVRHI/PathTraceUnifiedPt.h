@@ -175,6 +175,10 @@ private:
     bool EnsureResolveBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureTemporalReplayCompactionBuffers(
+        const PathTraceUnifiedPtDispatchInputs& inputs);
+    void DrainTemporalReplayCompactionReadback(
+        const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalBottleneckBuffer(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalDiagnosticBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
     void DrainTemporalDiagnosticReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -346,6 +350,7 @@ private:
     bool m_temporalSharedReuseAdapter = false;
     bool m_temporalCommonGrisMerge = false;
     bool m_temporalThreeVertexReplay = false;
+    bool m_temporalReplayCompaction = false;
     bool m_temporalEarlyReconnect = false;
     bool m_temporalRouteDiagnostics = false;
     bool m_temporalLambertDiagnostic = false;
@@ -357,8 +362,22 @@ private:
     std::array<nvrhi::BindingSetHandle, 2> m_temporalBindingSets;
     std::array<nvrhi::BindingSetDesc, 2> m_temporalBindingSetDescs;
     std::array<bool, 2> m_temporalBindingSetDescValid = { false, false };
+    nvrhi::BindingLayoutHandle m_temporalReplayBindingLayout;
+    std::array<nvrhi::BindingSetHandle, 2> m_temporalReplayBindingSets;
+    std::array<nvrhi::BindingSetDesc, 2> m_temporalReplayBindingSetDescs;
+    std::array<bool, 2> m_temporalReplayBindingSetDescValid = { false, false };
     nvrhi::ShaderHandle m_temporalShader;
     nvrhi::ComputePipelineHandle m_temporalPipeline;
+    nvrhi::ShaderHandle m_temporalReplayShader;
+    nvrhi::ComputePipelineHandle m_temporalReplayPipeline;
+    uint32_t m_temporalReplayCapacity = 0u;
+    nvrhi::BufferHandle m_temporalReplayQueue;
+    nvrhi::BufferHandle m_temporalReplayMeta;
+    nvrhi::BufferHandle m_temporalReplayDispatchArgs;
+    nvrhi::BufferHandle m_temporalReplayReadback;
+    bool m_temporalReplayReadbackPending = false;
+    bool m_temporalReplayDiagnosticCaptured = false;
+    int m_temporalReplayReadbackDelayFrames = 0;
     nvrhi::BufferHandle m_temporalDiagnosticCounters;
     nvrhi::BufferHandle m_temporalDiagnosticReadback;
     uint32_t m_temporalBottleneckCapacity = 0;

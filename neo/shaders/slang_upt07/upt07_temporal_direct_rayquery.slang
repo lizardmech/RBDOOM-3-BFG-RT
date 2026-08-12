@@ -50,6 +50,12 @@ import upt07_work_budget;
 #ifndef UPT10_COMMON_GRIS_MERGE
 #define UPT10_COMMON_GRIS_MERGE 0
 #endif
+#ifndef UPT43_TEMPORAL_REPLAY_CLASSIFY
+#define UPT43_TEMPORAL_REPLAY_CLASSIFY 0
+#endif
+#ifndef UPT43_TEMPORAL_REPLAY_COMPACT
+#define UPT43_TEMPORAL_REPLAY_COMPACT 0
+#endif
 #if UPT10_SHARED_REUSE_ADAPTER
 #include "../slang_upt10/upt10_reuse_contract.slangh"
 #endif
@@ -788,9 +794,50 @@ void Upt07PublishWorkBudget(
 #endif
 #endif
 
+#if UPT43_TEMPORAL_REPLAY_CLASSIFY
+public void Upt43AppendReplayPixel(uint index)
+{
+    uint slot;
+    InterlockedAdd(gUpt43ReplayMeta[0], 1u, slot);
+    const uint capacity = gUpt43ReplayMeta[1];
+    if (slot >= capacity)
+        return;
+    gUpt43ReplayQueue[slot] = index;
+    const uint requiredGroups = (slot + 64u) / 64u;
+    uint ignored;
+    InterlockedMax(
+        gUpt43ReplayDispatchArgs[0], requiredGroups, ignored);
+}
+
+public void Upt43DeferExactReplay(
+    uint index,
+    Upt03PackedReservoir currentPacked)
+{
+    Upt43AppendReplayPixel(index);
+    // The compact pass reloads this authoritative D0 input and overwrites it.
+    // Overflow therefore fails safely to fresh D0 rather than partial reuse.
+    gUpt07CurrentReservoirs[index] = currentPacked;
+}
+#endif
+
+#if UPT43_TEMPORAL_REPLAY_COMPACT
+[numthreads(64, 1, 1)]
+#else
 [numthreads(8, 8, 1)]
+#endif
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
+#if UPT43_TEMPORAL_REPLAY_COMPACT
+    const uint compactCount = min(gUpt43ReplayMeta[0], gUpt43ReplayMeta[1]);
+    if (dispatchThreadId.x >= compactCount)
+        return;
+    const uint index = gUpt43ReplayQueue[dispatchThreadId.x];
+    if (index >= gUpt07Control.surfaceCount)
+        return;
+    const uint pixelY = index / gUpt07Control.renderWidth;
+    const uint2 pixel = uint2(
+        index - pixelY * gUpt07Control.renderWidth, pixelY);
+#else
     const uint2 pixel = dispatchThreadId.xy;
     if (pixel.x >= gUpt07Control.renderWidth
         || pixel.y >= gUpt07Control.renderHeight)
@@ -798,6 +845,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     const uint index = pixel.y * gUpt07Control.renderWidth + pixel.x;
     if (index >= gUpt07Control.surfaceCount)
         return;
+#endif
 
     Upt07WorkCounters work = (Upt07WorkCounters)0;
     Upt07WorkInitialize(work);
@@ -1003,6 +1051,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 work);
         shifted = sharedHistoryShift.shifted;
         historyShiftJacobian = sharedHistoryShift.shiftJacobian;
+#if UPT43_TEMPORAL_REPLAY_CLASSIFY
+        if (shiftedValid == 0u
+            && historyFailureReason == kUpt07NeedsCompactReplay)
+        {
+            Upt43DeferExactReplay(index, currentPacked);
+            return;
+        }
+#endif
     }
 #else
     if (directHistoryEligible)
@@ -1202,6 +1258,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                         unusedCurrentVisibility,
                         work);
             Upt07WorkEndSite(work);
+#if UPT43_TEMPORAL_REPLAY_CLASSIFY
+            if (sharedCurrentShiftValid == 0u
+                && currentShiftFailure == kUpt07NeedsCompactReplay)
+            {
+                Upt43DeferExactReplay(index, currentPacked);
+                return;
+            }
+#endif
             if (sharedCurrentShiftValid != 0u
                 && sharedCurrentShift.mappingStatus
                     == kUpt10ShiftValidPositive)

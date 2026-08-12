@@ -274,15 +274,16 @@ Mapping and visibility budget:
     at most one previous-to-current light remap and one current-light load;
     one primary-receiver material evaluation;
     zero visibility traversal before reservoir selection;
-    receiver-to-x2 and x2-to-light visibility only for the selected winner.
+    receiver-to-x2 visibility only for the selected winner.
 
-The existing one-request pending-visibility record is insufficient for an x2
-winner because both segments are independent proofs. S43.3 therefore extends
-that transient record to two bounded requests. It remains local/groupshared
-work, adds no persistent buffer and cannot exceed two winner-only visibility
-rays. Diagnostics distinguish cached-x2 attempted, admitted, remap/stability
-rejection, endpoint/target rejection, exact-replay fallback, and each winner
-visibility segment.
+The cached suffix begins at x2 and already contains the selected x2-to-light
+connection as evaluated and visibility-proved by its source frame. Re-tracing
+that suffix in T0 would double-test a segment that is not part of the changed
+prefix. S43.3 therefore retains the existing one-request pending-visibility
+record and replaces it with the receiver-to-x2 request. It adds no persistent
+buffer and cannot exceed one winner-only visibility ray. Diagnostics
+distinguish cached-x2 attempted, admitted, exact-replay fallback, and cached-x2
+winners.
 
 S43.4 Replay classification and compaction
 
@@ -298,6 +299,72 @@ bounded no-full-clear queue rules from UPT-20: reset only counters/indirect
 arguments, bound reads by the published count, and never clear a full work
 buffer each frame. Do not compact universal replay before S43.3 makes the
 fallback population sparse.
+
+S43.4 temporal implementation contract, 2026-08-12
+---------------------------------------------------
+
+The accepted T0 estimator remains the oracle. S43.4 specializes it into two
+entry shapes without changing reservoir math:
+
+    T0a classify/common:
+        one 8x8 full-screen dispatch;
+        direct shifts execute normally;
+        cached-x2 shifts execute normally;
+        invalid mappings reject normally;
+        the first operation that would construct and trace a continuation ray
+        returns NEEDS_COMPACT_REPLAY, appends the current pixel index and
+        publishes the untouched D0 reservoir for that pixel.
+
+    T0b exact replay:
+        one 64x1 compute-indirect dispatch over only appended indices;
+        reload the authoritative current/history reservoirs and receivers;
+        recompute reprojection and execute the unmodified exact-replay T0 path;
+        overwrite the same current page entry.
+
+The compact record is one uint currentPixelIndex. It intentionally does not
+store decoded reservoirs, mapped endpoints, targets, Jacobians or visibility
+requests. Recomputing reprojection in T0b costs work only for the sparse replay
+population and prevents a queue item from becoming a second temporal state
+contract.
+
+The 20-byte control buffer is:
+
+    uint groupCountX;
+    uint groupCountY;
+    uint groupCountZ;
+    uint publishedCount;
+    uint capacity;
+
+At frame start the CPU writes only { 0, 1, 1, 0, surfaceCount }. The append
+uses one atomic slot reservation, writes the pixel only when slot < capacity,
+and atomically raises groupCountX to ceil((slot + 1) / 64). T0b clamps its read
+against min(publishedCount, capacity). The queue capacity is one uint per
+screen pixel, but its contents are never cleared. Overflow leaves that pixel's
+D0 result intact and cannot launch outside the allocated queue.
+
+The classify specialization must compile without the continuation-trace and
+endpoint-reconstruction closure. Merely branching around that code at runtime
+does not satisfy S43.4 because it retains the register and instruction
+footprint in every full-screen lane. The compact specialization retains exact
+replay and uses the same bindings, push constants, reservoir ABI, common-GRIS
+merge and winner visibility rules as the oracle.
+
+The first runtime gate is default-off and effective only for the accepted
+unified compact64-light, duplication, shared-adapter/common-GRIS temporal
+configuration with diagnostic/frozen/early-reconnect specializations absent.
+The three-vertex specialization is supported by a matching classify/compact
+pair. Direct-only, legacy temporal, bottleneck probes and route diagnostics
+remain on their existing single dispatch.
+
+Acceptance adds these proof obligations:
+
+    compactedCount <= surfaceCount;
+    indirect groups are exactly ceil(compactedCount / 64);
+    zero compacted pixels launch zero T0b work;
+    T0a plus T0b is visually equivalent to the monolithic oracle;
+    direct and cached-x2 mappings never enter T0b;
+    no full-screen queue clear occurs;
+    timing covers T0a, the UAV/indirect barrier and T0b together.
 
 S43.5 Paper-shaped paired spatial execution
 
@@ -556,3 +623,67 @@ emissive appearance, motion behavior and bounded reservoir/visibility
 contracts. The implementation may now be checkpointed. The next UPT-43 stage
 is bounded replay-prefix compaction; do not revive the superseded static-
 locator experiment or its redundant suffix visibility ray.
+
+S43.4 implementation and static verification, 2026-08-12
+----------------------------------------------------------
+
+S43.4 temporal replay compaction is implemented, Vulkan-built and deployed for
+runtime validation behind `r_pathTracingUnifiedPtTemporalReplayCompaction 1`.
+The gate remains default-off and is effective only on the accepted unified,
+compact64-light, duplication, shared-adapter/common-GRIS production path.
+
+T0a retains the 8x8 screen dispatch but returns immediately before exact
+continuation replay. It appends only that pixel index, leaves its D0 reservoir
+untouched and compiles to two RayQuery sites versus four in the accepted
+monolithic common-GRIS shader. T0b consumes the bounded uint queue in a 64x1
+compute-indirect dispatch, recomputes authoritative temporal state and retains
+the oracle's four RayQuery sites. The optional three-vertex pair reports two
+and six sites respectively. This proves the expensive replay closure is absent
+from the full-screen shader rather than merely skipped by a runtime branch.
+
+The queue is four bytes per screen pixel and is never cleared. Each frame
+resets only three dispatch words plus two metadata words. The GPU-published
+count is clamped to capacity and dispatch groups are raised to
+ceil(published/64). Overflow retains D0. Optional one-frame-delayed diagnostics
+are enabled with
+`r_pathTracingUnifiedPtTemporalReplayCompactionDiagnostics 1` and report
+published/bounded/capacity, actual/expected groups, overflow and PASS/FAIL.
+
+The required full Vulkan build passed. Runtime image, motion, queue-count and
+timing acceptance remain pending; do not checkpoint or enable this path by
+default until those results are recorded.
+
+S43.4 first runtime performance result, 2026-08-12
+---------------------------------------------------
+
+The accepted production gate was confirmed effective in all eleven positions:
+common GRIS, temporal, indirect, unified family, compact64 lights, duplication,
+OpenPBR, no frozen diagnostic, no bottleneck probe, no early reconnect and no
+route diagnostic all reported 1.
+
+At 2560x1440 after 16 warm-up frames and 64 dispatch-only samples, temporal
+replay compaction reduced the temporal median from 10.348 ms to 3.043 ms. This
+is a 7.305 ms / 70.6 percent reduction. Mean time was 3.068 ms, minimum 2.991
+ms, p90 3.073 ms and maximum 4.053 ms.
+
+The queue ledger reported 127816 published and bounded pixels out of a
+3686400-pixel capacity: 3.47 percent of the screen entered exact continuation
+replay. The indirect dispatch reported 1998 actual and expected 64x1 groups,
+one group in Y and Z, zero overflow and PASS. This validates the intended
+work-topology change: the expensive continuation closure is no longer paid by
+the other 96.53 percent of pixels.
+
+Performance, queue bounds and indirect-dispatch arithmetic pass decisively.
+Final S43.4 acceptance and checkpoint remain gated on visual and motion parity
+for this exact compacted build. The gate remains default-off until that result
+is recorded.
+
+S43.4 final acceptance, 2026-08-12
+----------------------------------
+
+Visual and motion validation of the exact compacted build passed with no
+observed issue. S43.4 is accepted at 3.043 ms temporal median versus 10.348 ms
+without compaction, with 3.47 percent replay density, exact indirect group
+arithmetic and zero overflow. The bounded replay-prefix split may now be
+checkpointed. Preserve the monolithic path as the default-off comparison until
+the next accepted configuration/default-promotion pass.

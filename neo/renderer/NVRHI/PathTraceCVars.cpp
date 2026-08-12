@@ -1533,6 +1533,18 @@ idCVar r_pathTracingUnifiedPtCommonGrisMerge(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-30 temporal estimator A/B: merge direct and global proposals through one target-scaled GRIS core with source-UCW conversion, pairwise MIS, and one forward shift Jacobian; requires the shared reuse adapter and temporal pairwise mode" );
 
+idCVar r_pathTracingUnifiedPtTemporalReplayCompaction(
+    "r_pathTracingUnifiedPtTemporalReplayCompaction",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-43.4 bounded temporal replay compaction: keep direct and cached-x2 shifts in the full-screen classifier and execute exact continuation replay only for a compact GPU-authored pixel queue; requires the accepted unified common-GRIS configuration" );
+
+idCVar r_pathTracingUnifiedPtTemporalReplayCompactionDiagnostics(
+    "r_pathTracingUnifiedPtTemporalReplayCompactionDiagnostics",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-43.4 one-frame-delayed compact replay count, capacity and indirect-group diagnostics; no synchronous GPU readback" );
+
 idCVar r_pathTracingUnifiedPtTemporalEarlyReconnect(
     "r_pathTracingUnifiedPtTemporalEarlyReconnect",
     "0",

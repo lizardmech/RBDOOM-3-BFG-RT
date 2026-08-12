@@ -3025,6 +3025,55 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 reportedCommonGrisMergeRequest = commonGrisMergeRequest;
                 reportedCommonGrisMergeEffective = commonGrisMergeEffective;
             }
+            const bool requestedTemporalReplayCompaction =
+                r_pathTracingUnifiedPtTemporalReplayCompaction.GetBool();
+            const bool effectiveTemporalReplayCompaction =
+                requestedTemporalReplayCompaction
+                && effectiveCommonGrisMerge
+                && unifiedPtInputs.temporal
+                && r_pathTracingUnifiedPtTemporalIndirect.GetBool()
+                && unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified
+                && unifiedPtInputs.compactLights
+                && unifiedPtInputs.duplication
+                && !unifiedPtInputs.lambertDiagnostic
+                && !frozenAnyDiagnostic
+                && unifiedPtInputs.temporalBottleneckProbe == 0u
+                && !r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
+                && !r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool();
+            static int reportedTemporalReplayCompactionRequest = -1;
+            static int reportedTemporalReplayCompactionEffective = -1;
+            const int temporalReplayCompactionRequest =
+                requestedTemporalReplayCompaction ? 1 : 0;
+            const int temporalReplayCompactionEffective =
+                effectiveTemporalReplayCompaction ? 1 : 0;
+            if (reportedTemporalReplayCompactionRequest
+                    != temporalReplayCompactionRequest
+                || reportedTemporalReplayCompactionEffective
+                    != temporalReplayCompactionEffective)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: temporal replay compaction requested/effective=%d/%d gate(commonGris/temporal/indirect/unified/compactLights/duplication/openPbr/noFrozen/noProbe/noEarlyReconnect/noRouteDiag)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
+                    temporalReplayCompactionRequest,
+                    temporalReplayCompactionEffective,
+                    effectiveCommonGrisMerge ? 1u : 0u,
+                    unifiedPtInputs.temporal ? 1u : 0u,
+                    r_pathTracingUnifiedPtTemporalIndirect.GetBool() ? 1u : 0u,
+                    unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified
+                        ? 1u : 0u,
+                    unifiedPtInputs.compactLights ? 1u : 0u,
+                    unifiedPtInputs.duplication ? 1u : 0u,
+                    unifiedPtInputs.lambertDiagnostic ? 0u : 1u,
+                    frozenAnyDiagnostic ? 0u : 1u,
+                    unifiedPtInputs.temporalBottleneckProbe == 0u ? 1u : 0u,
+                    r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
+                        ? 0u : 1u,
+                    r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool()
+                        ? 0u : 1u);
+                reportedTemporalReplayCompactionRequest =
+                    temporalReplayCompactionRequest;
+                reportedTemporalReplayCompactionEffective =
+                    temporalReplayCompactionEffective;
+            }
             const bool requestedSharedSpatial =
                 r_pathTracingUnifiedPtSharedSpatial.GetBool();
             const bool effectiveSharedSpatial = requestedSharedSpatial

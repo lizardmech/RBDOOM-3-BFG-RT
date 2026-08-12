@@ -346,6 +346,26 @@ static bool Upt38ThreeVertexSpatialEnabled(
         && !r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool();
 }
 
+static bool Upt43TemporalReplayCompactionEnabled(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    return r_pathTracingUnifiedPtTemporalReplayCompaction.GetBool()
+        && inputs.temporal
+        && r_pathTracingUnifiedPtTemporalIndirect.GetBool()
+        && r_pathTracingUnifiedPtSharedReuseAdapter.GetBool()
+        && r_pathTracingUnifiedPtCommonGrisMerge.GetBool()
+        && r_pathTracingUnifiedPtTemporalPairwise.GetBool()
+        && inputs.family == PathTraceUnifiedPtFamily::Unified
+        && inputs.compactLights
+        && inputs.duplication
+        && !inputs.lambertDiagnostic
+        && !inputs.frozenStaticDiagnostic
+        && !inputs.frozenLightDiagnostic
+        && inputs.temporalBottleneckProbe == 0u
+        && !r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
+        && !r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool();
+}
+
 static uint32_t Upt04FamilyMask(PathTraceUnifiedPtFamily family)
 {
     switch (family)
@@ -1654,6 +1674,8 @@ void PathTraceUnifiedPtState::ReleaseCompactLights()
     {
         m_temporalBindingSets[page] = nullptr;
         m_temporalBindingSetDescValid[page] = false;
+        m_temporalReplayBindingSets[page] = nullptr;
+        m_temporalReplayBindingSetDescValid[page] = false;
         m_spatialBindingSets[page] = nullptr;
         m_spatialBindingSetDescValid[page] = false;
     }
@@ -1716,10 +1738,24 @@ void PathTraceUnifiedPtState::ReleaseTemporal()
         m_temporalBindingSets[page] = nullptr;
         m_temporalBindingSetDescs[page] = nvrhi::BindingSetDesc();
         m_temporalBindingSetDescValid[page] = false;
+        m_temporalReplayBindingSets[page] = nullptr;
+        m_temporalReplayBindingSetDescs[page] = nvrhi::BindingSetDesc();
+        m_temporalReplayBindingSetDescValid[page] = false;
     }
     m_temporalPipeline = nullptr;
     m_temporalShader = nullptr;
+    m_temporalReplayPipeline = nullptr;
+    m_temporalReplayShader = nullptr;
     m_temporalBindingLayout = nullptr;
+    m_temporalReplayBindingLayout = nullptr;
+    m_temporalReplayQueue = nullptr;
+    m_temporalReplayMeta = nullptr;
+    m_temporalReplayDispatchArgs = nullptr;
+    m_temporalReplayReadback = nullptr;
+    m_temporalReplayCapacity = 0u;
+    m_temporalReplayReadbackPending = false;
+    m_temporalReplayDiagnosticCaptured = false;
+    m_temporalReplayReadbackDelayFrames = 0;
     m_temporalBottleneckBuffer = nullptr;
     m_temporalBottleneckCapacity = 0u;
     m_temporalPipelineAttempted = false;
@@ -1737,6 +1773,8 @@ void PathTraceUnifiedPtState::ReleaseDuplication()
         m_duplicationMetadata[page].Invalidate();
         m_temporalBindingSets[page] = nullptr;
         m_temporalBindingSetDescValid[page] = false;
+        m_temporalReplayBindingSets[page] = nullptr;
+        m_temporalReplayBindingSetDescValid[page] = false;
     }
     m_duplicationSampleIds = nullptr;
     m_duplicationFillPipeline = nullptr;
@@ -1848,6 +1886,7 @@ void PathTraceUnifiedPtState::Release()
     m_temporalCompactLights = false;
     m_temporalDuplication = false;
     m_temporalIndirect = false;
+    m_temporalReplayCompaction = false;
     m_spatialCompactLights = false;
     m_resourceFailureLogged = false;
     m_reportedProofStage = UINT32_MAX;
@@ -4667,12 +4706,18 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         && r_pathTracingUnifiedPtTemporalPairwise.GetBool();
     const bool threeVertexReplay = inputs.threeVertexInitial
         && commonGrisMerge;
-    if (m_temporalPipeline && m_temporalCompactLights == inputs.compactLights
+    const bool replayCompaction = commonGrisMerge
+        && Upt43TemporalReplayCompactionEnabled(inputs);
+    if (m_temporalPipeline
+        && (!replayCompaction || (m_temporalReplayPipeline
+            && m_temporalReplayBindingLayout))
+        && m_temporalCompactLights == inputs.compactLights
         && m_temporalDuplication == inputs.duplication
         && m_temporalIndirect == indirect
         && m_temporalSharedReuseAdapter == sharedReuseAdapter
         && m_temporalCommonGrisMerge == commonGrisMerge
         && m_temporalThreeVertexReplay == threeVertexReplay
+        && m_temporalReplayCompaction == replayCompaction
         && m_temporalEarlyReconnect == earlyReconnect
         && m_temporalRouteDiagnostics == routeDiagnostics
         && m_temporalLambertDiagnostic == inputs.lambertDiagnostic
@@ -4690,6 +4735,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         || m_temporalSharedReuseAdapter != sharedReuseAdapter
         || m_temporalCommonGrisMerge != commonGrisMerge
         || m_temporalThreeVertexReplay != threeVertexReplay
+        || m_temporalReplayCompaction != replayCompaction
         || m_temporalEarlyReconnect != earlyReconnect
         || m_temporalRouteDiagnostics != routeDiagnostics
         || m_temporalLambertDiagnostic != inputs.lambertDiagnostic
@@ -4719,6 +4765,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         m_temporalSharedReuseAdapter = sharedReuseAdapter;
         m_temporalCommonGrisMerge = commonGrisMerge;
         m_temporalThreeVertexReplay = threeVertexReplay;
+        m_temporalReplayCompaction = replayCompaction;
         m_temporalEarlyReconnect = earlyReconnect;
         m_temporalRouteDiagnostics = routeDiagnostics;
         m_temporalLambertDiagnostic = inputs.lambertDiagnostic;
@@ -4769,6 +4816,12 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
     if (inputs.temporalBottleneckProbe != 0u)
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
+    if (replayCompaction)
+    {
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(33));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(34));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(35));
+    }
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT07_PUSH_CONSTANT_BYTES));
     m_temporalBindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -4777,6 +4830,58 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         common->Printf(
             "PathTraceUnifiedPt: failed to create UPT-07 temporal binding layout\n");
         return false;
+    }
+
+    if (replayCompaction)
+    {
+        nvrhi::BindingLayoutDesc replayLayoutDesc;
+        replayLayoutDesc.visibility = nvrhi::ShaderType::Compute;
+        replayLayoutDesc.registerSpace = 0;
+        replayLayoutDesc.registerSpaceIsDescriptorSet = true;
+        replayLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+            .setShaderResourceOffset(0)
+            .setSamplerOffset(0)
+            .setUnorderedAccessViewOffset(0);
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_UAV(3));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
+        Upt04AddReplayGeometryLayoutItems(replayLayoutDesc);
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(23));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
+        replayLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(28));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(33));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(34));
+        replayLayoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+            0, UPT07_PUSH_CONSTANT_BYTES));
+        m_temporalReplayBindingLayout =
+            inputs.device->createBindingLayout(replayLayoutDesc);
+        if (!m_temporalReplayBindingLayout)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: failed to create UPT-43.4 compact replay binding layout\n");
+            return false;
+        }
     }
 
     static const char* bottleneckPaths[12] = {
@@ -4793,7 +4898,11 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe11.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe12.bin"
     };
-    const char* path = threeVertexReplay
+    const char* path = replayCompaction
+        ? (threeVertexReplay
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex_replay_classify.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_classify.bin")
+        : threeVertexReplay
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex.bin"
         : commonGrisMerge
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_common_gris.bin"
@@ -4869,6 +4978,33 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         return false;
     }
 
+    int replaySize = 0;
+    ID_TIME_T replayTimestamp = 0;
+    uint64_t replayHash = 0;
+    if (replayCompaction)
+    {
+        const char* replayPath = threeVertexReplay
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex_replay_compact.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_compact.bin";
+        void* replayData = nullptr;
+        if (!Upt04ReadShader(
+                replayPath, replayData, replaySize,
+                replayTimestamp, replayHash))
+            return false;
+        nvrhi::ShaderDesc replayShaderDesc = shaderDesc;
+        replayShaderDesc.debugName =
+            "PathTraceUnifiedPtTemporalCompactReplay";
+        m_temporalReplayShader = inputs.device->createShader(
+            replayShaderDesc, replayData, replaySize);
+        Mem_Free(replayData);
+        if (!m_temporalReplayShader)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: failed to create UPT-43.4 compact replay shader\n");
+            return false;
+        }
+    }
+
     nvrhi::ComputePipelineDesc pipelineDesc;
     pipelineDesc.CS = m_temporalShader;
     pipelineDesc.bindingLayouts = {
@@ -4883,8 +5019,24 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
             "PathTraceUnifiedPt: failed to create UPT-07 temporal pipeline\n");
         return false;
     }
+    if (replayCompaction)
+    {
+        nvrhi::ComputePipelineDesc replayPipelineDesc;
+        replayPipelineDesc.CS = m_temporalReplayShader;
+        replayPipelineDesc.bindingLayouts = {
+            m_temporalReplayBindingLayout,
+            inputs.sceneInputs->materials.textureBindlessLayout };
+        m_temporalReplayPipeline =
+            inputs.device->createComputePipeline(replayPipelineDesc);
+        if (!m_temporalReplayPipeline)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: failed to create UPT-43.4 compact replay pipeline\n");
+            return false;
+        }
+    }
     common->Printf(
-        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u threeVertexReplay=%u family=%s sharedReuseAdapter(requested/effective)=%u/%u commonGrisMerge(requested/effective)=%u/%u shading=%s bottleneckProbe=%u createUs=%llu\n",
+        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u threeVertexReplay=%u family=%s sharedReuseAdapter(requested/effective)=%u/%u commonGrisMerge(requested/effective)=%u/%u replayCompaction=%u replayBlobBytes=%d replayHash=%016llx shading=%s bottleneckProbe=%u createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -4900,6 +5052,9 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         sharedReuseAdapter ? 1u : 0u,
         commonGrisMergeRequested ? 1u : 0u,
         commonGrisMerge ? 1u : 0u,
+        replayCompaction ? 1u : 0u,
+        replaySize,
+        static_cast<unsigned long long>(replayHash),
         (inputs.frozenStaticDiagnostic || inputs.frozenLightDiagnostic)
             ? (inputs.lambertDiagnostic
                 ? "frozen-factor-lambert"
@@ -4976,6 +5131,123 @@ bool PathTraceUnifiedPtState::EnsureTemporalBottleneckBuffer(
     return m_temporalBottleneckBuffer != nullptr
         && (inputs.temporalBottleneckProbe != 12u
             || m_temporalWorkBudgetReadback != nullptr);
+}
+
+bool PathTraceUnifiedPtState::EnsureTemporalReplayCompactionBuffers(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_temporalReplayCompaction)
+        return true;
+    const uint64_t count64 = uint64_t(inputs.width) * uint64_t(inputs.height);
+    if (count64 == 0u || count64 > UINT32_MAX)
+        return false;
+    const uint32_t count = static_cast<uint32_t>(count64);
+    if (m_temporalReplayQueue && m_temporalReplayMeta
+        && m_temporalReplayDispatchArgs
+        && m_temporalReplayCapacity == count
+        && (!r_pathTracingUnifiedPtTemporalReplayCompactionDiagnostics.GetBool()
+            || m_temporalReplayReadback))
+        return true;
+
+    nvrhi::BufferDesc queueDesc;
+    queueDesc.debugName = "PathTraceUnifiedPtTemporalReplayQueue";
+    queueDesc.byteSize = count64 * sizeof(uint32_t);
+    queueDesc.structStride = sizeof(uint32_t);
+    queueDesc.canHaveUAVs = true;
+    queueDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    queueDesc.keepInitialState = true;
+    m_temporalReplayQueue = inputs.device->createBuffer(queueDesc);
+
+    nvrhi::BufferDesc metaDesc;
+    metaDesc.debugName = "PathTraceUnifiedPtTemporalReplayMeta";
+    metaDesc.byteSize = 2u * sizeof(uint32_t);
+    metaDesc.structStride = sizeof(uint32_t);
+    metaDesc.canHaveUAVs = true;
+    metaDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    metaDesc.keepInitialState = true;
+    m_temporalReplayMeta = inputs.device->createBuffer(metaDesc);
+
+    nvrhi::BufferDesc argsDesc;
+    argsDesc.debugName = "PathTraceUnifiedPtTemporalReplayDispatchArgs";
+    argsDesc.byteSize = 3u * sizeof(uint32_t);
+    argsDesc.structStride = sizeof(uint32_t);
+    argsDesc.canHaveUAVs = true;
+    argsDesc.isDrawIndirectArgs = true;
+    argsDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    argsDesc.keepInitialState = true;
+    m_temporalReplayDispatchArgs = inputs.device->createBuffer(argsDesc);
+
+    m_temporalReplayReadback = nullptr;
+    if (r_pathTracingUnifiedPtTemporalReplayCompactionDiagnostics.GetBool())
+    {
+        nvrhi::BufferDesc readbackDesc;
+        readbackDesc.debugName =
+            "PathTraceUnifiedPtTemporalReplayReadback";
+        readbackDesc.byteSize = 5u * sizeof(uint32_t);
+        readbackDesc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        readbackDesc.initialState = nvrhi::ResourceStates::CopyDest;
+        readbackDesc.keepInitialState = true;
+        m_temporalReplayReadback = inputs.device->createBuffer(readbackDesc);
+    }
+    m_temporalReplayCapacity = m_temporalReplayQueue
+            && m_temporalReplayMeta && m_temporalReplayDispatchArgs
+        ? count : 0u;
+    for (uint32_t page = 0u; page < 2u; ++page)
+    {
+        m_temporalBindingSets[page] = nullptr;
+        m_temporalBindingSetDescValid[page] = false;
+        m_temporalReplayBindingSets[page] = nullptr;
+        m_temporalReplayBindingSetDescValid[page] = false;
+    }
+    if (m_temporalReplayCapacity != 0u)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: temporal replay compaction queue pixels=%u bytes=%llu recordBytes=4 clear=never resetBytes=20 groups=64x1\n",
+            count,
+            static_cast<unsigned long long>(queueDesc.byteSize));
+    }
+    return m_temporalReplayCapacity != 0u
+        && (!r_pathTracingUnifiedPtTemporalReplayCompactionDiagnostics.GetBool()
+            || m_temporalReplayReadback != nullptr);
+}
+
+void PathTraceUnifiedPtState::DrainTemporalReplayCompactionReadback(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_temporalReplayReadbackPending
+        || !m_temporalReplayReadback || !inputs.device)
+        return;
+    if (m_temporalReplayReadbackDelayFrames > 0)
+    {
+        --m_temporalReplayReadbackDelayFrames;
+        return;
+    }
+    const uint32_t* words = static_cast<const uint32_t*>(
+        inputs.device->mapBuffer(
+            m_temporalReplayReadback, nvrhi::CpuAccessMode::Read));
+    if (!words)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: temporal replay compaction readback map failed\n");
+        m_temporalReplayReadbackPending = false;
+        return;
+    }
+    const uint32_t groups = words[0];
+    const uint32_t groupY = words[1];
+    const uint32_t groupZ = words[2];
+    const uint32_t published = words[3];
+    const uint32_t capacity = words[4];
+    const uint32_t bounded = Min(published, capacity);
+    const uint32_t expectedGroups = (bounded + 63u) / 64u;
+    common->Printf(
+        "PathTraceUnifiedPt: temporal replay compaction published/bounded/capacity=%u/%u/%u groups(actual/expected,y,z)=%u/%u/%u/%u overflow=%u status=%s\n",
+        published, bounded, capacity,
+        groups, expectedGroups, groupY, groupZ,
+        published > capacity ? published - capacity : 0u,
+        groups == expectedGroups && groupY == 1u && groupZ == 1u
+            ? "PASS" : "FAIL");
+    inputs.device->unmapBuffer(m_temporalReplayReadback);
+    m_temporalReplayReadbackPending = false;
 }
 
 bool PathTraceUnifiedPtState::EnsureTemporalDiagnosticBuffers(
@@ -5486,6 +5758,12 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
     {
         return false;
     }
+    if (m_temporalReplayCompaction
+        && (!m_temporalReplayQueue || !m_temporalReplayMeta
+            || !m_temporalReplayDispatchArgs
+            || !m_temporalReplayPipeline
+            || !m_temporalReplayBindingLayout))
+        return false;
 
     const uint32_t pageIndex = m_currentPageIndex;
     nvrhi::BindingSetDesc desc;
@@ -5520,11 +5798,23 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
     if (inputs.temporalBottleneckProbe != 0u)
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
             31, m_temporalBottleneckBuffer));
+    if (m_temporalReplayCompaction)
+    {
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            33, m_temporalReplayQueue));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            34, m_temporalReplayMeta));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            35, m_temporalReplayDispatchArgs));
+    }
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT07_PUSH_CONSTANT_BYTES));
     if (m_temporalBindingSets[pageIndex] &&
         m_temporalBindingSetDescValid[pageIndex] &&
-        m_temporalBindingSetDescs[pageIndex] == desc)
+        m_temporalBindingSetDescs[pageIndex] == desc
+        && (!m_temporalReplayCompaction
+            || (m_temporalReplayBindingSets[pageIndex]
+                && m_temporalReplayBindingSetDescValid[pageIndex])))
     {
         return true;
     }
@@ -5538,6 +5828,56 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
     }
     m_temporalBindingSetDescs[pageIndex] = desc;
     m_temporalBindingSetDescValid[pageIndex] = true;
+
+    if (m_temporalReplayCompaction)
+    {
+        nvrhi::BindingSetDesc replayDesc;
+        replayDesc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(
+            0, geometry.tlas));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            1, inputs.primarySurfaceCurrentBuffer));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            2, inputs.primarySurfacePreviousBuffer));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            3, CurrentPage()));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            4, HistoryPage()));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            5, lightBuffer));
+        Upt04AddReplayGeometryBindingItems(
+            replayDesc, *inputs.sceneInputs);
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            22, lights.unifiedPtEmissiveLookupBuffer));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            23, lights.restirLightManagerPreviousToCurrentBuffer));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            24, m_duplicationScores[m_historyPageIndex]));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            25, inputs.primaryHistorySidecarCurrentBuffer));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            26, inputs.primaryHistorySidecarPreviousBuffer));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            27, materials.materialTableBuffer));
+        replayDesc.addItem(nvrhi::BindingSetItem::Sampler(
+            28, materials.textureSampler));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            33, m_temporalReplayQueue));
+        replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            34, m_temporalReplayMeta));
+        replayDesc.addItem(nvrhi::BindingSetItem::PushConstants(
+            0, UPT07_PUSH_CONSTANT_BYTES));
+        m_temporalReplayBindingSets[pageIndex] =
+            inputs.device->createBindingSet(
+                replayDesc, m_temporalReplayBindingLayout);
+        if (!m_temporalReplayBindingSets[pageIndex])
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: failed to create UPT-43.4 compact replay binding set\n");
+            return false;
+        }
+        m_temporalReplayBindingSetDescs[pageIndex] = replayDesc;
+        m_temporalReplayBindingSetDescValid[pageIndex] = true;
+    }
     return true;
 }
 
@@ -5548,6 +5888,9 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
     PollTemporalGpuTiming(inputs);
     DrainTemporalDiagnosticReadback(inputs);
     DrainTemporalWorkBudgetReadback(inputs);
+    DrainTemporalReplayCompactionReadback(inputs);
+    if (!r_pathTracingUnifiedPtTemporalReplayCompactionDiagnostics.GetBool())
+        m_temporalReplayDiagnosticCaptured = false;
     if (!inputs.temporal)
     {
         m_reportedTemporalSkipReason = -1;
@@ -5596,6 +5939,8 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
         return reportSkip(5, "pipeline-unavailable");
     if (!EnsureTemporalBottleneckBuffer(inputs))
         return reportSkip(10, "bottleneck-probe-buffer-unavailable");
+    if (!EnsureTemporalReplayCompactionBuffers(inputs))
+        return reportSkip(11, "replay-compaction-buffer-unavailable");
     if (!EnsureTemporalBindingSet(inputs))
         return reportSkip(6, "binding-set-unavailable");
 
@@ -5816,6 +6161,30 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             inputs.commandList->setBufferState(
                 m_temporalBottleneckBuffer,
                 nvrhi::ResourceStates::UnorderedAccess);
+        if (m_temporalReplayCompaction)
+        {
+            const uint32_t replayArgs[3] = { 0u, 1u, 1u };
+            const uint32_t replayMeta[2] = {
+                0u, m_temporalReplayCapacity };
+            // Reset only the 20 bytes that own count/capacity/indirect args.
+            // Queue contents are bounded by the freshly published count and
+            // are deliberately never cleared.
+            inputs.commandList->writeBuffer(
+                m_temporalReplayDispatchArgs,
+                replayArgs, sizeof(replayArgs));
+            inputs.commandList->writeBuffer(
+                m_temporalReplayMeta,
+                replayMeta, sizeof(replayMeta));
+            inputs.commandList->setBufferState(
+                m_temporalReplayQueue,
+                nvrhi::ResourceStates::UnorderedAccess);
+            inputs.commandList->setBufferState(
+                m_temporalReplayMeta,
+                nvrhi::ResourceStates::UnorderedAccess);
+            inputs.commandList->setBufferState(
+                m_temporalReplayDispatchArgs,
+                nvrhi::ResourceStates::UnorderedAccess);
+        }
         inputs.commandList->commitBarriers();
         if (captureTemporalDiagnostics)
         {
@@ -5838,9 +6207,71 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             (inputs.width + 7u) / 8u,
             (inputs.height + 7u) / 8u,
             1u);
+        if (m_temporalReplayCompaction)
+        {
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, CurrentPage());
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_temporalReplayQueue);
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_temporalReplayMeta);
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_temporalReplayDispatchArgs);
+            inputs.commandList->setBufferState(
+                m_temporalReplayQueue,
+                nvrhi::ResourceStates::ShaderResource);
+            inputs.commandList->setBufferState(
+                m_temporalReplayMeta,
+                nvrhi::ResourceStates::ShaderResource);
+            inputs.commandList->setBufferState(
+                m_temporalReplayDispatchArgs,
+                nvrhi::ResourceStates::IndirectArgument);
+            inputs.commandList->commitBarriers();
+
+            Upt04MarkerScope replayMarker(
+                inputs.commandList,
+                "UPT.T0b Temporal Compact Exact Replay",
+                inputs.nsightMarkers);
+            nvrhi::ComputeState replayState;
+            replayState.pipeline = m_temporalReplayPipeline;
+            replayState.bindings = {
+                m_temporalReplayBindingSets[m_currentPageIndex],
+                inputs.sceneInputs->materials.textureDescriptorTable };
+            replayState.indirectParams = m_temporalReplayDispatchArgs;
+            inputs.commandList->setComputeState(replayState);
+            inputs.commandList->setPushConstants(&control, sizeof(control));
+            inputs.commandList->dispatchIndirect(0u);
+        }
         if (temporalGpuTimer)
             inputs.commandList->endTimerQuery(temporalGpuTimer);
         nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
+        if (m_temporalReplayCompaction
+            && r_pathTracingUnifiedPtTemporalReplayCompactionDiagnostics.GetBool()
+            && !m_temporalReplayReadbackPending
+            && !m_temporalReplayDiagnosticCaptured)
+        {
+            inputs.commandList->setBufferState(
+                m_temporalReplayDispatchArgs,
+                nvrhi::ResourceStates::CopySource);
+            inputs.commandList->setBufferState(
+                m_temporalReplayMeta,
+                nvrhi::ResourceStates::CopySource);
+            inputs.commandList->setBufferState(
+                m_temporalReplayReadback,
+                nvrhi::ResourceStates::CopyDest);
+            inputs.commandList->commitBarriers();
+            inputs.commandList->copyBuffer(
+                m_temporalReplayReadback, 0u,
+                m_temporalReplayDispatchArgs, 0u,
+                3u * sizeof(uint32_t));
+            inputs.commandList->copyBuffer(
+                m_temporalReplayReadback, 3u * sizeof(uint32_t),
+                m_temporalReplayMeta, 0u,
+                2u * sizeof(uint32_t));
+            m_temporalReplayReadbackPending = true;
+            m_temporalReplayDiagnosticCaptured = true;
+            m_temporalReplayReadbackDelayFrames = 2;
+        }
         if (captureTemporalDiagnostics)
         {
             nvrhi::utils::BufferUavBarrier(
