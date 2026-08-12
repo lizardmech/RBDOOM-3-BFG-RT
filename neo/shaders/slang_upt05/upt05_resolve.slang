@@ -2,6 +2,8 @@ import upt03_reservoir_contract;
 import upt04_primary_surface_live_contract;
 import upt04_packed_primary_surface;
 import upt04_packed_primary_surface32;
+import upt04_material_contract;
+import upt04_material_primary_live;
 
 #ifndef UPT05_PRIMARY_RECEIVER_MODE
 #define UPT05_PRIMARY_RECEIVER_MODE 0
@@ -17,6 +19,8 @@ public struct Upt05ResolveControl
     public uint renderHeight;
     public uint surfaceCount;
     public uint view;
+    public float3 primaryCameraOrigin;
+    public uint reserved0;
 };
 
 [[vk::binding(0, 0)]] StructuredBuffer<Upt03PackedReservoir> gUpt05Reservoirs;
@@ -61,8 +65,22 @@ public float3 Upt05LoadPrimaryEmission(uint surfaceIndex)
 #endif
 }
 
+public Upt04PrimarySurfaceRecord Upt05LoadPrimarySurface(uint surfaceIndex)
+{
+#if UPT05_PRIMARY_RECEIVER_MODE == 1
+    return Upt04UnpackPrimarySurface(gUpt05PrimarySurfaces[surfaceIndex]);
+#elif UPT05_PRIMARY_RECEIVER_MODE == 2
+    return Upt04UnpackPrimarySurface32(
+        gUpt05PrimarySurfaces[surfaceIndex],
+        gUpt05Control.primaryCameraOrigin);
+#else
+    return gUpt05PrimarySurfaces[surfaceIndex];
+#endif
+}
+
 public bool Upt05DecodeEstimate(
     Upt03PackedReservoir packed,
+    uint surfaceIndex,
     out float3 estimate,
     out float3 selectedContribution,
     out float normalization,
@@ -94,8 +112,8 @@ public bool Upt05DecodeEstimate(
     const float meanWeight = asfloat(packed.word11);
     const float proposalPdf = asfloat(packed.word12);
 
-    // Words 13..15 are an event-specific union. Static secondary hits carry a
-    // reconnection locator there; all other events carry the path-PDF,
+    // Words 13..15 are an event-specific union. Cached secondary NEE carries
+    // its exact x2 position there; all other events carry the path-PDF,
     // Jacobian and roulette tuple. Resolve must validate the active arm only.
     Upt03Candidate metadata = (Upt03Candidate)0;
     metadata.status = 2u;
@@ -104,22 +122,17 @@ public bool Upt05DecodeEstimate(
     metadata.pathLength = (packed.word0 >> 24u) & 0x0fu;
     metadata.reconnectionVertexLength = (packed.word0 >> 28u) & 0x0fu;
     metadata.proposalPdf = proposalPdf;
-    const bool hasStaticLocator = Upt03HasStaticReconnectionLocator(metadata);
+    const bool hasCachedX2 = Upt03HasCachedX2Endpoint(metadata);
     bool metadataValid = false;
-    if (hasStaticLocator)
+    if (hasCachedX2)
     {
-        metadata.reconnectionInstanceId = packed.word13
-            & kUpt03PackedReconnectInstanceMask;
-        metadata.reconnectionFrontFace = (packed.word13
-            & kUpt03PackedReconnectFrontFaceBit) != 0u ? 1u : 0u;
-        metadata.reconnectionPrimitiveId = packed.word14;
-        metadata.reconnectionBarycentrics =
-            Upt03UnpackReconnectBarycentrics(packed.word15);
-        const uint locatorReservedBits = packed.word13
-            & ~(kUpt03PackedReconnectInstanceMask
-                | kUpt03PackedReconnectFrontFaceBit);
-        metadataValid = locatorReservedBits == 0u
-            && Upt03StaticReconnectionLocatorValid(metadata);
+        metadata.reconnectionNormalPacked = packed.word3;
+        metadata.reconnectionPosition = asfloat(uint3(
+            packed.word13, packed.word14, packed.word15));
+        metadata.contributionR = selectedContribution.x;
+        metadata.contributionG = selectedContribution.y;
+        metadata.contributionB = selectedContribution.z;
+        metadataValid = Upt03CachedX2EndpointValid(metadata);
     }
     else
     {
@@ -139,6 +152,28 @@ public bool Upt05DecodeEstimate(
         return false;
 
     normalization = meanWeight / selectedTarget;
+    if (hasCachedX2)
+    {
+        const Upt04PrimarySurfaceRecord receiver =
+            Upt05LoadPrimarySurface(surfaceIndex);
+        const float3 delta = metadata.reconnectionPosition
+            - receiver.worldPositionAndViewDepth.xyz;
+        const float distanceSquared = dot(delta, delta);
+        if (!Upt04PrimarySurfaceRecordValid(receiver)
+            || !isfinite(distanceSquared) || distanceSquared <= 1.0e-8f)
+            return false;
+        const Upt04MaterialEvaluation primary =
+            Upt04EvaluatePrimaryDirectProbe(
+                receiver,
+                delta * rsqrt(distanceSquared),
+                selectedContribution);
+        if (primary.valid == 0u
+            || !Upt03FinitePositive(primary.directionalPdf)
+            || !Upt05FiniteNonNegative3(primary.weightedContribution))
+            return false;
+        selectedContribution = primary.weightedContribution
+            / primary.directionalPdf;
+    }
     estimate = selectedContribution * normalization;
     return isfinite(normalization) && normalization > 0.0f
         && Upt05FiniteNonNegative3(estimate);
@@ -262,6 +297,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint flags;
     const bool valid = Upt05DecodeEstimate(
         gUpt05Reservoirs[surfaceIndex],
+        surfaceIndex,
         estimate,
         selectedContribution,
         normalization,

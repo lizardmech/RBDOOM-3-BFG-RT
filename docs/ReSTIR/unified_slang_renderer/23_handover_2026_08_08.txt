@@ -2318,3 +2318,86 @@ after 16 warm-up frames. This is 3.579 ms (24.4 percent) below the preceding
 14.679 ms S43.1 median. Shared spatial remained effectively flat at 1.072 ms
 median versus 1.063 ms previously. S43.2 is accepted; checkpoint it before
 starting S43.3 trace-free x2 reconnection.
+
+S43.3 audit decision, 2026-08-12
+---------------------------------
+
+The old `TemporalEarlyReconnect` experiment is not the intended cached-x2
+path. Its reservoir stored only a static triangle locator, so every mapping
+ran the general geometry decoder, evaluated x2 source and target materials,
+and performed receiver-to-x2 visibility before selection. It was also compiled
+as a specialization mutually exclusive with the now-accepted shared adapter.
+That combination explains its roughly 6 ms regression and must not be revived.
+
+The accepted implementation plan is now fixed in document 58. The 64-byte
+secondary-NEE rcLength=2 arm will store x2 position, packed normal, and cached
+suffix radiance directly. Temporal use requires CPU-built light remap plus a
+stable current payload; spatial use stays in the current universe. Ordinary
+cached-x2 mapping performs no continuation trace and no x2 geometry/material
+decode. Exact replay remains the fallback for dynamic x2, unstable lights and
+all unsupported paths. Two transient winner-only visibility requests prove
+receiver-to-x2 and x2-to-light without adding a persistent buffer or any
+pre-selection traversal.
+
+UPT-43.3 implementation and deployment, 2026-08-12
+---------------------------------------------------
+
+UPT-43.3 cached x2 reconnection is built and deployed for runtime validation.
+ABI 14 stores stable static x2 position, packed normal and suffix radiance in
+the existing 64-byte reservoir. T0/S0 now shift these samples by evaluating
+only the current primary receiver; continuation traversal and x2
+geometry/material reconstruction are absent from this common route. Exact
+replay remains the fail-closed fallback for unsupported endpoints.
+
+Both visibility segments remain required, but only receiver-to-x2 is carried
+through mapping. The x2-to-light request is reconstructed and traced only for
+the selected winner, avoiding a second request in every transient/groupshared
+proposal record. The Vulkan build and exact RayQuery/TraceRay verifiers pass.
+RBDoom3BFG.exe and exactly 21 rebuilt UPT04/05/07/09 Vulkan blobs were
+deployed; no DX12 shader was compiled or deployed.
+
+Test with `exec uptf2.cfg` and keep the obsolete
+`r_pathTracingUnifiedPtTemporalEarlyReconnect` experiment at 0. First check
+motion, portal boundaries, emissive color/position, static props and mirrors.
+Then capture the same 16-warm-up/64-sample temporal and spatial timings used
+for S43.2. Acceptance requires temporal to improve below 11.100 ms without a
+material spatial regression above the accepted 1.072 ms median.
+
+UPT-43.3 first runtime result, 2026-08-12
+-----------------------------------------
+
+Image correctness passed, but temporal performance regressed to 11.787 ms
+median at 2560x1440 from S43.2's accepted 11.100 ms (+0.687 ms, +6.2%).
+Spatial remained effectively flat at 1.096 ms versus 1.072 ms. Do not
+checkpoint or promote S43.3 yet.
+
+The production-shaped probe-12 specialization now reports cached-x2 attempted,
+admitted, replay-fallback and selected-winner counts in addition to its
+existing per-pixel work ledger. This diagnostic compiles away from production.
+Run it at the same fixed view before modifying visibility policy or the
+estimator again.
+
+UPT-43.3 corrected performance result, 2026-08-12
+-------------------------------------------------
+
+The route ledger showed 99.2 percent cached-x2 admission and 260374 selected
+cached winners. The regression was the redundant x2-to-light trace performed
+for every such winner. Cached suffix radiance begins at x2 and already owns
+that proven suffix; only the shifted receiver-to-x2 prefix needs current
+visibility. Removing the suffix trace restored the original static RayQuery
+ceilings.
+
+With the complete `uptf2.cfg` production gates effective at 2560x1440, the
+corrected temporal median is 9.994 ms, down 1.106 ms / 10.0 percent from the
+accepted S43.2 11.100 ms. Spatial is 1.072 ms, exactly matching S43.2. The
+faulty two-ray S43.3 temporal result was 11.787 ms. Performance acceptance now
+passes; checkpoint only after visual/motion validation of this corrected
+build.
+
+UPT-43.3 final acceptance, 2026-08-12
+-------------------------------------
+
+Corrected-build visual and motion validation passed without issue. S43.3 is
+accepted at 9.994 ms temporal / 1.072 ms spatial median at 2560x1440, a 10.0
+percent temporal improvement over S43.2 with no spatial regression. Proceed to
+bounded replay-prefix compaction only after the scoped S43.3 checkpoint.

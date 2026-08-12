@@ -20,9 +20,14 @@ public static const uint kUpt07WorkSiteReciprocalReplay = 1u;
 public static const uint kUpt07WorkSiteFinalIndirectVisibility = 2u;
 public static const uint kUpt07WorkSiteFinalDirectVisibility = 3u;
 public static const uint kUpt07WorkSiteCount = 4u;
+public static const uint kUpt07WorkRouteCachedX2Attempted = 0u;
+public static const uint kUpt07WorkRouteCachedX2Admitted = 1u;
+public static const uint kUpt07WorkRouteCachedX2Fallback = 2u;
+public static const uint kUpt07WorkRouteCachedX2Winner = 3u;
+public static const uint kUpt07WorkRouteCount = 4u;
 public static const uint kUpt07WorkInvalidSite = 0xffffffffu;
 public static const uint kUpt07WorkRecordWordCount =
-    kUpt07WorkCounterCount + kUpt07WorkSiteCount + 1u;
+    kUpt07WorkCounterCount + kUpt07WorkSiteCount + kUpt07WorkRouteCount + 1u;
 
 // Diagnostic T0 ceilings. They are intentionally strict for the accepted
 // baseline unified route. Alpha-tested traversal is scene-dependent and is
@@ -48,8 +53,24 @@ public struct Upt07WorkCounters
     public uint reciprocalReplayPacked;
     public uint finalIndirectVisibilityPacked;
     public uint finalDirectVisibilityPacked;
+    public uint cachedX2Attempted;
+    public uint cachedX2Admitted;
+    public uint cachedX2Fallback;
+    public uint cachedX2Winner;
 #endif
 };
+
+public void Upt07WorkAddRoute(
+    inout Upt07WorkCounters counters,
+    uint route)
+{
+#if UPT07_BOTTLENECK_STAGE == 12
+    if (route == kUpt07WorkRouteCachedX2Attempted) ++counters.cachedX2Attempted;
+    else if (route == kUpt07WorkRouteCachedX2Admitted) ++counters.cachedX2Admitted;
+    else if (route == kUpt07WorkRouteCachedX2Fallback) ++counters.cachedX2Fallback;
+    else if (route == kUpt07WorkRouteCachedX2Winner) ++counters.cachedX2Winner;
+#endif
+}
 
 public uint Upt07WorkIncrementPackedByte(uint packed, uint shift)
 {

@@ -776,8 +776,14 @@ void Upt07PublishWorkBudget(
     for (uint site = 0u; site < kUpt07WorkSiteCount; ++site)
         gUpt07BottleneckProbe[base + kUpt07WorkCounterCount + site] =
             Upt07WorkSitePacked(work, site);
-    gUpt07BottleneckProbe[base + kUpt07WorkCounterCount
-        + kUpt07WorkSiteCount] = Upt07WorkBudgetViolationMask(work);
+    const uint routeBase = base + kUpt07WorkCounterCount
+        + kUpt07WorkSiteCount;
+    gUpt07BottleneckProbe[routeBase + 0u] = work.cachedX2Attempted;
+    gUpt07BottleneckProbe[routeBase + 1u] = work.cachedX2Admitted;
+    gUpt07BottleneckProbe[routeBase + 2u] = work.cachedX2Fallback;
+    gUpt07BottleneckProbe[routeBase + 3u] = work.cachedX2Winner;
+    gUpt07BottleneckProbe[routeBase + kUpt07WorkRouteCount] =
+        Upt07WorkBudgetViolationMask(work);
 }
 #endif
 #endif
@@ -1432,6 +1438,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 Upt07WorkEndSite(work);
                 visibilityPassed = indirectVisibilityHit.status
                     != kUpt04HitTriangle;
+                if (visibilityPassed
+                    && Upt03HasCachedX2Endpoint(
+                        merged.logical.selected))
+                    Upt07WorkAddRoute(
+                        work, kUpt07WorkRouteCachedX2Winner);
             }
         }
         else

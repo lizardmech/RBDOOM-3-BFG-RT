@@ -61,7 +61,7 @@ static constexpr uint32_t UPT04_SECONDARY_NEE_BOUNCE_INDEX = 2u;
 // NEE. T0/S0 can then consume the D0 region PDF without four repeated endpoint
 // probes. Page generations invalidate the older primary-emissive encoding
 // without clearing buffers.
-static constexpr uint32_t UPT04_ABI_VERSION = 13u;
+static constexpr uint32_t UPT04_ABI_VERSION = 14u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 107u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
@@ -76,7 +76,7 @@ static constexpr uint32_t UPT04_DIAGNOSTIC_PROBE_BYTES =
     UPT04_DIAGNOSTIC_PROBE_WORD_COUNT * sizeof(uint32_t);
 static constexpr uint32_t UPT04_DIAGNOSTIC_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_BYTES + UPT04_DIAGNOSTIC_PROBE_BYTES;
-static constexpr uint32_t UPT05_PUSH_CONSTANT_BYTES = 16u;
+static constexpr uint32_t UPT05_PUSH_CONSTANT_BYTES = 32u;
 static constexpr uint32_t UPT07_PUSH_CONSTANT_BYTES = 168u;
 static constexpr uint32_t UPT07_MAXIMUM_HISTORY_AGE = 63u;
 static constexpr uint32_t UPT07_MAXIMUM_HISTORY_CONTRIBUTION_RATIO = 32u;
@@ -92,11 +92,13 @@ static constexpr uint32_t UPT07_TEMPORAL_DIAGNOSTIC_BYTES =
     UPT07_TEMPORAL_DIAGNOSTIC_COUNT * sizeof(uint32_t);
 static constexpr uint32_t UPT07_WORK_BUDGET_COUNTER_COUNT = 8u;
 static constexpr uint32_t UPT07_WORK_BUDGET_SITE_COUNT = 4u;
+static constexpr uint32_t UPT07_WORK_BUDGET_ROUTE_COUNT = 4u;
 static constexpr uint32_t UPT07_WORK_BUDGET_SITE_METRIC_COUNT = 4u;
 static constexpr uint32_t UPT07_WORK_BUDGET_SITE_WORD_OFFSET =
     UPT07_WORK_BUDGET_COUNTER_COUNT;
 static constexpr uint32_t UPT07_WORK_BUDGET_VIOLATION_WORD =
-    UPT07_WORK_BUDGET_SITE_WORD_OFFSET + UPT07_WORK_BUDGET_SITE_COUNT;
+    UPT07_WORK_BUDGET_SITE_WORD_OFFSET + UPT07_WORK_BUDGET_SITE_COUNT
+    + UPT07_WORK_BUDGET_ROUTE_COUNT;
 static constexpr uint32_t UPT07_WORK_BUDGET_WORDS_PER_PIXEL =
     UPT07_WORK_BUDGET_VIOLATION_WORD + 1u;
 static constexpr uint32_t UPT08_PUSH_CONSTANT_BYTES = 16u;
@@ -840,6 +842,8 @@ struct Upt05ResolveControl
     uint32_t renderHeight;
     uint32_t surfaceCount;
     uint32_t view;
+    float primaryCameraOrigin[3];
+    uint32_t reserved0;
 };
 static_assert(sizeof(Upt05ResolveControl) == UPT05_PUSH_CONSTANT_BYTES,
     "UPT-05 host push constants must match Slang reflection");
@@ -5083,12 +5087,18 @@ void PathTraceUnifiedPtState::DrainTemporalWorkBudgetReadback(
         "historyReplay", "reciprocalReplay",
         "finalIndirectVisibility", "finalDirectVisibility"
     };
+    static const char* routeNames[UPT07_WORK_BUDGET_ROUTE_COUNT] = {
+        "cachedX2Attempted", "cachedX2Admitted",
+        "cachedX2Fallback", "cachedX2Winner"
+    };
     std::array<uint64_t, UPT07_WORK_BUDGET_COUNTER_COUNT> totals = {};
     std::array<uint32_t, UPT07_WORK_BUDGET_COUNTER_COUNT> maxima = {};
     std::array<uint32_t, UPT07_WORK_BUDGET_COUNTER_COUNT> nonzero = {};
     std::array<std::array<uint32_t, 257>,
         UPT07_WORK_BUDGET_COUNTER_COUNT> histograms = {};
     std::array<uint32_t, 4> violationCounts = {};
+    std::array<uint64_t, UPT07_WORK_BUDGET_ROUTE_COUNT> routeTotals = {};
+    std::array<uint32_t, UPT07_WORK_BUDGET_ROUTE_COUNT> routeActive = {};
     std::array<std::array<uint64_t, UPT07_WORK_BUDGET_SITE_METRIC_COUNT>,
         UPT07_WORK_BUDGET_SITE_COUNT> siteTotals = {};
     std::array<std::array<uint32_t, UPT07_WORK_BUDGET_SITE_METRIC_COUNT>,
@@ -5123,6 +5133,15 @@ void PathTraceUnifiedPtState::DrainTemporalWorkBudgetReadback(
                 siteActivePixels[site][metric] += value != 0u ? 1u : 0u;
                 siteSaturatedPixels[site][metric] += value == 0xffu ? 1u : 0u;
             }
+        }
+        const uint32_t routeBase = base + UPT07_WORK_BUDGET_SITE_WORD_OFFSET
+            + UPT07_WORK_BUDGET_SITE_COUNT;
+        for (uint32_t route = 0u;
+            route < UPT07_WORK_BUDGET_ROUTE_COUNT; ++route)
+        {
+            const uint32_t value = words[routeBase + route];
+            routeTotals[route] += value;
+            routeActive[route] += value != 0u ? 1u : 0u;
         }
         const uint32_t violationMask =
             words[base + UPT07_WORK_BUDGET_VIOLATION_WORD];
@@ -5167,6 +5186,19 @@ void PathTraceUnifiedPtState::DrainTemporalWorkBudgetReadback(
                 : 0.0,
             percentile(counter, 50u), percentile(counter, 90u),
             percentile(counter, 99u), maxima[counter], nonzero[counter]);
+    }
+    for (uint32_t route = 0u;
+        route < UPT07_WORK_BUDGET_ROUTE_COUNT; ++route)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: temporal route %-19s mean=%8.3f total=%llu activePixels=%u\n",
+            routeNames[route],
+            m_temporalBottleneckCapacity != 0u
+                ? double(routeTotals[route])
+                    / double(m_temporalBottleneckCapacity)
+                : 0.0,
+            static_cast<unsigned long long>(routeTotals[route]),
+            routeActive[route]);
     }
 
     static const uint32_t proceedLaneThresholds[] = { 1u, 2u, 4u, 8u, 16u, 32u };
@@ -6870,12 +6902,16 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
     {
         return false;
     }
-    const Upt05ResolveControl control = {
+    Upt05ResolveControl control = {
         inputs.width,
         inputs.height,
         static_cast<uint32_t>(surfaceCount64),
-        view
+        view,
+        {},
+        0u
     };
+    for (uint32_t axis = 0u; axis < 3u; ++axis)
+        control.primaryCameraOrigin[axis] = inputs.primaryCameraOrigin[axis];
     {
         Upt04MarkerScope marker(
             inputs.commandList,

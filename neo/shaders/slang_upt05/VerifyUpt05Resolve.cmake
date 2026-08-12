@@ -33,8 +33,9 @@ if(disassembly MATCHES "OpTraceRayKHR|OpRayQuery|OpImageSample|OpImageFetch")
     message(FATAL_ERROR "UPT-05 resolve contains forbidden ray or texture-sampling work")
 endif()
 foreach(required_source_text
-        "const bool hasStaticLocator = Upt03HasStaticReconnectionLocator(metadata)"
-        "Upt03StaticReconnectionLocatorValid(metadata)"
+        "const bool hasCachedX2 = Upt03HasCachedX2Endpoint(metadata)"
+        "Upt03CachedX2EndpointValid(metadata)"
+        "Upt04EvaluatePrimaryDirectProbe"
         "Upt03StoredProposalPayloadValid(metadata)")
     string(FIND "${source}" "${required_source_text}" source_offset)
     if(source_offset EQUAL -1)

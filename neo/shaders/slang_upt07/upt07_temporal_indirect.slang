@@ -14,6 +14,18 @@ import upt04_material_provider_contract;
 #ifndef UPT_DIAGNOSTIC_LAMBERT
 #define UPT_DIAGNOSTIC_LAMBERT 0
 #endif
+
+public bool Upt07CachedX2HitHasStableStaticLocator(Upt04HitFacts hit)
+{
+    if (hit.status != kUpt04HitTriangle || hit.geometryId != 0u
+        || hit.instanceId > kUpt04ShaderInstanceMask)
+        return false;
+    if (hit.instanceId == 0u)
+        return true;
+    return Upt04StaticBucketRouteAvailable()
+        && (hit.instanceId & kUpt04StaticBucketInstanceBit) != 0u
+        && (hit.instanceId & ~kUpt04ShaderInstanceMask) == 0u;
+}
 #if UPT_DIAGNOSTIC_LAMBERT
 import upt07_material_lambert_diagnostic;
 #else
@@ -110,17 +122,6 @@ public void Upt07ReconnectDiag(uint counter)
     InterlockedAdd(gUpt07ReconnectDiagnostics[counter], 1u, ignored);
 }
 
-public bool Upt07HitHasStableStaticLocator(Upt04HitFacts hit)
-{
-    if (hit.status != kUpt04HitTriangle || hit.geometryId != 0u
-        || hit.instanceId > kUpt03PackedReconnectInstanceMask)
-        return false;
-    if (hit.instanceId == 0u)
-        return true;
-    return Upt04StaticBucketRouteAvailable()
-        && (hit.instanceId & kUpt04StaticBucketInstanceBit) != 0u
-        && (hit.instanceId & ~kUpt04ShaderInstanceMask) == 0u;
-}
 #endif
 
 // Transient T0 work only. Secondary-NEE replay reconstructs this request while
@@ -522,7 +523,8 @@ public uint Upt07ResolveStoredSecondaryLight(
     const bool dynamicEmissive = light.type == kUpt04LightEmissiveTriangle
         && (light.flags & kUpt04EmissiveHistoryDynamic) != 0u;
     if (!inExpectedRange || dynamicEmissive || light.type != lightType
-        || source.identity1 != Upt04StableLightIdentityFingerprint(light))
+        || (!Upt03HasCachedX2Endpoint(source)
+            && source.identity1 != Upt04StableLightIdentityFingerprint(light)))
         return 0u;
 
     Upt04LocalLightRanges ranges;
@@ -655,283 +657,116 @@ public uint Upt07ReplayStoredSecondaryLight(
     return sample.status != kUpt04SampleInvalid ? 1u : 0u;
 }
 
-#if UPT07_EARLY_RECONNECT
-public uint Upt07TryStaticSecondaryReconnect(
+// RTXDI-shaped common x2 mapping. The reservoir already owns the exact
+// reconnectible endpoint and its outgoing suffix radiance, so mapping a new
+// primary receiver requires no continuation trace and no x2 geometry/material
+// reconstruction. Both visibility segments are deferred until this mapped
+// proposal wins the reservoir update.
+public uint Upt07TryCachedX2Reconnect(
     Upt03Candidate source,
     Upt04PrimarySurfaceRecord sourceReceiver,
     Upt04PrimarySurfaceRecord targetReceiver,
     uint sourceIsHistory,
     uint storedDenseIndex,
     uint storedLightType,
-    float storedSelectionPdf,
     out Upt03Candidate shifted,
     out float shiftJacobian,
     out Upt07PendingIndirectVisibility pendingVisibility,
     inout Upt07WorkCounters work)
 {
+    Upt07WorkAddRoute(work, kUpt07WorkRouteCachedX2Attempted);
     shifted = (Upt03Candidate)0;
     shiftJacobian = 1.0f;
     pendingVisibility = (Upt07PendingIndirectVisibility)0;
     pendingVisibility.ignore = Upt04NoVisibilityIgnore();
-    Upt07ReconnectDiag(kUpt07ReconnectDiagAttempted);
-
-    if (!Upt03StaticReconnectionLocatorValid(source))
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagInvalidLocator);
+    if (!Upt03CachedX2EndpointValid(source)
+        || !Upt04PrimarySurfaceRecordValid(sourceReceiver)
+        || !Upt04PrimarySurfaceRecordValid(targetReceiver)
+        || storedDenseIndex >= gUpt07Control.currentLightCount)
         return 0u;
-    }
-    Upt04HitFacts reconnectHit = (Upt04HitFacts)0;
-    reconnectHit.status = kUpt04HitTriangle;
-    reconnectHit.instanceId = source.reconnectionInstanceId;
-    reconnectHit.geometryId = 0u;
-    reconnectHit.primitiveId = source.reconnectionPrimitiveId;
-    reconnectHit.barycentrics = source.reconnectionBarycentrics;
-    reconnectHit.frontFace = source.reconnectionFrontFace;
-    Upt07WorkAdd(work, kUpt07WorkGeometryResolves);
-    const Upt04GeometryHitSurface hitSurface =
-        Upt04DecodeGeometryHit(reconnectHit);
-    if (hitSurface.valid == 0u)
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagInvalidLocator);
-        return 0u;
-    }
-    Upt07ReconnectDiag(kUpt07ReconnectDiagLocatorDecoded);
-
-    const float3 sourcePosition =
-        sourceReceiver.worldPositionAndViewDepth.xyz;
-    const float3 targetPosition =
-        targetReceiver.worldPositionAndViewDepth.xyz;
-    const float3 sourceDelta = hitSurface.position - sourcePosition;
-    const float sourceDistanceSquared = dot(sourceDelta, sourceDelta);
-    if (!Upt04FinitePositive(sourceDistanceSquared)
-        || sourceReceiver.geometricNormalAndRoughness.w
-            < kUpt07ReconnectMinimumRoughness)
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagFootprintRejected);
-        return 0u;
-    }
-    const float sourceDistance = sqrt(sourceDistanceSquared);
-    const float3 sourceDirection = sourceDelta / sourceDistance;
-    const float sourceCosine = saturate(dot(
-        sourceReceiver.geometricNormalAndRoughness.xyz,
-        sourceDirection));
-    const Upt04MaterialEvaluation sourcePrimary =
-        Upt04EvaluatePrimaryDirectProbe(
-            sourceReceiver, sourceDirection, float3(1.0f));
 
     Upt07WorkAdd(work, kUpt07WorkLightRecordLoads);
-    const Upt04UnifiedLightRecord storedLight =
-        Upt07LoadLight(storedDenseIndex);
-    Upt04LocalLightSample selectedSample;
-    if (Upt07ReplayStoredSecondaryLight(
-            source,
-            storedLightType,
-            storedLight,
-            hitSurface.position,
-            selectedSample) == 0u
-        || selectedSample.status != kUpt04SampleValidPositive)
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagSourceEvaluationFailure);
+    const Upt04UnifiedLightRecord storedLight = Upt07LoadLight(storedDenseIndex);
+    if (storedLight.type != storedLightType)
         return 0u;
-    }
-    Upt07WorkAdd(work, kUpt07WorkMaterialRecordLoads);
-    const Upt04MaterialEvaluation sourceSecondary =
-        Upt07EvaluateSecondaryDirect(
-            hitSurface,
-            -sourceDirection,
-            selectedSample.direction,
-            selectedSample.radiance);
-    const float reverseCosine = saturate(dot(
-        hitSurface.geometricNormal, -sourceDirection));
-    const float sourceGeometry = sourceCosine / sourceDistanceSquared;
-    const float reverseGeometry = reverseCosine / sourceDistanceSquared;
-    if (sourcePrimary.valid == 0u || sourceSecondary.valid == 0u
-        || !Upt04FinitePositive(sourcePrimary.directionalPdf)
-        || !Upt04FinitePositive(sourceSecondary.directionalPdf)
-        || !Upt04FinitePositive(sourceGeometry))
+    if (sourceIsHistory != 0u)
     {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagSourceEvaluationFailure);
-        return 0u;
+        if (storedLightType == kUpt04LightDoomAnalytic)
+        {
+            if ((storedLight.flags & kUpt04LightStableCacheable) == 0u)
+                return 0u;
+        }
+        else if ((storedLight.flags & kUpt04EmissiveHistoryDynamic) != 0u)
+        {
+            return 0u;
+        }
     }
 
-    const float3 sourceCamera = sourceIsHistory != 0u
-        ? gUpt07Control.previousCamera.origin
-        : gUpt07Control.primaryCameraOrigin;
-    const float3 cameraDelta = sourceCamera - sourcePosition;
-    const float cameraDistanceSquared = dot(cameraDelta, cameraDelta);
-    const float3 cameraDirection = Upt04GeometrySafeNormalize(
-        cameraDelta,
-        sourceReceiver.viewDirectionAndReserved.xyz);
-    const float cameraCosine = saturate(dot(
-        sourceReceiver.geometricNormalAndRoughness.xyz,
-        cameraDirection));
-    if (!Upt04FinitePositive(cameraDistanceSquared)
-        || !Upt04FinitePositive(cameraCosine))
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagSourceEvaluationFailure);
-        return 0u;
-    }
-    const float primaryFootprint = 1.0f
-        / (sourcePrimary.directionalPdf * sourceGeometry);
-    // Section 4 omits the inverse footprint at diffuse vertices.  The live
-    // OpenPBR evaluator exposes the same two-lobe mask used by D0; only a
-    // pure diffuse secondary is allowed to take that omission.
-    const bool diffuseSecondary = sourceSecondary.lobeMask == 1u;
-    const float inverseFootprint = diffuseSecondary
-        ? primaryFootprint
-        : (Upt04FinitePositive(reverseGeometry)
-            ? 1.0f / (sourceSecondary.directionalPdf * reverseGeometry)
-            : 0.0f);
-    const float cameraFootprint = kUpt07ReconnectFootprintScale
-        * cameraDistanceSquared * (4.0f * 3.14159265358979323846f)
-        / cameraCosine;
-    if (!Upt04FinitePositive(primaryFootprint)
-        || !Upt04FinitePositive(inverseFootprint)
-        || !Upt04FinitePositive(cameraFootprint)
-        || min(primaryFootprint, inverseFootprint) < cameraFootprint)
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagFootprintRejected);
-        return 0u;
-    }
-    Upt07ReconnectDiag(kUpt07ReconnectDiagFootprintAccepted);
-
-    shifted = source;
-    shifted.status = kUpt04SampleValidZero;
-    shifted.flags = kUpt04CandidateFlagGlobal
-        | kUpt04CandidateFlagReplayable
-        | kUpt04CandidateFlagNeedsShift
-        | (source.flags & kUpt04CandidateFlagDirectProposalParity);
-    shifted.age = 0u;
-    shifted.replayKey = source.replayKey & 0x7fffffffu;
-    shifted.generationFingerprint = kUpt03ExpectedGeneration;
-    shifted.identity0 = storedDenseIndex + 1u;
-    shifted.identity1 = Upt04StableLightIdentityFingerprint(storedLight);
-    shifted.pathLength = 2u;
-    shifted.reconnectionVertexLength = 2u;
-    shifted.pathPdf = 1.0f;
-    shifted.partialJacobian = 1.0f;
-    shifted.accumulatedRouletteProbability = 1.0f;
-    shifted.contributionR = 0.0f;
-    shifted.contributionG = 0.0f;
-    shifted.contributionB = 0.0f;
-    shifted.target = 0.0f;
-
-    const float3 targetDelta = hitSurface.position - targetPosition;
+    const float3 x2Position = source.reconnectionPosition;
+    const float3 x2Normal = Upt04DecodeVertexOctahedral(
+        source.reconnectionNormalPacked);
+    const float3 suffixRadiance = float3(
+        source.contributionR,
+        source.contributionG,
+        source.contributionB);
+    const float3 sourceDelta = x2Position
+        - sourceReceiver.worldPositionAndViewDepth.xyz;
+    const float3 targetDelta = x2Position
+        - targetReceiver.worldPositionAndViewDepth.xyz;
+    const float sourceDistanceSquared = dot(sourceDelta, sourceDelta);
     const float targetDistanceSquared = dot(targetDelta, targetDelta);
-    if (!Upt04FinitePositive(targetDistanceSquared))
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagTargetEvaluationFailure);
-        return 2u;
-    }
+    if (!Upt04FinitePositive(sourceDistanceSquared)
+        || !Upt04FinitePositive(targetDistanceSquared))
+        return 0u;
+    const float sourceDistance = sqrt(sourceDistanceSquared);
     const float targetDistance = sqrt(targetDistanceSquared);
+    const float3 sourceDirection = sourceDelta / sourceDistance;
     const float3 targetDirection = targetDelta / targetDistance;
-    const float targetCosine = saturate(dot(
-        targetReceiver.geometricNormalAndRoughness.xyz,
-        targetDirection));
-    const float targetGeometry = targetCosine / targetDistanceSquared;
+    const float sourceCosine = saturate(dot(x2Normal, -sourceDirection));
+    const float targetCosine = saturate(dot(x2Normal, -targetDirection));
+    if (!Upt04FinitePositive(sourceCosine)
+        || !Upt04FinitePositive(targetCosine))
+        return 0u;
+
     const Upt04MaterialEvaluation targetPrimary =
         Upt04EvaluatePrimaryDirectProbe(
-            targetReceiver, targetDirection, float3(1.0f));
-    Upt07WorkAdd(work, kUpt07WorkMaterialRecordLoads);
-    const Upt04MaterialEvaluation targetSecondary =
-        Upt07EvaluateSecondaryDirect(
-            hitSurface,
-            -targetDirection,
-            selectedSample.direction,
-            selectedSample.radiance);
+            targetReceiver, targetDirection, suffixRadiance);
+    if (targetPrimary.valid == 0u
+        || !Upt04FinitePositive(targetPrimary.directionalPdf))
+        return 0u;
+    const float3 contribution = targetPrimary.weightedContribution
+        / targetPrimary.directionalPdf;
+    const float target = max(contribution.x,
+        max(contribution.y, contribution.z));
+    shiftJacobian = (targetCosine / targetDistanceSquared)
+        * (sourceDistanceSquared / sourceCosine);
+    if (!all(isfinite(contribution))
+        || !Upt04FinitePositive(target)
+        || !Upt04FinitePositive(shiftJacobian))
+        return 0u;
 
-    if (targetPrimary.valid == 0u || targetSecondary.valid == 0u
-        || !Upt04FinitePositive(targetPrimary.directionalPdf)
-        || !Upt04FinitePositive(targetSecondary.directionalPdf)
-        || !Upt04FinitePositive(targetGeometry))
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagTargetEvaluationFailure);
-        Upt07ReconnectDiag(kUpt07ReconnectDiagZero);
-        return 2u;
-    }
-    shiftJacobian = targetPrimary.directionalPdf * targetGeometry
-        * targetSecondary.directionalPdf
-        / (sourcePrimary.directionalPdf * sourceGeometry
-            * sourceSecondary.directionalPdf);
-    if (!Upt04FinitePositive(shiftJacobian))
-    {
-        shiftJacobian = 1.0f;
-        Upt07ReconnectDiag(kUpt07ReconnectDiagJacobianFailure);
-        Upt07ReconnectDiag(kUpt07ReconnectDiagZero);
-        return 2u;
-    }
-
-    Upt04TraceRequest reconnectVisibility;
     if (!Upt04BuildPrimaryVisibilityRequest(
-            targetPosition,
+            targetReceiver.worldPositionAndViewDepth.xyz,
             targetReceiver.geometricNormalAndRoughness.xyz,
             targetReceiver.shadingNormalAndOpacity.xyz,
             targetDirection,
             targetDistance,
-            reconnectVisibility))
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagTargetEvaluationFailure);
-        Upt07ReconnectDiag(kUpt07ReconnectDiagZero);
-        return 2u;
-    }
-    Upt07ReconnectDiag(kUpt07ReconnectDiagVisibilityExecuted);
-    const Upt04HitFacts blocker = Upt07TraceIndirect(
-        reconnectVisibility, 1u, Upt04NoVisibilityIgnore(), work);
-    if (blocker.status == kUpt04HitTriangle)
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagVisibilityFailed);
-        Upt07ReconnectDiag(kUpt07ReconnectDiagZero);
-        return 2u;
-    }
-    Upt07ReconnectDiag(kUpt07ReconnectDiagVisibilityPassed);
-
-    const float3 continuationThroughput =
-        targetPrimary.weightedContribution
-        / targetPrimary.directionalPdf;
-    const float3 contribution = continuationThroughput
-        * targetSecondary.weightedContribution;
-    const float target = max(contribution.x,
-        max(contribution.y, contribution.z));
-    const float sourcePdf = storedSelectionPdf
-        * selectedSample.solidAnglePdf;
-    if (!all(isfinite(contribution)) || !Upt04FinitePositive(target)
-        || !Upt04FinitePositive(sourcePdf))
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagTargetEvaluationFailure);
-        Upt07ReconnectDiag(kUpt07ReconnectDiagZero);
-        return 2u;
-    }
-
-    if (!Upt04BuildPrimaryVisibilityRequest(
-            hitSurface.position,
-            hitSurface.geometricNormal,
-            hitSurface.shadingNormal,
-            selectedSample.direction,
-            selectedSample.distance,
             pendingVisibility.request))
-    {
-        Upt07ReconnectDiag(kUpt07ReconnectDiagTargetEvaluationFailure);
-        Upt07ReconnectDiag(kUpt07ReconnectDiagZero);
-        return 2u;
-    }
-    if (storedLightType == kUpt04LightEmissiveTriangle)
-        pendingVisibility.ignore = Upt04MakeVisibilityIgnore(
-            storedLight.instanceId, storedLight.primitiveIndex);
+        return 0u;
+
     pendingVisibility.valid = 1u;
+
+    shifted = source;
     shifted.status = kUpt04SampleValidPositive;
-    shifted.eventKind = storedLightType == kUpt04LightEmissiveTriangle
-        ? 2u : 1u;
-    shifted.lobeMask = targetPrimary.lobeMask | targetSecondary.lobeMask;
-    shifted.sampleCoord0 = source.sampleCoord0;
-    shifted.sampleCoord1 = source.sampleCoord1;
-    shifted.contributionR = contribution.x;
-    shifted.contributionG = contribution.y;
-    shifted.contributionB = contribution.z;
+    shifted.flags &= ~(kUpt04CandidateFlagVisibilityKnown
+        | kUpt04CandidateFlagVisibilityPassed);
+    shifted.age = 0u;
+    shifted.identity0 = storedDenseIndex + 1u;
+    shifted.lobeMask |= targetPrimary.lobeMask;
     shifted.target = target;
-    Upt07ReconnectDiag(kUpt07ReconnectDiagPositive);
-    return 2u;
+    Upt07WorkAddRoute(work, kUpt07WorkRouteCachedX2Admitted);
+    return 1u;
 }
-#endif
 
 public uint Upt07ReplayIndirectSample(
     Upt03Candidate source,
@@ -986,41 +821,26 @@ public uint Upt07ReplayIndirectSample(
         return 0u;
     }
 
-#if UPT07_EARLY_RECONNECT
-    if (secondaryNee
-        && (gUpt07Control.geometryAvailabilityFlags
-            & kUpt07EarlyReconnectFlag) != 0u
-        && (gUpt07Control.geometryAvailabilityFlags
-            & kUpt07PairwiseMisFlag) == 0u)
+    if (secondaryNee && source.reconnectionVertexLength == 2u)
     {
-        if (source.reconnectionVertexLength == 2u)
+        const uint cachedResult = Upt07TryCachedX2Reconnect(
+            source,
+            sourceReceiver,
+            receiver,
+            sourceIsHistory,
+            storedDenseIndex,
+            storedLightType,
+            shifted,
+            shiftJacobian,
+            pendingVisibility,
+            work);
+        if (cachedResult != 0u)
         {
-            const uint reconnectResult = Upt07TryStaticSecondaryReconnect(
-                source,
-                sourceReceiver,
-                receiver,
-                sourceIsHistory,
-                storedDenseIndex,
-                storedLightType,
-                storedSelectionPdf,
-                shifted,
-                shiftJacobian,
-                pendingVisibility,
-                work);
-            if (reconnectResult == 2u)
-            {
-                failureReason = shifted.status == kUpt04SampleValidPositive
-                    ? 0u : kUpt07RejectShiftedValidZero;
-                return 1u;
-            }
+            failureReason = 0u;
+            return 1u;
         }
-        else
-        {
-            Upt07ReconnectDiag(kUpt07ReconnectDiagNoStaticLocator);
-        }
-        Upt07ReconnectDiag(kUpt07ReconnectDiagReplayFallback);
+        Upt07WorkAddRoute(work, kUpt07WorkRouteCachedX2Fallback);
     }
-#endif
 
     failureReason = kUpt07RejectIndirectContinuation;
     const Upt04PathEvent continuation = Upt07ReplayContinuation(
@@ -1399,26 +1219,28 @@ public uint Upt07ReplayIndirectSample(
     shifted.sampleCoord0 = source.sampleCoord0;
     shifted.sampleCoord1 = source.sampleCoord1;
     shifted.pathLength = 2u;
-#if UPT07_EARLY_RECONNECT
-    if (Upt07HitHasStableStaticLocator(hit))
+    if (Upt07CachedX2HitHasStableStaticLocator(hit))
     {
         shifted.reconnectionVertexLength = 2u;
-        shifted.reconnectionInstanceId = hit.instanceId;
-        shifted.reconnectionPrimitiveId = hit.primitiveId;
-        shifted.reconnectionFrontFace = hit.frontFace;
-        shifted.reconnectionBarycentrics = hit.barycentrics;
+        shifted.reconnectionPosition = hitSurface.position;
+        shifted.reconnectionNormalPacked = Upt04EncodeVertexOctahedral(
+            hitSurface.geometricNormal);
+        shifted.contributionR = selectedMaterial.weightedContribution.x;
+        shifted.contributionG = selectedMaterial.weightedContribution.y;
+        shifted.contributionB = selectedMaterial.weightedContribution.z;
+        shifted.identity1 = shifted.reconnectionNormalPacked;
     }
     else
     {
         shifted.reconnectionVertexLength = 1u;
     }
-#else
-    shifted.reconnectionVertexLength = 1u;
-#endif
     shifted.pathPdf = pathPdf;
-    shifted.contributionR = contribution.x;
-    shifted.contributionG = contribution.y;
-    shifted.contributionB = contribution.z;
+    if (shifted.reconnectionVertexLength != 2u)
+    {
+        shifted.contributionR = contribution.x;
+        shifted.contributionG = contribution.y;
+        shifted.contributionB = contribution.z;
+    }
     shifted.target = target;
     failureReason = 0u;
     return 1u;

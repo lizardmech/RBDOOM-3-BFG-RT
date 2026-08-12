@@ -211,6 +211,79 @@ reconnection. A successful x2 mapping uses no closest-hit continuation ray.
 Connection visibility remains explicit and distinct from winner visibility.
 The old exact replay path remains the rollback and unsupported-path fallback.
 
+S43.3 live packed-arm contract
+--------------------------------
+
+The pre-S43.3 rcLength=2 arm was not a cached endpoint. Words 13..15 held only
+an instance/primitive/barycentric locator. Every mapping therefore decoded the
+general geometry route, loaded and evaluated the x2 material twice, and the
+old experimental implementation also traced receiver-to-x2 visibility before
+selection. It was measured about 6 ms slower than exact replay and was
+mutually exclusive with the accepted shared-reuse adapter. That route is not
+the S43.3 implementation.
+
+S43.3 reassigns only the secondary-NEE arm whose pathLength and
+reconnectionVertexLength are both two:
+
+    word 2      current-domain selected-light index + 1;
+    word 3      octahedral x2 geometric normal;
+    words 4..5  replay seed and index for exact fallback identity;
+    word 6      selected-light sample coordinates;
+    words 7..9  cached outgoing x2 suffix radiance;
+    word 10     target at the reservoir's current receiver;
+    word 11     UPT target-scaled reservoir weight;
+    word 12     exact selected-light proposal/PDF payload;
+    words 13..15 exact x2 world position.
+
+This is an event-specific reinterpretation of the existing 64-byte page. It
+does not widen the reservoir or allocate a screen-sized endpoint sidecar.
+UPT04_ABI_VERSION must change before the new arm is consumed across frames.
+
+The producer may publish this arm only when x2 has a stable static geometry
+route and the selected x2 suffix is finite and positive. A temporal consumer
+must additionally translate the stored previous light index through the
+CPU-built previous-to-current map and require a current stable payload:
+
+* analytic lights require STABLE_CACHEABLE, which proves identity and exact
+  position/radius/radiance continuity;
+* emissive lights reject the existing dynamic-history flag and require the
+  stable light remap; their exact current triangle endpoint remains available
+  through the S43.2 emissive geometry sidecar;
+* spatial consumers use the same current-frame light universe and may consume
+  the current cached suffix directly.
+
+Missing remaps, unstable lights, malformed endpoint data, back-facing or zero
+geometry terms, invalid targets and unavailable visibility requests reject
+the cached mapping. They never admit an approximate zero or stale sample to
+increase reservoir density. Exact replay remains the fallback for rcLength=1,
+dynamic/rigid/skinned x2, later/specular paths and any rejected cache proof.
+
+The cached suffix follows the RTXDI PT reservoir contract: it is radiance
+leaving the stored reconnection vertex toward the prefix. The new receiver
+evaluates only its primary OpenPBR term and the source/target partial geometry
+ratio. As in RTXDI PT's footprint reconnect, the suffix BSDF is not reevaluated
+for the changed incoming prefix direction. This is the single deliberate
+hybrid-shift approximation in this arm; it is bounded to stable, reconnectible
+x2 samples and must remain separately diagnosable from exact replay.
+
+Mapping and visibility budget:
+
+    one reservoir decode;
+    zero continuation closest-hit rays;
+    zero x2 geometry resolves or x2 material/texture loads;
+    at most one previous-to-current light remap and one current-light load;
+    one primary-receiver material evaluation;
+    zero visibility traversal before reservoir selection;
+    receiver-to-x2 and x2-to-light visibility only for the selected winner.
+
+The existing one-request pending-visibility record is insufficient for an x2
+winner because both segments are independent proofs. S43.3 therefore extends
+that transient record to two bounded requests. It remains local/groupshared
+work, adds no persistent buffer and cannot exceed two winner-only visibility
+rays. Diagnostics distinguish cached-x2 attempted, admitted, remap/stability
+rejection, endpoint/target rejection, exact-replay fallback, and each winner
+visibility segment.
+
 S43.4 Replay classification and compaction
 
 Classify mappings before path tracing:
@@ -390,3 +463,96 @@ unchanged from its preceding 1.063 ms median, as expected for a pass already
 dominated by the accepted workgroup pairing path rather than emitter geometry
 routing. S43.2 is accepted for image correctness and performance. The next
 stage is S43.3 trace-free x2 reconnection.
+
+S43.3 implementation status, 2026-08-12
+----------------------------------------
+
+S43.3 is implemented, Vulkan-built and deployed for runtime validation.
+
+The 64-byte secondary-NEE rcLength=2 reservoir arm now stores the exact x2
+world position, octahedrally packed x2 normal and the already evaluated x2
+suffix radiance. D0 publishes this arm only for stable static x2 hits. T0 and
+S0 map it by evaluating the primary material at the new receiver; they do not
+trace a continuation ray, decode x2 geometry, or evaluate the x2 material.
+Unsupported or unstable endpoints retain the exact random-replay fallback.
+
+Temporal history first remaps the stored light to the current dense universe.
+Analytic history requires StableCacheable and dynamic emissive history is
+rejected. The receiver-to-x2 visibility request remains transient through the
+mapping. The x2-to-light request is deliberately not carried per proposal: it
+is reconstructed from the selected reservoir only after that proposal wins.
+Thus both visibility segments are proven without expanding the reservoir,
+groupshared pair records, or every losing mapping.
+
+Resolve reconstructs the cached-x2 contribution from the current primary
+receiver and stored suffix radiance. UPT04_ABI_VERSION is 14, so older history
+is invalidated by page generation without a full-buffer clear. Compact32,
+compact64 lights, proposal parity, duplication/shared reuse, empty rescue and
+three-vertex variants all compiled. Static SPIR-V proofs report five RayQuery
+sites for common temporal, seven for three-vertex temporal and eight for
+three-vertex spatial; the only added site is winner-only suffix visibility,
+and all retain TraceRay=0.
+
+The required Vulkan preset completed successfully. RBDoom3BFG.exe and exactly
+21 rebuilt UPT04/05/07/09 Vulkan blobs were deployed. No DX12 shader was
+compiled or deployed. Runtime image and timing acceptance remain pending.
+
+S43.3 first runtime result, 2026-08-12
+--------------------------------------
+
+Visual validation passed, but performance acceptance failed. At 2560x1440
+the temporal median was 11.787 ms versus the accepted S43.2 11.100 ms, a
+0.687 ms / 6.2 percent regression. Spatial remained effectively flat at
+1.096 ms versus 1.072 ms. S43.3 must not be checkpointed or promoted in this
+state.
+
+Probe 12 now contains production-shaped shared-adapter/common-GRIS estimator
+logic plus four diagnostic-only route counters: cached-x2 attempted, admitted,
+fallback, and selected winner. These counters compile away from production.
+The corrected probe blob was explicitly rebuilt after discovering that the
+production preset did not rebuild this diagnostic target from imported-source
+changes. Its deployed SHA-256 is
+1F5F9DA6B3F51CCE371FD3E427DED1C4B76628A7F72E782EE8D0BA8C2F4957F5.
+The next decision is gated on that route population, not another speculative
+visibility or estimator change.
+
+S43.3 corrected runtime timing, 2026-08-12
+------------------------------------------
+
+Probe 12 established that cached-x2 coverage was not the regression source:
+855175 of 862112 attempts admitted (99.2 percent), only 6937 fell back, and
+260374 cached samples won. The faulty implementation nevertheless emitted two
+final-indirect visibility rays for each cached winner. The second ray retraced
+x2-to-light even though the stored suffix radiance begins at x2 and therefore
+already represents that proven suffix. Reconnection changes the receiver-to-x2
+prefix only. Removing the redundant suffix ray restored the original static
+RayQuery ceilings while retaining current receiver-to-x2 visibility.
+
+The corrected production `uptf2.cfg` run confirmed every intended gate was
+effective: shared adapter, common GRIS, shared spatial, stored source target,
+workgroup pairing and empty rescue. At 2560x1440 after 16 warm-ups and 64
+dispatch-only samples:
+
+    corrected temporal median:  9.994 ms;
+    corrected temporal mean:   10.089 ms;
+    corrected temporal range:   9.771 to 11.541 ms;
+    corrected spatial median:   1.072 ms;
+    corrected spatial mean:     1.082 ms.
+
+This is 1.106 ms / 10.0 percent faster than the accepted S43.2 temporal
+baseline of 11.100 ms and 1.793 ms / 15.2 percent faster than the faulty
+two-ray S43.3 result of 11.787 ms. Spatial exactly matches the accepted S43.2
+median. Performance acceptance passes. Final promotion/checkpoint remains
+gated only on visual and motion validation of this corrected suffix-reuse
+build, because the earlier visual pass covered the superseded two-ray build.
+
+S43.3 final acceptance, 2026-08-12
+----------------------------------
+
+Corrected-build visual and motion validation passed with no observed issue.
+S43.3 is accepted: cached-x2 reconnection reduces temporal dispatch time by
+10.0 percent against S43.2 while preserving the exact accepted spatial median,
+emissive appearance, motion behavior and bounded reservoir/visibility
+contracts. The implementation may now be checkpointed. The next UPT-43 stage
+is bounded replay-prefix compaction; do not revive the superseded static-
+locator experiment or its redundant suffix visibility ray.

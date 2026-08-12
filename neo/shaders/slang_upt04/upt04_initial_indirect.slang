@@ -50,7 +50,7 @@ public static const uint kUpt04IndirectDiagSecondaryPdfRayFailure = 1u << 11u;
 public bool Upt04IndirectHitHasStableStaticLocator(Upt04HitFacts hit)
 {
     if (hit.status != kUpt04HitTriangle || hit.geometryId != 0u
-        || hit.instanceId > kUpt03PackedReconnectInstanceMask)
+        || hit.instanceId > kUpt04ShaderInstanceMask)
         return false;
     if (hit.instanceId == 0u)
         return true;
@@ -68,6 +68,7 @@ public struct Upt04SecondaryNeeProposal
     public uint lobeMask;
     public float2 sampleCoordinates;
     public float3 rawContribution;
+    public float3 suffixRadiance;
     public float target;
     public float sourcePdf;
     public float emissiveReplayPdfScale;
@@ -151,6 +152,7 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
     proposal.lobeMask = material.lobeMask;
     proposal.sampleCoordinates = evaluated.storedSampleCoordinates;
     proposal.rawContribution = rawContribution;
+    proposal.suffixRadiance = material.weightedContribution;
     proposal.target = target;
     proposal.sourcePdf = sourcePdf;
     proposal.emissiveReplayPdfScale =
@@ -468,10 +470,10 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     if (Upt04IndirectHitHasStableStaticLocator(hit))
     {
         nee.reconnectionVertexLength = 2u;
-        nee.reconnectionInstanceId = hit.instanceId;
-        nee.reconnectionPrimitiveId = hit.primitiveId;
-        nee.reconnectionFrontFace = hit.frontFace;
-        nee.reconnectionBarycentrics = hit.barycentrics;
+        nee.reconnectionPosition = hitSurface.position;
+        nee.reconnectionNormalPacked = Upt04EncodeVertexOctahedral(
+            hitSurface.geometricNormal);
+        nee.reconnectionSuffixRadiance = selected.suffixRadiance;
     }
     else
     {

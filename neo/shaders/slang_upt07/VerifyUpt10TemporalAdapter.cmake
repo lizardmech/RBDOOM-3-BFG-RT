@@ -40,4 +40,4 @@ if(NOT rayquery_count EQUAL 4 OR disassembly MATCHES "OpTraceRay")
 endif()
 
 file(WRITE "${UPT10_STAMP}"
-    "UPT-30 temporal ${UPT10_LABEL} verified: bindings=31, triangleClasses=9/13 host+shader, RayQuery sites=4, TraceRay=0\n")
+    "UPT-30 temporal ${UPT10_LABEL} verified: bindings=31, triangleClasses=9/13 host+shader, RayQuery sites=4, cachedX2SuffixReuse=1, TraceRay=0\n")

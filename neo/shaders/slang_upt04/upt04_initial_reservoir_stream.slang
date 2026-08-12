@@ -40,10 +40,14 @@ public void Upt04StreamInitialTraceWork(
     candidate.partialJacobian = work.partialJacobian;
     candidate.accumulatedRouletteProbability =
         work.accumulatedRouletteProbability;
-    candidate.reconnectionInstanceId = work.reconnectionInstanceId;
-    candidate.reconnectionPrimitiveId = work.reconnectionPrimitiveId;
-    candidate.reconnectionFrontFace = work.reconnectionFrontFace;
-    candidate.reconnectionBarycentrics = work.reconnectionBarycentrics;
+    candidate.reconnectionPosition = work.reconnectionPosition;
+    candidate.reconnectionNormalPacked = work.reconnectionNormalPacked;
+    if (Upt03HasCachedX2Endpoint(candidate))
+    {
+        candidate.contributionR = work.reconnectionSuffixRadiance.x;
+        candidate.contributionG = work.reconnectionSuffixRadiance.y;
+        candidate.contributionB = work.reconnectionSuffixRadiance.z;
+    }
     Upt03StreamCandidate(
         reservoir,
         candidate,
@@ -149,15 +153,11 @@ public Upt03LogicalReservoir Upt04UnpackIntermediateInitialReservoir(
     candidate.contributionB = asfloat(packed.word9);
     candidate.target = asfloat(packed.word10);
     candidate.proposalPdf = asfloat(packed.word12);
-    if (Upt03HasStaticReconnectionLocator(candidate))
+    if (Upt03HasCachedX2Endpoint(candidate))
     {
-        candidate.reconnectionInstanceId = packed.word13
-            & kUpt03PackedReconnectInstanceMask;
-        candidate.reconnectionFrontFace = (packed.word13
-            & kUpt03PackedReconnectFrontFaceBit) != 0u ? 1u : 0u;
-        candidate.reconnectionPrimitiveId = packed.word14;
-        candidate.reconnectionBarycentrics =
-            Upt03UnpackReconnectBarycentrics(packed.word15);
+        candidate.reconnectionNormalPacked = packed.word3;
+        candidate.reconnectionPosition = asfloat(uint3(
+            packed.word13, packed.word14, packed.word15));
         candidate.pathPdf = 1.0f;
         candidate.partialJacobian = 1.0f;
         candidate.accumulatedRouletteProbability = 1.0f;
