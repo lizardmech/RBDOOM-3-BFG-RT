@@ -136,6 +136,8 @@ S45.1 through S45.3 implementation status (2026-08-13)
     The composer binds R0 directly at t89 and forwards ordinary pixels, so no
     R0 image copy is required. The Vulkan release build passes; runtime image,
     history, RR-guide and cost acceptance remains pending.
+    D0-only operation requires only current compact32 plus its current sidecar;
+    compact N-1 buffers are additionally required only when T0/S0 is enabled.
 
 S45.4 default decision
 

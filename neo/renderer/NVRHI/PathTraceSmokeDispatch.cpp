@@ -1832,6 +1832,24 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     m_frameResources.primarySurfaceHistoryBuffers.current->getDesc().byteSize);
             }
         }
+        else if (publishWideUptGlassHistory)
+        {
+            // D0-only UPT has no compact N-1 consumer, but the glass producer
+            // still needs its own wide previous record for sticky lane choice.
+            commandList->setBufferState(
+                m_frameResources.primarySurfaceHistoryBuffers.current,
+                nvrhi::ResourceStates::CopySource);
+            commandList->setBufferState(
+                m_frameResources.primarySurfaceHistoryBuffers.previous,
+                nvrhi::ResourceStates::CopyDest);
+            commandList->commitBarriers();
+            commandList->copyBuffer(
+                m_frameResources.primarySurfaceHistoryBuffers.previous,
+                0,
+                m_frameResources.primarySurfaceHistoryBuffers.current,
+                0,
+                m_frameResources.primarySurfaceHistoryBuffers.current->getDesc().byteSize);
+        }
         else if (r_pathTracingCleanRtxdiDiPrimarySurfaceHistorySwap.GetBool())
         {
             std::swap(
@@ -2204,7 +2222,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN &&
             unifiedPtReceiverMode == 2 &&
             useUptCompactPrimaryReceiver &&
-            useUptCompactPrimaryHistory &&
+            m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer &&
+            (!unifiedPtReuseRequested || useUptCompactPrimaryHistory) &&
             m_frameResources.primarySurfaceHistoryBuffers.current &&
             m_frameResources.primarySurfaceHistoryBuffers.previous &&
             m_smokeCleanRtxdiDiSentinelBindingLayout &&
@@ -2249,7 +2268,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     effective,
                     deviceManager && deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN ? 1u : 0u,
                     unifiedPtReceiverMode == 2 && useUptCompactPrimaryReceiver ? 1u : 0u,
-                    useUptCompactPrimaryHistory ? 1u : 0u,
+                    (!unifiedPtReuseRequested || useUptCompactPrimaryHistory) ? 1u : 0u,
                     m_frameResources.primarySurfaceHistoryBuffers.current && m_frameResources.primarySurfaceHistoryBuffers.previous ? 1u : 0u,
                     r_pathTracingCleanRtxdiDiTransmissionProducer.GetBool() && r_pathTracingCleanRtxdiDiTransmissionCompose.GetBool() ? 1u : 0u,
                     m_frameResources.transmissionTexture && m_frameResources.reflectionSidecarTexture && m_frameResources.glassDistortionSidecarTexture ? 1u : 0u,
