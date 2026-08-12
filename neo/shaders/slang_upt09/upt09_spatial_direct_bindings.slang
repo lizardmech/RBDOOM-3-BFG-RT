@@ -10,6 +10,12 @@ import upt04_primary_history_sidecar;
 #ifndef UPT42_REUSE_TEXTURE_PAIRING
 #define UPT42_REUSE_TEXTURE_PAIRING 0
 #endif
+#ifndef UPT43_SPATIAL_SHIFT_PREPASS
+#define UPT43_SPATIAL_SHIFT_PREPASS 0
+#endif
+#ifndef UPT43_SPATIAL_RESAMPLE
+#define UPT43_SPATIAL_RESAMPLE 0
+#endif
 
 public struct Upt09SpatialDirectControl
 {
@@ -54,6 +60,11 @@ public [[vk::binding(5, 0)]] StructuredBuffer<Upt04PrimaryHistorySidecar> gUpt09
 // the other independent fields and pair lists are ready for a future
 // simultaneous three-neighbor resampling pass without regeneration.
 public [[vk::binding(29, 0)]] StructuredBuffer<uint> gUpt09ReuseTextureDeltas;
+#endif
+#if UPT43_SPATIAL_SHIFT_PREPASS || UPT43_SPATIAL_RESAMPLE
+// sourceTarget, targetTarget, shiftJacobian, packed status/route. Every pixel
+// overwrites its own record before the resampling pass; no clear is required.
+public [[vk::binding(30, 0)]] RWStructuredBuffer<float4> gUpt43SpatialShifts;
 #endif
 public [[vk::push_constant]] ConstantBuffer<Upt09SpatialDirectControl> gUpt09Control;
 

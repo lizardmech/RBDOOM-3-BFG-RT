@@ -437,16 +437,21 @@ private:
     bool m_spatialEmptyRescue = false;
     bool m_spatialMultiNeighbor = false;
     bool m_spatialReuseTexturePairing = false;
+    bool m_spatialShiftPrepass = false;
     bool m_spatialThreeVertexReplay = false;
     bool m_spatialLambertDiagnostic = false;
     bool m_spatialPipelineAttempted = false;
     nvrhi::BufferHandle m_spatialReuseTextureBuffer;
+    nvrhi::BufferHandle m_spatialShiftBuffer;
+    uint32_t m_spatialShiftCapacity = 0u;
     nvrhi::BindingLayoutHandle m_spatialBindingLayout;
     std::array<nvrhi::BindingSetHandle, 2> m_spatialBindingSets;
     std::array<nvrhi::BindingSetDesc, 2> m_spatialBindingSetDescs;
     std::array<bool, 2> m_spatialBindingSetDescValid = { false, false };
     nvrhi::ShaderHandle m_spatialShader;
     nvrhi::ComputePipelineHandle m_spatialPipeline;
+    nvrhi::ShaderHandle m_spatialShiftShader;
+    nvrhi::ComputePipelineHandle m_spatialShiftPipeline;
 
     static constexpr uint32_t SPATIAL_GPU_TIMER_SLOT_COUNT = 8u;
     static constexpr uint32_t SPATIAL_GPU_TIMING_WARMUP_FRAMES = 16u;

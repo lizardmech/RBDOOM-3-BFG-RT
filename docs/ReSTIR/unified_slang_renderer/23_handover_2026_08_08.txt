@@ -2443,3 +2443,43 @@ Visual and motion validation passed without an observed issue on the same
 compacted build. UPT-43.4 is accepted and ready for a scoped checkpoint:
 3.043 ms temporal median, 70.6 percent below its 10.348 ms non-compacted A/B,
 3.47 percent queued replay density, exact group count and zero overflow.
+
+UPT-43.5 spatial split ready for runtime A/B, 2026-08-12
+--------------------------------------------------------
+
+The default-off Gaussian spatial experiment now separates mapping from merge:
+`r_pathTracingUnifiedPtSpatialShiftPrepass 1` runs a coalesced full-screen
+8x8 S0a mapping prepass, writes one fully overwritten 16-byte scalar record per
+pixel, inserts a UAV barrier and runs the reciprocal S0b merge/publication
+pass. Neighbor candidate reconstruction and visibility occur only if that
+proposal wins; canonical winners remain scalar-only. The persistent mapping
+buffer is never cleared.
+
+The gate additionally requires `r_pathTracingUnifiedPtSpatialReuseTexture 1`
+and the accepted shared/stored-target/workgroup/empty-rescue chain. It rejects
+multi-neighbor and three-vertex configurations. Static Vulkan verification
+reports shift/resample RayQuery sites 1/6 versus 9 for the rejected monolithic
+Gaussian kernel. The complete release build passes. Deploy and compare the
+same view with shift prepass 0 then 1 while reuse texture stays 1; acceptance
+requires visual parity and a material reduction from the prior roughly 11 ms
+Gaussian spatial result. A zero setting retains the accepted UPT-33 path.
+
+UPT-43.5 first runtime performance result, 2026-08-12
+-----------------------------------------------------
+
+At 2560x1440 the effective split reduced the Gaussian spatial median from
+8.316 ms to 3.370 ms (-4.946 ms / -59.5 percent) and mean from 8.337 ms to
+3.383 ms. The 3686400-entry mapping buffer is 58982400 bytes and is overwritten
+without a clear. Performance acceptance passes. Visual and motion parity are
+still required before checkpoint; do not confuse this with default promotion,
+because accepted adjacent UPT-33 spatial remains around 1.07 ms.
+
+UPT-43.5 final acceptance, 2026-08-12
+-------------------------------------
+
+Visual and motion testing found no issue in the exact timed build, including
+portal/area transitions, disocclusion and bright emissive boundaries. S43.5 is
+accepted and ready for checkpoint at 3.370 ms versus 8.316 ms Gaussian spatial
+median (-59.5 percent). Keep the experiment default-off; this validates the
+paper-shaped split, but does not yet justify replacing the approximately
+1.07 ms adjacent UPT-33 production default.

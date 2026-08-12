@@ -687,3 +687,62 @@ without compaction, with 3.47 percent replay density, exact indirect group
 arithmetic and zero overflow. The bounded replay-prefix split may now be
 checkpointed. Preserve the monolithic path as the default-off comparison until
 the next accepted configuration/default-promotion pass.
+
+S43.5 implementation and static verification, 2026-08-12
+----------------------------------------------------------
+
+The first spatial topology experiment is implemented behind the default-off
+`r_pathTracingUnifiedPtSpatialShiftPrepass 1` gate. It requires the accepted
+common-GRIS shared-spatial path plus stored source targets, workgroup pairing,
+empty-center rescue and the UPT-42 Gaussian reuse texture. Multi-neighbor and
+three-vertex modes reject the gate rather than silently selecting a mismatched
+shader.
+
+S0a dispatches one coalesced 8x8 thread per screen pixel. Each lane evaluates
+only its source-to-Gaussian-partner mapping and overwrites one 16-byte scalar
+record containing source target, destination target, shift Jacobian and
+mapping status/route. The buffer is sized to the active pixel count, persists
+across frames and is never cleared. S0b reads both reciprocal scalar records,
+performs the exact accepted pairwise merge and publishes the local result.
+The canonical winner needs no reconstruction. A selected neighbor is
+deterministically materialized only after it wins so the existing candidate
+payload and winner-only visibility contract remain unchanged. This is a
+bounded intermediate experiment rather than a second 64-byte history page.
+
+The two stages share binding 30 as a structured UAV and are separated by an
+explicit UAV barrier. Static SPIR-V verification proves 8x8 dispatch for both,
+one RayQuery site in the full-screen mapping prepass and six in the conditional
+resample/materialization shader, versus nine in the rejected monolithic
+Gaussian leader kernel. It also proves the binding, full-frame overwrite and
+host barrier markers. Both Vulkan shaders and the full release executable
+build successfully. Runtime correctness and timing acceptance remain pending;
+the accepted UPT-33 spatial path remains unchanged when the gate is zero.
+
+S43.5 first runtime performance result, 2026-08-12
+---------------------------------------------------
+
+The requested/effective gate reported 1/1 with workgroup pairing, empty-center
+rescue, Gaussian reuse texture and no multi-neighbor all enabled. At 2560x1440
+after 16 warm-up frames and 64 dispatch-only samples, the original Gaussian
+screen-leader kernel measured 8.316 ms median and 8.337 ms mean. The split
+shift-prepass path measured 3.370 ms median and 3.383 ms mean, with a 3.321 ms
+minimum, 3.388 ms p90 and 3.789 ms maximum.
+
+The split therefore removes 4.946 ms / 59.5 percent of Gaussian spatial time
+in this view. Its fully overwritten intermediate contains 3686400 records at
+16 bytes each, 58982400 bytes / 56.25 MiB total, with no clear. Performance
+acceptance passes decisively. Final S43.5 acceptance and checkpoint remain
+gated on visual and motion parity for this exact build. The accepted adjacent
+UPT-33 path remains substantially cheaper at roughly 1.07 ms, so promotion of
+the Gaussian path is a separate quality-versus-cost decision.
+
+S43.5 final acceptance, 2026-08-12
+----------------------------------
+
+Extended visual and motion validation of the exact split-prepass build passed
+with no observed issue. No portal/area-boundary, disocclusion, emissive-edge or
+reciprocal-pair artifact was found. S43.5 is accepted at 3.370 ms Gaussian
+spatial median versus 8.316 ms for the monolithic screen-leader implementation,
+a 59.5 percent reduction with exact image parity in the tested content. The
+gate remains default-off: promoting Gaussian reuse over the approximately
+1.07 ms adjacent UPT-33 production path is a later quality-versus-cost choice.

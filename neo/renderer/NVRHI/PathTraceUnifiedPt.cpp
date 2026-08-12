@@ -116,6 +116,7 @@ static constexpr uint32_t UPT42_REUSE_TEXTURE_DELTA_ENTRY_COUNT =
     254u * 254u + 230u * 230u + 210u * 210u;
 static constexpr uint32_t UPT42_REUSE_TEXTURE_ENTRY_COUNT =
     UPT42_REUSE_TEXTURE_DELTA_ENTRY_COUNT;
+static constexpr uint32_t UPT43_SPATIAL_SHIFT_STRIDE = 16u;
 
 struct Upt42ReuseTextureStats
 {
@@ -364,6 +365,20 @@ static bool Upt43TemporalReplayCompactionEnabled(
         && inputs.temporalBottleneckProbe == 0u
         && !r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
         && !r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool();
+}
+
+static bool Upt43SpatialShiftPrepassEnabled(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    return Upt30SharedSpatialEnabled(inputs)
+        && r_pathTracingUnifiedPtSpatialStoredSourceTarget.GetBool()
+        && r_pathTracingUnifiedPtSpatialWorkgroupPairing.GetBool()
+        && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool()
+        && r_pathTracingUnifiedPtSpatialReuseTexture.GetBool()
+        && r_pathTracingUnifiedPtSpatialShiftPrepass.GetBool()
+        && !r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool()
+        && !r_pathTracingUnifiedPtThreeVertexInitial.GetBool()
+        && !inputs.threeVertexInitial;
 }
 
 static uint32_t Upt04FamilyMask(PathTraceUnifiedPtFamily family)
@@ -1798,6 +1813,8 @@ void PathTraceUnifiedPtState::ReleaseSpatial()
     }
     m_spatialPipeline = nullptr;
     m_spatialShader = nullptr;
+    m_spatialShiftPipeline = nullptr;
+    m_spatialShiftShader = nullptr;
     m_spatialBindingLayout = nullptr;
     m_spatialPipelineAttempted = false;
     m_spatialExecutedThisFrame = false;
@@ -1815,6 +1832,8 @@ void PathTraceUnifiedPtState::Release()
     ReleaseDuplication();
     ReleaseSpatial();
     m_spatialReuseTextureBuffer = nullptr;
+    m_spatialShiftBuffer = nullptr;
+    m_spatialShiftCapacity = 0u;
     ReleaseResolve();
     for (TemporalGpuTimerSlot& slot : m_temporalGpuTimers)
     {
@@ -6599,6 +6618,8 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         && r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool();
     const bool reuseTexturePairing = emptyRescue && !multiNeighbor
         && r_pathTracingUnifiedPtSpatialReuseTexture.GetBool();
+    const bool shiftPrepass = reuseTexturePairing
+        && Upt43SpatialShiftPrepassEnabled(inputs);
     const bool threeVertexReplay = Upt38ThreeVertexSpatialEnabled(inputs)
         && emptyRescue && !multiNeighbor;
     static int reportedMultiNeighborRequested = -1;
@@ -6625,6 +6646,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         && m_spatialEmptyRescue == emptyRescue
         && m_spatialMultiNeighbor == multiNeighbor
         && m_spatialReuseTexturePairing == reuseTexturePairing
+        && m_spatialShiftPrepass == shiftPrepass
         && m_spatialThreeVertexReplay == threeVertexReplay
         && m_spatialLambertDiagnostic == inputs.lambertDiagnostic)
     {
@@ -6637,6 +6659,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         || m_spatialEmptyRescue != emptyRescue
         || m_spatialMultiNeighbor != multiNeighbor
         || m_spatialReuseTexturePairing != reuseTexturePairing
+        || m_spatialShiftPrepass != shiftPrepass
         || m_spatialThreeVertexReplay != threeVertexReplay
         || m_spatialLambertDiagnostic != inputs.lambertDiagnostic)
     {
@@ -6648,6 +6671,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         m_spatialEmptyRescue = emptyRescue;
         m_spatialMultiNeighbor = multiNeighbor;
         m_spatialReuseTexturePairing = reuseTexturePairing;
+        m_spatialShiftPrepass = shiftPrepass;
         m_spatialThreeVertexReplay = threeVertexReplay;
         m_spatialLambertDiagnostic = inputs.lambertDiagnostic;
     }
@@ -6685,6 +6709,8 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(28));
     if (reuseTexturePairing)
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(29));
+    if (shiftPrepass)
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT09_PUSH_CONSTANT_BYTES));
     m_spatialBindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -6695,7 +6721,9 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         return false;
     }
 
-    const char* path = threeVertexReplay
+    const char* path = shiftPrepass
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_reuse_texture_resample_light64.bin"
+        : threeVertexReplay
         ? (reuseTexturePairing
             ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64_three_vertex.bin"
             : "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64_three_vertex.bin")
@@ -6737,6 +6765,28 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         return false;
     }
 
+    int shiftSize = 0;
+    uint64_t shiftHash = 0u;
+    if (shiftPrepass)
+    {
+        void* shiftData = nullptr;
+        ID_TIME_T shiftTimestamp = 0;
+        const char* shiftPath =
+            "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_reuse_texture_shift_prepass_light64.bin";
+        if (!Upt04ReadShader(
+                shiftPath, shiftData, shiftSize, shiftTimestamp, shiftHash))
+            return false;
+        nvrhi::ShaderDesc shiftShaderDesc;
+        shiftShaderDesc.shaderType = nvrhi::ShaderType::Compute;
+        shiftShaderDesc.entryName = "main";
+        shiftShaderDesc.debugName = "PathTraceUnifiedPtSpatialShiftPrepass";
+        m_spatialShiftShader = inputs.device->createShader(
+            shiftShaderDesc, shiftData, shiftSize);
+        Mem_Free(shiftData);
+        if (!m_spatialShiftShader)
+            return false;
+    }
+
     nvrhi::ComputePipelineDesc pipelineDesc;
     pipelineDesc.CS = m_spatialShader;
     pipelineDesc.bindingLayouts = {
@@ -6751,12 +6801,25 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
             "PathTraceUnifiedPt: failed to create UPT-09 spatial pipeline\n");
         return false;
     }
+    if (shiftPrepass)
+    {
+        nvrhi::ComputePipelineDesc shiftPipelineDesc;
+        shiftPipelineDesc.CS = m_spatialShiftShader;
+        shiftPipelineDesc.bindingLayouts = {
+            m_spatialBindingLayout,
+            inputs.sceneInputs->materials.textureBindlessLayout };
+        m_spatialShiftPipeline = inputs.device->createComputePipeline(
+            shiftPipelineDesc);
+        if (!m_spatialShiftPipeline)
+            return false;
+    }
     common->Printf(
-        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=%s lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=%u sharedSpatial=%u storedSourceTarget=%u workgroupPairing=%u reuseTexturePairing=%u reuseTextureSize=%u emptyRescue=%u multiNeighbor=%u threeVertexReplay=%u neighbors=%u pairedPixels=%u continuationRaysMaxPerMapping=%u mappingRaysMaxPerPair=%u shading=%s createUs=%llu\n",
+        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=%s lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=%u sharedSpatial=%u storedSourceTarget=%u workgroupPairing=%u reuseTexturePairing=%u reuseTextureSize=%u shiftPrepass=%u shiftBlobBytes=%d shiftHash=%016llx shiftRecordBytes=%u emptyRescue=%u multiNeighbor=%u threeVertexReplay=%u neighbors=%u pairedPixels=%u continuationRaysMaxPerMapping=%u mappingRaysMaxPerPair=%u shading=%s createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
-        reuseTexturePairing ? "8x8-screen-leaders" : "8x8-pixels",
+        shiftPrepass ? "8x8-shift+resample"
+            : (reuseTexturePairing ? "8x8-screen-leaders" : "8x8-pixels"),
         inputs.compactLights ? UPT04_COMPACT_LIGHT_STRIDE : 112u,
         sharedSpatial
             ? (multiNeighbor ? UPT09_REGULAR_NEIGHBOR_COUNT : 1u)
@@ -6770,6 +6833,10 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         workgroupPairing ? 1u : 0u,
         reuseTexturePairing ? 1u : 0u,
         reuseTexturePairing ? UPT42_REUSE_TEXTURE_SIZES[0] : 0u,
+        shiftPrepass ? 1u : 0u,
+        shiftSize,
+        static_cast<unsigned long long>(shiftHash),
+        shiftPrepass ? UPT43_SPATIAL_SHIFT_STRIDE : 0u,
         emptyRescue ? 1u : 0u,
         multiNeighbor ? 1u : 0u,
         threeVertexReplay ? 1u : 0u,
@@ -6788,6 +6855,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
 {
     const bool sharedSpatial = m_spatialSharedReuse;
     const bool reuseTexturePairing = m_spatialReuseTexturePairing;
+    const bool shiftPrepass = m_spatialShiftPrepass;
     if (!inputs.compactPrimaryHistory ||
         !inputs.primarySurfaceCurrentBuffer ||
         !inputs.primaryHistorySidecarCurrentBuffer ||
@@ -6810,6 +6878,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
         || !Upt04ReplayGeometryBindingsValid(*inputs.sceneInputs)
         || (sharedSpatial && !lights.unifiedPtEmissiveLookupBuffer)
         || (reuseTexturePairing && !m_spatialReuseTextureBuffer)
+        || (shiftPrepass && !m_spatialShiftBuffer)
         || !materials.materialTableBuffer || !materials.textureSampler
         || !materials.textureBindlessLayout || !materials.textureDescriptorTable)
     {
@@ -6837,6 +6906,9 @@ bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
     if (reuseTexturePairing)
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
             29, m_spatialReuseTextureBuffer));
+    if (shiftPrepass)
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            30, m_spatialShiftBuffer));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT09_PUSH_CONSTANT_BYTES));
     if (m_spatialBindingSets[pageIndex] &&
@@ -6884,6 +6956,8 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
         && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool()
         && r_pathTracingUnifiedPtSpatialReuseTexture.GetBool()
         && !r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool();
+    const bool shiftPrepass = reuseTexturePairing
+        && Upt43SpatialShiftPrepassEnabled(inputs);
     const PathTraceUnifiedPtPageMetadata& currentMetadata = CurrentPageMetadata();
     if (!productionFullFrame || !currentMetadata.fullyWritten ||
         currentMetadata.width != inputs.width ||
@@ -6891,7 +6965,7 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
         currentMetadata.historyEpoch != inputs.historyEpoch ||
         (reuseTexturePairing
             && !EnsureSpatialReuseTextureResources(inputs)) ||
-        !EnsureSpatialPipeline(inputs) || !EnsureSpatialBindingSet(inputs))
+        !EnsureSpatialPipeline(inputs))
     {
         return false;
     }
@@ -6903,6 +6977,37 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
     {
         return false;
     }
+    if (shiftPrepass)
+    {
+        const uint32_t surfaceCount = static_cast<uint32_t>(surfaceCount64);
+        if (!m_spatialShiftBuffer || m_spatialShiftCapacity != surfaceCount)
+        {
+            nvrhi::BufferDesc shiftDesc;
+            shiftDesc.debugName = "PathTraceUnifiedPtSpatialShiftRecords";
+            shiftDesc.byteSize = surfaceCount64 * UPT43_SPATIAL_SHIFT_STRIDE;
+            shiftDesc.structStride = UPT43_SPATIAL_SHIFT_STRIDE;
+            shiftDesc.canHaveUAVs = true;
+            shiftDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+            shiftDesc.keepInitialState = true;
+            m_spatialShiftBuffer = inputs.device->createBuffer(shiftDesc);
+            m_spatialShiftCapacity = m_spatialShiftBuffer
+                ? surfaceCount : 0u;
+            for (uint32_t page = 0u; page < 2u; ++page)
+            {
+                m_spatialBindingSets[page] = nullptr;
+                m_spatialBindingSetDescValid[page] = false;
+            }
+            if (!m_spatialShiftBuffer)
+                return false;
+            common->Printf(
+                "PathTraceUnifiedPt: spatial shift buffer pixels=%u bytes=%llu recordBytes=%u clear=never overwrite=full-frame\n",
+                surfaceCount,
+                static_cast<unsigned long long>(shiftDesc.byteSize),
+                UPT43_SPATIAL_SHIFT_STRIDE);
+        }
+    }
+    if (!EnsureSpatialBindingSet(inputs))
+        return false;
     Upt09SpatialDirectControl control = {};
     control.renderWidth = inputs.width;
     control.renderHeight = inputs.height;
@@ -6961,7 +7066,9 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
         ? m_compactLightsBuffer
         : lights.restirLightManagerCurrentPayloadBuffer;
     {
-        const char* spatialMarker = sharedSpatial
+        const char* spatialMarker = shiftPrepass
+            ? "UPT.S0b Spatial Gaussian Reciprocal Resample"
+            : sharedSpatial
             ? (m_spatialWorkgroupPairing
                 ? (reuseTexturePairing
                     ? "UPT.S0 Enhanced Reuse Texture Reciprocal Pair GRIS"
@@ -7012,8 +7119,36 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
             inputs.commandList->setBufferState(
                 m_spatialReuseTextureBuffer,
                 nvrhi::ResourceStates::ShaderResource);
+        if (shiftPrepass)
+            inputs.commandList->setBufferState(
+                m_spatialShiftBuffer,
+                nvrhi::ResourceStates::UnorderedAccess);
         inputs.commandList->commitBarriers();
 
+        const nvrhi::TimerQueryHandle spatialGpuTimer =
+            BeginSpatialGpuTiming(inputs);
+        if (shiftPrepass)
+        {
+            {
+                Upt04MarkerScope shiftMarker(
+                    inputs.commandList,
+                    "UPT.S0a Spatial Gaussian Shift Prepass",
+                    inputs.nsightMarkers);
+                nvrhi::ComputeState shiftState;
+                shiftState.pipeline = m_spatialShiftPipeline;
+                shiftState.bindings = {
+                    m_spatialBindingSets[m_currentPageIndex],
+                    inputs.sceneInputs->materials.textureDescriptorTable };
+                inputs.commandList->setComputeState(shiftState);
+                inputs.commandList->setPushConstants(&control, sizeof(control));
+                inputs.commandList->dispatch(
+                    (inputs.width + 7u) / 8u,
+                    (inputs.height + 7u) / 8u,
+                    1u);
+            }
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_spatialShiftBuffer);
+        }
         nvrhi::ComputeState state;
         state.pipeline = m_spatialPipeline;
         state.bindings = {
@@ -7021,8 +7156,6 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
             inputs.sceneInputs->materials.textureDescriptorTable };
         inputs.commandList->setComputeState(state);
         inputs.commandList->setPushConstants(&control, sizeof(control));
-        const nvrhi::TimerQueryHandle spatialGpuTimer =
-            BeginSpatialGpuTiming(inputs);
         inputs.commandList->dispatch(
             (inputs.width + 7u) / 8u,
             (inputs.height + 7u) / 8u,

@@ -1623,6 +1623,12 @@ idCVar r_pathTracingUnifiedPtSpatialReuseTexture(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-42 rejected-cost diagnostic: replace the accepted 8x8 UPT-33 schedule with the sigma-16 254-pixel self-inverting reuse texture; quality is improved but measured spatial cost was about 11 ms, so this remains opt-in" );
 
+idCVar r_pathTracingUnifiedPtSpatialShiftPrepass(
+    "r_pathTracingUnifiedPtSpatialShiftPrepass",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-43.5 paper-shaped spatial A/B: split Gaussian reciprocal mapping into a full-screen shift prepass and a lean resampling/publication pass using one fully overwritten 16-byte scalar record per pixel; requires the accepted unified common-GRIS spatial configuration and reuse texture" );
+
 idCVar r_pathTracingUnifiedPtSpatialGpuTiming(
     "r_pathTracingUnifiedPtSpatialGpuTiming",
     "0",

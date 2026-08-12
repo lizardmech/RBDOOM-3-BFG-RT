@@ -3122,6 +3122,42 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             const bool effectiveSpatialWorkgroupPairing =
                 requestedSpatialWorkgroupPairing
                 && effectiveSpatialStoredSourceTarget;
+            const bool requestedSpatialShiftPrepass =
+                r_pathTracingUnifiedPtSpatialShiftPrepass.GetBool();
+            const bool effectiveSpatialShiftPrepass =
+                requestedSpatialShiftPrepass
+                && effectiveSpatialWorkgroupPairing
+                && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool()
+                && r_pathTracingUnifiedPtSpatialReuseTexture.GetBool()
+                && !r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool()
+                && !r_pathTracingUnifiedPtThreeVertexInitial.GetBool();
+            static int reportedSpatialShiftPrepassRequest = -1;
+            static int reportedSpatialShiftPrepassEffective = -1;
+            const int spatialShiftPrepassRequest =
+                requestedSpatialShiftPrepass ? 1 : 0;
+            const int spatialShiftPrepassEffective =
+                effectiveSpatialShiftPrepass ? 1 : 0;
+            if (reportedSpatialShiftPrepassRequest != spatialShiftPrepassRequest
+                || reportedSpatialShiftPrepassEffective
+                    != spatialShiftPrepassEffective)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: spatial shift prepass requested/effective=%d/%d gate(workgroupPairing/emptyRescue/reuseTexture/noMultiNeighbor/noThreeVertex)=%u/%u/%u/%u/%u\n",
+                    spatialShiftPrepassRequest,
+                    spatialShiftPrepassEffective,
+                    effectiveSpatialWorkgroupPairing ? 1u : 0u,
+                    r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool()
+                        ? 1u : 0u,
+                    r_pathTracingUnifiedPtSpatialReuseTexture.GetBool()
+                        ? 1u : 0u,
+                    r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool()
+                        ? 0u : 1u,
+                    r_pathTracingUnifiedPtThreeVertexInitial.GetBool()
+                        ? 0u : 1u);
+                reportedSpatialShiftPrepassRequest = spatialShiftPrepassRequest;
+                reportedSpatialShiftPrepassEffective =
+                    spatialShiftPrepassEffective;
+            }
             static int reportedSpatialWorkgroupPairingRequest = -1;
             static int reportedSpatialWorkgroupPairingEffective = -1;
             const int spatialWorkgroupPairingRequest =

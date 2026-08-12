@@ -188,6 +188,51 @@ path_tracing_declare_slang_spirv_module(
     OUT_VAR spatial_shared_reuse_texture_pair_rescue_outputs
     RAY_QUERY)
 
+# UPT-43.5 separates paper-shaped reciprocal mapping from resampling. The
+# prepass writes one 16-byte scalar record per source pixel. The resampling
+# pass consumes reciprocal scalars and rematerializes the shifted candidate
+# only when the neighbor actually wins, so no third 64-byte reservoir page is
+# introduced.
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_shared_reuse_texture_shift_prepass_light64
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_PACKED_LIGHT_RECORD=1 UPT09_SPATIAL_GEOMETRY_REPLAY=1
+        UPT09_SPATIAL_INDIRECT_REPLAY=1 UPT10_SHARED_SPATIAL=1
+        UPT31_STORED_DIRECT_SOURCE_TARGET=1 UPT33_EMPTY_CENTER_RESCUE=1
+        UPT42_REUSE_TEXTURE_PAIRING=1 UPT43_SPATIAL_SHIFT_PREPASS=1
+    OUT_VAR spatial_shared_reuse_texture_shift_prepass_outputs
+    RAY_QUERY)
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_shared_reuse_texture_resample_light64
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_PACKED_LIGHT_RECORD=1 UPT09_SPATIAL_GEOMETRY_REPLAY=1
+        UPT09_SPATIAL_INDIRECT_REPLAY=1 UPT10_SHARED_SPATIAL=1
+        UPT31_STORED_DIRECT_SOURCE_TARGET=1 UPT33_EMPTY_CENTER_RESCUE=1
+        UPT42_REUSE_TEXTURE_PAIRING=1 UPT43_SPATIAL_RESAMPLE=1
+    OUT_VAR spatial_shared_reuse_texture_resample_outputs
+    RAY_QUERY)
+
 # UPT-38 preserves the accepted UPT-33 estimator and workgroup schedule. Its
 # only shader-policy change is admitting UPT-35 path-length-two endpoints
 # through the exact stored-q replay already accepted by UPT-36 T0.
@@ -367,6 +412,27 @@ add_custom_command(
     COMMENT "UPT-42 verifying Gaussian self-inverting reuse-texture pairing"
     VERBATIM)
 
+set(UPT435_SPATIAL_VERIFY_STAMP
+    "${UPT09_OUTPUT_DIR}/upt435_spatial_shift_prepass_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT435_SPATIAL_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT435_SHIFT_REFLECTION=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_reuse_texture_shift_prepass_light64.slang.spirv-reflection.json
+        -DUPT435_SHIFT_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_reuse_texture_shift_prepass_light64.slang.spvasm
+        -DUPT435_RESAMPLE_REFLECTION=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_reuse_texture_resample_light64.slang.spirv-reflection.json
+        -DUPT435_RESAMPLE_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_reuse_texture_resample_light64.slang.spvasm
+        -DUPT435_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
+        -DUPT435_SHADER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang
+        -DUPT435_STAMP=${UPT435_SPATIAL_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt435SpatialShiftPrepass.cmake"
+    DEPENDS ${spatial_shared_reuse_texture_shift_prepass_outputs}
+        ${spatial_shared_reuse_texture_resample_outputs}
+        "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt435SpatialShiftPrepass.cmake"
+    COMMENT "UPT-43.5 verifying split Gaussian spatial shift and resampling"
+    VERBATIM)
+
 set(UPT09_RUNTIME_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../../../base/renderprogs2/spirv/builtin/pathtracing/slang_upt09")
 set(UPT09_RUNTIME_OUTPUT
@@ -387,6 +453,10 @@ set(UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64.bin")
 set(UPT42_SPATIAL_REUSE_TEXTURE_PAIR_RESCUE_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64.bin")
+set(UPT43_SPATIAL_SHIFT_PREPASS_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_reuse_texture_shift_prepass_light64.bin")
+set(UPT43_SPATIAL_RESAMPLE_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_reuse_texture_resample_light64.bin")
 set(UPT34_SPATIAL_WORKGROUP_MULTI3_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_workgroup_multi3_rescue_stored_target_light64.bin")
 set(UPT38_SPATIAL_THREE_VERTEX_RUNTIME_OUTPUT
@@ -416,6 +486,8 @@ set(UPT09_SHARED_RUNTIME_MODULES
     upt09_spatial_shared_workgroup_pair_stored_target_light64
     upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64
     upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64
+    upt09_spatial_shared_reuse_texture_shift_prepass_light64
+    upt09_spatial_shared_reuse_texture_resample_light64
     upt09_spatial_shared_workgroup_multi3_rescue_stored_target_light64)
 foreach(runtime_module IN LISTS UPT09_SHARED_RUNTIME_MODULES)
     add_custom_command(
@@ -457,12 +529,15 @@ add_custom_target(PathTraceSlangUpt09Spatial
         ${spatial_shared_workgroup_pair_outputs}
         ${spatial_shared_workgroup_pair_rescue_outputs}
         ${spatial_shared_reuse_texture_pair_rescue_outputs}
+        ${spatial_shared_reuse_texture_shift_prepass_outputs}
+        ${spatial_shared_reuse_texture_resample_outputs}
         ${spatial_shared_workgroup_multi3_outputs}
         ${spatial_shared_workgroup_pair_rescue_three_vertex_outputs}
         ${spatial_shared_reuse_texture_pair_rescue_three_vertex_outputs}
         "${UPT10_SPATIAL_SHARED_VERIFY_STAMP}"
         "${UPT38_SPATIAL_VERIFY_STAMP}"
         "${UPT42_SPATIAL_VERIFY_STAMP}"
+        "${UPT435_SPATIAL_VERIFY_STAMP}"
         "${UPT09_VERIFY_STAMP}" "${UPT09_RUNTIME_OUTPUT}"
         "${UPT09_COMPACT_RUNTIME_OUTPUT}" "${UPT09_LAMBERT_RUNTIME_OUTPUT}"
         "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}"
@@ -471,6 +546,8 @@ add_custom_target(PathTraceSlangUpt09Spatial
         "${UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT}"
         "${UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT}"
         "${UPT42_SPATIAL_REUSE_TEXTURE_PAIR_RESCUE_RUNTIME_OUTPUT}"
+        "${UPT43_SPATIAL_SHIFT_PREPASS_RUNTIME_OUTPUT}"
+        "${UPT43_SPATIAL_RESAMPLE_RUNTIME_OUTPUT}"
         "${UPT34_SPATIAL_WORKGROUP_MULTI3_RUNTIME_OUTPUT}"
         "${UPT38_SPATIAL_THREE_VERTEX_RUNTIME_OUTPUT}"
         "${UPT42_SPATIAL_REUSE_TEXTURE_THREE_VERTEX_RUNTIME_OUTPUT}")
@@ -487,8 +564,11 @@ add_custom_target(PathTraceSlangUpt09ProductionRuntime
         "${UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT}"
         "${UPT38_SPATIAL_THREE_VERTEX_RUNTIME_OUTPUT}"
         "${UPT42_SPATIAL_REUSE_TEXTURE_PAIR_RESCUE_RUNTIME_OUTPUT}"
+        "${UPT43_SPATIAL_SHIFT_PREPASS_RUNTIME_OUTPUT}"
+        "${UPT43_SPATIAL_RESAMPLE_RUNTIME_OUTPUT}"
         "${UPT42_SPATIAL_REUSE_TEXTURE_THREE_VERTEX_RUNTIME_OUTPUT}"
-        "${UPT42_SPATIAL_VERIFY_STAMP}")
+        "${UPT42_SPATIAL_VERIFY_STAMP}"
+        "${UPT435_SPATIAL_VERIFY_STAMP}")
 set_target_properties(PathTraceSlangUpt09ProductionRuntime PROPERTIES
     FOLDER "Shaders/UPT-09")
 if(TARGET RBDoom3BFG)
