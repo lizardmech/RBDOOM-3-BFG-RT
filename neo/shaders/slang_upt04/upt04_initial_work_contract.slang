@@ -14,9 +14,10 @@ public static const uint kUpt04CandidateFlagVisibilityPassed = 1u << 3u;
 public static const uint kUpt04CandidateFlagReplayable = 1u << 4u;
 public static const uint kUpt04CandidateFlagNeedsShift = 1u << 5u;
 
-// Once D0 has completed reservoir selection, proposalPdf is no longer read by
-// the estimator. Secondary-emissive winners persist their receiver-invariant
-// four-region PDF scale as a negative finite value in word12. All actual
+// Once a reservoir update has completed, proposalPdf is no longer read by that
+// update's estimator. Emissive winners persist their receiver-invariant
+// four-region PDF scale as a negative finite value in word12, while pathPdf
+// retains the physical source PDF needed by later shift math. All actual
 // proposal PDFs are strictly positive, so the sign is a collision-free union
 // discriminator. UPT04_ABI_VERSION owns cross-frame invalidation.
 

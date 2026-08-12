@@ -1,0 +1,159 @@
+UPT-42 Gaussian Self-Inverting Reuse-Texture Pairing
+====================================================
+
+Status
+------
+
+Corrected and build-verified on Vulkan, 2026-08-12; runtime retest pending.
+The first pair-list implementation improved image quality substantially, but
+spatial reuse alone cost about 11 ms and temporal stress produced glitches
+near area boundaries. The corrected artifact remains opt-in through
+`exec uptf4`; `exec uptf2` remains the accepted UPT-33 8x8 schedule.
+
+
+Finding
+-------
+
+The accepted UPT-33 spatial estimator was reciprocal, but its production
+schedule was not the ReSTIR PT Enhanced Section 3.2 schedule. It paired lanes
+inside one moving 8x8 workgroup with an XOR mask. The maximum separation was
+seven pixels, every partner remained inside the same small tile, and the
+group-shared handoff made that locality structural. This explains both the
+occasional 8x8 pattern and the soft, diffusion-like behavior reported with
+spatial reuse and DLSS Ray Reconstruction.
+
+The paper instead uses a precomputed, tilable, self-inverting Gaussian
+permutation. For its default 30-pixel comparison radius it chooses sigma=16.
+Equation 3 gives 128 alternating 2x2 shuffle rounds. Three-neighbor reuse uses
+independent 254, 230 and 210 maps so their repetitions do not align.
+
+
+Implemented Construction
+------------------------
+
+The host constructs all three immutable maps once:
+
+    initialize consecutive link IDs, two pixels per link;
+    perform 128 deterministic random 2x2 permutations;
+    offset every other shuffle by (1,1) on a torus;
+    find the two endpoints of every link;
+    shorten edge-crossing deltas into the tilable signed range;
+    pack signed dx/dy as two int16 values in one uint;
+    verify every entry maps to a distinct partner that maps exactly back.
+
+The concatenated buffer now contains only 161,516 delta entries (646,064
+bytes). The rejected canonical-pair lists were removed. It is uploaded once,
+never cleared, and never rebuilt per frame. The construction log reports
+measured component sigma and mean radius for each map as well as
+`involution=verified`.
+
+Each frame applies a bijective conjugate transform in the shader: independent
+transpose, x/y mirrors and toroidal offset. Applying the inverse linear
+transform to the stored delta preserves exact reciprocity while changing the
+screen-space pair field every frame.
+
+
+Scheduling
+----------
+
+The rejected implementation dispatched canonical pair ordinals over a padded
+repeated-tile grid. At 1920x1080 that launched 2,258,060 lanes for 1,036,800
+useful pairs. Rejection happened after two reuse-buffer lookups and transform
+work, while valid lanes then loaded unrelated screen records on both sides.
+
+The corrected implementation dispatches ordinary 8x8 screen pixels. Each
+pixel performs one transformed delta lookup. Out-of-screen partners publish an
+unchanged fallback; otherwise the higher linear endpoint exits and the lower
+endpoint evaluates A-to-B and B-to-A once, publishing both output pixels. The
+leader carries the resolved partner into the evaluator, so it does not repeat
+the delta lookup. This restores coalesced anchor-side surface and reservoir
+access without a pair list, mapped-work page or cross-workgroup communication.
+
+This changes scheduling only. UPT-33 surface compatibility, duplicate
+exclusion, pairwise GRIS weights, stored-target convention, winner-only
+visibility, empty-center rescue, reservoir ABI and ray ceilings are unchanged.
+The optional UPT-38 three-vertex replay has an equivalent UPT-42 artifact.
+
+
+Neighbor Count Boundary
+-----------------------
+
+The accepted production configuration uses one spatial neighbor, so it
+consumes the 254 map. The 230 and 210 independent maps are already generated
+and bound-ready, but UPT-42 does not silently re-enable the
+rejected UPT-34 canonical-plus-three-neighbor estimator, which previously cost
+about 40 percent FPS. `r_pathTracingUnifiedPtSpatialMultiNeighbor 1` therefore
+continues to select the explicit historical UPT-34 workgroup artifact.
+
+
+Build Proof
+-----------
+
+`cmake --build --preset win64-pt-dev-release` passes. The UPT-42 verifier proves:
+
+    binding 29 is a read-only structured buffer in both artifacts;
+    the production kernel has SPIR-V LocalSize 8 8 1;
+    host layout and binding-set slot 29 agree;
+    host dispatch is screen ordered and contains no padded pair-list path;
+    shader ownership is the lower linear endpoint;
+    stale pair-list and inverse-anchor symbols are absent;
+    the one-continuation and optional three-vertex filenames are reachable.
+
+No DX12 shader was compiled.
+
+
+Runtime Acceptance
+------------------
+
+Run the retained diagnostic:
+
+    exec uptf4
+
+Require these two startup lines:
+
+    UPT-42 reuse textures ... sizes=254/230/210 ... rounds=128/128/128 ...
+        involution=verified upload=once clear=never
+    spatial ... groups=8x8-screen-leaders ... reuseTexturePairing=1
+        reuseTextureSize=254 ... multiNeighbor=0 ... neighbors=1
+
+Then compare the same fixed camera and motion route used for the accepted
+`uptf2` baseline:
+
+    no 8x8 square boundaries or one-pixel watercolor diffusion;
+    no unwritten pixels, seams, opposite-edge reuse or frame flashes;
+    no change to direct/global energy, ghosting, emissive identity or color;
+    empty-center rescue still works at disocclusions;
+    spatial GPU time after PSO and history warm-up is recorded;
+    DLSS RR motion is less structured, with no new persistent pattern.
+
+Do not promote the three-neighbor path or compensate for any remaining
+temporal firefly in spatial reuse. First establish whether the corrected
+screen-ordered schedule makes the one-neighbor stage viable. The intended
+optimization boundary remains scheduling/compaction, not broader rejection or
+a smaller reuse radius.
+
+
+Runtime Result
+--------------
+
+The large-domain pairing removed the prior structured softness and produced
+excellent static quality. Its first pair-list form was not production viable:
+the user measured about 11 ms for S0 alone. Review then found padded
+overdispatch, scattered anchor access and a repeated delta lookup. Those
+defects are corrected by the screen-ordered leader implementation above.
+
+An exhaustive audit of the exact shader transform tested 65,132,602 in-screen
+relationships over 32 frame transforms with zero reverse-link failures. This
+disproves the suggestion that mirror/transpose/offset seams broke the
+involution. Corrected UPT-42 timing and motion acceptance remain pending.
+
+NVIDIA FullSample's PT temporal path provides the relevant next experiment.
+It defaults permutation sampling off for PT, but enables a strength-0.2 boiling
+filter after temporal resampling. That is downstream work only after the
+corrected spatial stage proves usable. The filter compares the finalized path
+reservoir's target-scaled weight against the average nonzero weight of its
+compute group and empties only extreme outliers. UPT's persisted `weightSum`
+is already the equivalent target-scaled UCW, so no extra target multiplication
+or estimator conversion is needed. Implement this as a bounded T0 experiment
+before adding PT permutation sampling; permutation is not NVIDIA's PT default
+and is known to add noise on thin or high-detail surfaces.

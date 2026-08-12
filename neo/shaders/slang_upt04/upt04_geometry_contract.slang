@@ -289,6 +289,17 @@ public struct Upt04EmissiveReplayRecord
     public uint padding0;
 };
 
+public struct Upt04EmissiveGeometryRecord
+{
+    public float4 position0AndUv0X;
+    public float4 position1AndUv0Y;
+    public float4 position2AndUv1X;
+    public float uv1Y;
+    public uint identityHashLo;
+    public uint identityHashHi;
+    public uint validity;
+};
+
 public struct Upt04ResolvedTriangle
 {
     public uint valid;

@@ -1245,25 +1245,52 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_indirect_only_raygen_compact32
     upt04_initial_miss
     upt04_initial_closest_hit)
+
+# UPT-41 production reachability set.  Keep the full runtime matrix above as
+# an explicitly buildable audit/rollback target, but do not make the engine
+# rebuild every obsolete packing, frozen-scene, backend and family cross
+# product.  These are the accepted D0 route, its compact32/parity fallback,
+# the Lambert diagnostic, and the optional bounded third vertex.
+set(UPT04_PRODUCTION_RUNTIME_MODULES
+    upt04_initial_rayquery_compact32
+    upt04_initial_rayquery_compact32_unified_parity1
+    upt04_compact_light_pack
+    upt04_initial_split_direct_rayquery_compact32_light64
+    upt04_initial_split_indirect_rayquery_compact32_light64
+    upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex
+    upt04_initial_rayquery_compact32_lambert)
 set(UPT04_RUNTIME_OUTPUTS)
+set(UPT04_PRODUCTION_RUNTIME_OUTPUTS)
 foreach(runtime_module IN LISTS UPT04_RUNTIME_MODULES)
     set(runtime_source "${UPT04_OUTPUT_DIR}/${runtime_module}.slang.spv")
     set(runtime_output "${UPT04_RUNTIME_OUTPUT_DIR}/${runtime_module}.bin")
-    add_custom_command(
-        OUTPUT "${runtime_output}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT04_RUNTIME_OUTPUT_DIR}"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${runtime_source}" "${runtime_output}"
-        DEPENDS "${runtime_source}"
+    if(runtime_module IN_LIST UPT04_PRODUCTION_RUNTIME_MODULES)
+        set(runtime_dependencies "${runtime_source}")
+        if(runtime_module STREQUAL
+                "upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex")
+            list(APPEND runtime_dependencies "${UPT35_VERIFY_STAMP}")
+        endif()
+    else()
+        set(runtime_dependencies "${runtime_source}"
             "${UPT04_BACKEND_VERIFY_STAMP}"
             "${UPT04_STATIC_VERIFY_STAMP}"
             "${UPT05_MATERIAL_BOUNDARY_STAMP}"
             "${UPT04_LIGHT_TILE_VERIFY_STAMP}"
             "${UPT04_NATIVE_LIGHT_VIEW_VERIFY_STAMP}"
-            "${UPT35_VERIFY_STAMP}"
+            "${UPT35_VERIFY_STAMP}")
+    endif()
+    add_custom_command(
+        OUTPUT "${runtime_output}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT04_RUNTIME_OUTPUT_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${runtime_source}" "${runtime_output}"
+        DEPENDS ${runtime_dependencies}
         COMMENT "UPT-04 verified Vulkan runtime artifact: ${runtime_module}"
         VERBATIM)
     list(APPEND UPT04_RUNTIME_OUTPUTS "${runtime_output}")
+    if(runtime_module IN_LIST UPT04_PRODUCTION_RUNTIME_MODULES)
+        list(APPEND UPT04_PRODUCTION_RUNTIME_OUTPUTS "${runtime_output}")
+    endif()
 endforeach()
 
 set(UPT04_LIVE_TLAS_PROBE_SLANG_RUNTIME_OUTPUT
@@ -1343,6 +1370,10 @@ add_custom_target(PathTraceSlangUpt04RuntimeArtifacts
     DEPENDS ${UPT04_RUNTIME_OUTPUTS})
 set_target_properties(PathTraceSlangUpt04RuntimeArtifacts PROPERTIES FOLDER "Shaders/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04RuntimeArtifacts)
+add_custom_target(PathTraceSlangUpt04ProductionRuntime
+    DEPENDS ${UPT04_PRODUCTION_RUNTIME_OUTPUTS})
+set_target_properties(PathTraceSlangUpt04ProductionRuntime
+    PROPERTIES FOLDER "Shaders/UPT-04")
 if(TARGET RBDoom3BFG)
-    add_dependencies(RBDoom3BFG PathTraceSlangUpt04RuntimeArtifacts)
+    add_dependencies(RBDoom3BFG PathTraceSlangUpt04ProductionRuntime)
 endif()

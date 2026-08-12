@@ -1,0 +1,392 @@
+UPT-43: bounded endpoint-cached temporal and spatial reuse
+==========================================================
+
+Status
+------
+
+Owning architecture and implementation order, 2026-08-12.
+
+UPT-42 proved that a Gaussian self-inverting reuse texture fixes the visible
+8x8 spatial structure, but its corrected scheduling changed performance by
+only one or two frames. At 1920x1080 the current UPT temporal plus spatial
+passes remain about 220 percent more frame time than the ReSTIR PT Enhanced
+reference result. At the normal render resolution, setting the emissive scale
+to zero can increase total frame rate by about 50 percent. The cost therefore
+cannot be treated as a pairing-texture, boiling-filter or denoiser problem.
+
+This document replaces incremental optimization of the current universal
+replay megakernels with an RTXDI/ReSTIR-PT-shaped bounded reuse architecture.
+ReSTIR PT Enhanced features remain desired, but they are layers on the bounded
+base rather than reasons to preserve UPT's current expensive representation.
+
+Reference finding
+-----------------
+
+The local RTXDI FullSample PT implementation is not the same estimator as
+UPT: it keeps a separate DI path and normally disables primary-surface
+emissive sampling in PT. It is nevertheless the closest available executable
+implementation of the ReSTIR PT hybrid-shift representation from which the
+Enhanced paper evolves.
+
+Its 64-byte PT reservoir persists:
+
+    reconnection world position and normal;
+    outgoing incident radiance at that vertex;
+    target function and reservoir weight;
+    partial Jacobian and reconnection incident-direction PDF;
+    reconnection length and selected path length;
+    replay seed and random index.
+
+The decisive reuse gate is:
+
+    random replay is required only when RcVertexLength > 2.
+
+An ordinary x1-to-x2 reconnection therefore performs no closest-hit path
+trace. It evaluates the stored endpoint at the new receiver, updates the
+cached Jacobian and optionally performs conservative connection visibility.
+Only a later reconnection vertex replays the prefix before that vertex.
+
+For an emissive-surface endpoint, initial sampling evaluates the material and
+stores the endpoint position, normal and outgoing radiance. Temporal/spatial
+reuse does not rediscover its triangle, vertices, UV basis, material or
+emissive texture. For NEE, the reservoir stores the selected dense light
+identity and sample coordinates. Temporal reuse performs one dense previous-
+to-current remap and evaluates that exact sample; it never samples or searches
+the light distribution again.
+
+Current UPT mismatch
+--------------------
+
+UPT has a unified 64-byte reservoir, but its representation is primarily a
+recipe for reconstructing a sample rather than a cached reconnection
+endpoint. Consequently:
+
+* every direct-emissive T0/S0 mapping resolves the emitter triangle through
+  the general geometry router;
+* it samples four emitter texture probes to reconstruct the bounded
+  four-region proposal PDF, then samples the selected endpoint texture;
+* global mappings generally perform closest-hit continuation replay even when
+  the stored reconnection length and x2 locator identify a cheap connection;
+* temporal reciprocal evaluation and spatial reciprocal mapping inline the
+  replay, geometry, material, light and visibility closures in large kernels;
+* emissive population, geometry routes and selected path type therefore
+  change reuse cost drastically even at fixed resolution and bounce depth.
+
+This is why emissive scale zero is a major performance switch in UPT but not
+in the FullSample PT path. The dependence is not an inherent ReSTIR PT cost.
+
+Target cost contract
+--------------------
+
+Steady T0/S0 work must approach:
+
+    active pixels
+      x configured temporal/spatial mappings
+      x bounded replay-prefix length
+
+The total light count, total emissive count and unrelated geometry population
+must not multiply reuse work. They may affect D0 proposal generation and BVH
+traversal coherence, but not introduce a candidate loop, CDF search, hash
+search or general emitter reconstruction into each reuse mapping.
+
+For an ordinary direct or x2-reconnectable path, the hot mapping must contain:
+
+    one reservoir decode;
+    at most one previous-to-current dense identity remap when needed;
+    receiver BSDF/target evaluation;
+    bounded Jacobian arithmetic;
+    at most one connection-visibility query when estimator validity needs it;
+    reservoir merge arithmetic.
+
+It must contain zero closest-hit replay rays and zero emitter material/texture
+probes used only to reconstruct already-known sampling state.
+
+Event-specific reservoir arms
+-----------------------------
+
+The physical reservoir remains 64 bytes. Its packed words are event-specific
+unions; a future slice may reassign fields only after a complete producer and
+consumer audit and an ABI-generation bump.
+
+Direct and secondary NEE arm:
+
+    stable light identity;
+    stored light sample coordinates;
+    exact receiver-invariant sampling-PDF payload;
+    cached endpoint data needed by the selected reconnection;
+    path/reconnection lengths and replay identity.
+
+BSDF-hit emissive arm:
+
+    exact endpoint world position and normal;
+    evaluated outgoing radiance;
+    partial Jacobian/reconnection PDF terms;
+    dynamic validity identity or generation;
+    path/reconnection lengths and replay identity.
+
+Later-reconnection arm:
+
+    cached reconnection endpoint and suffix radiance;
+    replay seed/index for only the prefix before the reconnection vertex;
+    partial Jacobian and incident-direction PDF;
+    explicit path and reconnection lengths.
+
+Static cached endpoint data may be consumed directly. A temporal dynamic,
+rigid or skinned endpoint must validate a stable generation/identity and
+recover current position exactly or reject. No stale world-space endpoint may
+be admitted merely to avoid replay. Same-frame spatial use may consume exact
+same-frame cached data.
+
+Implementation stages
+---------------------
+
+S43.1 Direct-emissive PDF payload
+
+D0 already computes the exact receiver-invariant four-region selection-PDF
+scale and leaves it in Upt04LocalLightSample.reserved. Secondary emissive NEE
+already persists the same value as the established negative proposalPdf union
+arm. Extend that collision-free payload to non-global direct emissives:
+
+* carry the exact scale through fresh and previous-best D0 selection;
+* encode it only after D0 streaming/finalization;
+* consume it in direct T0/S0 instead of four material/texture probes;
+* republish it after every accepted direct shift so it survives later frames;
+* retain one selected endpoint texture evaluation until S43.2;
+* bump UPT04_ABI_VERSION so old history cannot be decoded under the new arm.
+
+This changes neither the proposal density nor the reservoir weight convention.
+Missing, malformed or out-of-range payloads reject; they do not fall back to
+an expensive or approximate proposal.
+
+S43.2 Exact endpoint cache
+
+Add an exact producer-owned endpoint representation. Prefer data already
+available while capturing the emissive inventory over a shader-side general
+geometry lookup. It must reconstruct the selected triangle endpoint exactly,
+including position, normal, UV/material identity and dynamic validity. The
+first accepted version may keep one endpoint emission texture sample; the
+target architecture stores evaluated outgoing radiance for immutable/static
+endpoints and validates dynamic endpoints explicitly.
+
+The first accepted representation is an ordinal-aligned 64-byte current-frame
+emissive geometry sidecar, not a per-pixel endpoint buffer and not an extension
+of the legacy 144-byte emissive record:
+
+    float4 position0AndUv0X;
+    float4 position1AndUv0Y;
+    float4 position2AndUv1X;
+    float  uv1Y;
+    uint   identityHashLo;
+    uint   identityHashHi;
+    uint   validity;
+
+UV2 is reconstructed exactly as three times the existing centroid UV minus
+UV0 and UV1. Material index, triangle class/flags and centroid UV remain owned
+by the matching 144-byte record. The sidecar identity must match both that
+record and the selected current light; validity uses an explicit non-zero
+magic. Any count, identity or validity mismatch rejects.
+
+Every CPU emissive capture route publishes the sidecar in the same operation
+that appends its legacy record: static bucket, dynamic, rigid, world-static
+supplement and current skinned output. The two arrays must have identical
+counts before upload. Temporal history first remaps its stable light identity
+to the current dense universe and then loads the current light's source
+ordinal, so moving rigid/skinned emitters use current-frame vertices rather
+than stale cached world positions. Spatial uses the same current-frame data.
+
+The sidecar is sized by emissive inventory count, not screen resolution, is
+uploaded with the existing scene publication, and is never fully cleared.
+It replaces only selected-emissive triangle reconstruction. General geometry
+buffers remain available for continuation/BSDF hits until later stages. S43.2
+therefore requires direct and secondary-NEE emissive replay to issue zero
+calls to Upt04ResolveTriangle while preserving the exact barycentric point,
+geometric normal, solid-angle PDF, UV gradients and one endpoint emission
+evaluation.
+
+S43.3 Trace-free x2 reconnection
+
+Make the stored reconnection length and x2 endpoint the production common
+path. Remove the existing exclusion between pairwise reuse and early
+reconnection. A successful x2 mapping uses no closest-hit continuation ray.
+Connection visibility remains explicit and distinct from winner visibility.
+The old exact replay path remains the rollback and unsupported-path fallback.
+
+S43.4 Replay classification and compaction
+
+Classify mappings before path tracing:
+
+    direct endpoint;
+    trace-free x2 reconnect;
+    later/specular random-replay fallback;
+    invalid/rejected.
+
+Only the later/specular population enters a compact replay dispatch. Reuse the
+bounded no-full-clear queue rules from UPT-20: reset only counters/indirect
+arguments, bound reads by the published count, and never clear a full work
+buffer each frame. Do not compact universal replay before S43.3 makes the
+fallback population sparse.
+
+S43.5 Paper-shaped paired spatial execution
+
+After mapping cost is bounded, replace the reciprocal leader megakernel with
+the Enhanced two-stage execution:
+
+    full-occupancy shift prepass;
+    pure resampling/publication pass.
+
+Retain the accepted self-inverting Gaussian texture and exact reciprocal MIS.
+The intermediate record must be the smallest mapping result needed by the
+second pass; do not allocate another general 64-byte history page without a
+measured byte/traffic justification. The pass boundary must reduce live
+replay state and register pressure, not merely move the same large closure to
+another dispatch.
+
+S43.6 Enhanced layers
+
+Once the bounded base is accepted, restore or extend:
+
+    footprint-based reconnection criteria;
+    forced NEE light reconnection;
+    reciprocal Gaussian pairing and additional neighbors if affordable;
+    duplication-map history control;
+    temporal boiling/disocclusion handling;
+    optional three-vertex and later-bounce replay;
+    denoiser/RR integration.
+
+These features must not reintroduce light-distribution search, universal
+closest-hit replay or emitter reconstruction into the common mapping.
+
+Required diagnostics
+--------------------
+
+T0 and S0 require separate per-frame and per-pixel-normalized counters for:
+
+    direct analytic mappings;
+    direct emissive mappings;
+    secondary NEE analytic mappings;
+    secondary NEE emissive mappings;
+    BSDF-hit emissive endpoints;
+    reconnection-length histogram;
+    trace-free reconnect attempts/successes/rejections;
+    random-replay mappings by prefix length;
+    dense stable-ID remap loads and failures;
+    light-distribution searches;
+    emissive geometry resolves;
+    emitter material loads and texture probes;
+    closest-hit continuation rays;
+    connection-visibility rays;
+    winner-visibility rays;
+    compacted replay count and dispatch size.
+
+The counters declare a budget, not merely observability. Production acceptance
+requires ordinary direct-emissive and x2 mappings to report zero closest-hit
+replay rays. After S43.1 direct-emissive mappings must report zero four-region
+texture probes. After S43.2 static direct-emissive mappings must report zero
+general geometry resolves.
+
+Acceptance and rollback
+-----------------------
+
+Each stage remains default-off or has a byte-identical/behavioral rollback
+until runtime accepted. Compare settled batches with fixed camera/RNG state,
+16 warm-up frames and 64 timing samples; require two agreeing batches.
+
+Acceptance requires:
+
+1. Existing direct analytic and emissive energy remains unchanged.
+2. No missing, duplicated, ghost, white or color-corrupted emitters appear.
+3. Dynamic/rigid/skinned endpoints never consume stale cached positions.
+4. Temporal/spatial-off D0 remains unchanged apart from ABI invalidation.
+5. T0/S0 cost becomes primarily resolution, mapping-count and bounce-depth
+   dependent rather than light/emissive population dependent.
+6. Emissive scale zero no longer removes a large structural T0/S0 workload.
+7. The accepted compact32, compact64-light, proposal-parity, duplication,
+   shared DI/GI reservoir, empty-rescue and optional three-vertex paths remain
+   available.
+8. No per-frame full-buffer clear is added.
+9. No DX12 shader is compiled or deployed.
+
+Build and deployment
+--------------------
+
+Build only the Vulkan lane from neo:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy RBDoom3BFG.exe and only Vulkan SPIR-V rebuilt by the accepted slice.
+Preserve the dirty worktree and checkpoint only after a meaningful runtime-
+verified stage.
+
+S43.1 implementation status, 2026-08-12
+----------------------------------------
+
+S43.1 is implemented, Vulkan-built and deployed for runtime validation.
+
+The direct D0 fresh and legacy-shaped previous-best paths now carry the exact
+four-region emissive replay PDF scale that they already compute. Reservoir
+finalization publishes it in the established negative word12 event union for
+both direct and secondary emissive NEE. T0 and S0 decode that payload, retain
+one exact endpoint emission evaluation, and no longer call the four-point
+region-weight evaluator. Successful direct shifts republish the same payload;
+the physical proposal PDF remains in pathPdf for estimator math. Analytic
+lights keep their ordinary positive word12 proposal PDF.
+
+UPT04_ABI_VERSION is 12. Old primary-emissive history therefore fails the page
+generation contract without a buffer clear. Missing, zero, positive or out-of-
+range emissive payloads fail closed rather than falling back to the removed
+four-probe reconstruction.
+
+The required Vulkan build completed successfully. One executable and exactly
+21 rebuilt Vulkan SPIR-V blobs were deployed. No DX12 shader was compiled or
+deployed. Runtime image/performance acceptance and the checkpoint remain
+pending.
+
+S43.2 implementation status, 2026-08-12
+----------------------------------------
+
+S43.2 is implemented, Vulkan-built and deployed for runtime validation.
+
+Every current emissive inventory record now has an ordinal-aligned 64-byte
+exact geometry sidecar. Static-bucket, dynamic, rigid and world-static CPU
+capture routes append the record and sidecar together. Count parity is checked
+before upload and any mismatch invalidates the complete sidecar rather than
+admitting misaddressed geometry. The existing skinned-emissive GPU publication
+dispatch now writes the same sidecar from post-skinning current vertices and
+explicitly invalidates it when publication is unavailable.
+
+D0, T0 and S0 bind the sidecar at set 0 binding 32. Selected emissive replay
+validates the current light, legacy record, sidecar magic and both identity
+hash words, reconstructs UV2 from the existing centroid UV, and performs exact
+barycentric position/UV interpolation. The old Upt04ResolveTriangle and
+Upt04BuildGeometryHitSurface route is absent from the shared emissive replay
+module. Area, oriented normal, solid-angle PDF, UV gradients and the single
+endpoint emission evaluation remain unchanged. Missing, stale or mismatched
+geometry rejects; there is no fallback to general routing or approximate data.
+
+UPT04_ABI_VERSION is 13. The full Vulkan build and descriptor/ray-ceiling
+verification completed successfully. The executable, the skinned publication
+compute blob, and exactly 18 rebuilt UPT D0/T0/S0 Vulkan blobs were deployed;
+no DX12 shader was compiled or deployed. Runtime image/performance acceptance
+and the checkpoint remain pending. Use the existing `exec uptf2.cfg` baseline;
+no additional cvar is required.
+
+S43.2 runtime acceptance, 2026-08-12
+------------------------------------
+
+The deployed `uptf2.cfg` production baseline completed runtime validation with
+no visual issues. At 2560x1440, after 16 warm-up frames and over 64 dispatch-
+only timing samples:
+
+    temporal median: 11.100 ms;
+    temporal mean:   11.102 ms;
+    temporal range:  11.003 to 11.262 ms;
+    spatial median:   1.072 ms;
+    spatial mean:     1.084 ms.
+
+The immediately preceding S43.1 temporal baseline at the same resolution was
+14.679 ms. Exact endpoint geometry therefore removed 3.579 ms from the median
+temporal dispatch, a 24.4 percent reduction. Spatial remained effectively
+unchanged from its preceding 1.063 ms median, as expected for a pass already
+dominated by the accepted workgroup pairing path rather than emitter geometry
+routing. S43.2 is accepted for image correctness and performance. The next
+stage is S43.3 trace-free x2 reconnection.

@@ -609,7 +609,7 @@ foreach(lambert_module
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${UPT07_OUTPUT_DIR}/${lambert_module}.slang.spv"
             "${lambert_runtime}"
-        DEPENDS ${UPT07_LAMBERT_OUTPUTS}
+        DEPENDS "${UPT07_OUTPUT_DIR}/${lambert_module}.slang.spv"
         COMMENT "UPT-07 Vulkan Lambert diagnostic artifact: ${lambert_module}"
         VERBATIM)
     list(APPEND UPT07_LAMBERT_RUNTIME_OUTPUTS "${lambert_runtime}")
@@ -666,89 +666,34 @@ set(UPT07_UNIFIED_DUPLICATION_RECONNECT_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_duplication_reconnect.bin")
 set(UPT07_UNIFIED_COMPACT_DUPLICATION_RECONNECT_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication_reconnect.bin")
-add_custom_command(
-    OUTPUT "${UPT07_DIRECT_RUNTIME_OUTPUT}" "${UPT07_DIRECT_COMPACT_RUNTIME_OUTPUT}"
-        "${UPT07_DIRECT_DUPLICATION_RUNTIME_OUTPUT}"
-        "${UPT07_DIRECT_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_COMPACT_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_DUPLICATION_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_ROUTE_DIAG_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_COMPACT_ROUTE_DIAG_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_COMPACT_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_RECONNECT_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_COMPACT_RECONNECT_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_DUPLICATION_RECONNECT_RUNTIME_OUTPUT}"
-        "${UPT07_UNIFIED_COMPACT_DUPLICATION_RECONNECT_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT07_RUNTIME_DIR}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_direct_rayquery.slang.spv"
-        "${UPT07_DIRECT_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_direct_rayquery_light64.slang.spv"
-        "${UPT07_DIRECT_COMPACT_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_direct_rayquery_duplication.slang.spv"
-        "${UPT07_DIRECT_DUPLICATION_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_direct_rayquery_light64_duplication.slang.spv"
-        "${UPT07_DIRECT_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery.slang.spv"
-        "${UPT07_UNIFIED_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64.slang.spv"
-        "${UPT07_UNIFIED_COMPACT_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_duplication.slang.spv"
-        "${UPT07_UNIFIED_DUPLICATION_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication.slang.spv"
-        "${UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_route_diag.slang.spv"
-        "${UPT07_UNIFIED_ROUTE_DIAG_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_route_diag.slang.spv"
-        "${UPT07_UNIFIED_COMPACT_ROUTE_DIAG_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_duplication_route_diag.slang.spv"
-        "${UPT07_UNIFIED_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_route_diag.slang.spv"
-        "${UPT07_UNIFIED_COMPACT_DUPLICATION_ROUTE_DIAG_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_reconnect.slang.spv"
-        "${UPT07_UNIFIED_RECONNECT_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_reconnect.slang.spv"
-        "${UPT07_UNIFIED_COMPACT_RECONNECT_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_duplication_reconnect.slang.spv"
-        "${UPT07_UNIFIED_DUPLICATION_RECONNECT_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_reconnect.slang.spv"
-        "${UPT07_UNIFIED_COMPACT_DUPLICATION_RECONNECT_RUNTIME_OUTPUT}"
-    DEPENDS ${temporal_direct_outputs} ${temporal_direct_compact_outputs}
-        ${temporal_direct_duplication_outputs}
-        ${temporal_direct_compact_duplication_outputs}
-        ${temporal_unified_outputs} ${temporal_unified_compact_outputs}
-        ${temporal_unified_duplication_outputs}
-        ${temporal_unified_compact_duplication_outputs}
-        ${temporal_unified_route_diag_outputs}
-        ${temporal_unified_compact_route_diag_outputs}
-        ${temporal_unified_duplication_route_diag_outputs}
-        ${temporal_unified_compact_duplication_route_diag_outputs}
-        ${temporal_unified_reconnect_outputs}
-        ${temporal_unified_compact_reconnect_outputs}
-        ${temporal_unified_duplication_reconnect_outputs}
-        ${temporal_unified_compact_duplication_reconnect_outputs}
-        ${upt07_work_budget_outputs}
-        "${UPT07_DIRECT_VERIFY_STAMP}"
-    COMMENT "UPT-07 verified Vulkan runtime artifacts: primary-direct temporal shift"
-    VERBATIM)
+set(UPT07_CORE_RUNTIME_MODULES
+    upt07_temporal_direct_rayquery
+    upt07_temporal_direct_rayquery_light64
+    upt07_temporal_direct_rayquery_duplication
+    upt07_temporal_direct_rayquery_light64_duplication
+    upt07_temporal_unified_rayquery
+    upt07_temporal_unified_rayquery_light64
+    upt07_temporal_unified_rayquery_duplication
+    upt07_temporal_unified_rayquery_light64_duplication
+    upt07_temporal_unified_rayquery_route_diag
+    upt07_temporal_unified_rayquery_light64_route_diag
+    upt07_temporal_unified_rayquery_duplication_route_diag
+    upt07_temporal_unified_rayquery_light64_duplication_route_diag
+    upt07_temporal_unified_rayquery_reconnect
+    upt07_temporal_unified_rayquery_light64_reconnect
+    upt07_temporal_unified_rayquery_duplication_reconnect
+    upt07_temporal_unified_rayquery_light64_duplication_reconnect)
+foreach(runtime_module IN LISTS UPT07_CORE_RUNTIME_MODULES)
+    add_custom_command(
+        OUTPUT "${UPT07_RUNTIME_DIR}/${runtime_module}.bin"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT07_RUNTIME_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${UPT07_OUTPUT_DIR}/${runtime_module}.slang.spv"
+            "${UPT07_RUNTIME_DIR}/${runtime_module}.bin"
+        DEPENDS "${UPT07_OUTPUT_DIR}/${runtime_module}.slang.spv"
+        COMMENT "UPT-07 Vulkan temporal artifact: ${runtime_module}"
+        VERBATIM)
+endforeach()
 
 add_custom_target(PathTraceSlangUpt07TemporalOwnership
     DEPENDS ${temporal_ownership_outputs} "${UPT07_VERIFY_STAMP}"
@@ -780,8 +725,24 @@ add_custom_target(PathTraceSlangUpt07TemporalOwnership
         "${UPT36_TEMPORAL_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
     FOLDER "Shaders/UPT-07")
+
+# UPT-41 production reachability set.  The full ownership target above keeps
+# every historical route/reconnect/frozen/probe specialization explicitly
+# buildable.  The engine only needs the accepted common-GRIS path, its shared
+# adapter rollback, the bounded third-vertex extension, and the compact-light
+# Lambert diagnostic during normal iteration.
+add_custom_target(PathTraceSlangUpt07ProductionRuntime
+    DEPENDS
+        "${UPT07_DIRECT_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
+        "${UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
+        "${UPT10_TEMPORAL_SHARED_ADAPTER_RUNTIME_OUTPUT}"
+        "${UPT10_TEMPORAL_COMMON_GRIS_RUNTIME_OUTPUT}"
+        "${UPT36_TEMPORAL_RUNTIME_OUTPUT}"
+        "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication_lambert.bin")
+set_target_properties(PathTraceSlangUpt07ProductionRuntime PROPERTIES
+    FOLDER "Shaders/UPT-07")
 if(TARGET RBDoom3BFG)
-    add_dependencies(RBDoom3BFG PathTraceSlangUpt07TemporalOwnership)
+    add_dependencies(RBDoom3BFG PathTraceSlangUpt07ProductionRuntime)
 endif()
 
 add_custom_target(PathTraceSlangUpt36ThreeVertexTemporal

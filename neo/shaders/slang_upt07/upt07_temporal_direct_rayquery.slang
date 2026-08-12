@@ -269,13 +269,10 @@ public uint Upt07EvaluateDirectSample(
                     & kUpt04EmissiveReplayTwoSided) != 0u);
         if (replay.status == kUpt04SampleInvalid)
             return 0u;
-        const float4 regionWeights = UptDirectEmissiveRegionWeights(
-            replay,
-            gUpt07Control.materialCount,
-            gUpt07Control.logicalTextureCount,
-            gUpt07Control.emissiveScale);
-        const uint region = Upt04EmissiveRegionFromBarycentrics(
-            replay.barycentrics);
+        float replayPdfScale;
+        if (!Upt04DecodeEmissiveReplayPdfScale(
+                source.proposalPdf, replayPdfScale))
+            return 0u;
         const Upt04MaterialEmissionEvaluation emission =
             UptDirectEvaluateEmissiveEndpoint(
                 replay.materialIndex,
@@ -299,9 +296,9 @@ public uint Upt07EvaluateDirectSample(
         sample.distance = replay.distance;
         sample.direction = replay.direction;
         sample.solidAnglePdf = replay.solidAnglePdf
-            * (4.0f * Upt04EmissiveRegionSelectionPdf(
-                regionWeights, region));
+            * replayPdfScale;
         sample.radiance = replayRadiance;
+        sample.reserved = asuint(replayPdfScale);
     }
     else
     {
@@ -432,7 +429,15 @@ public uint Upt07ShiftPrimaryDirect<
     shifted.generationFingerprint = kUpt03ExpectedGeneration;
     shifted.sampleCoord0 = source.sampleCoord0;
     shifted.sampleCoord1 = source.sampleCoord1;
-    shifted.proposalPdf = proposalPdf;
+    shifted.proposalPdf = shifted.status == kUpt04SampleValidPositive
+            && emissive != 0u
+        ? Upt04EncodeEmissiveReplayPdfScale(asfloat(sample.reserved))
+        : proposalPdf;
+    if (shifted.status == kUpt04SampleValidPositive
+        && emissive != 0u
+        && !Upt03EmissiveReplayPdfScalePayloadValid(
+            shifted, shifted.proposalPdf))
+        return 0u;
     shifted.pathPdf = proposalPdf;
     shifted.partialJacobian = 1.0f;
     shifted.accumulatedRouletteProbability = 1.0f;
@@ -870,7 +875,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 receiver,
                 gUpt07Control.previousCamera,
                 dimensions,
-                pixelJitter,
+                pixelJitter + gUpt07Control.previousCameraJitterPixels,
                 searchMode >= 2u ? 2u : 0u);
         if (projection.valid != 0u)
         {

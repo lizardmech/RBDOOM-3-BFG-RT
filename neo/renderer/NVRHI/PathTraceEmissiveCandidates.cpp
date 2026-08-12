@@ -74,6 +74,36 @@ idVec3 TransformSmokeRoutePoint(const float objectToWorld[16], const idVec3& poi
         objectToWorld[2] * point.x + objectToWorld[6] * point.y + objectToWorld[10] * point.z + objectToWorld[14]);
 }
 
+PathTraceUptEmissiveGeometry BuildUptEmissiveGeometry(
+    const idVec3& p0,
+    const idVec3& p1,
+    const idVec3& p2,
+    const idVec2& uv0,
+    const idVec2& uv1,
+    uint32_t identityHashLo,
+    uint32_t identityHashHi,
+    bool valid = true)
+{
+    PathTraceUptEmissiveGeometry geometry = {};
+    geometry.position0AndUv0X[0] = p0.x;
+    geometry.position0AndUv0X[1] = p0.y;
+    geometry.position0AndUv0X[2] = p0.z;
+    geometry.position0AndUv0X[3] = uv0.x;
+    geometry.position1AndUv0Y[0] = p1.x;
+    geometry.position1AndUv0Y[1] = p1.y;
+    geometry.position1AndUv0Y[2] = p1.z;
+    geometry.position1AndUv0Y[3] = uv0.y;
+    geometry.position2AndUv1X[0] = p2.x;
+    geometry.position2AndUv1X[1] = p2.y;
+    geometry.position2AndUv1X[2] = p2.z;
+    geometry.position2AndUv1X[3] = uv1.x;
+    geometry.uv1Y = uv1.y;
+    geometry.identityHashLo = identityHashLo;
+    geometry.identityHashHi = identityHashHi;
+    geometry.validity = valid ? PT_UPT_EMISSIVE_GEOMETRY_VALID : 0u;
+    return geometry;
+}
+
 }
 
 std::vector<PathTraceSmokeMaterial> BuildSmokeEmissiveMaterialViews(
@@ -106,6 +136,7 @@ void AppendSmokeEmissiveInventoryForGeometry(
     uint32_t skinnedSurfaceClassId,
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
     RtSmokeEmissiveInventoryStats& stats)
 {
     OPTICK_EVENT("PT Emissive Append Geometry");
@@ -261,6 +292,9 @@ void AppendSmokeEmissiveInventoryForGeometry(
         record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
         record.padding0 = triangleClassAndFlags;
         emissiveTriangles.push_back(record);
+        emissiveGeometry.push_back(BuildUptEmissiveGeometry(
+            p0, p1, p2, uv0, uv1,
+            record.identityHashLo, record.identityHashHi));
     }
 
     stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
@@ -278,6 +312,7 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
     uint32_t skinnedSurfaceClassId,
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
     RtSmokeEmissiveInventoryStats& stats,
     const std::vector<uint32_t>*
         monolithicPrimitiveIndexes,
@@ -485,6 +520,7 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
             skinnedSurfaceClassId,
             maxRecords,
             emissiveTriangles,
+            emissiveGeometry,
             stats);
     }
 }
@@ -734,6 +770,12 @@ PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory
             }
             else
             {
+                inventory.currentGeometry.push_back(
+                    BuildUptEmissiveGeometry(
+                        positions[0], positions[1], positions[2],
+                        texCoords[0], texCoords[1],
+                        record.identityHashLo, record.identityHashHi,
+                        false));
                 inventory.currentSourceTriangleIndexes.
                     push_back(sourceTriangleIndex);
             }
@@ -993,6 +1035,7 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
     uint32_t emissiveMaterialFlag,
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
     RtSmokeEmissiveInventoryStats& stats)
 {
     OPTICK_EVENT("PT Emissive Append Rigid Route");
@@ -1177,6 +1220,9 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
             record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
             record.padding0 = sourceTriangleClassAndFlags;
             emissiveTriangles.push_back(record);
+            emissiveGeometry.push_back(BuildUptEmissiveGeometry(
+                p0, p1, p2, uv0, uv1,
+                record.identityHashLo, record.identityHashHi));
             ++stats.routedRigidCapturedTriangles;
         }
     }
@@ -1240,6 +1286,7 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
     uint32_t staticSurfaceClassId,
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
     RtSmokeEmissiveInventoryStats& stats)
 {
     OPTICK_EVENT("PT World Static Emissive Inventory");
@@ -1393,6 +1440,9 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
                 record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
                 record.padding0 = classAndFlags;
                 emissiveTriangles.push_back(record);
+                emissiveGeometry.push_back(BuildUptEmissiveGeometry(
+                    p0, p1, p2, uv0, uv1,
+                    record.identityHashLo, record.identityHashHi));
                 ++acceptedSurfaceTriangles;
             }
             if (acceptedSurfaceTriangles > 0)
@@ -1661,6 +1711,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     uint32_t triangleClassMask,
     uint32_t skinnedSurfaceClassId,
     int maxRecords,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
     RtSmokeEmissiveInventoryStats& stats)
 {
     OPTICK_EVENT("PT Emissive Triangle Inventory Detail");
@@ -1669,6 +1720,8 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
     maxRecords = Max(1, maxRecords);
     emissiveTriangles.reserve(Min(maxRecords, 1024));
+    emissiveGeometry.clear();
+    emissiveGeometry.reserve(Min(maxRecords, 1024));
     const std::vector<PathTraceSmokeMaterial> materialViews = BuildSmokeEmissiveMaterialViews(materialIds, materials, emissiveMaterialFlag);
     if (staticBucketGeometryPack &&
         staticBucketTriangleMaterialIndexes &&
@@ -1685,13 +1738,14 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
             skinnedSurfaceClassId,
             maxRecords,
             emissiveTriangles,
+            emissiveGeometry,
             stats);
     }
     else
     {
-        AppendSmokeEmissiveInventoryForGeometry(materialIds, materialViews, staticVertices, staticIndexes, staticTriangleClasses, staticTriangleMaterialIndexes, 0, nullptr, nullptr, nullptr, nullptr, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
+        AppendSmokeEmissiveInventoryForGeometry(materialIds, materialViews, staticVertices, staticIndexes, staticTriangleClasses, staticTriangleMaterialIndexes, 0, nullptr, nullptr, nullptr, nullptr, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, emissiveGeometry, stats);
     }
-    AppendSmokeEmissiveInventoryForGeometry(materialIds, materialViews, dynamicVertices, dynamicIndexes, dynamicTriangleClasses, dynamicTriangleMaterialIndexes, 1, &dynamicTriangleInstanceIds, &dynamicTriangleIdentityIds, nullptr, nullptr, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
+    AppendSmokeEmissiveInventoryForGeometry(materialIds, materialViews, dynamicVertices, dynamicIndexes, dynamicTriangleClasses, dynamicTriangleMaterialIndexes, 1, &dynamicTriangleInstanceIds, &dynamicTriangleIdentityIds, nullptr, nullptr, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, emissiveGeometry, stats);
     stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
     stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
     FinalizeSmokeEmissiveTriangleSamplingFields(emissiveTriangles, stats);
@@ -1699,6 +1753,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     if (emissiveTriangles.empty())
     {
         emissiveTriangles.resize(1);
+        emissiveGeometry.resize(1);
     }
     return emissiveTriangles;
 }

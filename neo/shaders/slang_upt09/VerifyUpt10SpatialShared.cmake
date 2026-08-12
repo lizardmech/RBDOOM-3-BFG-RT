@@ -2,6 +2,7 @@ foreach(required UPT10_REFLECTION UPT10_DISASSEMBLY UPT10_STAMP
         UPT31_REFLECTION UPT31_DISASSEMBLY
         UPT32_REFLECTION UPT32_DISASSEMBLY
         UPT33_REFLECTION UPT33_DISASSEMBLY
+        UPT34_REFLECTION UPT34_DISASSEMBLY
         UPT10_HOST_SOURCE UPT10_SHADER_SOURCE)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "UPT-30 shared spatial verification missing ${required}")
@@ -16,35 +17,44 @@ file(READ "${UPT32_REFLECTION}" workgroup_reflection)
 file(READ "${UPT32_DISASSEMBLY}" workgroup_disassembly)
 file(READ "${UPT33_REFLECTION}" rescue_reflection)
 file(READ "${UPT33_DISASSEMBLY}" rescue_disassembly)
+file(READ "${UPT34_REFLECTION}" multi_reflection)
+file(READ "${UPT34_DISASSEMBLY}" multi_disassembly)
 file(READ "${UPT10_HOST_SOURCE}" host_source)
 file(READ "${UPT10_SHADER_SOURCE}" shader_source)
 
 string(REGEX MATCHALL "\"binding\"[ \t]*:" bindings "${reflection}")
 list(LENGTH bindings binding_count)
-if(NOT binding_count EQUAL 26)
+if(NOT binding_count EQUAL 27)
     message(FATAL_ERROR
-        "UPT-30 selected-pair spatial must expose 26 bindings including bindless textures")
+        "UPT-30 selected-pair spatial must expose 27 bindings including the endpoint sidecar")
 endif()
 string(REGEX MATCHALL "\"binding\"[ \t]*:" stored_bindings
     "${stored_reflection}")
 list(LENGTH stored_bindings stored_binding_count)
-if(NOT stored_binding_count EQUAL 26)
+if(NOT stored_binding_count EQUAL 27)
     message(FATAL_ERROR
-        "UPT-31 stored-target spatial must preserve all 26 shared bindings")
+        "UPT-31 stored-target spatial must preserve all 27 shared bindings")
 endif()
 string(REGEX MATCHALL "\"binding\"[ \t]*:" workgroup_bindings
     "${workgroup_reflection}")
 list(LENGTH workgroup_bindings workgroup_binding_count)
-if(NOT workgroup_binding_count EQUAL 26)
+if(NOT workgroup_binding_count EQUAL 27)
     message(FATAL_ERROR
-        "UPT-32 workgroup-pair spatial must preserve all 26 shared bindings")
+        "UPT-32 workgroup-pair spatial must preserve all 27 shared bindings")
 endif()
 string(REGEX MATCHALL "\"binding\"[ \t]*:" rescue_bindings
     "${rescue_reflection}")
 list(LENGTH rescue_bindings rescue_binding_count)
-if(NOT rescue_binding_count EQUAL 26)
+if(NOT rescue_binding_count EQUAL 27)
     message(FATAL_ERROR
-        "UPT-33 rescue spatial must preserve all 26 shared bindings")
+        "UPT-33 rescue spatial must preserve all 27 shared bindings")
+endif()
+string(REGEX MATCHALL "\"binding\"[ \t]*:" multi_bindings
+    "${multi_reflection}")
+list(LENGTH multi_bindings multi_binding_count)
+if(NOT multi_binding_count EQUAL 27)
+    message(FATAL_ERROR
+        "UPT-34 multi-neighbor spatial must preserve all 27 shared bindings")
 endif()
 if(NOT reflection MATCHES
         "\"name\"[ \t]*:[ \t]*\"gUpt04StaticTriangleClasses\"[^}]*\"set\"[ \t]*:[ \t]*0[^}]*\"binding\"[ \t]*:[ \t]*9" OR
@@ -109,6 +119,18 @@ if(rescue_ray_query_count LESS 3 OR rescue_ray_query_count GREATER 6
     message(FATAL_ERROR
         "UPT-33 rescue spatial must retain 3..6 static RayQuery sites, one barrier, and no TraceRay site")
 endif()
+string(REGEX MATCHALL "OpRayQueryInitializeKHR" multi_ray_queries
+    "${multi_disassembly}")
+list(LENGTH multi_ray_queries multi_ray_query_count)
+string(REGEX MATCHALL "OpControlBarrier" multi_barriers
+    "${multi_disassembly}")
+list(LENGTH multi_barriers multi_barrier_count)
+if(multi_ray_query_count LESS 3 OR multi_ray_query_count GREATER 6
+        OR multi_disassembly MATCHES "OpTraceRay"
+        OR NOT multi_barrier_count EQUAL 1)
+    message(FATAL_ERROR
+        "UPT-34 multi-neighbor spatial must retain 3..6 static RayQuery sites, exactly one barrier, and no TraceRay site")
+endif()
 
 # The bounded variant must actually remove source-side direct emitter work,
 # rather than merely select a differently named but equivalent artifact.
@@ -139,6 +161,31 @@ foreach(required_source_pattern
             "UPT-30 paired spatial schedule drifted from the involution oracle: ${required_source_pattern}")
     endif()
 endforeach()
+
+foreach(required_upt34_source_pattern
+        "public static const uint kUpt34NeighborCount = 3u"
+        "return 1u + ((base + ordinal * 20u) % 63u)"
+        "float(kUpt34NeighborCount) * neighborTerm"
+        "float(kUpt34NeighborCount) * neighborCrossTerm"
+        "(canonicalMisSum + float(missingPairCount))"
+        "Upt10MapProposal(canonicalProposal)"
+        "ordinal == 0u ? 1u : 0u"
+        "acceptedSampleIds[acceptedOrdinal] == neighborSampleId"
+        "Upt34ExecuteWorkgroupMultiNeighbor")
+    string(FIND "${shader_source}" "${required_upt34_source_pattern}"
+        upt34_source_offset)
+    if(upt34_source_offset EQUAL -1)
+        message(FATAL_ERROR
+            "UPT-34 simultaneous multi-neighbor contract missing source pattern: ${required_upt34_source_pattern}")
+    endif()
+endforeach()
+if(NOT host_source MATCHES
+        "upt09_spatial_shared_workgroup_multi3_rescue_stored_target_light64.bin" OR
+   NOT host_source MATCHES
+        "multiNeighbor=.u neighbors=.u")
+    message(FATAL_ERROR
+        "UPT-34 host specialization or runtime diagnostic is missing")
+endif()
 
 foreach(required_upt33_source_pattern
         "public bool Upt09SharedEmptyCenterRescueEligible"
@@ -203,5 +250,32 @@ foreach(extent RANGE 1 17)
     endforeach()
 endforeach()
 
+# Prove all three masks are nonzero, distinct and self-inverting for every
+# possible hashed base. This is the exact arithmetic used by Upt34PairMask.
+foreach(base RANGE 0 62)
+    set(previous_masks "")
+    foreach(ordinal RANGE 0 2)
+        math(EXPR mask "1 + ((${base} + ${ordinal} * 20) % 63)")
+        if(mask LESS 1 OR mask GREATER 63)
+            message(FATAL_ERROR
+                "UPT-34 produced invalid mask: base=${base} ordinal=${ordinal} mask=${mask}")
+        endif()
+        list(FIND previous_masks "${mask}" duplicate_mask_index)
+        if(NOT duplicate_mask_index EQUAL -1)
+            message(FATAL_ERROR
+                "UPT-34 masks are not distinct: base=${base} ordinal=${ordinal} mask=${mask}")
+        endif()
+        list(APPEND previous_masks "${mask}")
+        foreach(lane RANGE 0 63)
+            math(EXPR partner "${lane} ^ ${mask}")
+            math(EXPR reverse "${partner} ^ ${mask}")
+            if(partner EQUAL lane OR NOT reverse EQUAL lane)
+                message(FATAL_ERROR
+                    "UPT-34 pairing is not fixed-point-free/involutive: base=${base} ordinal=${ordinal} lane=${lane} partner=${partner} reverse=${reverse}")
+            endif()
+        endforeach()
+    endforeach()
+endforeach()
+
 file(WRITE "${UPT10_STAMP}"
-    "UPT-30/31/32/33 paired spatial verified: bindings=26, triangleClasses=9/13 host+shader, leaderPairing=involution(extents1..17,phases0..3), workgroupPairing=xor-involution(64 lanes), pushConstants=96, static RayQuery sites=6/workgroup${workgroup_ray_query_count}/rescue${rescue_ray_query_count}, dynamic rays<=4/pair, TraceRay=0, explicitTextureSampleSites=${baseline_texture_sample_count}->${stored_texture_sample_count}\n")
+    "UPT-30/31/32/33/34 paired spatial verified: bindings=27, triangleClasses=9/13 host+shader, leaderPairing=involution(extents1..17,phases0..3), workgroupPairing=three-distinct-xor-involutions(64 lanes), pushConstants=96, static RayQuery sites=6/workgroup${workgroup_ray_query_count}/rescue${rescue_ray_query_count}/multi${multi_ray_query_count}, multiBarriers=${multi_barrier_count}, TraceRay=0, explicitTextureSampleSites=${baseline_texture_sample_count}->${stored_texture_sample_count}\n")

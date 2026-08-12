@@ -227,6 +227,7 @@ struct RtPathTraceSceneInputLights
     nvrhi::BufferHandle restirLightManagerPreviousPayloadBuffer;
     nvrhi::BufferHandle restirLightManagerPreviousToCurrentBuffer;
     nvrhi::BufferHandle unifiedPtEmissiveLookupBuffer;
+    nvrhi::BufferHandle unifiedPtEmissiveGeometryBuffer;
     int emissiveTriangleCount = 0;
     int emissiveDistributionCount = 0;
     int emissiveDistributionZeroPdfSkipped = 0;

@@ -124,6 +124,22 @@ void TestProjectionAndBoundedSearch() {
 	Check(projection.valid && projection.pixelFloorX == 4 && projection.pixelFloorY == 4 &&
 		Near(projection.linearDepth, 10.0),
 		"static receiver must reproject to the previous center pixel");
+	PreviousCamera jitteredCamera = camera;
+	jitteredCamera.projectionJitterX = -0.25;
+	jitteredCamera.projectionJitterY = 0.25;
+	const Projection jitteredProjection = ProjectToPrevious(current, jitteredCamera);
+	Check(jitteredProjection.valid &&
+		Near(jitteredProjection.pixelX, 3.75) &&
+		Near(jitteredProjection.pixelY, 4.25) &&
+		jitteredProjection.pixelFloorX == 3 &&
+		jitteredProjection.pixelFloorY == 4,
+		"previous RR projection jitter must select the pixel that stored the prior primary ray");
+	HistorySearchPattern independentSearchDither = {};
+	independentSearchDither.jitterX = 0.30;
+	const Projection jitterOnlyProjection = ProjectToPrevious(current, jitteredCamera);
+	Check(static_cast<int>(std::floor(
+		jitterOnlyProjection.pixelX + independentSearchDither.jitterX)) == 4,
+		"history-search dither must remain additive and independent from projection jitter");
 	Surface offAxis = current;
 	offAxis.worldPosition = { 10.0, 5.0, 0.0 };
 	offAxis.previousViewDepth = std::sqrt(125.0);

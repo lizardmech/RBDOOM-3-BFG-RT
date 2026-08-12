@@ -644,6 +644,7 @@ private:
     nvrhi::BufferHandle m_smokeRestirLightManagerCurrentPayloadBuffer;
     nvrhi::BufferHandle m_smokeRestirLightManagerPreviousPayloadBuffer;
     nvrhi::BufferHandle m_smokeUnifiedPtEmissiveLookupBuffer;
+    nvrhi::BufferHandle m_smokeUnifiedPtEmissiveGeometryBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteVertexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteIndexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialBuffer;

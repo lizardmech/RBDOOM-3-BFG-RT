@@ -29,6 +29,10 @@ import upt07_temporal_direct_bindings;
 #endif
 import upt07_work_budget;
 
+#ifndef UPT07_THREE_VERTEX_REPLAY
+#define UPT07_THREE_VERTEX_REPLAY 0
+#endif
+
 public static const uint kUpt07MaterialAlphaClipTest = 0x00000001u;
 public static const uint kUpt07MaterialDiffuseYCoCg = 0x00000002u;
 public static const uint kUpt07MaterialAlphaClipFromDiffuseLuma = 0x00000040u;
@@ -286,6 +290,40 @@ public Upt04PreparedDirectMaterial Upt07PrepareSecondaryDirect(
     return result;
 #endif
 }
+
+#if UPT07_THREE_VERTEX_REPLAY && !UPT_DIAGNOSTIC_LAMBERT
+// Exact counterpart of UPT-35's secondary continuation sampler.  Keep this
+// behind its own temporal specialization so the accepted one-continuation T0
+// artifact pays no code-size or register-pressure cost.
+public Upt04PathEvent Upt07SampleSecondaryContinuation(
+    Upt04PreparedDirectMaterial prepared,
+    float lobeRandom,
+    float2 directionRandom)
+{
+    Upt04PathEvent result = (Upt04PathEvent)0;
+    if (prepared.valid == 0u)
+        return result;
+    Upt05OpenPbrParameters parameters;
+    parameters.baseColor = prepared.baseColor;
+    parameters.roughness = prepared.roughness;
+    parameters.specularF0 = prepared.specularF0;
+    const Upt05OpenPbrSample sampled = Upt05SampleOpenPbr(
+        parameters,
+        prepared.normal,
+        prepared.viewDirection,
+        lobeRandom,
+        directionRandom);
+    if (sampled.valid == 0u || !isfinite(sampled.directionalPdf)
+        || sampled.directionalPdf <= 0.0f)
+        return result;
+    result.direction = sampled.direction;
+    result.pdf = sampled.directionalPdf;
+    result.throughput = sampled.throughput;
+    result.lobeMask = sampled.lobeMask;
+    result.valid = all(isfinite(result.throughput)) ? 1u : 0u;
+    return result;
+}
+#endif
 
 public Upt04MaterialEvaluation Upt07EvaluateSecondaryDirect(
     Upt04GeometryHitSurface surface,

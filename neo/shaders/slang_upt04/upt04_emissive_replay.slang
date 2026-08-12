@@ -8,6 +8,7 @@ import upt04_hit_contract;
 // block; this module is imported by D0, T0 and S0 and must not capture one
 // pass's globals.
 public static const uint kUpt04EmissiveReplayTwoSided = 0x00000040u;
+public static const uint kUpt04EmissiveGeometryValid = 0x47505545u;
 
 public Upt04EmissiveGeometrySample Upt04ReplayEmissiveTriangleBarycentrics(
     Upt04UnifiedLightRecord light,
@@ -18,40 +19,48 @@ public Upt04EmissiveGeometrySample Upt04ReplayEmissiveTriangleBarycentrics(
     Upt04EmissiveGeometrySample sample = (Upt04EmissiveGeometrySample)0;
     if (light.type != kUpt04LightEmissiveTriangle
         || light.sourceIndex >= Upt04EmissiveReplayCount()
+        || light.sourceIndex >= Upt04EmissiveGeometryCount()
         || !all(isfinite(receiverPosition))
         || !all(isfinite(barycentrics)) || any(barycentrics < 0.0f)
         || barycentrics.x + barycentrics.y > 1.0001f)
         return sample;
 
     const Upt04EmissiveReplayRecord replay = gUpt04EmissiveReplay[light.sourceIndex];
+    const Upt04EmissiveGeometryRecord geometry = gUpt04EmissiveGeometry[light.sourceIndex];
     if (replay.instanceId != light.instanceId
         || replay.primitiveIndex != light.primitiveIndex
         || replay.materialIndex != light.materialOrLightId
         || replay.identityHashLo != light.identityA
-        || replay.identityHashHi != light.identityB)
+        || replay.identityHashHi != light.identityB
+        || geometry.validity != kUpt04EmissiveGeometryValid
+        || geometry.identityHashLo != light.identityA
+        || geometry.identityHashHi != light.identityB)
         return sample;
 
-    Upt04HitFacts replayHit = Upt04MissFacts(0.0f);
-    replayHit.status = kUpt04HitTriangle;
-    replayHit.instanceId = replay.instanceId;
-    replayHit.geometryId = 0u;
-    replayHit.primitiveId = replay.primitiveIndex;
-    replayHit.barycentrics = barycentrics;
-    replayHit.frontFace = 1u;
-
-    Upt04ResolvedTriangle triangle;
-    if (!Upt04ResolveTriangle(replayHit, triangle)
-        || triangle.materialIndex != replay.materialIndex)
+    const float3 position0 = geometry.position0AndUv0X.xyz;
+    const float3 position1 = geometry.position1AndUv0Y.xyz;
+    const float3 position2 = geometry.position2AndUv1X.xyz;
+    const float2 uv0 = float2(
+        geometry.position0AndUv0X.w,
+        geometry.position1AndUv0Y.w);
+    const float2 uv1 = float2(
+        geometry.position2AndUv1X.w,
+        geometry.uv1Y);
+    const float2 uv2 = 3.0f * replay.centroidUvAndWeight.xy - uv0 - uv1;
+    const float barycentric0 = 1.0f - barycentrics.x - barycentrics.y;
+    const float3 surfacePosition =
+        position0 * barycentric0
+        + position1 * barycentrics.x
+        + position2 * barycentrics.y;
+    const float2 surfaceTexCoord =
+        uv0 * barycentric0
+        + uv1 * barycentrics.x
+        + uv2 * barycentrics.y;
+    if (!all(isfinite(surfacePosition)) || !all(isfinite(surfaceTexCoord)))
         return sample;
-    const Upt04GeometryHitSurface surface = Upt04BuildGeometryHitSurface(
-        triangle,
-        replayHit.barycentrics,
-        1u);
-    if (surface.valid == 0u)
-        return sample;
 
-    const float3 edge0 = triangle.vertex1.position.xyz - triangle.vertex0.position.xyz;
-    const float3 edge1 = triangle.vertex2.position.xyz - triangle.vertex0.position.xyz;
+    const float3 edge0 = position1 - position0;
+    const float3 edge1 = position2 - position0;
     const float3 areaVector = cross(edge0, edge1);
     const float doubleAreaSquared = dot(areaVector, areaVector);
     if (!isfinite(doubleAreaSquared) || doubleAreaSquared <= 1.0e-12f)
@@ -65,7 +74,7 @@ public Upt04EmissiveGeometrySample Upt04ReplayEmissiveTriangleBarycentrics(
     if (dot(normal, publishedNormal) < 0.0f)
         normal = -normal;
 
-    const float3 toLight = surface.position - receiverPosition;
+    const float3 toLight = surfacePosition - receiverPosition;
     const float distanceSquared = dot(toLight, toLight);
     if (!isfinite(distanceSquared) || distanceSquared <= 1.0e-8f)
         return sample;
@@ -83,15 +92,15 @@ public Upt04EmissiveGeometrySample Upt04ReplayEmissiveTriangleBarycentrics(
     sample.status = lightFacing > 0.0f
         ? kUpt04SampleValidPositive
         : kUpt04SampleValidZero;
-    sample.materialIndex = triangle.materialIndex;
-    sample.triangleClassAndFlags = triangle.triangleClassAndFlags;
+    sample.materialIndex = replay.materialIndex;
+    sample.triangleClassAndFlags = replay.padding0;
     sample.replayIndex = light.sourceIndex;
-    sample.position = surface.position;
+    sample.position = surfacePosition;
     sample.normal = normal;
     sample.direction = direction;
     sample.distance = distance;
     sample.solidAnglePdf = solidAnglePdf;
-    sample.texCoord = surface.texCoord;
+    sample.texCoord = surfaceTexCoord;
 
     // Keep the exact endpoint UV and the triangle UV basis.  The caller uses
     // the basis to build a bounded four-region texture-importance proposal,
@@ -100,21 +109,18 @@ public Upt04EmissiveGeometrySample Upt04ReplayEmissiveTriangleBarycentrics(
     // materials: a small indicator panel often occupies only a few percent of
     // a much larger wall/object triangle, and assigning its centroid colour to
     // every point turns the non-emitting remainder into a huge ghost light.
-    const float2 uv0 = triangle.vertex0.texCoord.xy;
-    const float2 uv1 = triangle.vertex1.texCoord.xy;
-    const float2 uv2 = triangle.vertex2.texCoord.xy;
-    sample.emissionTexCoord = surface.texCoord;
+    sample.emissionTexCoord = surfaceTexCoord;
     sample.emissionUvGradient0 = uv1 - uv0;
     sample.emissionUvGradient1 = uv2 - uv0;
     if (!all(isfinite(sample.emissionTexCoord))
         || !all(isfinite(sample.emissionUvGradient0))
         || !all(isfinite(sample.emissionUvGradient1)))
     {
-        sample.emissionTexCoord = surface.texCoord;
+        sample.emissionTexCoord = surfaceTexCoord;
         sample.emissionUvGradient0 = float2(0.0f);
         sample.emissionUvGradient1 = float2(0.0f);
     }
-    sample.barycentrics = replayHit.barycentrics;
+    sample.barycentrics = barycentrics;
     return sample;
 }
 

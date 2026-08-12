@@ -35,6 +35,12 @@ import upt09_spatial_direct_bindings;
 #ifndef UPT33_EMPTY_CENTER_RESCUE
 #define UPT33_EMPTY_CENTER_RESCUE 0
 #endif
+#ifndef UPT34_MULTI_NEIGHBOR_SPATIAL
+#define UPT34_MULTI_NEIGHBOR_SPATIAL 0
+#endif
+#ifndef UPT42_REUSE_TEXTURE_PAIRING
+#define UPT42_REUSE_TEXTURE_PAIRING 0
+#endif
 #if UPT10_SHARED_SPATIAL
 import upt07_work_budget;
 import upt07_temporal_indirect;
@@ -46,12 +52,23 @@ import upt07_temporal_indirect;
 // leader/idle pair into a full-occupancy shift pre-pass followed by one
 // publication per lane. Keeping only the mapped result in shared memory
 // avoids a third full-resolution reservoir page.
+#if UPT34_MULTI_NEIGHBOR_SPATIAL
+public static const uint kUpt34NeighborCount = 3u;
+public static const uint kUpt34MappedSlotCount = 64u * kUpt34NeighborCount;
+groupshared Upt03PackedReservoir gUpt32ShiftedCandidates[kUpt34MappedSlotCount];
+groupshared uint4 gUpt32ShiftMetadata[kUpt34MappedSlotCount];
+groupshared Upt04TraceRequest gUpt32DirectVisibility[kUpt34MappedSlotCount];
+groupshared Upt04VisibilityIgnore gUpt32DirectVisibilityIgnore[kUpt34MappedSlotCount];
+groupshared Upt07PendingIndirectVisibility gUpt32IndirectVisibility[kUpt34MappedSlotCount];
+groupshared uint gUpt32ShiftValid[kUpt34MappedSlotCount];
+#else
 groupshared Upt03PackedReservoir gUpt32ShiftedCandidates[64u];
 groupshared uint4 gUpt32ShiftMetadata[64u];
 groupshared Upt04TraceRequest gUpt32DirectVisibility[64u];
 groupshared Upt04VisibilityIgnore gUpt32DirectVisibilityIgnore[64u];
 groupshared Upt07PendingIndirectVisibility gUpt32IndirectVisibility[64u];
 groupshared uint gUpt32ShiftValid[64u];
+#endif
 #endif
 
 public static const uint kUpt09MaximumNeighborAttempts = 12u;
@@ -174,13 +191,10 @@ public uint Upt09EvaluateDirectSample(
                     & kUpt04EmissiveReplayTwoSided) != 0u);
         if (replay.status == kUpt04SampleInvalid)
             return 0u;
-        const float4 regionWeights = UptDirectEmissiveRegionWeights(
-            replay,
-            gUpt09Control.materialCount,
-            gUpt09Control.logicalTextureCount,
-            gUpt09Control.emissiveScale);
-        const uint region = Upt04EmissiveRegionFromBarycentrics(
-            replay.barycentrics);
+        float replayPdfScale;
+        if (!Upt04DecodeEmissiveReplayPdfScale(
+                source.proposalPdf, replayPdfScale))
+            return 0u;
         const Upt04MaterialEmissionEvaluation emission =
             UptDirectEvaluateEmissiveEndpoint(
                 replay.materialIndex,
@@ -204,9 +218,9 @@ public uint Upt09EvaluateDirectSample(
         sample.distance = replay.distance;
         sample.direction = replay.direction;
         sample.solidAnglePdf = replay.solidAnglePdf
-            * (4.0f * Upt04EmissiveRegionSelectionPdf(
-                regionWeights, region));
+            * replayPdfScale;
         sample.radiance = replayRadiance;
+        sample.reserved = asuint(replayPdfScale);
     }
     else
     {
@@ -287,7 +301,15 @@ public uint Upt09ShiftPrimaryDirectUnshadowed<
     shifted.generationFingerprint = kUpt03ExpectedGeneration;
     shifted.sampleCoord0 = source.sampleCoord0;
     shifted.sampleCoord1 = source.sampleCoord1;
-    shifted.proposalPdf = proposalPdf;
+    shifted.proposalPdf = shifted.status == kUpt04SampleValidPositive
+            && emissive != 0u
+        ? Upt04EncodeEmissiveReplayPdfScale(asfloat(sample.reserved))
+        : proposalPdf;
+    if (shifted.status == kUpt04SampleValidPositive
+        && emissive != 0u
+        && !Upt03EmissiveReplayPdfScalePayloadValid(
+            shifted, shifted.proposalPdf))
+        return 0u;
     shifted.pathPdf = proposalPdf;
     shifted.partialJacobian = 1.0f;
     shifted.accumulatedRouletteProbability = 1.0f;
@@ -730,14 +752,103 @@ public void Upt09PublishSharedPairDirection(
 }
 
 // Enhanced paired spatial reuse: exactly one lane owns a disjoint two-pixel
-// pair, computes A->B and B->A once, then publishes both directions. Four
-// phases alternate horizontal/vertical adjacency and shift the pairing origin
-// so the same fixed edge is not retained every frame. Non-leader partner lanes
-// issue no replay work and perform no writes.
+// pair, computes A->B and B->A once, then publishes both directions. UPT-42
+// obtains that pair from a frame-transformed Gaussian involution; the retained
+// rollback path uses four adjacent phases. Non-owner partner lanes issue no
+// replay work and perform no writes.
+#if UPT42_REUSE_TEXTURE_PAIRING
+public uint Upt42PositiveModulo(int value, uint modulus)
+{
+    const int remainder = value % int(modulus);
+    return uint(remainder < 0 ? remainder + int(modulus) : remainder);
+}
+
+public void Upt42ReuseTextureTransform(
+    uint ordinal,
+    out uint size,
+    out bool transpose,
+    out bool mirrorX,
+    out bool mirrorY,
+    out uint2 offset)
+{
+    const uint sizes[3] = { 254u, 230u, 210u };
+    size = sizes[min(ordinal, 2u)];
+    uint random = Upt04HashWord(
+        gUpt09Control.frameSampleIndex ^ 0x42c0ffeeu
+        ^ (ordinal * 0x9e3779b9u));
+    transpose = (random & 1u) != 0u;
+    mirrorX = (random & 2u) != 0u;
+    mirrorY = (random & 4u) != 0u;
+    random = Upt04HashWord(random ^ 0x85ebca6bu);
+    offset = uint2(random % size, (random / size) % size);
+}
+
+public int2 Upt42ReuseTextureDelta(uint2 pixel, uint ordinal)
+{
+    const uint bases[3] = { 0u, 64516u, 117416u };
+    uint size;
+    bool transpose;
+    bool mirrorX;
+    bool mirrorY;
+    uint2 offset;
+    Upt42ReuseTextureTransform(
+        ordinal, size, transpose, mirrorX, mirrorY, offset);
+
+    uint2 lookup = pixel % size;
+    if (transpose)
+        lookup = lookup.yx;
+    if (mirrorX)
+        lookup.x = size - 1u - lookup.x;
+    if (mirrorY)
+        lookup.y = size - 1u - lookup.y;
+    lookup = (lookup + offset) % size;
+
+    const uint packed = gUpt09ReuseTextureDeltas[
+        bases[min(ordinal, 2u)] + lookup.y * size + lookup.x];
+    int2 delta = int2(
+        int(packed << 16u) >> 16u,
+        int(packed) >> 16u);
+    // Invert the linear part of the lookup transform. Translation changes
+    // which pair is selected but not the delta vector itself.
+    if (mirrorX)
+        delta.x = -delta.x;
+    if (mirrorY)
+        delta.y = -delta.y;
+    if (transpose)
+        delta = delta.yx;
+    return delta;
+}
+#endif
+
 public void Upt09ExecuteSharedReciprocalPair(uint2 pixel, uint index)
 {
     const uint2 dimensions = uint2(
         gUpt09Control.renderWidth, gUpt09Control.renderHeight);
+#if UPT42_REUSE_TEXTURE_PAIRING
+    const int2 partnerSigned = int2(pixel) +
+        Upt42ReuseTextureDelta(pixel, 0u);
+    if (partnerSigned.x < 0 || partnerSigned.y < 0
+        || partnerSigned.x >= int(dimensions.x)
+        || partnerSigned.y >= int(dimensions.y))
+    {
+        Upt09PublishSharedFallback(index);
+        return;
+    }
+    const uint2 partnerPixel = uint2(partnerSigned);
+    const uint partnerIndex = partnerPixel.y * dimensions.x + partnerPixel.x;
+    if (partnerIndex >= gUpt09Control.surfaceCount || partnerIndex == index)
+    {
+        Upt09PublishSharedFallback(index);
+        return;
+    }
+    // The transformed reuse texture is an exact involution. Both endpoints
+    // therefore discover the same pair independently; only the lower linear
+    // index owns the reciprocal evaluation and publishes both directions.
+    // Keeping the launch screen ordered restores coalesced anchor-side reads
+    // without a pair list or cross-workgroup communication.
+    if (index > partnerIndex)
+        return;
+#else
     const uint phase = gUpt09Control.frameSampleIndex & 3u;
     const bool vertical = phase >= 2u;
     const bool shiftedOrigin = (phase & 1u) != 0u;
@@ -766,6 +877,7 @@ public void Upt09ExecuteSharedReciprocalPair(uint2 pixel, uint index)
         Upt09PublishSharedFallback(index);
         return;
     }
+#endif
 
     const Upt04PrimarySurfaceRecord receiver = Upt09LoadSurface(index);
     const Upt04PrimarySurfaceRecord partnerReceiver =
@@ -793,8 +905,62 @@ public void Upt09ExecuteSharedReciprocalPair(uint2 pixel, uint index)
         gUpt09InputReservoirs[index]);
     const Upt07DecodedReservoir partner = Upt07DecodeReservoir(
         gUpt09InputReservoirs[partnerIndex]);
-    if (!Upt09SharedReservoirEligible(center)
-        || !Upt09SharedReservoirEligible(partner))
+    const bool centerEligible = Upt09SharedReservoirEligible(center);
+    const bool partnerEligible = Upt09SharedReservoirEligible(partner);
+#if UPT33_EMPTY_CENTER_RESCUE
+    const bool rescueCenter =
+        Upt09SharedEmptyCenterRescueEligible(center) && partnerEligible;
+    const bool rescuePartner =
+        Upt09SharedEmptyCenterRescueEligible(partner) && centerEligible;
+    if (rescueCenter || rescuePartner)
+    {
+        const uint2 targetPixel = rescueCenter ? pixel : partnerPixel;
+        const uint targetIndex = rescueCenter ? index : partnerIndex;
+        const uint sourceIndex = rescueCenter ? partnerIndex : index;
+        const Upt07DecodedReservoir target = rescueCenter ? center : partner;
+        const Upt07DecodedReservoir source = rescueCenter ? partner : center;
+        const Upt04PrimarySurfaceRecord sourceReceiver =
+            rescueCenter ? partnerReceiver : receiver;
+        const Upt04PrimarySurfaceRecord targetReceiver =
+            rescueCenter ? receiver : partnerReceiver;
+        Upt07WorkCounters rescueWork = (Upt07WorkCounters)0;
+        Upt07WorkInitialize(rescueWork);
+        Upt10ShiftResult sourceToTarget;
+        Upt04TraceRequest sourceDirectVisibility;
+        Upt04VisibilityIgnore sourceDirectVisibilityIgnore;
+        Upt07PendingIndirectVisibility sourceIndirectVisibility;
+        const uint sourceShiftValid =
+            Upt09ShiftSharedSample<UPT09_SELECTED_PRIMARY_MATERIAL_SET>(
+                source.logical.selected,
+                sourceReceiver,
+                targetReceiver,
+                sourceToTarget,
+                sourceDirectVisibility,
+                sourceDirectVisibilityIgnore,
+                sourceIndirectVisibility,
+                rescueWork);
+        if (sourceShiftValid != 0u)
+        {
+            Upt09PublishSharedEmptyCenterRescue(
+                targetPixel,
+                targetIndex,
+                target,
+                source,
+                sourceToTarget,
+                sourceDirectVisibility,
+                sourceDirectVisibilityIgnore,
+                sourceIndirectVisibility,
+                rescueWork);
+        }
+        else
+        {
+            Upt09PublishSharedFallback(targetIndex);
+        }
+        Upt09PublishSharedFallback(sourceIndex);
+        return;
+    }
+#endif
+    if (!centerEligible || !partnerEligible)
     {
         gUpt09OutputReservoirs[index] = gUpt09InputReservoirs[index];
         gUpt09OutputReservoirs[partnerIndex] =
@@ -1172,6 +1338,453 @@ public void Upt32ExecuteWorkgroupReciprocalPair(
         gUpt32IndirectVisibility[partnerLaneIndex],
         work);
 }
+
+#if UPT34_MULTI_NEIGHBOR_SPATIAL
+public uint Upt34PairMask(uint2 groupPixel, uint ordinal)
+{
+    uint seed = Upt04HashWord(gUpt09Control.frameSampleIndex ^ 0x34f0a511u);
+    seed = Upt04HashWord(seed ^ (groupPixel.x * 0x9e3779b9u));
+    seed = Upt04HashWord(seed ^ (groupPixel.y * 0x85ebca6bu));
+    const uint base = seed % 63u;
+    // Twenty is coprime to 63, so ordinals 0..2 produce three distinct,
+    // nonzero masks. XOR by each mask is a fixed-point-free involution.
+    return 1u + ((base + ordinal * 20u) % 63u);
+}
+
+public uint Upt34MappedSlot(uint ordinal, uint laneIndex)
+{
+    return ordinal * 64u + laneIndex;
+}
+
+public uint Upt34ResolvePartner(
+    uint laneIndex,
+    uint2 groupPixel,
+    uint ordinal,
+    uint2 pixel,
+    uint2 dimensions,
+    out uint partnerLaneIndex,
+    out uint2 partnerPixel,
+    out uint partnerIndex)
+{
+    partnerLaneIndex = laneIndex ^ Upt34PairMask(groupPixel, ordinal);
+    const uint2 partnerLocal = uint2(
+        partnerLaneIndex & 7u, partnerLaneIndex >> 3u);
+    const uint2 partnerDispatchPixel = groupPixel * 8u + partnerLocal;
+    partnerPixel = Upt32TranslatedPixel(partnerDispatchPixel, dimensions);
+    partnerIndex = partnerPixel.y * dimensions.x + partnerPixel.x;
+    const uint2 pairScreenDelta = uint2(
+        max(pixel.x, partnerPixel.x) - min(pixel.x, partnerPixel.x),
+        max(pixel.y, partnerPixel.y) - min(pixel.y, partnerPixel.y));
+    return partnerPixel.x < dimensions.x
+            && partnerPixel.y < dimensions.y
+            && partnerIndex < gUpt09Control.surfaceCount
+            && pairScreenDelta.x <= 7u
+            && pairScreenDelta.y <= 7u
+        ? 1u : 0u;
+}
+
+public void Upt34PrepareLaneShift(
+    uint2 pixel,
+    uint index,
+    uint2 partnerPixel,
+    uint partnerIndex,
+    uint mappedSlot,
+    uint laneValid,
+    uint partnerValid,
+    uint allowEmptyTarget)
+{
+    Upt32StoreInvalidShift(mappedSlot);
+    if (laneValid == 0u || partnerValid == 0u)
+        return;
+
+    const Upt04PrimarySurfaceRecord receiver = Upt09LoadSurface(index);
+    const Upt04PrimarySurfaceRecord partnerReceiver =
+        Upt09LoadSurface(partnerIndex);
+    if (!Upt04PrimarySurfaceRecordValid(receiver)
+        || !Upt04PrimarySurfaceRecordValid(partnerReceiver)
+        || !Upt09SpatialSurfacesCompatible(receiver, partnerReceiver)
+        || !Upt09SpatialSurfacesCompatible(partnerReceiver, receiver))
+    {
+        return;
+    }
+
+    const Upt07DecodedReservoir center = Upt07DecodeReservoir(
+        gUpt09InputReservoirs[index]);
+    const Upt07DecodedReservoir partner = Upt07DecodeReservoir(
+        gUpt09InputReservoirs[partnerIndex]);
+    const bool centerEligible = Upt09SharedReservoirEligible(center);
+    const bool partnerEligible = Upt09SharedReservoirEligible(partner);
+    const bool partnerRescueEligible = allowEmptyTarget != 0u
+        && Upt09SharedEmptyCenterRescueEligible(partner);
+    if (!centerEligible || (!partnerEligible && !partnerRescueEligible))
+        return;
+
+    if (partnerEligible)
+    {
+        const uint centerSampleId = center.logical.selected.replayKey
+            & ~kUpt03ReplayKeyRescueBit;
+        const uint partnerSampleId = partner.logical.selected.replayKey
+            & ~kUpt03ReplayKeyRescueBit;
+        if (centerSampleId != 0u && centerSampleId == partnerSampleId)
+            return;
+    }
+
+    Upt07WorkCounters work = (Upt07WorkCounters)0;
+    Upt07WorkInitialize(work);
+    Upt10ShiftResult shifted;
+    Upt04TraceRequest directVisibility;
+    Upt04VisibilityIgnore directVisibilityIgnore;
+    Upt07PendingIndirectVisibility indirectVisibility;
+    const uint shiftedValid =
+        Upt09ShiftSharedSample<UPT09_SELECTED_PRIMARY_MATERIAL_SET>(
+            center.logical.selected,
+            receiver,
+            partnerReceiver,
+            shifted,
+            directVisibility,
+            directVisibilityIgnore,
+            indirectVisibility,
+            work);
+    if (shiftedValid == 0u)
+        return;
+
+    gUpt32ShiftedCandidates[mappedSlot] =
+        Upt32PackShiftedCandidate(shifted.shifted);
+    gUpt32ShiftMetadata[mappedSlot] = uint4(
+        asuint(shifted.sourceTarget),
+        asuint(shifted.targetTarget),
+        asuint(shifted.shiftJacobian),
+        (shifted.mappingStatus & 0xffu)
+            | ((shifted.routeLabel & 0xffu) << 8u));
+    gUpt32DirectVisibility[mappedSlot] = directVisibility;
+    gUpt32DirectVisibilityIgnore[mappedSlot] = directVisibilityIgnore;
+    gUpt32IndirectVisibility[mappedSlot] = indirectVisibility;
+    gUpt32ShiftValid[mappedSlot] = 1u;
+}
+
+public float Upt34NeighborPairwiseMis(
+    Upt10ShiftResult neighborToCenter,
+    uint neighborM,
+    uint centerM)
+{
+    const float neighborTerm = Upt04FinitePositive(
+            neighborToCenter.sourceTarget)
+        ? float(neighborM) * neighborToCenter.sourceTarget : 0.0f;
+    const float centerCrossTerm = Upt04FinitePositive(
+            neighborToCenter.targetTarget)
+        ? float(centerM) * neighborToCenter.targetTarget : 0.0f;
+    const float denominator = float(kUpt34NeighborCount) * neighborTerm
+        + centerCrossTerm;
+    return neighborTerm > 0.0f && Upt04FinitePositive(denominator)
+        ? neighborTerm / denominator : 0.0f;
+}
+
+public float Upt34CanonicalPairwiseTerm(
+    Upt10ShiftResult centerToNeighbor,
+    uint centerM,
+    uint neighborM)
+{
+    const float centerTerm = Upt04FinitePositive(
+            centerToNeighbor.sourceTarget)
+        ? float(centerM) * centerToNeighbor.sourceTarget : 0.0f;
+    const float neighborCrossTerm = Upt04FinitePositive(
+            centerToNeighbor.targetTarget)
+        ? float(neighborM) * centerToNeighbor.targetTarget : 0.0f;
+    const float denominator = centerTerm
+        + float(kUpt34NeighborCount) * neighborCrossTerm;
+    return centerTerm > 0.0f && Upt04FinitePositive(denominator)
+        ? centerTerm / denominator : 1.0f;
+}
+
+public void Upt34ExecuteWorkgroupMultiNeighbor(
+    uint3 dispatchThreadId,
+    uint3 groupThreadId,
+    uint3 groupId)
+{
+    const uint laneIndex = groupThreadId.y * 8u + groupThreadId.x;
+    const uint2 dimensions = uint2(
+        gUpt09Control.renderWidth, gUpt09Control.renderHeight);
+    const uint2 pixel = Upt32TranslatedPixel(
+        dispatchThreadId.xy, dimensions);
+    const uint index = pixel.y * dimensions.x + pixel.x;
+    const uint laneValid = pixel.x < dimensions.x
+            && pixel.y < dimensions.y
+            && index < gUpt09Control.surfaceCount
+        ? 1u : 0u;
+
+    // Paper-shaped pre-pass: every lane publishes one source-to-partner map
+    // for each independent reciprocal pairing before any lane resamples.
+    [unroll]
+    for (uint ordinal = 0u; ordinal < kUpt34NeighborCount; ++ordinal)
+    {
+        uint partnerLaneIndex;
+        uint2 partnerPixel;
+        uint partnerIndex;
+        const uint partnerValid = Upt34ResolvePartner(
+            laneIndex,
+            groupId.xy,
+            ordinal,
+            pixel,
+            dimensions,
+            partnerLaneIndex,
+            partnerPixel,
+            partnerIndex);
+        Upt34PrepareLaneShift(
+            pixel,
+            index,
+            partnerPixel,
+            partnerIndex,
+            Upt34MappedSlot(ordinal, laneIndex),
+            laneValid,
+            partnerValid,
+            ordinal == 0u ? 1u : 0u);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (laneValid == 0u)
+        return;
+
+    const Upt07DecodedReservoir center = Upt07DecodeReservoir(
+        gUpt09InputReservoirs[index]);
+    if (Upt09SharedEmptyCenterRescueEligible(center))
+    {
+        uint partnerLaneIndex;
+        uint2 partnerPixel;
+        uint partnerIndex;
+        const uint partnerValid = Upt34ResolvePartner(
+            laneIndex,
+            groupId.xy,
+            0u,
+            pixel,
+            dimensions,
+            partnerLaneIndex,
+            partnerPixel,
+            partnerIndex);
+        const uint partnerSlot = Upt34MappedSlot(0u, partnerLaneIndex);
+        if (partnerValid != 0u && gUpt32ShiftValid[partnerSlot] != 0u)
+        {
+            const Upt07DecodedReservoir partner = Upt07DecodeReservoir(
+                gUpt09InputReservoirs[partnerIndex]);
+            if (Upt09SharedReservoirEligible(partner))
+            {
+                Upt07WorkCounters rescueWork = (Upt07WorkCounters)0;
+                Upt07WorkInitialize(rescueWork);
+                Upt09PublishSharedEmptyCenterRescue(
+                    pixel,
+                    index,
+                    center,
+                    partner,
+                    Upt32LoadShiftResult(partnerSlot),
+                    gUpt32DirectVisibility[partnerSlot],
+                    gUpt32DirectVisibilityIgnore[partnerSlot],
+                    gUpt32IndirectVisibility[partnerSlot],
+                    rescueWork);
+                return;
+            }
+        }
+        Upt09PublishSharedFallback(index);
+        return;
+    }
+    if (!Upt09SharedReservoirEligible(center))
+    {
+        Upt09PublishSharedFallback(index);
+        return;
+    }
+
+    const uint centerM = min(
+        center.logical.effectiveM, gUpt09Control.maximumInputM);
+    const float canonicalTarget = center.logical.selected.target;
+    if (centerM == 0u || !Upt04FinitePositive(canonicalTarget))
+    {
+        Upt09PublishSharedFallback(index);
+        return;
+    }
+
+    float totalMass = 0.0f;
+    uint outputConfidence = 0u;
+    float canonicalMisSum = 0.0f;
+    uint pairCount = 0u;
+    uint acceptedSampleIds[kUpt34NeighborCount];
+    uint acceptedSampleCount = 0u;
+    Upt03Candidate selected = (Upt03Candidate)0;
+    uint selectedFromNeighbor = 0u;
+    Upt04TraceRequest selectedDirectVisibility = (Upt04TraceRequest)0;
+    Upt04VisibilityIgnore selectedDirectVisibilityIgnore =
+        Upt04NoVisibilityIgnore();
+    Upt07PendingIndirectVisibility selectedIndirectVisibility =
+        (Upt07PendingIndirectVisibility)0;
+    selectedIndirectVisibility.ignore = Upt04NoVisibilityIgnore();
+
+    // Resample all three original neighbor techniques into one stream. No
+    // intermediate reservoir becomes a technique for a later pair.
+    [unroll]
+    for (uint ordinal = 0u; ordinal < kUpt34NeighborCount; ++ordinal)
+    {
+        uint partnerLaneIndex;
+        uint2 partnerPixel;
+        uint partnerIndex;
+        const uint partnerValid = Upt34ResolvePartner(
+            laneIndex,
+            groupId.xy,
+            ordinal,
+            pixel,
+            dimensions,
+            partnerLaneIndex,
+            partnerPixel,
+            partnerIndex);
+        const uint centerSlot = Upt34MappedSlot(ordinal, laneIndex);
+        const uint partnerSlot = Upt34MappedSlot(
+            ordinal, partnerLaneIndex);
+        if (partnerValid == 0u
+            || gUpt32ShiftValid[centerSlot] == 0u
+            || gUpt32ShiftValid[partnerSlot] == 0u)
+        {
+            continue;
+        }
+
+        const Upt07DecodedReservoir neighbor = Upt07DecodeReservoir(
+            gUpt09InputReservoirs[partnerIndex]);
+        if (!Upt09SharedReservoirEligible(neighbor))
+            continue;
+        const uint neighborM = min(
+            neighbor.logical.effectiveM, gUpt09Control.maximumInputM);
+        if (neighborM == 0u)
+            continue;
+
+        const uint neighborSampleId = neighbor.logical.selected.replayKey
+            & ~kUpt03ReplayKeyRescueBit;
+        bool duplicate = false;
+        if (neighborSampleId != 0u)
+        {
+            [unroll]
+            for (uint acceptedOrdinal = 0u;
+                 acceptedOrdinal < acceptedSampleCount;
+                 ++acceptedOrdinal)
+            {
+                duplicate = duplicate
+                    || acceptedSampleIds[acceptedOrdinal] == neighborSampleId;
+            }
+        }
+        if (duplicate)
+            continue;
+
+        const Upt10ShiftResult centerToNeighbor =
+            Upt32LoadShiftResult(centerSlot);
+        const Upt10ShiftResult neighborToCenter =
+            Upt32LoadShiftResult(partnerSlot);
+
+        Upt10MappedProposalInput proposal =
+            (Upt10MappedProposalInput)0;
+        proposal.status = neighborToCenter.mappingStatus;
+        proposal.routeLabel = neighborToCenter.routeLabel;
+        proposal.sourceConfidence = neighborM;
+        proposal.sourceScaledWeight = neighbor.logical.weightSum;
+        proposal.sourceTarget = neighborToCenter.sourceTarget;
+        proposal.targetTarget = neighborToCenter.targetTarget;
+        proposal.shiftJacobian = neighborToCenter.shiftJacobian;
+        proposal.pairwiseMis = Upt34NeighborPairwiseMis(
+            neighborToCenter, neighborM, centerM);
+        const Upt10MappedProposal mapped = Upt10MapProposal(proposal);
+        if (mapped.valid == 0u)
+            continue;
+
+        canonicalMisSum += Upt34CanonicalPairwiseTerm(
+            centerToNeighbor, centerM, neighborM);
+        ++pairCount;
+        outputConfidence = Upt10SaturatingAdd(
+            outputConfidence, mapped.confidence);
+        if (neighborSampleId != 0u)
+            acceptedSampleIds[acceptedSampleCount++] = neighborSampleId;
+        if (!Upt04FinitePositive(mapped.mass))
+            continue;
+
+        const float newMass = totalMass + mapped.mass;
+        if (!Upt04FinitePositive(newMass))
+            continue;
+        if (selected.status != kUpt04SampleValidPositive
+            || Upt09Random(pixel, ordinal, 0x09110006u) * newMass
+                < mapped.mass)
+        {
+            selected = neighborToCenter.shifted;
+            selectedFromNeighbor = 1u;
+            selectedDirectVisibility =
+                gUpt32DirectVisibility[partnerSlot];
+            selectedDirectVisibilityIgnore =
+                gUpt32DirectVisibilityIgnore[partnerSlot];
+            selectedIndirectVisibility =
+                gUpt32IndirectVisibility[partnerSlot];
+        }
+        totalMass = newMass;
+    }
+
+    const uint missingPairCount = kUpt34NeighborCount - pairCount;
+    const float canonicalMis =
+        (canonicalMisSum + float(missingPairCount))
+        / float(kUpt34NeighborCount);
+    Upt10MappedProposalInput canonicalProposal =
+        (Upt10MappedProposalInput)0;
+    canonicalProposal.status = kUpt10ShiftValidPositive;
+    canonicalProposal.sourceConfidence = centerM;
+    canonicalProposal.sourceScaledWeight = center.logical.weightSum;
+    canonicalProposal.sourceTarget = canonicalTarget;
+    canonicalProposal.targetTarget = canonicalTarget;
+    canonicalProposal.shiftJacobian = 1.0f;
+    canonicalProposal.pairwiseMis = canonicalMis;
+    const Upt10MappedProposal canonicalMapped =
+        Upt10MapProposal(canonicalProposal);
+    if (canonicalMapped.valid == 0u)
+    {
+        Upt09PublishSharedFallback(index);
+        return;
+    }
+    outputConfidence = Upt10SaturatingAdd(
+        outputConfidence, canonicalMapped.confidence);
+    const float finalMass = totalMass + canonicalMapped.mass;
+    if (!Upt04FinitePositive(finalMass))
+    {
+        Upt09PublishSharedFallback(index);
+        return;
+    }
+    if (selected.status != kUpt04SampleValidPositive
+        || Upt09Random(
+                pixel, kUpt34NeighborCount, 0x09110006u) * finalMass
+            < canonicalMapped.mass)
+    {
+        selected = center.logical.selected;
+        selected.target = canonicalTarget;
+        selectedFromNeighbor = 0u;
+    }
+    totalMass = finalMass;
+
+    Upt07WorkCounters visibilityWork = (Upt07WorkCounters)0;
+    Upt07WorkInitialize(visibilityWork);
+    if (selectedFromNeighbor != 0u
+        && !Upt09SharedWinnerVisibilityPassed(
+            selected,
+            selectedDirectVisibility,
+            selectedDirectVisibilityIgnore,
+            selectedIndirectVisibility,
+            visibilityWork))
+    {
+        Upt09PublishSharedFallback(index);
+        return;
+    }
+
+    Upt03LogicalReservoir output = center.logical;
+    output.hasSelectedSample = 1u;
+    output.effectiveM = outputConfidence;
+    output.weightSum = totalMass;
+    output.selected = selected;
+    if (selectedFromNeighbor != 0u)
+    {
+        const uint visibilityProof = kUpt04CandidateFlagVisibilityKnown
+            | kUpt04CandidateFlagVisibilityPassed;
+        output.selected.flags =
+            (output.selected.flags & ~visibilityProof) | visibilityProof;
+    }
+    gUpt09OutputReservoirs[index] = Upt03PackReservoir(output);
+}
+#endif
 #endif
 #endif
 
@@ -1182,8 +1795,13 @@ void main(
     uint3 groupId : SV_GroupID)
 {
 #if UPT32_WORKGROUP_RECIPROCAL_PAIRING
+#if UPT34_MULTI_NEIGHBOR_SPATIAL
+    Upt34ExecuteWorkgroupMultiNeighbor(
+        dispatchThreadId, groupThreadId, groupId);
+#else
     Upt32ExecuteWorkgroupReciprocalPair(
         dispatchThreadId, groupThreadId, groupId);
+#endif
     return;
 #else
     const uint2 pixel = dispatchThreadId.xy;

@@ -177,3 +177,51 @@ weaken the opacity invalidation signature or change any shader ABI.
 The exact win64-pt-dev-release build passes and links a 16,314,368-byte
 executable. All Vulkan SPIR-V artifacts were already up to date, so this
 follow-up deploys only RBDoom3BFG.exe and compiles no DX12 shader.
+
+Follow-up: rejected rigid-instance opacity trial, 2026-08-10
+-----------------------------------------------------------
+
+The matched wall/orb diagnostic comparison exposed a route that the original
+partition did not cover. D0 ray counts and T0 replay counts stay within a few
+percent, but continuation hits on rigid geometry rise from 14,882 to 463,694
+when the PBR orbs are visible. The associated secondary material, PDF/ray and
+occlusion failures rise by 30--197 times. This is per-ray rigid-route cost, not
+temporal population or light-count scaling.
+
+Code audit found that canonical pooled rigid BLAS geometry is deliberately
+material-independent and has no opaque geometry flag. Both canonical and
+legacy rigid TLAS descriptor builders also supplied only TriangleCullDisable.
+Consequently r_pathTracingHardwareOpaqueGeometry did not enable hardware
+commitment for rigid instances, including the orb geometry that controls the
+test-map timing.
+
+A conservative per-instance trial added ForceOpaque for proven opaque rigid
+materials and ForceNonOpaque for coverage-dependent or unknown materials. The
+Vulkan release build passed, all SPIR-V remained current, and executable
+92B0CBA45B54FABDCE5B9AB42580EB3B5001979566C9A1C356EC6D8D756A4FA7 was deployed.
+
+orbs2.txt reports no performance change. The experiment therefore did not
+address the controlling cost and is rejected/rolled back. It proves that the
+large wall/orb timing difference is not dominated by programmable opacity
+handling. The map reports about 2.22 million dynamic indices, while the orb
+view produces 507,133 rigid continuation hits. The next isolation boundary is
+the already-existing exact continuation trace split: compare its C0 traversal
+marker between wall and orb views before changing material evaluation or the
+reservoir again.
+
+The prescribed Vulkan release rebuild passed after rollback. No SPIR-V shader
+was rebuilt, so deployment replaced only RBDoom3BFG.exe. Source and deployed
+executables match at 16,314,368 bytes and SHA-256
+70E0C76921B11A13E70C0E88597B5657D6DF9D0E577C4BF84D0AFEB722D4E6F6.
+
+Continuation-split closure, 2026-08-10
+--------------------------------------
+
+The requested C0 isolation is complete. In the matched PBR-orb captures, exact
+primary continuation traversal rises from 0.28 ms facing the wall to 0.80 ms
+facing the rigid orbs. Geometry-dependent traversal is real, but D0 continuation
+shade moves only from 6.64 to 6.92 ms while T0 moves from 4.79 to 8.23 ms. The
+remaining performance lane is therefore not another opacity-classification
+change. It is the multiplication of geometry-sensitive traversal inside T0's
+history replay, reciprocal replay and winner-visibility routes. Continue in
+document 35; do not restore the rejected per-instance opacity trial.

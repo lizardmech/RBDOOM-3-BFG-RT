@@ -25,20 +25,20 @@ foreach(kind DIRECT_RQ DIRECT_RG INDIRECT_RQ INDIRECT_RG)
         # silently collapses textured emitters to their constant material tint:
         # the primary surface glows, but the light proposal cannot cast that
         # texture's radiance into the scene.
-        set(required_bindings 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 25 26 28 29)
+        set(required_bindings 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 25 26 28 29 32)
         set(forbidden_bindings 22 27)
-        set(expected_descriptor_count 27)
+        set(expected_descriptor_count 28)
         set(expected_112_count 3)
-        set(expected_64_count 2)
+        set(expected_64_count 3)
     else()
         # Indirect-only now consumes the same exact current emissive CDF as
         # direct D0 for its one secondary-NEE identity draw. Binding 25 is the
         # only added dependency; no previous/history page is admitted.
-        set(required_bindings 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 25)
+        set(required_bindings 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 25 32)
         set(forbidden_bindings)
-        set(expected_descriptor_count 25)
+        set(expected_descriptor_count 26)
         set(expected_112_count 3)
-        set(expected_64_count 1)
+        set(expected_64_count 2)
     endif()
     foreach(binding IN LISTS required_bindings)
         if(NOT reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*${binding}")
@@ -87,8 +87,9 @@ foreach(kind DIRECT_RQ DIRECT_RG INDIRECT_RQ INDIRECT_RG)
     elseif(NOT stride_20_count EQUAL 1)
         message(FATAL_ERROR "UPT-04 ${kind} must expose one 20-byte emissive lookup stride")
     endif()
-    if(NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*204")
-        message(FATAL_ERROR "UPT-04 ${kind} push constants are not 208 bytes")
+    if(NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*204" OR
+       NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"previousCameraJitterPixels\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"vec2\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*208")
+        message(FATAL_ERROR "UPT-04 ${kind} push constants are not 216 bytes")
     endif()
     if(kind MATCHES "_RQ$")
         if(NOT reflection MATCHES "\"workgroup_size\"[ \t\r\n]*:[ \t\r\n]*\\[[ \t\r\n]*8[ \t]*,[ \t\r\n]*8")

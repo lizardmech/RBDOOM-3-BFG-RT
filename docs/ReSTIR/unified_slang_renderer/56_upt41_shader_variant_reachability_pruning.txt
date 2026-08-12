@@ -1,0 +1,150 @@
+UPT-41 Shader Variant Reachability Pruning
+============================================
+
+Status
+------
+
+Implemented and build-verified on Vulkan, 2026-08-12. UPT-40 runtime
+acceptance remains independent and pending.
+
+Postscript, UPT-42 runtime result: the normal build reaches 19 variants. The
+accepted UPT-33 and optional UPT-38 artifacts remain the two production S0
+slots; their two Gaussian reuse-texture equivalents are retained as explicit
+feature-level diagnostics after excellent image quality but an approximately
+11 ms S0 cost. The historical full matrix remains excluded.
+
+
+Problem
+-------
+
+Changing one low-level shared D0/T0 include currently recompiles a Cartesian
+product of backend and storage experiments. Many compile-only combinations do
+not produce runtime .bin files and cannot be selected by the host, yet they
+multiply downstream temporal/spatial rebuilds. The required aggregate build
+spent more than 15 minutes in this fanout after the production D0/T0 families
+had already passed targeted verification.
+
+
+Authority and Scope
+-------------------
+
+Build a reachability table from every runtime shader filename selected in
+PathTraceUnifiedPt.cpp back to its CMake module. Keep:
+
+    accepted production presets, especially split initial + compact lights;
+    the production monolithic rollback;
+    proposal-parity and compact32 correctness paths;
+    diagnostics that still have a documented runtime command and acceptance
+        purpose;
+    intentional renderer features such as multi-bounce and Russian roulette.
+
+Prune or move out of the default aggregate:
+
+    unselectable products of split versus monolithic initial;
+    rejected compact-geometry and compact-material combinations;
+    low-level layout cross-products that exist only because a helper expands
+        every option;
+    compile-only variants with no verifier-specific purpose and no host path.
+
+Do not remove a feature-level option merely because it is expensive at
+runtime. Multi-bounce/RR is intentionally retained. Do not infer reachability
+from which .bin files happen to be deployed; use host filename selection,
+verifier ownership and numbered diagnostic documents.
+
+
+Acceptance
+----------
+
+    every host-selectable filename is still produced;
+    accepted presets and rollback presets create their pipelines;
+    retained diagnostics still execute;
+    Vulkan-only full preset build time and compiled module count are recorded
+        before and after;
+    no DX12 shader is added or compiled;
+    no runtime estimator, ABI, ray ceiling or cvar behavior changes.
+
+
+Implemented Build Graph
+-----------------------
+
+The source declarations and full-matrix targets remain intact for deliberate
+regression work. The normal RBDoom3BFG build now depends on three lean runtime
+targets:
+
+    PathTraceSlangUpt04ProductionRuntime
+    PathTraceSlangUpt07ProductionRuntime
+    PathTraceSlangUpt09ProductionRuntime
+
+Their generated Visual Studio projects contain exactly 17 unique UPT SPIR-V
+inputs:
+
+    D0: 7
+        compact-light pack;
+        compact32 monolithic rollback;
+        compact32 proposal-parity production fallback;
+        compact32/light64 split direct and indirect;
+        compact32/light64 optional three-vertex indirect;
+        compact32 Lambert diagnostic.
+
+    T0: 6
+        compact-light duplication direct-only rollback;
+        compact-light duplication unified rollback;
+        shared-adapter rollback;
+        accepted common-GRIS merge;
+        optional common-GRIS three-vertex replay;
+        compact-light duplication Lambert diagnostic.
+
+    S0: 4
+        compact-light direct rollback;
+        compact-light Lambert diagnostic;
+        accepted UPT-33 reciprocal-pair empty rescue;
+        optional UPT-38 three-vertex replay.
+
+Before pruning, the declared D0/T0/S0 matrix contained 73 + 61 + 10 = 144
+SPIR-V variants and the executable reached the aggregate verifier/runtime
+targets. A low-level source edit therefore rebuilt obsolete compact-geometry,
+compact-material, light-tile, split-continuation, frozen-scene, route,
+reconnect, bottleneck-probe, raygen and rejected multi-neighbor products.
+
+UPT-05 also had a hidden dependency on PathTraceSlangUpt04ModuleGraph. It now
+depends on PathTraceSlangUpt04ProductionRuntime, closing the last transitive
+route from RBDoom3BFG back into the complete D0 matrix.
+
+The broad targets remain explicitly buildable when one of those historical
+diagnostics is intentionally reopened:
+
+    cmake --build --preset win64-pt-dev-release --target PathTraceSlangUpt04RuntimeArtifacts PathTraceSlangUpt07TemporalOwnership PathTraceSlangUpt09Spatial
+
+The runtime filenames and shader declarations were not deleted. An old
+diagnostic cvar combination outside the production set must be preceded by
+that explicit full-target build after shared shader changes; it is no longer
+silently refreshed by every executable build.
+
+
+Verification
+------------
+
+The generated RBDoom3BFG.vcxproj references only the three production runtime
+targets. Their generated projects contain 7, 6 and 4 unique .slang.spv inputs,
+respectively, and no aggregate full-matrix target reference.
+
+The required command completed successfully:
+
+    cd neo
+    cmake --build --preset win64-pt-dev-release
+
+After the hidden UPT-05 edge was removed, an up-to-date full build completed in
+4.7 seconds and its log listed only the production UPT-04/07/09 artifacts.
+The immediately preceding build with the hidden edge still present took 291.2
+seconds and visibly enumerated the complete UPT-04 matrix. This is not a clean
+shader compile benchmark, but it is direct proof that the obsolete transitive
+closure is absent.
+
+No shader source, estimator, ABI, cvar, descriptor, ray ceiling or runtime
+filename changed. No DX12 shader was built. The Release executable and exactly
+the 17 retained production Vulkan binaries were deployed so the prebuilt tree's
+fallback artifacts cannot retain an older shared-source ABI. The executable is
+16355328 bytes, SHA-256
+10F85EF790F505A7B07B61D993B94844A9E83340196490F19E9E0615502B667A.
+This task changes only which retained targets a normal build updates and needs
+no dedicated in-game image/performance retest.

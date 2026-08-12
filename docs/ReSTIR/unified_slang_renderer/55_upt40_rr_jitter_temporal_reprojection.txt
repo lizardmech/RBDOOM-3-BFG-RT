@@ -1,0 +1,122 @@
+UPT-40 RR Jitter Temporal Reprojection
+========================================
+
+Status
+------
+
+Implemented, offline verified, built and deployed. Runtime acceptance is
+pending.
+
+
+Observed Defect
+---------------
+
+UPT-39 made DLSS Ray Reconstruction functional, but enabling it also enabled a
+Halton projection jitter in the shared primary-ray producer. D0 previous-best
+and T0 still projected current world positions into the previous unjittered
+camera and indexed that pixel directly.
+
+The mismatch was before reservoir evaluation:
+
+    primary storage ray at pixel p samples p + 0.5 - currentJitter;
+    previous-world-position projection returns that continuous sample point;
+    the prior storage pixel is floor(projectedPixel + previousJitter);
+    D0/T0 previously used floor(projectedPixel), losing the storage offset.
+
+Depending on the previous jitter sign and the projected subpixel location this
+selected the adjacent history pixel. Surface compatibility could reject it or
+the bounded search could accept a different nearby receiver. That is a
+temporal/reprojection defect, not evidence for a clamp, broader rejection,
+extra candidate, visibility exception or reservoir-weight change.
+
+
+Correction
+----------
+
+RtPathTraceFrameCameraState now persists the projection jitter used by the
+frame whose primary receiver and reservoir pages are published. UPT transports
+that previous-frame float2 through suffix-only push-constant additions:
+
+    D0 control    208-byte accepted prefix + float2 = 216 bytes;
+    T0 control    160-byte accepted prefix + float2 = 168 bytes.
+
+D0 previous-best adds the stored previous jitter before flooring its projected
+history pixel. T0 adds the same offset to its existing optional random search
+dither. The two terms remain separate in ownership:
+
+    projection jitter    deterministic previous-frame storage address;
+    search dither        current-frame optional bounded history probe pattern.
+
+RR on/off changes do not invalidate history merely because jitter changes each
+frame. Existing true history reset rules remain unchanged. The correction adds
+no descriptor, buffer, texture, clear, candidate, reservoir field, ray or
+dispatch and changes no target, PDF, Jacobian, visibility or reuse weight.
+
+
+Verification
+------------
+
+The UPT-07 CPU oracle proves the sign with a center projection and also proves
+that search dither remains independently additive. It passes with the existing
+page, surface, reservoir, visibility and work-ceiling cases.
+
+Vulkan reflection verifies:
+
+    D0 previousCameraJitterPixels at offset 208, total host size 216;
+    T0 previousCameraJitterPixels at offset 160, total host size 168;
+    established D0/T0 prefixes unchanged;
+    existing D0 and T0 static RayQuery/TraceRay ceilings unchanged.
+
+The targeted UPT-04 and UPT-07 Vulkan builds pass. The required aggregate
+preset was also attempted, but continued compiling low-level option products
+for more than 15 minutes and hit the command timeout after the required shader
+families had already completed. Only that exact process tree was stopped. The
+generated Release host project then compiled and linked successfully with
+project references disabled.
+
+Deployed source/deployment hashes match:
+
+    RBDoom3BFG.exe
+        bytes   16355328
+        SHA-256 10F85EF790F505A7B07B61D993B94844A9E83340196490F19E9E0615502B667A
+    D0 split direct compact32/light64
+        bytes   257676
+        SHA-256 58BB7BA4075C932D79B84A0EDB15CFEB083F6DD999C63E46A8AEA35F55EDD4A3
+    D0 split indirect compact32/light64
+        bytes   376384
+        SHA-256 63C085BD4B5B238B61603648C8260738E555A91503CEA2AB2F8033B7170FB5C0
+    T0 unified light64/duplication/common-GRIS
+        bytes   829028
+        SHA-256 305EC2CF5FBDA57C8D664ED4AD3C274424C1D6C9D2BDF4C0292ED61017074051
+
+Only these production Vulkan SPIR-V blobs were deployed. No DX12 shader was
+compiled or copied.
+
+
+Runtime Test
+------------
+
+Use the already accepted UPT/RR command:
+
+    exec uptrr
+
+The log must show:
+
+    requested/effective=1/1;
+    temporalReprojection=previous-storage-pixel;
+    finite current/previous jitter values after the first published frame.
+
+Compare slow camera pans, thin geometry, emissive edges, motion, static
+convergence and portal crossings against the pre-UPT-40 build. Also compare
+with UPT temporal disabled to distinguish D0 previous-best from T0 reuse.
+
+Reject:
+
+    new ghost trails, adjacency-shaped history flicker or motion lag;
+    any D0/T0 binding or push-layout failure;
+    changed reservoir energy, firefly clamping or visibility admission;
+    a new ray, dispatch, clear, resource or per-frame history reset.
+
+If temporal still interferes after this exact reprojection repair, capture the
+specific artifact and separate D0 previous-best off/on from T0 off/on before
+changing the estimator.

@@ -69,6 +69,21 @@ static_assert(sizeof(PathTraceSmokeEmissiveTriangle) == 144,
     "PathTraceSmokeEmissiveTriangle HLSL ABI mismatch");
 static_assert((sizeof(PathTraceSmokeEmissiveTriangle) % 16) == 0, "PathTraceSmokeEmissiveTriangle must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
+static constexpr uint32_t PT_UPT_EMISSIVE_GEOMETRY_VALID = 0x47505545u;
+
+struct PathTraceUptEmissiveGeometry
+{
+    float position0AndUv0X[4];
+    float position1AndUv0Y[4];
+    float position2AndUv1X[4];
+    float uv1Y = 0.0f;
+    uint32_t identityHashLo = 0;
+    uint32_t identityHashHi = 0;
+    uint32_t validity = 0;
+};
+static_assert(sizeof(PathTraceUptEmissiveGeometry) == 64,
+    "PathTraceUptEmissiveGeometry must match Slang/HLSL layout");
+
 const uint32_t RT_SMOKE_EMISSIVE_REMAP_VALID = 0x00000001u;
 const uint32_t RT_SMOKE_EMISSIVE_REMAP_CURRENT_ZERO_IDENTITY = 0x00000010u;
 const uint32_t RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_ZERO_IDENTITY = 0x00000020u;
@@ -127,6 +142,7 @@ struct PtSkinnedEmissiveAuditInventory
 {
     std::vector<PathTraceSmokeEmissiveTriangle> current;
     std::vector<PathTraceSmokeEmissiveTriangle> previous;
+    std::vector<PathTraceUptEmissiveGeometry> currentGeometry;
     std::vector<uint32_t> currentSourceTriangleIndexes;
     std::vector<uint32_t> previousSourceTriangleIndexes;
     uint64_t inputTriangles = 0;
@@ -297,6 +313,7 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
     uint32_t emissiveMaterialFlag,
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
     RtSmokeEmissiveInventoryStats& stats);
 void AppendSmokeStaticBucketEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
@@ -309,6 +326,7 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
     uint32_t skinnedSurfaceClassId,
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
     RtSmokeEmissiveInventoryStats& stats,
     const std::vector<uint32_t>*
         monolithicPrimitiveIndexes = nullptr,
@@ -336,6 +354,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     uint32_t triangleClassMask,
     uint32_t skinnedSurfaceClassId,
     int maxRecords,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
     RtSmokeEmissiveInventoryStats& stats);
 std::vector<uint32_t> BuildSmokeWorldStaticEmissiveMaterialIds(const viewDef_t* viewDef);
 void AppendSmokeWorldStaticEmissiveTriangleInventory(
@@ -346,4 +365,5 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
     uint32_t staticSurfaceClassId,
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
     RtSmokeEmissiveInventoryStats& stats);

@@ -9657,6 +9657,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         !staticBucketPrimaryOpaqueProbe;
     const int emissiveStartMs = Sys_Milliseconds();
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
+    std::vector<PathTraceUptEmissiveGeometry> uptEmissiveGeometry;
     std::vector<PathTraceSmokeEmissiveTriangle>
         previousEmissiveTriangles =
             m_sceneInputs.valid
@@ -9750,6 +9751,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RT_SMOKE_TRIANGLE_CLASS_MASK,
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
             maxEmissiveRecords,
+            uptEmissiveGeometry,
             emissiveInventoryStats);
         if (staticBucketFramePublication.auditReady &&
             !staticBucketEmissiveRouteAccepted &&
@@ -9812,6 +9814,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 staticBucketEmissiveStats;
             std::vector<PathTraceSmokeEmissiveTriangle>
                 staticBucketEmissiveTriangles;
+            std::vector<PathTraceUptEmissiveGeometry>
+                staticBucketEmissiveGeometry;
             AppendSmokeStaticBucketEmissiveTriangleInventory(
                 materialTable.materialIds,
                 materialTable.materials,
@@ -9825,6 +9829,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     RtSmokeSurfaceClass::SkinnedDeformed),
                 maxEmissiveRecords,
                 staticBucketEmissiveTriangles,
+                staticBucketEmissiveGeometry,
                 staticBucketEmissiveStats,
                 &monolithicPrimitiveRemap.primitiveIndexes,
                 &monolithicStateOverlay.triangleClasses,
@@ -10117,6 +10122,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
                 maxEmissiveRecords,
                 emissiveTriangles,
+                uptEmissiveGeometry,
                 emissiveInventoryStats);
         }
         if (!staticBucketEmissiveRouteAccepted &&
@@ -10132,6 +10138,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 SmokeSurfaceClassId(RtSmokeSurfaceClass::StaticWorld),
                 fullLevelStaticSupplementLimit,
                 emissiveTriangles,
+                uptEmissiveGeometry,
                 emissiveInventoryStats);
         }
 
@@ -10502,6 +10509,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 emissiveTriangles.end(),
                 skinnedEmissiveInventory.current.begin(),
                 skinnedEmissiveInventory.current.end());
+            uptEmissiveGeometry.insert(
+                uptEmissiveGeometry.end(),
+                skinnedEmissiveInventory.currentGeometry.begin(),
+                skinnedEmissiveInventory.currentGeometry.end());
             if (skinnedEmissivePublishValidation)
             {
                 skinnedEmissivePreviousBase =
@@ -10584,6 +10595,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         emissiveInventoryStats.skippedRuntimeInactiveTriangles = runtimeInactiveEmissiveTrianglesBeforeStatsRebuild;
         FinalizeSmokeEmissiveTriangleSamplingFields(emissiveTriangles, emissiveInventoryStats);
         lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
+    }
+    if (uptEmissiveGeometry.size() != emissiveTriangles.size())
+    {
+        common->Printf(
+            "PathTracePrimaryPass: UPT-43 emissive geometry sidecar count mismatch records=%zu geometry=%zu; invalidating sidecar\n",
+            emissiveTriangles.size(), uptEmissiveGeometry.size());
+        uptEmissiveGeometry.assign(emissiveTriangles.size(), {});
     }
     const std::vector<PathTraceEmissiveLightRemap> emissiveLightRemap = [&]() {
         OPTICK_EVENT("PT Emissive Light Remap");
@@ -11154,6 +11172,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.restirLightManagerCurrentPayloadBuffer = m_smokeRestirLightManagerCurrentPayloadBuffer;
     bufferCreateDesc.existingBuffers.restirLightManagerPreviousPayloadBuffer = m_smokeRestirLightManagerPreviousPayloadBuffer;
     bufferCreateDesc.existingBuffers.unifiedPtEmissiveLookupBuffer = m_smokeUnifiedPtEmissiveLookupBuffer;
+    bufferCreateDesc.existingBuffers.unifiedPtEmissiveGeometryBuffer = m_smokeUnifiedPtEmissiveGeometryBuffer;
     if (asyncRigidRouteSideBufferRing && rigidRouteSideBufferWriteSlot >= 0)
     {
         const RtSmokeRigidRouteSideBufferSlot& sideSlot =
@@ -11222,6 +11241,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.restirLightManagerCurrentPayloadBytes = restirLightManagerCurrentPayloadRecords.size() * sizeof(PathTraceUnifiedLightRecord);
     bufferCreateDesc.restirLightManagerPreviousPayloadBytes = restirLightManagerPreviousPayloadRecords.size() * sizeof(PathTraceUnifiedLightRecord);
     bufferCreateDesc.unifiedPtEmissiveLookupBytes = unifiedPtEmissiveLookup.entries.size() * sizeof(PathTraceUnifiedEmissiveLookupEntry);
+    bufferCreateDesc.unifiedPtEmissiveGeometryBytes = uptEmissiveGeometry.size() * sizeof(PathTraceUptEmissiveGeometry);
     bufferCreateDesc.rigidRouteVertexBytes = rigidRouteBuild.vertices.size() * sizeof(PathTraceSmokeVertex);
     bufferCreateDesc.rigidRouteIndexBytes = rigidRouteBuild.indexes.size() * sizeof(uint32_t);
     bufferCreateDesc.rigidRouteTriangleMaterialBytes = rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t);
@@ -11342,6 +11362,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeRestirLightManagerCurrentPayloadBuffer = smokeBuffers.restirLightManagerCurrentPayloadBuffer;
     nvrhi::BufferHandle smokeRestirLightManagerPreviousPayloadBuffer = smokeBuffers.restirLightManagerPreviousPayloadBuffer;
     nvrhi::BufferHandle smokeUnifiedPtEmissiveLookupBuffer = smokeBuffers.unifiedPtEmissiveLookupBuffer;
+    nvrhi::BufferHandle smokeUnifiedPtEmissiveGeometryBuffer = smokeBuffers.unifiedPtEmissiveGeometryBuffer;
     nvrhi::BufferHandle smokeRigidRouteVertexBuffer = smokeBuffers.rigidRouteVertexBuffer;
     nvrhi::BufferHandle smokeRigidRouteIndexBuffer = smokeBuffers.rigidRouteIndexBuffer;
     nvrhi::BufferHandle smokeRigidRouteTriangleMaterialBuffer = smokeBuffers.rigidRouteTriangleMaterialBuffer;
@@ -12102,6 +12123,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeMaterialFeatureParameterBuffer, materialTable.materialFeatureParameters, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicMaterialBuffer, dynamicMaterialRecords, nvrhi::ResourceStates::ShaderResource, skipDynamicMaterialUpload, dynamicMaterialUploadOffset, dynamicMaterialUploadCount),
         MakeSmokeVectorUploadItem(smokeEmissiveTriangleBuffer, emissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeUnifiedPtEmissiveGeometryBuffer, uptEmissiveGeometry, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokePreviousEmissiveTriangleBuffer, previousEmissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeEmissiveRemapBuffer, emissiveLightRemap, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeEmissiveDistributionBuffer, emissiveDistribution.entries, nvrhi::ResourceStates::ShaderResource, false),
@@ -14221,7 +14243,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             smokeUnifiedLightBuffer &&
             smokeUnifiedPreviousLightBuffer &&
             smokeRestirLightManagerCurrentPayloadBuffer &&
-            smokeRestirLightManagerPreviousPayloadBuffer;
+            smokeRestirLightManagerPreviousPayloadBuffer &&
+            smokeUnifiedPtEmissiveGeometryBuffer;
         if (skinnedEmissivePublishResourcesReady)
         {
             nvrhi::BindingSetDesc publishBindingSetDesc;
@@ -14252,7 +14275,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     smokeRestirLightManagerCurrentPayloadBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(
                     5,
-                    smokeRestirLightManagerPreviousPayloadBuffer)
+                    smokeRestirLightManagerPreviousPayloadBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                    6,
+                    smokeUnifiedPtEmissiveGeometryBuffer)
             };
             m_smokeSkinnedEmissivePublishBindingSet =
                 device->createBindingSet(
@@ -14301,6 +14327,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     nvrhi::ResourceStates::ShaderResource);
                 commandList->setBufferState(
                     smokeRestirLightManagerPreviousPayloadBuffer,
+                    nvrhi::ResourceStates::ShaderResource);
+                commandList->setBufferState(
+                    smokeUnifiedPtEmissiveGeometryBuffer,
                     nvrhi::ResourceStates::ShaderResource);
                 commandList->commitBarriers();
                 if (skinnedEmissivePublishValidation &&
@@ -15016,6 +15045,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.restirLightManagerPreviousPayloadBuffer = smokeRestirLightManagerPreviousPayloadBuffer;
     sceneInputs.lights.restirLightManagerPreviousToCurrentBuffer = smokeRestirLightManagerPreviousToCurrentBuffer;
     sceneInputs.lights.unifiedPtEmissiveLookupBuffer = smokeUnifiedPtEmissiveLookupBuffer;
+    sceneInputs.lights.unifiedPtEmissiveGeometryBuffer = smokeUnifiedPtEmissiveGeometryBuffer;
     sceneInputs.lights.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
     sceneInputs.lights.emissiveDistributionCount = static_cast<int>(emissiveDistribution.entries.size());
     sceneInputs.lights.emissiveDistributionZeroPdfSkipped = emissiveDistribution.zeroPdfSkipped;

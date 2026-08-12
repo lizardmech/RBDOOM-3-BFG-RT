@@ -11,13 +11,15 @@ file(READ "${UPT35_SOURCE}" source)
 
 string(REGEX MATCHALL "\"binding\"[ \t]*:" descriptor_bindings "${reflection}")
 list(LENGTH descriptor_bindings descriptor_count)
-if(NOT descriptor_count EQUAL 25)
+if(NOT descriptor_count EQUAL 26)
     message(FATAL_ERROR
-        "UPT-35 exposes ${descriptor_count} descriptors; expected 25")
+        "UPT-35 exposes ${descriptor_count} descriptors; expected 26")
 endif()
 if(NOT reflection MATCHES
-        "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*204")
-    message(FATAL_ERROR "UPT-35 push constants are not 208 bytes")
+        "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*204" OR
+   NOT reflection MATCHES
+        "\"name\"[ \t]*:[ \t]*\"previousCameraJitterPixels\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"vec2\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*208")
+    message(FATAL_ERROR "UPT-35 push constants are not 216 bytes")
 endif()
 if(NOT reflection MATCHES
         "\"workgroup_size\"[ \t\r\n]*:[ \t\r\n]*\\[[ \t\r\n]*8[ \t]*,[ \t\r\n]*8")
@@ -50,4 +52,4 @@ endforeach()
 
 file(SIZE "${UPT35_SPV}" spv_bytes)
 file(WRITE "${UPT35_STAMP}"
-    "UPT-35/37 verified: descriptors=25 push=208 workgroup=8x8 RayQuery=3 TraceRay=0 bytes=${spv_bytes} runtime-q initial-only-L2-cutoff endpointPathLength=2\n")
+    "UPT-35/37 verified: descriptors=26 push=216 workgroup=8x8 RayQuery=3 TraceRay=0 bytes=${spv_bytes} runtime-q initial-only-L2-cutoff endpointPathLength=2\n")

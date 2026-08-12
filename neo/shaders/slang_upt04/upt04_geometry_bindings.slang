@@ -58,6 +58,7 @@ public [[vk::binding(19, 0)]] StructuredBuffer<uint> gUpt04SkinnedSourceIndices;
 public [[vk::binding(20, 0)]] StructuredBuffer<uint4> gUpt04SkinnedRouteWords;
 public [[vk::binding(21, 0)]] StructuredBuffer<Upt04SkinnedRouteTriangle> gUpt04SkinnedTriangles;
 public [[vk::binding(22, 0)]] StructuredBuffer<Upt04EmissiveLookupEntry> gUpt04EmissiveLookup;
+public [[vk::binding(32, 0)]] StructuredBuffer<Upt04EmissiveGeometryRecord> gUpt04EmissiveGeometry;
 
 // D0 owns explicit live counts in the first 128 bytes of its control block. T0 deliberately
 // keeps camera reprojection in push constants and derives replay bounds from
@@ -70,6 +71,11 @@ public uint Upt04GeometryBufferCount<T>(StructuredBuffer<T> buffer)
     uint stride;
     buffer.GetDimensions(count, stride);
     return count;
+}
+
+public uint Upt04EmissiveGeometryCount()
+{
+    return Upt04GeometryBufferCount(gUpt04EmissiveGeometry);
 }
 
 public uint Upt04StaticVertexCount()

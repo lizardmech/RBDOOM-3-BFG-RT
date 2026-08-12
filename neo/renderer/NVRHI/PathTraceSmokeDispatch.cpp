@@ -1086,6 +1086,26 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiRouteRequested =
         !unifiedPtRouteRequested &&
         cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 25;
+    const int unifiedPtResolveView = idMath::ClampInt(
+        0, 9, r_pathTracingUnifiedPtResolveView.GetInteger());
+    const bool unifiedPtDlssRrRequested =
+        unifiedPtRouteRequested &&
+        !cleanRtxdiDiRouteRequested &&
+        r_pathTracingUnifiedPtResolve.GetInteger() != 0 &&
+        unifiedPtResolveView == 0 &&
+        r_pathTracingDLSSRR.GetInteger() != 0;
+    const bool unifiedPtDlssRrEffective =
+        unifiedPtDlssRrRequested &&
+        r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0 &&
+        m_frameResources.accumulationTexture &&
+        m_frameResources.rrGuideAlbedoTexture &&
+        m_frameResources.rrGuideSpecularAlbedoTexture &&
+        m_frameResources.rrGuideNormalRoughnessTexture &&
+        m_frameResources.rrGuideDepthTexture &&
+        m_frameResources.rrGuideHitDistanceTexture &&
+        m_frameResources.rrGuideResetMaskTexture &&
+        m_frameResources.rrGuidePositionTexture &&
+        m_frameResources.rrMotionVectorTexture;
     const bool cleanRtxdiDiSpatialEnabled =
         r_pathTracingCleanRtxdiDiSpatial.GetInteger() != 0 &&
         r_cleanDiSpatial.GetInteger() != 0 &&
@@ -1747,7 +1767,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
     }
 
-    auto publishPrimarySurfaceHistory = [&](const char* copyMarker, bool publishUptCompactHistory = false)
+    auto publishPrimarySurfaceHistory = [&](
+        const char* copyMarker,
+        bool publishUptCompactHistory = false,
+        const idVec2& projectionJitterPixels = idVec2(0.0f, 0.0f))
     {
         if (publishUptCompactHistory)
         {
@@ -1824,6 +1847,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         currentHistoryView.up = historyUp;
         currentHistoryView.tanX = idMath::Tan(DEG2RAD(viewDef->renderView.fov_x * 0.5f));
         currentHistoryView.tanY = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
+        currentHistoryView.projectionJitterPixels = projectionJitterPixels;
         const bool objectMotionAvailable =
             (m_sceneInputs.geometry.skinnedPreviousPositionBufferAvailable &&
                 m_sceneInputs.geometry.skinnedSurfaceDispatchCount > 0) ||
@@ -2250,10 +2274,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanCameraLeft.Normalize();
             cleanCameraUp.Normalize();
             const bool cleanDlssRrJitterEnabled =
-                !cleanRtxdiDiMaterialClassifierProofView &&
-                (cleanRtxdiDiView == 12 || cleanRtxdiDiResolveView == 16) &&
-                r_pathTracingDLSSRR.GetInteger() != 0;
-            const idVec2 cleanDlssRrJitterPixels = PathTraceDLSSRRPixelJitter(viewDef, cleanRtxdiDiFrameIndexForDispatch, cleanDlssRrJitterEnabled);
+                unifiedPtDlssRrEffective ||
+                (!cleanRtxdiDiMaterialClassifierProofView &&
+                    (cleanRtxdiDiView == 12 || cleanRtxdiDiResolveView == 16) &&
+                    r_pathTracingDLSSRR.GetInteger() != 0);
+            const uint32_t primaryDlssRrFrameIndex = unifiedPtDlssRrEffective
+                ? m_frameResources.restirPTFrameIndex
+                : cleanRtxdiDiFrameIndexForDispatch;
+            const idVec2 cleanDlssRrJitterPixels = PathTraceDLSSRRPixelJitter(
+                viewDef,
+                primaryDlssRrFrameIndex,
+                cleanDlssRrJitterEnabled);
 
             PathTraceSmokeConstants primarySurfaceConstants = {};
             primarySurfaceConstants.cameraOriginAndTMax[0] = cleanCameraOrigin.x;
@@ -2359,13 +2390,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         staticBucketRouteGeneration >> 32);
             primarySurfaceConstants.dispatchTileInfo[2] = static_cast<float>(Max(0, m_frameResources.width));
             primarySurfaceConstants.dispatchTileInfo[3] = static_cast<float>(Max(0, m_frameResources.height));
-            primarySurfaceConstants.motionVectorInfo[0] = cleanRtxdiDiView >= 5 || r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
-            // The shared producer also serves UPT, but UPT consumes only the
-            // primary receiver buffer.  Keep RR guide traffic exclusive to a
-            // live clean-DI consumer instead of exporting eight unused images
-            // on the UPT-only route.
+            primarySurfaceConstants.motionVectorInfo[0] =
+                (cleanRtxdiDiView >= 5 ||
+                    r_pathTracingMotionVectorExport.GetInteger() != 0 ||
+                    unifiedPtDlssRrEffective)
+                    ? 1.0f : 0.0f;
+            // The shared producer serves both renderers. Keep RR guide traffic
+            // exclusive to a live clean-DI or UPT-RR consumer instead of
+            // exporting eight unused images on the ordinary UPT-only route.
             primarySurfaceConstants.motionVectorInfo[1] =
-                primarySchedule.requestedByCleanDi ? 1.0f : 0.0f;
+                (primarySchedule.requestedByCleanDi || unifiedPtDlssRrEffective)
+                    ? 1.0f : 0.0f;
             primarySurfaceConstants.motionVectorInfo[2] =
                 useUptCompactPrimaryHistory
                     ? 3.0f
@@ -2689,6 +2724,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
         if (unifiedPtRouteRequested && !cleanRtxdiDiRouteRequested)
         {
+            const idVec2 unifiedPtCurrentRrJitterPixels =
+                PathTraceDLSSRRPixelJitter(
+                    viewDef,
+                    m_frameResources.restirPTFrameIndex,
+                    unifiedPtDlssRrEffective);
             PathTraceUnifiedPtDispatchInputs unifiedPtInputs;
             unifiedPtInputs.device = device;
             unifiedPtInputs.commandList = commandList;
@@ -3062,7 +3102,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 !unifiedPtInputs.spatial
                 || (effectiveSharedSpatial
                     && effectiveSpatialWorkgroupPairing
-                    && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool());
+                    && r_pathTracingUnifiedPtSpatialEmptyRescue.GetBool()
+                    && !r_pathTracingUnifiedPtSpatialMultiNeighbor.GetBool());
             const bool requestedThreeVertexInitial =
                 r_pathTracingUnifiedPtThreeVertexInitial.GetBool();
             unifiedPtInputs.threeVertexInitial = requestedThreeVertexInitial
@@ -3174,6 +3215,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_frameResources.primarySurfaceHistoryView.tanX;
             unifiedPtInputs.previousCameraTanY =
                 m_frameResources.primarySurfaceHistoryView.tanY;
+            unifiedPtInputs.previousCameraJitterPixels[0] =
+                m_frameResources.primarySurfaceHistoryView.projectionJitterPixels.x;
+            unifiedPtInputs.previousCameraJitterPixels[1] =
+                m_frameResources.primarySurfaceHistoryView.projectionJitterPixels.y;
             const bool unifiedPtInitialExecuted =
                 m_unifiedPtState.ExecuteInitial(unifiedPtInputs);
             if (unifiedPtInitialExecuted && unifiedPtInputs.temporal)
@@ -3195,16 +3240,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
             const bool unifiedPtResolveRequested =
                 r_pathTracingUnifiedPtResolve.GetInteger() != 0;
+            bool unifiedPtResolveExecuted = false;
+            bool unifiedPtDlssRrEvaluated = false;
             if (unifiedPtResolveRequested)
             {
                 if (unifiedPtInitialExecuted &&
                     m_unifiedPtState.ExecuteResolve(
                         unifiedPtInputs,
-                        static_cast<uint32_t>(idMath::ClampInt(
-                            0,
-                            9,
-                            r_pathTracingUnifiedPtResolveView.GetInteger()))))
+                        static_cast<uint32_t>(unifiedPtResolveView)))
                 {
+                    unifiedPtResolveExecuted = true;
                     m_smokeTestDispatched = true;
                 }
             }
@@ -3215,13 +3260,125 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_unifiedPtState.ReleaseResolve();
             }
 
+            if (unifiedPtResolveExecuted && unifiedPtDlssRrEffective)
+            {
+                const nvrhi::TextureHandle unifiedPtResolveOutput =
+                    m_unifiedPtState.GetResolveOutputTexture();
+                if (unifiedPtResolveOutput)
+                {
+                    PathTraceGpuMarkerScope rrMarker(
+                        commandList,
+                        "UPT.RR DLSS Ray Reconstruction",
+                        nsightGpuMarkers);
+                    commandList->setTextureState(
+                        unifiedPtResolveOutput,
+                        nvrhi::AllSubresources,
+                        nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.rrMotionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                    commandList->commitBarriers();
+
+                    const bool rrForceReset =
+                        r_pathTracingDLSSRRForceReset.GetInteger() != 0;
+                    const uint32_t rrHistoryResetMask =
+                        RT_FRAME_RESET_OUTPUT_RESIZE |
+                        RT_FRAME_RESET_BACKBUFFER_RESIZE |
+                        RT_FRAME_RESET_SCENE_RESOURCES;
+                    const bool rrHistoryReset =
+                        rrForceReset ||
+                        !m_frameResources.primarySurfaceHistoryView.valid ||
+                        m_frameResources.primarySurfaceHistoryNeedsClear ||
+                        (m_frameResources.settings.resetReasonFlags &
+                            rrHistoryResetMask) != 0;
+                    const idVec2 rrJitterPixels = PathTraceDLSSRRPixelJitter(
+                        viewDef,
+                        m_frameResources.restirPTFrameIndex,
+                        true);
+                    unifiedPtDlssRrEvaluated = PathTraceDLSSRRBridge_Evaluate(
+                        commandList,
+                        unifiedPtResolveOutput,
+                        m_frameResources.accumulationTexture,
+                        m_frameResources.rrGuideAlbedoTexture,
+                        m_frameResources.rrGuideSpecularAlbedoTexture,
+                        m_frameResources.rrGuideNormalRoughnessTexture,
+                        m_frameResources.rrGuidePositionTexture,
+                        m_frameResources.rrGuideDepthTexture,
+                        m_frameResources.rrMotionVectorTexture,
+                        m_frameResources.rrGuideHitDistanceTexture,
+                        nullptr,
+                        viewDef,
+                        m_frameResources.restirPTFrameIndex,
+                        m_frameResources.width,
+                        m_frameResources.height,
+                        m_frameResources.outputWidth,
+                        m_frameResources.outputHeight,
+                        rrJitterPixels.x,
+                        rrJitterPixels.y,
+                        rrHistoryReset
+                            ? nullptr
+                            : &m_frameResources.primarySurfaceHistoryView,
+                        rrHistoryReset);
+                    if (unifiedPtDlssRrEvaluated)
+                    {
+                        commandList->setTextureState(
+                            m_frameResources.accumulationTexture,
+                            nvrhi::AllSubresources,
+                            nvrhi::ResourceStates::ShaderResource);
+                        commandList->commitBarriers();
+                        m_unifiedPtState.SetPresentationOutput(
+                            m_frameResources.accumulationTexture);
+                    }
+                }
+            }
+
+            {
+                static int reportedRequested = -1;
+                static int reportedEffective = -1;
+                static int reportedPreviousJitterPublished = -1;
+                const int requested = unifiedPtDlssRrRequested ? 1 : 0;
+                const int effective = unifiedPtDlssRrEvaluated ? 1 : 0;
+                const int previousJitterPublished =
+                    effective != 0 &&
+                    m_frameResources.primarySurfaceHistoryView.valid &&
+                    (m_frameResources.primarySurfaceHistoryView.projectionJitterPixels.x != 0.0f ||
+                        m_frameResources.primarySurfaceHistoryView.projectionJitterPixels.y != 0.0f)
+                    ? 1 : 0;
+                if (reportedRequested != requested ||
+                    reportedEffective != effective ||
+                    reportedPreviousJitterPublished != previousJitterPublished)
+                {
+                    common->Printf(
+                        "PathTraceUnifiedPt: DLSS RR requested/effective=%d/%d gate(resolve/view0/guideDebug0/resources)=%u/%u/%u/%u input=UPT.R0 output=accumulation copies=0 extraRays=0 jitter(current/previous)=(%.4f,%.4f)/(%.4f,%.4f) temporalReprojection=previous-storage-pixel\n",
+                        requested,
+                        effective,
+                        unifiedPtResolveExecuted ? 1u : 0u,
+                        unifiedPtResolveView == 0 ? 1u : 0u,
+                        r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0 ? 1u : 0u,
+                        unifiedPtDlssRrEffective ? 1u : 0u,
+                        unifiedPtCurrentRrJitterPixels.x,
+                        unifiedPtCurrentRrJitterPixels.y,
+                        m_frameResources.primarySurfaceHistoryView.projectionJitterPixels.x,
+                        m_frameResources.primarySurfaceHistoryView.projectionJitterPixels.y);
+                    reportedRequested = requested;
+                    reportedEffective = effective;
+                    reportedPreviousJitterPublished = previousJitterPublished;
+                }
+            }
+
             m_unifiedPtState.CompleteFrame();
 
             // Publish the shared primary history once after the UPT consumer,
             // then stop before every legacy execution branch.
             publishPrimarySurfaceHistory(
                 "UPT.P0 PrimarySurfaceHistory Copy",
-                useUptCompactPrimaryHistory);
+                useUptCompactPrimaryHistory,
+                unifiedPtCurrentRrJitterPixels);
             // The shared legacy increment lives below this early-returning
             // route. Advance the same live index here so FixedSampleIndex -1
             // actually produces a new UPT random stream every rendered frame.

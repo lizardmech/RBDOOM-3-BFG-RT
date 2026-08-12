@@ -53,6 +53,7 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle restirLightManagerCurrentPayloadBuffer;
     nvrhi::BufferHandle restirLightManagerPreviousPayloadBuffer;
     nvrhi::BufferHandle unifiedPtEmissiveLookupBuffer;
+    nvrhi::BufferHandle unifiedPtEmissiveGeometryBuffer;
     nvrhi::BufferHandle rigidRouteVertexBuffer;
     nvrhi::BufferHandle rigidRouteIndexBuffer;
     nvrhi::BufferHandle rigidRouteTriangleMaterialBuffer;
@@ -115,6 +116,7 @@ struct RtSmokeSceneBufferCreateDesc
     size_t restirLightManagerCurrentPayloadBytes = 0;
     size_t restirLightManagerPreviousPayloadBytes = 0;
     size_t unifiedPtEmissiveLookupBytes = 0;
+    size_t unifiedPtEmissiveGeometryBytes = 0;
     size_t rigidRouteVertexBytes = 0;
     size_t rigidRouteIndexBytes = 0;
     size_t rigidRouteTriangleMaterialBytes = 0;

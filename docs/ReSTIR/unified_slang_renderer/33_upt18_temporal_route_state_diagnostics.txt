@@ -139,3 +139,63 @@ The prescribed win64-pt-dev-release build passed. The static-specialization
 stamp reports continuation endpoint visibility proof=known+passed. The shared
 source rebuilt 26 Vulkan UPT-04 blobs; all deployed source/destination hashes
 match. No DX12 shader was compiled or deployed.
+
+Wall/orb route comparison, 2026-08-10
+-------------------------------------
+
+wall.txt and orbs.txt disprove retained temporal population as the cause of
+the approximately twofold view-dependent cost in the small PBR-orb test map.
+Both 2560x1440 captures execute essentially the same work count:
+
+    D0 continuation rays             3,515,211 wall   3,510,917 orbs
+    D0 visibility rays               7,194,668 wall   7,046,825 orbs
+    T0 history replay attempts         about 457k       about 455k
+    T0 reciprocal replay attempts      about 154k       about 149k
+
+The topology of committed continuation hits changes instead. Rigid hits rise
+from 14,882 to 463,694. Secondary missing-fallback material evaluations rise
+from 8,026 to 266,620; material rejection rises from 602 to 95,336; PDF/ray
+rejection rises from 117 to 23,066; and secondary visibility occlusion rises
+from 7,220 to 217,649. The timing change therefore follows rigid geometry and
+its candidate/material path, not temporal age, history search, light selection
+or a larger ray population. See document 34 for the downstream TLAS-opacity
+gap exposed by this comparison.
+
+Split-continuation Nsight result, 2026-08-10
+--------------------------------------------
+
+orbssplitcontinue.txt proves that the strict continuation split was admitted:
+compact32 receiver, compact48 geometry, compact64 lights and
+continuation=split-hit32. The two latest matched captures are:
+
+    RBDoom3BFG_2026_08_10_12_19_26.ngfx-gputrace   orb view
+    RBDoom3BFG_2026_08_10_12_19_33.ngfx-gputrace   wall view
+
+Nsight reports:
+
+                                      wall       orbs       delta
+    frame                             14.92 ms   18.46 ms   +3.54 ms
+    C0 continuation trace             0.28 ms    0.80 ms   +0.52 ms
+    D0 continuation shade             6.64 ms    6.92 ms   +0.28 ms
+    T0 temporal indirect enabled      4.79 ms    8.23 ms   +3.44 ms
+
+C0 therefore proves a real 2.86x geometry-dependent traversal change, but the
+isolated primary-continuation cost explains only a small part of the total
+marker swing. D0 shading remains within four percent. T0 owns about 81 percent
+of the C0+D0+T0 marker delta.
+
+The selected wall T0 profile reports 14.2 active threads/warp, 44.5 percent
+coherence, 23.1 percent compute warp occupancy, 54.62 percent RTCORE input
+dependency and 35.53 percent global-load input dependency. The matched orb T0
+keeps the same static instruction footprint and similar warp behavior; it does
+not expose a new candidate-count or arithmetic loop. The cost is the existing
+indirect replay RayQuery work becoming more expensive for the visible rigid
+geometry.
+
+Source audit matches the profile. Upt07ReplayIndirectSample executes one
+continuation query. T0 invokes it once for history-to-current replay and may
+invoke it again for the current-at-history reciprocal target, then executes
+one winner-only visibility query. The compiled contract remains bounded to
+four indirect replay RayQuery sites. Document 35 owns the next bounded step:
+compact only pixels that require those replay routes instead of making the
+full-screen temporal kernel carry their divergent traversal state.

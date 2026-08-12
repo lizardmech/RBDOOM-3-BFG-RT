@@ -103,6 +103,8 @@ struct PreviousCamera {
 	Vec3 up = { 0.0, 0.0, 1.0 };
 	double tanX = 1.0;
 	double tanY = 1.0;
+	double projectionJitterX = 0.0;
+	double projectionJitterY = 0.0;
 };
 
 struct Projection {
@@ -138,8 +140,10 @@ inline Projection ProjectToPrevious(
 	if (!std::isfinite(ndcX) || !std::isfinite(ndcY)) {
 		return result;
 	}
-	result.pixelX = (ndcX * 0.5 + 0.5) * static_cast<double>(camera.width);
-	result.pixelY = (ndcY * 0.5 + 0.5) * static_cast<double>(camera.height);
+	result.pixelX = (ndcX * 0.5 + 0.5) * static_cast<double>(camera.width) +
+		camera.projectionJitterX;
+	result.pixelY = (ndcY * 0.5 + 0.5) * static_cast<double>(camera.height) +
+		camera.projectionJitterY;
 	result.linearDepth = linearDepth;
 	result.pixelFloorX = static_cast<int>(std::floor(result.pixelX));
 	result.pixelFloorY = static_cast<int>(std::floor(result.pixelY));

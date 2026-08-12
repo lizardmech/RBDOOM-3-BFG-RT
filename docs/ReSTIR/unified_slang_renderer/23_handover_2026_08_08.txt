@@ -1817,6 +1817,104 @@ binding, validation or shader errors. The user reported that performance and
 visuals seemed fine. Treat UPT-33 as runtime accepted and preserve both uptf1
 and uptf2 as rollback oracles before multi-neighbor work.
 
+UPT-34 simultaneous multi-neighbor spatial, 2026-08-11
+-------------------------------------------------------
+
+The paper audit confirmed that three reciprocal neighbors are simultaneous
+GRIS inputs, not three sequential two-proposal merges. Document 49 freezes the
+exact estimator: each neighbor uses denominator k M_i p_i + M_c p_c; the
+canonical MIS is the average of its three pair terms, with unit contribution
+for a missing pair. Canonical confidence is added once, each admitted neighbor
+confidence once, and UPT-10 converts every mapped target-scaled weight back to
+UCW before applying target and forward Jacobian exactly once.
+
+The new default-off UPT-34 specialization uses three distinct nonzero XOR
+involutions inside the accepted moving 8x8 lattice. Every lane publishes all
+three mappings to disjoint group-shared slots, one barrier completes the
+pre-pass, and every lane then performs one canonical-plus-three-neighbor WRS
+and at most one winner visibility query. Duplicate replay identities reject
+before confidence or mass admission. Empty-center rescue remains exactly the
+first randomized partner and retains UPT-33 non-donation stamping.
+
+There is no new persistent page, buffer, descriptor, clear, dispatch or ABI.
+Offline verification passes with 26 bindings, triangle classes at 9/13,
+96-byte push constants, three distinct reciprocal maps, one barrier, five
+static RayQuery sites and no TraceRay. The new blob is 579244 bytes, SHA-256
+EB7D15C7660C8818CB123EAFE85D8CB678481CBB90A16580F194A767B02C446C.
+The accepted UPT-32/33 hashes remain byte-identical. The executable is
+16348672 bytes, SHA-256
+53ECCBED2A4A5D252118B5DF7667EFEC6DE4A11F6F04CB417B2498864A157BFA.
+
+Run `exec uptf3` and require multi-neighbor requested/effective=1/1 plus the
+pipeline fields multiNeighbor=1, neighbors=3 and emptyRescue=1. Compare after
+pipeline warm-up against `exec uptf2`. Runtime acceptance is pending; reject
+brightness drift, energy growth, ghosts, color corruption, black output,
+missing geometry, tile structure or an unjustified spatial performance cliff.
+
+UPT-34 runtime result, 2026-08-11
+---------------------------------
+
+The feature rendered correctly and slightly improved image quality, but the
+user measured an approximately 40 percent frame-rate loss against UPT-33. This
+fails the production performance gate. The measured shape matches the explicit
+work expansion: UPT-33 maps one reciprocal neighbor per lane, while UPT-34
+maps three before the barrier. Reciprocal ownership eliminates duplicate
+reverse shifts; it cannot eliminate the two additional global mappings.
+
+Do not promote or checkpoint UPT-34 as the accepted renderer. Keep it default
+off as a research artifact and use `exec uptf2` as the production-shaped
+configuration. A future revisit needs a genuinely different selective or
+amortized schedule and must retain the simultaneous k-technique MIS contract;
+do not replace it with sequential two-proposal merges.
+
+UPT-35 bounded three-vertex D0, 2026-08-11
+-------------------------------------------
+
+The next production feature lane is UPT-10A, implemented first as UPT-35 D0
+only. Local NVIDIA FullSample source resolves the terminology: its accepted
+maxBounceDepth=3, roulette-enabled preset traces x1->x2, performs NEE at x2,
+then survives with fixed q=0.8 before x2->x3 and can select the x3 emissive
+endpoint. It does not run an x3 NEE schedule. In rbdoom this is exactly two
+continuation rays after the primary receiver.
+
+The new `uptb2` specialization extends only split-initial, native-geometry,
+compact32-receiver, compact64-light OpenPBR D0. It adds one prepared x2 BSDF
+sample, one roulette draw at path vertex 1, at most one x2->x3 closest-hit
+query, and one `eventKind=4,pathLength=2` endpoint proposal in the existing
+64-byte reservoir. No descriptor, page, payload, clear or persistent ABI was
+added. T0/S0 currently rejects that endpoint shape, so the host gate requires
+temporal and spatial off rather than replaying it incorrectly.
+
+On survival, throughput contains 1/q, cumulative path PDF contains q, the
+stored target multiplies the compensated contribution target by q, and the
+proposal PDF is q. Therefore target/proposalPdf retains the correct survived
+streaming mass while the selected target follows the reference convention and
+does not double-compensate roulette. Termination emits no candidate and no ray.
+
+Offline proof passes: 25 bindings, 208-byte push constants, 8x8 workgroup,
+three static RayQuery sites, zero TraceRay sites, and the CPU q=1/q=0.8 oracle.
+The accepted split-indirect D0 artifact recompiles byte-identically at SHA-256
+7E92A60184A9B137C8B3CFED485622A2EDF9BDA6926AC095ADE09BE5ACEFF30A.
+The new blob is 528756 bytes, SHA-256
+14A5A511631AF00386B3A799334B0FC441669952DA089A1320CDE26234ACC487.
+The deployed executable is 16350208 bytes, SHA-256
+54EAB781319B28A7C5A9C51C03859C2A70E73FF0713DAE300B54A617D27EEEB9.
+
+Run `exec uptb2` and require requested/effective=1/1 plus the split-indirect
+pipeline fields threeVertex=1, continuationRaysMax=2 and rouletteQ=0.80.
+Validate D0 image, energy and cost before extending temporal/spatial replay.
+`exec uptf2` remains the accepted production-shaped rollback preset.
+
+UPT-35 runtime result, 2026-08-11
+---------------------------------
+
+`exec uptb2` activated the specialization and the user reported that it worked
+without issues. D0 two-continuation transport, q=0.8 roulette and the x3
+endpoint proposal are runtime accepted. Preserve the separate artifact and
+unchanged `uptf2` rollback. The next bounded task is temporal replay/shift for
+`eventKind=4,pathLength=2`; do not enable temporal or spatial for that event
+until the two-continuation reconstruction and ray ceiling are explicit.
+
 UPT-36 exact three-vertex T0, 2026-08-11
 -----------------------------------------
 
@@ -1923,3 +2021,300 @@ sample admission. The high-energy sample originates in temporal reuse and S0
 preserves it. Reopen the issue only if denoiser testing exposes a specific T0
 estimator, replay, visibility or material defect. Preserve `uptf2` as the
 production-shaped rollback and keep the extra bounce optional.
+
+UPT-39 DLSS Ray Reconstruction bridge, 2026-08-12
+--------------------------------------------------
+
+The next feature audit found that the production clear-window PSR cannot be
+connected to the accepted UPT route by merely changing dispatch order. It
+rewrites the 176-byte clean primary record after clean-DI setup, whereas the
+accepted UPT route exits earlier and consumes compact32 plus a history sidecar.
+Do not regress UPT to the wide receiver for glass. A later glass task must add
+a compact PSR publication adapter.
+
+UPT-39 therefore takes the existing RR bridge first. The shared primary
+producer already has exact material, depth, position, motion and reset guide
+writes; enable those only when UPT beauty resolve and DLSS RR are both active.
+UPT keeps its unchanged trace-free RGBA16F resolve as Streamline input, the
+existing output-sized accumulation texture receives reconstruction, and UPT
+presents that texture directly on success. RR-off and evaluation failure retain
+the ordinary UPT resolve. No new ray, shader, guide texture, full-frame clear or
+copy is admitted. See 54_upt39_dlss_rr_bridge.txt.
+
+The host build and deployment are complete. The deployed executable is
+16354816 bytes, SHA-256
+E808793F4C8418E5B00D298E94273E2FE02BBF71C6CB783A27071295646D121F. No SPIR-V
+was deployed; the production compact32 resolve remains byte-identical to the
+prebuilt copy at SHA-256
+00C5D3AB8151386554D83BD65EB82960020240530E55DBAAEB84822EC235C981. Runtime
+acceptance is pending with `exec uptrr`.
+
+UPT-39 runtime result and UPT-40 jitter reprojection, 2026-08-12
+---------------------------------------------------------------
+
+The UPT-39 bridge is functionally accepted: reconstruction executes and the
+image is otherwise correct. Temporal reuse interfered with the reconstructed
+result and exposed a concrete producer/consumer mismatch. RR primary rays use
+`pixel + 0.5 - jitter`, but D0 previous-best and T0 projected into the prior
+camera and floored the unjittered coordinate. They could therefore address an
+adjacent history pixel before surface/replay/visibility evaluation.
+
+UPT-40 persists the exact jitter with the published camera state and adds it
+back only when converting a projected world point to the previous storage
+pixel. D0 grows from the accepted 208-byte prefix to 216 bytes; T0 grows from
+the accepted 160-byte prefix to 168 bytes. No target, PDF, Jacobian, weight,
+visibility, reservoir, ray, dispatch, clear or resource changes.
+
+The CPU temporal oracle passes and proves both the sign and separation from
+random search dither. Targeted UPT-04 and UPT-07 Vulkan builds and reflection
+verifiers pass. Runtime validation remains with `exec uptrr`; see
+55_upt40_rr_jitter_temporal_reprojection.txt.
+
+The deployed executable is 16355328 bytes, SHA-256
+10F85EF790F505A7B07B61D993B94844A9E83340196490F19E9E0615502B667A.
+Only the accepted split compact32/light64 D0 direct and indirect artifacts and
+the unified light64/duplication/common-GRIS T0 artifact were deployed; their
+hashes are recorded in the numbered task. No DX12 shader was compiled.
+
+The full preset build also demonstrated a separate build-graph problem: a
+low-level include change fans out through many unselectable storage/backend
+option products. UPT-41 will audit host filename reachability and prune those
+products while explicitly retaining accepted presets, diagnostics, parity and
+feature-level multi-bounce/RR variants. See
+56_upt41_shader_variant_reachability_pruning.txt.
+
+UPT-41 default shader-graph pruning, 2026-08-12
+------------------------------------------------
+
+The normal RBDoom3BFG dependency graph no longer builds the complete UPT
+low-level specialization matrix. RBDoom3BFG now reaches dedicated production
+targets containing 7 D0, 6 T0 and 4 S0 SPIR-V inputs. The retained set covers
+the accepted split-initial compact-light route, compact32/proposal-parity
+rollback, Lambert diagnostic, common-GRIS temporal reuse, UPT-33 spatial
+rescue, and optional three-vertex/RR transport.
+
+The full 73 + 61 + 10 declaration matrix remains available through
+PathTraceSlangUpt04RuntimeArtifacts,
+PathTraceSlangUpt07TemporalOwnership and PathTraceSlangUpt09Spatial. Build
+those targets explicitly before using a historical compact-geometry,
+compact-material, light-tile, split-continuation, frozen, route/reconnect,
+bottleneck-probe, raygen or rejected multi-neighbor diagnostic after shared
+shader changes.
+
+UPT-05's hidden dependency on PathTraceSlangUpt04ModuleGraph was also changed
+to the lean D0 production target. That edge was the reason the first full
+build still rebuilt the entire D0 matrix despite the direct RBDoom dependency
+being pruned.
+
+The required Vulkan Release build passes. The generated production projects
+contain exactly 17 unique UPT-04/07/09 .slang.spv inputs, and an up-to-date
+full build completes in 4.7 seconds while listing only those production
+artifacts. No shader source, estimator, ABI, ray ceiling, cvar or filename
+changed, so no dedicated runtime image/performance retest is required for
+UPT-41 itself. The Release executable plus exactly the 17 retained Vulkan
+binaries were deployed to keep every production fallback on the current
+shared-source ABI; no experimental or DX12 shader was deployed. See
+56_upt41_shader_variant_reachability_pruning.txt for the exact manifest and
+explicit full-matrix command.
+
+UPT-42 Gaussian reuse-texture spatial pairing, 2026-08-12
+---------------------------------------------------------
+
+The accepted UPT-33 production schedule was still confined to a moving 8x8
+XOR permutation. UPT-42 replaces that schedule with the exact Section 3.2
+construction: independent 254/230/210 self-inverting maps, sigma=16, 128
+alternating toroidal 2x2 shuffle rounds, signed packed deltas, and per-frame
+transpose/mirror/offset conjugation. The host validates every reverse link at
+construction and uploads the immutable 969,096-byte buffer once with no clear.
+
+Production remains one-neighbor because the three-neighbor UPT-34 estimator
+was rejected for cost. It consumes the 254 map. The other maps and pair lists
+are generated for future explicit work but do not silently re-enable UPT-34.
+
+To avoid both a full-resolution mapped-work page and half-idle pixel warps,
+the shader dispatches one 64x1 lane per canonical pair and repeated texture
+tile. Each lane computes both mappings once and publishes both endpoints.
+UPT-33 compatibility, duplicate exclusion, GRIS weights, winner visibility,
+empty-center rescue, reservoir ABI and ray ceilings are unchanged. UPT-38 has
+an equivalent reuse-texture artifact.
+
+The focused reflection verifier and the required
+`cmake --build --preset win64-pt-dev-release` build pass. The deployed files
+are:
+
+    RBDoom3BFG.exe
+        bytes=16361984
+        sha256=57E9E0B59F88EAEC73BB161DED2D81DED4B25DD306090E7D86B5A14268BBFB09
+    upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64.bin
+        bytes=1092124
+        sha256=F3E3B6524549B9D1DA16A30D2826D261FA2E525B729ED72CD8EC630887454F55
+    upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64_three_vertex.bin
+        bytes=1483452
+        sha256=B4651F5084A99FCC5E1A33E68E21B30D592AE721F719FEC3EC87C7E87DE5CEF6
+
+No DX12 shader was compiled or deployed. Runtime acceptance is pending. Run
+`exec uptf2` and require the one-time `UPT-42 reuse textures` line to report
+sizes 254/230/210, rounds 128/128/128 and `involution=verified`; the spatial
+pipeline line must report `groups=64x1-pairs reuseTexturePairing=1
+reuseTextureSize=254 multiNeighbor=0 neighbors=1`. Check the prior 8x8 square
+and softness locations, image edges, motion with DLSS RR, spatial GPU time
+after warm-up, emissive identity/color, and empty-center disocclusions. See
+57_upt42_gaussian_reuse_texture_pairing.txt.
+
+UPT-42 runtime rejection and temporal follow-up, 2026-08-12
+-----------------------------------------------------------
+
+Runtime quality was excellent, confirming that the old 8x8 reuse domain was
+responsible for its structured softness. The pair-list implementation is not
+production viable: S0 alone measured about 11 ms. Under temporal stress the
+large spatial reach also exposed glitches around area boundaries. Do not add
+portal filtering or spatial clamps around that symptom; the larger S0 domain
+is revealing unstable T0 samples.
+
+`exec uptf2` is restored to the accepted UPT-33 workgroup path. UPT-42 remains
+available as `exec uptf4`, controlled by
+`r_pathTracingUnifiedPtSpatialReuseTexture`; it defaults to zero. The normal
+Vulkan graph retains both accepted UPT-33/38 artifacts and their UPT-42
+diagnostic counterparts.
+
+The NVIDIA FullSample audit gives a concrete next order. Its ReSTIR PT temporal
+configuration defaults permutation sampling off, but enables the boiling
+filter at strength 0.2. After temporal resampling it computes the group average
+of nonzero `luminance(TargetFunction) * WeightSum` and empties reservoirs above
+the strength-derived multiple (41x at 0.2). UPT's persisted `weightSum` is
+already target-scaled UCW, so it is the corresponding scalar. Test a bounded
+post-T0 boiling filter first. Do not multiply by `selected.target` again, and
+do not start with temporal permutation sampling: NVIDIA leaves it off for PT
+and warns that permutation increases noise on thin/high-detail surfaces.
+
+The rollback build passes and the executable was deployed:
+
+    bytes=16362496
+    sha256=312D8987510A09DDB35E879A6FE8064FD237DD79C2F270FA80CB4CF153A84A49
+
+The accepted UPT-33 and optional UPT-38 source/deployed SPIR-V hashes already
+matched exactly, so no shader copy was needed. No DX12 shader was compiled.
+
+UPT-42 screen-ordered correction, 2026-08-12
+---------------------------------------------
+
+Review of the rejected 11 ms UPT-42 pass confirmed that its canonical-pair
+launch was structurally wasteful. At 1920x1080 the padded repeated-tile grid
+launched 2,258,060 lanes for 1,036,800 useful pairs. Rejected lanes performed
+reuse-buffer reads and transform work before exiting, while valid warps loaded
+unrelated screen records on both endpoints. The leader also rediscovered its
+partner inside the reciprocal evaluator.
+
+UPT-42 now uses the ordinary 8x8 full-screen dispatch. Every pixel performs
+one transformed delta lookup. An out-of-screen partner publishes unchanged
+fallback; otherwise the higher linear endpoint exits and the lower endpoint
+publishes both reciprocal mappings using the already-resolved partner. Pair
+anchor lists, padded tile enumeration, the 64x1 specialization and duplicate
+leader delta lookup are removed. The immutable upload shrank from 969,096 to
+646,064 bytes and still has no per-frame rebuild or clear.
+
+The proposed seam explanation was separately disproved. A reproduction of the
+exact map builder and shader transpose/mirror/offset transform checked
+65,132,602 in-screen relationships over 32 frame transforms with zero
+involution failures. The build verifier now requires SPIR-V LocalSize 8 8 1,
+screen-leader ownership and absence of the old pair-list symbols.
+
+The required Vulkan build passes. UPT-42 remains opt-in and UPT-33 remains the
+production default. Runtime acceptance must require
+`groups=8x8-screen-leaders reuseTexturePairing=1`, then compare warmed S0 GPU
+time and stressed motion against the original 11 ms pair-list result. Do not
+begin boiling-filter work until this corrected temporal/spatial stage proves
+usable. No DX12 shader was compiled.
+
+The corrected executable and only the two rebuilt Vulkan UPT-42 artifacts were
+deployed:
+
+    RBDoom3BFG.exe
+        bytes=16361984
+        sha256=F42DCA588F459DAF35A45467C596486049E1AC441CD2946B2487E0FF2F75123C
+    upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64.bin
+        bytes=1072916
+        sha256=EE574B7438DBD46BB8A1665B8615C33C1A362F1988D4FDB1D8F9EED238B3AE2E
+    upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64_three_vertex.bin
+        bytes=1464244
+        sha256=18956A32B3775239E34D3CA4C93B9A447DA9215FC28A70AD8D65BA50BDBAE6F4
+
+UPT-43 bounded endpoint reuse pivot, 2026-08-12
+------------------------------------------------
+
+The corrected screen-ordered UPT-42 fixed the stressed-motion image artifacts
+but improved performance by only one or two frames. At 1920x1080 the current
+UPT temporal plus spatial cost remains about 220 percent above the ReSTIR PT
+Enhanced reference result. At the normal resolution, emissive scale zero can
+increase total frame rate by about 50 percent. Pairing and filtering work is
+therefore paused until the mapping itself is bounded.
+
+The local RTXDI FullSample PT audit identifies the missing base architecture.
+Its 64-byte reservoir stores the reconnection endpoint position, normal,
+outgoing radiance, partial Jacobian, incident-direction PDF, path/reconnection
+length and replay seed. It invokes random replay only when RcVertexLength > 2.
+Ordinary x2 reconnection is trace-free, and a BSDF-hit emissive reuses cached
+endpoint radiance without resolving its triangle, material, UV or texture.
+NEE reuses one stored light identity/sample coordinate pair through a single
+dense frame remap rather than sampling or searching the light universe.
+
+Document 58 now owns the pivot. The implementation order is: persist the
+already-computed direct-emissive four-region PDF scale; add exact cached
+endpoints; make x2 reconnection the trace-free common path; compact only later
+random-replay prefixes; split paired spatial into an Enhanced-style shift
+prepass and resampling pass; then restore the remaining Enhanced quality
+layers. Boiling filtering is not the next task because it cannot repair an
+unbounded reuse mapping.
+
+The first slice is deliberately estimator-preserving. D0 already computes the
+receiver-invariant direct-emissive region PDF scale; secondary emissive NEE
+already stores the same value in the negative proposalPdf union. UPT-43.1
+extends that established payload to direct emissives and removes four emitter
+texture probes from every direct T0/S0 mapping. It must survive D0, T0 and S0
+publication, reject malformed payloads, bump the history ABI, and retain the
+selected endpoint texture evaluation until the exact endpoint-cache slice.
+
+UPT-43.1 implementation and deployment, 2026-08-12
+---------------------------------------------------
+
+UPT-43.1 is implemented. Fresh and previous-best direct D0 proposals preserve
+their exact four-region emissive PDF scale. D0 finalization, T0 direct shifts
+and S0 direct shifts publish that scale through the collision-free negative
+word12 emissive union while retaining the physical proposal PDF in pathPdf.
+T0/S0 direct emissive replay now decodes the stored scale and performs only the
+selected endpoint texture evaluation; the four region probes are absent.
+Malformed emissive payloads fail closed. Analytic-light storage is unchanged.
+
+UPT04_ABI_VERSION is 12, so incompatible history is rejected by page
+generation without a full-buffer clear. The Vulkan release build passed and
+reported all SPIR-V up to date after compilation. RBDoom3BFG.exe and exactly
+the 21 Vulkan UPT blobs rebuilt since the build start were deployed. No DX12
+shader was compiled or deployed. Runtime visual and timing acceptance is still
+required before checkpointing or starting S43.2.
+
+UPT-43.2 implementation and deployment, 2026-08-12
+---------------------------------------------------
+
+UPT-43.2 exact emissive geometry is built and deployed for runtime validation.
+ABI 13 binds a 64-byte current-frame sidecar at set 0 binding 32. Static,
+dynamic, rigid and world records are CPU-published; skinned records are updated
+by the existing post-skinning GPU publisher and invalidated when unavailable.
+Shared selected-emissive replay no longer calls the general geometry resolver.
+The Vulkan build and descriptor/ray-ceiling verifiers pass. One executable,
+one skinned publication compute blob and exactly 18 UPT D0/T0/S0 Vulkan blobs
+were deployed. No DX12 shader was compiled or deployed.
+
+Test with the existing `exec uptf2.cfg` baseline; no S43.2 cvar is required.
+Check moving/animated emissives, portal crossings, textured small emitters,
+temporal motion and spatial reuse. The checkpoint remains deferred until
+runtime acceptance.
+
+UPT-43.2 runtime acceptance, 2026-08-12
+---------------------------------------
+
+Runtime validation reported no visual issues. With `uptf2.cfg` at 2560x1440,
+temporal dispatch timing was 11.100 ms median / 11.102 ms mean over 64 samples
+after 16 warm-up frames. This is 3.579 ms (24.4 percent) below the preceding
+14.679 ms S43.1 median. Shared spatial remained effectively flat at 1.072 ms
+median versus 1.063 ms previously. S43.2 is accepted; checkpoint it before
+starting S43.3 trace-free x2 reconnection.

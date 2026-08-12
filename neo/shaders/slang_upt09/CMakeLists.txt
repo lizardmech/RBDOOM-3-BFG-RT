@@ -162,6 +162,32 @@ path_tracing_declare_slang_spirv_module(
     OUT_VAR spatial_shared_workgroup_pair_rescue_outputs
     RAY_QUERY)
 
+# UPT-42 replaces the production 8x8-local pairing schedule with the paper's
+# 254x254 Gaussian self-inverting reuse texture. Screen-ordered lanes recover
+# their partner independently, then the lower linear endpoint publishes both
+# directions. This avoids the rejected padded pair-list launch while retaining
+# reciprocal ownership without cross-workgroup exchange. UPT-33 remains an
+# explicit byte-distinct rollback artifact.
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_PACKED_LIGHT_RECORD=1 UPT09_SPATIAL_GEOMETRY_REPLAY=1
+        UPT09_SPATIAL_INDIRECT_REPLAY=1 UPT10_SHARED_SPATIAL=1
+        UPT31_STORED_DIRECT_SOURCE_TARGET=1 UPT33_EMPTY_CENTER_RESCUE=1
+        UPT42_REUSE_TEXTURE_PAIRING=1
+    OUT_VAR spatial_shared_reuse_texture_pair_rescue_outputs
+    RAY_QUERY)
+
 # UPT-38 preserves the accepted UPT-33 estimator and workgroup schedule. Its
 # only shader-policy change is admitting UPT-35 path-length-two endpoints
 # through the exact stored-q replay already accepted by UPT-36 T0.
@@ -185,6 +211,51 @@ path_tracing_declare_slang_spirv_module(
         UPT33_EMPTY_CENTER_RESCUE=1
         UPT07_THREE_VERTEX_REPLAY=1
     OUT_VAR spatial_shared_workgroup_pair_rescue_three_vertex_outputs
+    RAY_QUERY)
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64_three_vertex
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_PACKED_LIGHT_RECORD=1 UPT09_SPATIAL_GEOMETRY_REPLAY=1
+        UPT09_SPATIAL_INDIRECT_REPLAY=1 UPT10_SHARED_SPATIAL=1
+        UPT31_STORED_DIRECT_SOURCE_TARGET=1 UPT33_EMPTY_CENTER_RESCUE=1
+        UPT42_REUSE_TEXTURE_PAIRING=1 UPT07_THREE_VERTEX_REPLAY=1
+    OUT_VAR spatial_shared_reuse_texture_pair_rescue_three_vertex_outputs
+    RAY_QUERY)
+
+# UPT-34 preserves UPT-33 as the rollback oracle. Three distinct reciprocal
+# maps are shifted into group-shared storage before one simultaneous
+# canonical-plus-three-neighbor GRIS merge.
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_shared_workgroup_multi3_rescue_stored_target_light64
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_PACKED_LIGHT_RECORD=1 UPT09_SPATIAL_GEOMETRY_REPLAY=1
+        UPT09_SPATIAL_INDIRECT_REPLAY=1 UPT10_SHARED_SPATIAL=1
+        UPT31_STORED_DIRECT_SOURCE_TARGET=1
+        UPT32_WORKGROUP_RECIPROCAL_PAIRING=1
+        UPT33_EMPTY_CENTER_RESCUE=1
+        UPT34_MULTI_NEIGHBOR_SPATIAL=1
+    OUT_VAR spatial_shared_workgroup_multi3_outputs
     RAY_QUERY)
 
 path_tracing_declare_slang_spirv_module(
@@ -239,6 +310,8 @@ add_custom_command(
         -DUPT32_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_stored_target_light64.slang.spvasm
         -DUPT33_REFLECTION=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64.slang.spirv-reflection.json
         -DUPT33_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64.slang.spvasm
+        -DUPT34_REFLECTION=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_multi3_rescue_stored_target_light64.slang.spirv-reflection.json
+        -DUPT34_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_multi3_rescue_stored_target_light64.slang.spvasm
         -DUPT10_STAMP=${UPT10_SPATIAL_SHARED_VERIFY_STAMP}
         -DUPT10_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
         -DUPT10_SHADER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang
@@ -247,10 +320,11 @@ add_custom_command(
         ${spatial_shared_stored_target_outputs}
         ${spatial_shared_workgroup_pair_outputs}
         ${spatial_shared_workgroup_pair_rescue_outputs}
+        ${spatial_shared_workgroup_multi3_outputs}
         "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt10SpatialShared.cmake"
-    COMMENT "UPT-33 verifying bounded non-donating shared spatial rescue"
+    COMMENT "UPT-34 verifying simultaneous three-neighbor shared spatial reuse"
     VERBATIM)
 
 set(UPT38_SPATIAL_VERIFY_STAMP
@@ -273,6 +347,26 @@ add_custom_command(
     COMMENT "UPT-38 verifying bounded three-vertex shared spatial replay"
     VERBATIM)
 
+set(UPT42_SPATIAL_VERIFY_STAMP
+    "${UPT09_OUTPUT_DIR}/upt42_reuse_texture_spatial_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT42_SPATIAL_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT42_REFLECTION=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64.slang.spirv-reflection.json
+        -DUPT42_DISASSEMBLY=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64.slang.spvasm
+        -DUPT42_THREE_VERTEX_REFLECTION=${UPT09_OUTPUT_DIR}/upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64_three_vertex.slang.spirv-reflection.json
+        -DUPT42_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
+        -DUPT42_SHADER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang
+        -DUPT42_STAMP=${UPT42_SPATIAL_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt42ReuseTexture.cmake"
+    DEPENDS ${spatial_shared_reuse_texture_pair_rescue_outputs}
+        ${spatial_shared_reuse_texture_pair_rescue_three_vertex_outputs}
+        "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt42ReuseTexture.cmake"
+    COMMENT "UPT-42 verifying Gaussian self-inverting reuse-texture pairing"
+    VERBATIM)
+
 set(UPT09_RUNTIME_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../../../base/renderprogs2/spirv/builtin/pathtracing/slang_upt09")
 set(UPT09_RUNTIME_OUTPUT
@@ -291,55 +385,49 @@ set(UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_workgroup_pair_stored_target_light64.bin")
 set(UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64.bin")
+set(UPT42_SPATIAL_REUSE_TEXTURE_PAIR_RESCUE_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64.bin")
+set(UPT34_SPATIAL_WORKGROUP_MULTI3_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_workgroup_multi3_rescue_stored_target_light64.bin")
 set(UPT38_SPATIAL_THREE_VERTEX_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64_three_vertex.bin")
-add_custom_command(
-    OUTPUT "${UPT09_RUNTIME_OUTPUT}" "${UPT09_COMPACT_RUNTIME_OUTPUT}"
-        "${UPT09_LAMBERT_RUNTIME_OUTPUT}"
-        "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT09_RUNTIME_DIR}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT09_OUTPUT_DIR}/upt09_spatial_direct_rayquery.slang.spv"
-        "${UPT09_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT09_OUTPUT_DIR}/upt09_spatial_direct_rayquery_light64.slang.spv"
-        "${UPT09_COMPACT_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT09_OUTPUT_DIR}/upt09_spatial_direct_rayquery_lambert.slang.spv"
-        "${UPT09_LAMBERT_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT09_OUTPUT_DIR}/upt09_spatial_direct_rayquery_light64_lambert.slang.spv"
-        "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}"
-    DEPENDS ${spatial_direct_outputs} ${spatial_direct_compact_outputs}
-        ${spatial_lambert_outputs} ${spatial_compact_lambert_outputs}
-        "${UPT09_VERIFY_STAMP}"
-    COMMENT "UPT-09 verified Vulkan runtime artifacts: direct spatial rescue"
-    VERBATIM)
-add_custom_command(
-    OUTPUT "${UPT10_SPATIAL_SHARED_RUNTIME_OUTPUT}"
-        "${UPT31_SPATIAL_STORED_TARGET_RUNTIME_OUTPUT}"
-        "${UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT}"
-        "${UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT09_RUNTIME_DIR}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT09_OUTPUT_DIR}/upt09_spatial_shared_selected_pair_light64.slang.spv"
-        "${UPT10_SPATIAL_SHARED_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT09_OUTPUT_DIR}/upt09_spatial_shared_selected_pair_stored_target_light64.slang.spv"
-        "${UPT31_SPATIAL_STORED_TARGET_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_stored_target_light64.slang.spv"
-        "${UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${UPT09_OUTPUT_DIR}/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64.slang.spv"
-        "${UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT}"
-    DEPENDS ${spatial_shared_selected_pair_outputs}
-        ${spatial_shared_stored_target_outputs}
-        ${spatial_shared_workgroup_pair_outputs}
-        ${spatial_shared_workgroup_pair_rescue_outputs}
-        "${UPT10_SPATIAL_SHARED_VERIFY_STAMP}"
-    COMMENT "UPT-33 Vulkan opt-in non-donating empty-center rescue artifact"
-    VERBATIM)
+set(UPT42_SPATIAL_REUSE_TEXTURE_THREE_VERTEX_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64_three_vertex.bin")
+set(UPT09_DIRECT_RUNTIME_MODULES
+    upt09_spatial_direct_rayquery
+    upt09_spatial_direct_rayquery_light64
+    upt09_spatial_direct_rayquery_lambert
+    upt09_spatial_direct_rayquery_light64_lambert)
+foreach(runtime_module IN LISTS UPT09_DIRECT_RUNTIME_MODULES)
+    add_custom_command(
+        OUTPUT "${UPT09_RUNTIME_DIR}/${runtime_module}.bin"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT09_RUNTIME_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${UPT09_OUTPUT_DIR}/${runtime_module}.slang.spv"
+            "${UPT09_RUNTIME_DIR}/${runtime_module}.bin"
+        DEPENDS "${UPT09_OUTPUT_DIR}/${runtime_module}.slang.spv"
+        COMMENT "UPT-09 Vulkan direct spatial artifact: ${runtime_module}"
+        VERBATIM)
+endforeach()
+
+set(UPT09_SHARED_RUNTIME_MODULES
+    upt09_spatial_shared_selected_pair_light64
+    upt09_spatial_shared_selected_pair_stored_target_light64
+    upt09_spatial_shared_workgroup_pair_stored_target_light64
+    upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64
+    upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64
+    upt09_spatial_shared_workgroup_multi3_rescue_stored_target_light64)
+foreach(runtime_module IN LISTS UPT09_SHARED_RUNTIME_MODULES)
+    add_custom_command(
+        OUTPUT "${UPT09_RUNTIME_DIR}/${runtime_module}.bin"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT09_RUNTIME_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${UPT09_OUTPUT_DIR}/${runtime_module}.slang.spv"
+            "${UPT09_RUNTIME_DIR}/${runtime_module}.bin"
+        DEPENDS "${UPT09_OUTPUT_DIR}/${runtime_module}.slang.spv"
+        COMMENT "UPT Vulkan shared spatial artifact: ${runtime_module}"
+        VERBATIM)
+endforeach()
 
 add_custom_command(
     OUTPUT "${UPT38_SPATIAL_THREE_VERTEX_RUNTIME_OUTPUT}"
@@ -352,15 +440,29 @@ add_custom_command(
     COMMENT "UPT-38 Vulkan opt-in three-vertex shared spatial artifact"
     VERBATIM)
 
+add_custom_command(
+    OUTPUT "${UPT42_SPATIAL_REUSE_TEXTURE_THREE_VERTEX_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT09_RUNTIME_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT09_OUTPUT_DIR}/upt09_spatial_shared_reuse_texture_pair_rescue_stored_target_light64_three_vertex.slang.spv"
+        "${UPT42_SPATIAL_REUSE_TEXTURE_THREE_VERTEX_RUNTIME_OUTPUT}"
+    DEPENDS ${spatial_shared_reuse_texture_pair_rescue_three_vertex_outputs}
+    COMMENT "UPT-42 Vulkan opt-in three-vertex reuse-texture spatial artifact"
+    VERBATIM)
+
 add_custom_target(PathTraceSlangUpt09Spatial
     DEPENDS ${spatial_direct_outputs} ${spatial_direct_compact_outputs}
         ${spatial_shared_selected_pair_outputs}
         ${spatial_shared_stored_target_outputs}
         ${spatial_shared_workgroup_pair_outputs}
         ${spatial_shared_workgroup_pair_rescue_outputs}
+        ${spatial_shared_reuse_texture_pair_rescue_outputs}
+        ${spatial_shared_workgroup_multi3_outputs}
         ${spatial_shared_workgroup_pair_rescue_three_vertex_outputs}
+        ${spatial_shared_reuse_texture_pair_rescue_three_vertex_outputs}
         "${UPT10_SPATIAL_SHARED_VERIFY_STAMP}"
         "${UPT38_SPATIAL_VERIFY_STAMP}"
+        "${UPT42_SPATIAL_VERIFY_STAMP}"
         "${UPT09_VERIFY_STAMP}" "${UPT09_RUNTIME_OUTPUT}"
         "${UPT09_COMPACT_RUNTIME_OUTPUT}" "${UPT09_LAMBERT_RUNTIME_OUTPUT}"
         "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}"
@@ -368,10 +470,29 @@ add_custom_target(PathTraceSlangUpt09Spatial
         "${UPT31_SPATIAL_STORED_TARGET_RUNTIME_OUTPUT}"
         "${UPT32_SPATIAL_WORKGROUP_PAIR_RUNTIME_OUTPUT}"
         "${UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT}"
-        "${UPT38_SPATIAL_THREE_VERTEX_RUNTIME_OUTPUT}")
+        "${UPT42_SPATIAL_REUSE_TEXTURE_PAIR_RESCUE_RUNTIME_OUTPUT}"
+        "${UPT34_SPATIAL_WORKGROUP_MULTI3_RUNTIME_OUTPUT}"
+        "${UPT38_SPATIAL_THREE_VERTEX_RUNTIME_OUTPUT}"
+        "${UPT42_SPATIAL_REUSE_TEXTURE_THREE_VERTEX_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt09Spatial PROPERTIES FOLDER "Shaders/UPT-09")
+
+# UPT-41 production reachability set.  Keep the full historical UPT-09 target
+# above for explicit validation, while normal engine builds retain only the
+# compact direct diagnostic/fallback, accepted UPT-33 rescue, and optional
+# UPT-38 third-vertex replay.
+add_custom_target(PathTraceSlangUpt09ProductionRuntime
+    DEPENDS
+        "${UPT09_COMPACT_RUNTIME_OUTPUT}"
+        "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}"
+        "${UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT}"
+        "${UPT38_SPATIAL_THREE_VERTEX_RUNTIME_OUTPUT}"
+        "${UPT42_SPATIAL_REUSE_TEXTURE_PAIR_RESCUE_RUNTIME_OUTPUT}"
+        "${UPT42_SPATIAL_REUSE_TEXTURE_THREE_VERTEX_RUNTIME_OUTPUT}"
+        "${UPT42_SPATIAL_VERIFY_STAMP}")
+set_target_properties(PathTraceSlangUpt09ProductionRuntime PROPERTIES
+    FOLDER "Shaders/UPT-09")
 if(TARGET RBDoom3BFG)
-    add_dependencies(RBDoom3BFG PathTraceSlangUpt09Spatial)
+    add_dependencies(RBDoom3BFG PathTraceSlangUpt09ProductionRuntime)
 endif()
 
 add_custom_target(PathTraceSlangUpt38ThreeVertexSpatial

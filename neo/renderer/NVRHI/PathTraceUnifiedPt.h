@@ -94,6 +94,7 @@ struct PathTraceUnifiedPtDispatchInputs
     float previousCameraUp[3] = {};
     float previousCameraTanX = 1.0f;
     float previousCameraTanY = 1.0f;
+    float previousCameraJitterPixels[2] = {};
 };
 
 struct PathTraceUnifiedPtPageMetadata
@@ -129,7 +130,17 @@ public:
     void CompleteFrame();
     nvrhi::TextureHandle GetOutputTexture() const
     {
+        return m_resolveReady
+            ? (m_presentationOutput ? m_presentationOutput : m_resolveOutput)
+            : nullptr;
+    }
+    nvrhi::TextureHandle GetResolveOutputTexture() const
+    {
         return m_resolveReady ? m_resolveOutput : nullptr;
+    }
+    void SetPresentationOutput(nvrhi::TextureHandle output)
+    {
+        m_presentationOutput = m_resolveReady ? output : nullptr;
     }
     void ReleaseResolve();
     void Release();
@@ -177,6 +188,8 @@ private:
     bool EnsureDuplicationPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureDuplicationBindingSets(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureSpatialPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureSpatialReuseTextureResources(
+        const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureSpatialBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     void UpdateSpatialGpuTiming(const PathTraceUnifiedPtDispatchInputs& inputs);
     void PollSpatialGpuTiming(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -403,9 +416,12 @@ private:
     bool m_spatialStoredSourceTarget = false;
     bool m_spatialWorkgroupPairing = false;
     bool m_spatialEmptyRescue = false;
+    bool m_spatialMultiNeighbor = false;
+    bool m_spatialReuseTexturePairing = false;
     bool m_spatialThreeVertexReplay = false;
     bool m_spatialLambertDiagnostic = false;
     bool m_spatialPipelineAttempted = false;
+    nvrhi::BufferHandle m_spatialReuseTextureBuffer;
     nvrhi::BindingLayoutHandle m_spatialBindingLayout;
     std::array<nvrhi::BindingSetHandle, 2> m_spatialBindingSets;
     std::array<nvrhi::BindingSetDesc, 2> m_spatialBindingSetDescs;
@@ -444,6 +460,10 @@ private:
     bool m_resolveFailureLogged = false;
     bool m_resolveReady = false;
     nvrhi::TextureHandle m_resolveOutput;
+    // Optional output-resolution result owned by an external post-process
+    // (currently DLSS Ray Reconstruction). Cleared at every new UPT frame so
+    // an evaluation failure cannot expose a stale reconstructed image.
+    nvrhi::TextureHandle m_presentationOutput;
     nvrhi::BindingLayoutHandle m_resolveBindingLayout;
     std::array<nvrhi::BindingSetHandle, 2> m_resolveBindingSets;
     std::array<nvrhi::BindingSetDesc, 2> m_resolveBindingSetDescs;

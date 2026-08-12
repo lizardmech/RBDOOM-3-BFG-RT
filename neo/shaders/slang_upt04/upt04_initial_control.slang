@@ -43,11 +43,11 @@ public uint Upt04ConfiguredEmissiveTrialCount(uint availabilityFlags)
         16u);
 }
 
-// Fifty-two scalar words / 208 bytes. The first 128 bytes retain the
+// Fifty-four scalar words / 216 bytes. The first 128 bytes retain the
 // accepted current-frame D0 ABI. The final four words groups add the exact
 // previous-camera/remap metadata needed by the D0 previous-best lookup and the
 // current valid CDF count. Both count words reserve their high bit for the
-// matching availability/validity bit.
+// matching availability/validity bit. The final float2 is an ABI suffix.
 public struct Upt04InitialControl
 {
     public uint renderWidth;
@@ -105,6 +105,10 @@ public struct Upt04InitialControl
     public uint indirectPolicyFlags;
     public uint reservedControl0;
     public uint reservedControl1;
+    // Primary rays are stored at pixel centers shifted by the RR projection
+    // jitter. Reprojection adds the previous frame's offset to recover the
+    // actual history-buffer pixel without changing the geometric projection.
+    public float2 previousCameraJitterPixels;
 };
 
 public bool Upt04D0PreviousBestHistoryAvailable(

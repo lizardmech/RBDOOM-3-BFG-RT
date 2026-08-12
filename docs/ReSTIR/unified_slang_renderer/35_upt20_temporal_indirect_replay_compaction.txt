@@ -1,0 +1,116 @@
+UPT-20: temporal indirect-replay stream compaction
+==================================================
+
+Status
+------
+
+Admitted by matched runtime and Nsight evidence on 2026-08-10. Implementation
+has not started. This is a Vulkan-only execution refactor over the accepted
+unified DI/GI reservoir; it is not a new estimator and does not split DI and GI
+into independent products.
+
+Measured trigger
+----------------
+
+The strict continuation split is active in orbssplitcontinue.txt with compact32
+receiver, compact48 geometry, compact64 lights and continuation=split-hit32.
+The two latest matched captures show:
+
+                                      wall       orbs       delta
+    frame                             14.92 ms   18.46 ms   +3.54 ms
+    C0 continuation trace             0.28 ms    0.80 ms   +0.52 ms
+    D0 continuation shade             6.64 ms    6.92 ms   +0.28 ms
+    T0 temporal indirect enabled      4.79 ms    8.23 ms   +3.44 ms
+
+The orb C0 cost proves that the current TLAS/BLAS is more expensive for rays
+that encounter the visible rigid props. The isolated cost is too small to
+explain the T0 swing by itself. T0 repeats geometry-sensitive traversal on a
+sparse, divergent subset of pixels and keeps that state inside the full-screen
+temporal kernel.
+
+The source has three relevant dynamic routes:
+
+1. history-to-current indirect replay calls Upt07ReplayIndirectSample and
+   traces one continuation ray;
+2. BASIC/pairwise cross evaluation may call the same function for the current
+   sample at the history receiver;
+3. a selected history winner without current proof traces one final direct or
+   secondary-NEE visibility ray.
+
+The compiled indirect replay ceiling remains four RayQuery sites. Existing
+route diagnostics show about 455k history replay attempts and about 149k
+reciprocal attempts in both views; the slowdown is not a larger proposal or
+history population.
+
+Required contract
+-----------------
+
+The implementation must:
+
+* retain one unified DI/GI reservoir and the accepted 64-byte page ABI;
+* preserve the exact history reprojection, stable light remap, stored UV replay,
+  BASIC/pairwise target convention, adaptive history cap and selection random;
+* preserve winner-only current-frame visibility and fail closed when replay,
+  remap, material, target or visibility validation fails;
+* preserve the static four-query ceiling and never add candidates or rays;
+* leave D0, compact32 receivers, proposal parity and duplication unchanged;
+* add no full-page or full-work-buffer clear; only a bounded queue counter and
+  indirect-dispatch argument reset are permitted;
+* keep the current monolithic T0 available as the exact parity oracle; and
+* compile and deploy Vulkan artifacts only.
+
+Execution shape
+---------------
+
+Use a tracing-work queue, not separate DI and GI reservoirs.
+
+T0a remains full screen. It performs receiver reprojection, history lookup and
+the direct-only temporal route. Pixels whose selected source requires indirect
+replay append one compact record containing current pixel/index, history index
+and the minimum route state needed to reproduce the existing random and merge
+decisions. T0a leaves the D0 reservoir unchanged for queued pixels.
+
+T0b consumes only appended records. Each invocation reloads the authoritative
+current/history reservoirs and receiver records, executes the existing
+history-to-current replay, optional reciprocal replay, temporal merge and
+winner-only visibility, then writes the same current page record that monolithic
+T0 would publish. No source reservoir is recursively consumed.
+
+The queue count produces a bounded compute-indirect dispatch argument. A zero
+count performs no replay work. Capacity is at most one record per render pixel;
+overflow fails closed by retaining D0 and increments a diagnostic. Queue data
+is count-bounded so stale records are never read and no per-frame full-buffer
+clear is required.
+
+Implementation sequence
+-----------------------
+
+1. Freeze a CPU contract for queue capacity, record layout, indirect group
+   rounding, zero-count behavior and overflow fallback.
+2. Add the counter, compact work buffer and indirect-argument buffer with
+   allocation-only initialization and explicit UAV/indirect barriers.
+3. Factor the existing indirect branch into a shared function used unchanged
+   by monolithic T0 and compact T0b.
+4. Add T0a classification/append without changing the direct temporal route.
+5. Add T0b and retain the same random dimensions, replay order, reciprocal
+   condition, merge algebra and final visibility rule.
+6. Add markers for T0a classify/direct and T0b compact indirect replay plus
+   counters for requested/appended/overflowed, history replay, reciprocal
+   replay and final visibility.
+7. Build with cmake --build --preset win64-pt-dev-release from neo, deploy only
+   rebuilt Vulkan SPIR-V and the executable, and compile no DX12 shader.
+
+Acceptance gate
+---------------
+
+At a fixed camera and RNG input, compact and monolithic T0 must produce the same
+reservoir identities, sample coordinates, M/age, weights and resolved image.
+No ghost emitters, color corruption, missing alpha clip or light poisoning is
+permitted. Temporal/spatial toggling must remain valid and spatial must consume
+the completed compact-T0 page exactly once.
+
+Performance is judged on both PBR-orb views and a normal Doom 3 level. Compare
+T0a+barriers+T0b against monolithic T0, not T0b alone. The wall/orb work counts
+must remain within stochastic variance. Reject or keep default-off if the sum
+is neutral/slower, if queue traffic recreates the prior split penalty, or if
+fixed-sample parity is not exact.

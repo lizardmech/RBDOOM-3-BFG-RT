@@ -1599,6 +1599,18 @@ idCVar r_pathTracingUnifiedPtSpatialEmptyRescue(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-33 shared-S0 feature A/B: let an explicitly rescue-marked empty center borrow its reciprocal partner once; the result is stamped non-donating and requires workgroup pairing" );
 
+idCVar r_pathTracingUnifiedPtSpatialMultiNeighbor(
+    "r_pathTracingUnifiedPtSpatialMultiNeighbor",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-34 shared-S0 feature A/B: simultaneously resample the canonical path plus three distinct reciprocal workgroup neighbors with k-technique pairwise MIS; requires accepted UPT-33 rescue configuration" );
+
+idCVar r_pathTracingUnifiedPtSpatialReuseTexture(
+    "r_pathTracingUnifiedPtSpatialReuseTexture",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-42 rejected-cost diagnostic: replace the accepted 8x8 UPT-33 schedule with the sigma-16 254-pixel self-inverting reuse texture; quality is improved but measured spatial cost was about 11 ms, so this remains opt-in" );
+
 idCVar r_pathTracingUnifiedPtSpatialGpuTiming(
     "r_pathTracingUnifiedPtSpatialGpuTiming",
     "0",

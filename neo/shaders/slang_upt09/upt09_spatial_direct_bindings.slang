@@ -7,6 +7,9 @@ import upt04_primary_history_sidecar;
 #ifndef UPT09_PACKED_LIGHT_RECORD
 #define UPT09_PACKED_LIGHT_RECORD 0
 #endif
+#ifndef UPT42_REUSE_TEXTURE_PAIRING
+#define UPT42_REUSE_TEXTURE_PAIRING 0
+#endif
 
 public struct Upt09SpatialDirectControl
 {
@@ -44,6 +47,14 @@ public [[vk::binding(4, 0)]] StructuredBuffer<Upt04CompactLightRecord> gUpt09Cur
 public [[vk::binding(4, 0)]] StructuredBuffer<Upt04UnifiedLightRecord> gUpt09CurrentLights;
 #endif
 public [[vk::binding(5, 0)]] StructuredBuffer<Upt04PrimaryHistorySidecar> gUpt09SurfaceSidecars;
+#if UPT42_REUSE_TEXTURE_PAIRING
+// Three immutable, concatenated self-inverting delta fields with extents
+// 254, 230 and 210, followed by one canonical endpoint per pair. Each delta
+// uint packs signed int16 dx/dy. Production UPT-42 consumes the first field;
+// the other independent fields and pair lists are ready for a future
+// simultaneous three-neighbor resampling pass without regeneration.
+public [[vk::binding(29, 0)]] StructuredBuffer<uint> gUpt09ReuseTextureDeltas;
+#endif
 public [[vk::push_constant]] ConstantBuffer<Upt09SpatialDirectControl> gUpt09Control;
 
 public Upt04UnifiedLightRecord Upt09LoadLight(uint index)

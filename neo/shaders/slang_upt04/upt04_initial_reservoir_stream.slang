@@ -69,8 +69,7 @@ public Upt03PackedReservoir Upt04FinalizeInitialReservoir(
         reservoir.effectiveM = 1u;
     }
     if (reservoir.hasSelectedSample != 0u
-        && reservoir.selected.eventKind == 2u
-        && (reservoir.selected.flags & kUpt04CandidateFlagGlobal) != 0u)
+        && reservoir.selected.eventKind == 2u)
     {
         const float replayPdfPayload = Upt04EncodeEmissiveReplayPdfScale(
             reservoir.selected.partialJacobian);

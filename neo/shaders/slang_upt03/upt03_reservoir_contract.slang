@@ -121,16 +121,17 @@ public bool Upt03FiniteNonNegative(float value)
 
 // Packed word12 is a small event-specific union after D0 finalization.
 // Ordinary candidates retain a strictly positive proposal PDF. A positive
-// secondary-emissive global candidate may instead carry its four-region replay
-// scale as a negative finite value in [-4, 0). The disjoint sign domains make
-// this representation collision-free without consuming another packed word.
+// emissive candidate may instead carry its four-region replay scale as a
+// negative finite value in [-4, 0). This applies to both primary NEE and global
+// secondary NEE; the event kind disambiguates their remaining packed fields.
+// The disjoint sign domains make this representation collision-free without
+// consuming another packed word.
 public bool Upt03EmissiveReplayPdfScalePayloadValid(
     Upt03Candidate candidate,
     float payload)
 {
     return candidate.status == 2u
         && candidate.eventKind == 2u
-        && (candidate.flags & (1u << 1u)) != 0u
         && isfinite(payload) && payload < 0.0f && payload >= -4.0f;
 }
 

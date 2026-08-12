@@ -132,7 +132,9 @@ public Upt04D0PreviousProjection Upt04D0ProjectPrevious(
             / (forwardDistance * gUpt04Control.previousCameraTanX),
         -dot(delta, cameraUp)
             / (forwardDistance * gUpt04Control.previousCameraTanY));
-    const float2 pixelFloat = (ndc * 0.5f + 0.5f) * float2(dimensions);
+    const float2 pixelFloat =
+        (ndc * 0.5f + 0.5f) * float2(dimensions)
+        + gUpt04Control.previousCameraJitterPixels;
     if (!all(isfinite(ndc)) || !all(isfinite(pixelFloat)))
         return result;
     result.pixel = int2(floor(pixelFloat));

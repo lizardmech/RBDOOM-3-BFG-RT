@@ -503,6 +503,18 @@ Packet index
         stamps the result structurally non-donating for both direct and global
         paths.
 
+    49_upt34_simultaneous_multi_neighbor_spatial.txt
+        Defines the simultaneous canonical-plus-three-neighbor pairwise-GRIS
+        estimator, distinct reciprocal workgroup maps, duplicate exclusion,
+        one-partner rescue boundary and bounded no-new-buffer implementation;
+        runtime-correct but rejected after a roughly 40 percent FPS loss.
+
+    50_upt35_three_vertex_initial_transport.txt
+        Maps the NVIDIA maxBounceDepth=3 preset to exactly two continuation
+        rays after the primary receiver, adds fixed-q roulette and an x3
+        endpoint to a separate D0-only artifact, and freezes the unbiased
+        target/PDF, ABI, ray ceiling and reuse-admission boundaries.
+
     51_upt36_three_vertex_temporal_replay.txt
         Replays the accepted x1-x2-x3 endpoint exactly through persisted
         path-vertex randoms, q=0.8 survival, two closest-hit continuations and
@@ -518,6 +530,38 @@ Packet index
         Extends only the accepted one-neighbor UPT-33 shared-spatial artifact
         with UPT-36 exact stored-q two-continuation replay, preserving the
         reservoir/binding ABI and rejecting the three-neighbor experiment.
+
+    54_upt39_dlss_rr_bridge.txt
+        Reuses the existing primary RR-guide producer and Streamline bridge for
+        UPT beauty resolve without extra rays, guide resources or image copies,
+        while deferring glass PSR until it can publish compact32 receivers.
+
+    55_upt40_rr_jitter_temporal_reprojection.txt
+        Corrects D0 previous-best and T0 history addressing for the exact
+        previous-frame RR projection jitter while leaving search dither,
+        reservoir math, visibility and ray ceilings unchanged.
+
+    56_upt41_shader_variant_reachability_pruning.txt
+        Records the completed default-build pruning from a 144-variant
+        D0/T0/S0 matrix to 17 production-reachable Vulkan inputs, while
+        retaining the full matrices as explicit audit targets and preserving
+        parity, diagnostics and optional multi-bounce/RR features.
+
+    57_upt42_gaussian_reuse_texture_pairing.txt
+        Retains the opt-in diagnostic that replaces S0's moving 8x8
+        neighborhood with the paper's sigma-16, 254-pixel Gaussian reuse map.
+        Its rejected 11 ms pair-list launch was replaced by screen-ordered
+        leader election; corrected runtime acceptance is pending while UPT-33
+        remains the production default.
+
+    58_upt43_bounded_endpoint_reuse_architecture.txt
+        Replaces universal reuse replay with the RTXDI/ReSTIR-PT-shaped bounded
+        endpoint contract: cached emissive/NEE endpoints, trace-free x2
+        reconnection, sparse later-prefix replay, paper-shaped two-stage paired
+        spatial execution, work-budget diagnostics and staged rollback gates.
+        S43.1 persists exact direct-emissive PDF state; S43.2 adds the exact
+        current-frame emissive geometry sidecar in ABI 13 and removes general
+        triangle routing from selected-emissive D0/T0/S0 replay.
 
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,

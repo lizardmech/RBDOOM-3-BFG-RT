@@ -49,6 +49,7 @@ public struct Upt07TemporalDirectControl
     public uint logicalTextureCount;
     public uint emissiveDistributionCountAndValid;
     public uint emissiveLookupCapacityAndValid;
+    public float2 previousCameraJitterPixels;
 };
 
 public [[vk::binding(0, 0)]] RaytracingAccelerationStructure gUpt07Scene;

@@ -56,6 +56,19 @@ struct PathTraceUnifiedLightRecord
     uint padding0;
 };
 
+struct PathTraceUptEmissiveGeometry
+{
+    float4 position0AndUv0X;
+    float4 position1AndUv0Y;
+    float4 position2AndUv1X;
+    float uv1Y;
+    uint identityHashLo;
+    uint identityHashHi;
+    uint validity;
+};
+
+static const uint PT_UPT_EMISSIVE_GEOMETRY_VALID = 0x47505545u;
+
 struct PathTraceSkinnedEmissiveGpuWork
 {
     uint currentVertexIndex0;
@@ -107,6 +120,28 @@ RWStructuredBuffer<PathTraceUnifiedLightRecord>
     CurrentLightPayloads : register(u4);
 RWStructuredBuffer<PathTraceUnifiedLightRecord>
     PreviousLightPayloads : register(u5);
+RWStructuredBuffer<PathTraceUptEmissiveGeometry>
+    CurrentEmissiveGeometry : register(u6);
+
+PathTraceUptEmissiveGeometry MakeCurrentEmissiveGeometry(
+    PathTraceSmokeEmissiveTriangle record,
+    float3 p0,
+    float3 p1,
+    float3 p2,
+    float2 uv0,
+    float2 uv1,
+    bool valid)
+{
+    PathTraceUptEmissiveGeometry geometry = (PathTraceUptEmissiveGeometry)0;
+    geometry.position0AndUv0X = float4(p0, uv0.x);
+    geometry.position1AndUv0Y = float4(p1, uv0.y);
+    geometry.position2AndUv1X = float4(p2, uv1.x);
+    geometry.uv1Y = uv1.y;
+    geometry.identityHashLo = record.identityHashLo;
+    geometry.identityHashHi = record.identityHashHi;
+    geometry.validity = valid ? PT_UPT_EMISSIVE_GEOMETRY_VALID : 0u;
+    return geometry;
+}
 
 bool UpdateEmissiveGeometry(
     inout PathTraceSmokeEmissiveTriangle record,
@@ -203,6 +238,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         currentDisabled.sampleWeightAndPdf.z = 0.0;
         CurrentEmissiveTriangles[
             work.currentEmissiveIndex] = currentDisabled;
+        PathTraceUptEmissiveGeometry disabledGeometry =
+            CurrentEmissiveGeometry[work.currentEmissiveIndex];
+        disabledGeometry.validity = 0u;
+        CurrentEmissiveGeometry[work.currentEmissiveIndex] = disabledGeometry;
         if ((work.flags &
                 PT_SKINNED_EMISSIVE_GPU_WRITE_CURRENT_UNIFIED) !=
             0u)
@@ -240,7 +279,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     PathTraceSmokeEmissiveTriangle current =
         CurrentEmissiveTriangles[
             work.currentEmissiveIndex];
-    UpdateEmissiveGeometry(
+    const bool currentGeometryValid = UpdateEmissiveGeometry(
         current,
         current0.position.xyz,
         current1.position.xyz,
@@ -250,6 +289,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         current2.texCoord.xy);
     CurrentEmissiveTriangles[
         work.currentEmissiveIndex] = current;
+    CurrentEmissiveGeometry[work.currentEmissiveIndex] =
+        MakeCurrentEmissiveGeometry(
+            current,
+            current0.position.xyz,
+            current1.position.xyz,
+            current2.position.xyz,
+            current0.texCoord.xy,
+            current1.texCoord.xy,
+            currentGeometryValid);
 
     if ((work.flags &
             PT_SKINNED_EMISSIVE_GPU_WRITE_CURRENT_UNIFIED) !=

@@ -1,0 +1,167 @@
+UPT-39 DLSS Ray Reconstruction Bridge
+======================================
+
+Status
+------
+
+Implemented, built, deployed and functionally runtime accepted. Temporal/RR
+interaction exposed a concrete history-addressing defect owned by UPT-40.
+
+
+Why This Lane Comes Before UPT Glass PSR
+----------------------------------------
+
+The live clear-window producer is already implemented and validated for clean
+DI/GI, but its publication point is not currently compatible with the accepted
+UPT hot receiver:
+
+    clean glass PSR rewrites the 176-byte shared primary-surface record;
+    UPT exits before that clean-DI phase;
+    accepted UPT production uses the directly produced compact32 receiver and
+        its separate history sidecar;
+    falling back to the 176-byte receiver merely to reuse PSR would discard a
+        measured performance contract.
+
+Therefore UPT glass remains a separate follow-up requiring a compact PSR
+publication adapter. UPT-39 does not move, duplicate, or partially embed the
+glass producer.
+
+Ray Reconstruction is taken first because the existing primary producer can
+already publish the required guides while it constructs the same surface that
+is packed for UPT. It also supplies the intended denoiser/reconstruction gate
+for judging the accepted high-energy temporal samples.
+
+
+Ownership and Data Flow
+-----------------------
+
+    shared primary producer
+        -> compact32 UPT receiver/history sidecar
+        -> existing PathTraceRRGuide* textures and RR motion vectors
+    UPT D0/T0/S0
+        -> ordinary trace-free UPT resolve texture at render resolution
+    existing PathTraceDLSSRRBridge
+        -> existing accumulation texture at output resolution
+    UPT presentation
+        -> reconstructed accumulation texture when evaluation succeeds
+        -> ordinary UPT resolve texture when RR is disabled or evaluation fails
+
+UPT owns the semantic radiance output. The existing bridge continues to own
+Streamline tagging and evaluation. No guide texture is duplicated.
+
+
+Activation Contract
+-------------------
+
+UPT RR is effective only when all of the following are true:
+
+    UPT is the selected renderer route;
+    clean DI is not the selected route;
+    UPT resolve is enabled and resolve view is beauty view 0;
+    r_pathTracingDLSSRR is enabled;
+    r_pathTracingDLSSRRGuideDebugView is 0;
+    the existing RR input/output and guide resources are present.
+
+The existing r_pathTracingDLSSRR control remains the sole feature switch. No
+UPT-specific duplicate cvar is added.
+
+
+GPU Work Ledger
+---------------
+
+RR off:
+
+    unchanged primary writes;
+    unchanged UPT resolve shader, bindings, output, dispatch and ray count;
+    no Streamline evaluation;
+    no RR-only copy or clear.
+
+RR on:
+
+    the existing primary camera ray also writes the already allocated albedo,
+        specular-albedo, normal/roughness, depth, position, motion, reset and
+        zero/invalid specular-hit-distance guides;
+    UPT resolve remains one trace-free 8x8 compute dispatch;
+    one existing Streamline DLSS-RR evaluation writes the existing
+        output-sized accumulation texture;
+    UPT presents that texture directly, avoiding render-to-input and
+        output-to-presentation copies;
+    no extra ray is traced for guide generation;
+    no new texture, buffer, descriptor page, full-frame clear, reservoir page,
+        or history allocation is admitted.
+
+Primary specular hit distance is zero/invalid because baseline UPT has no
+dedicated specular reflection event. A later PSR/reflection producer may write
+the real distance from the ray it already traced; UPT-39 must not add a
+guide-only ray.
+
+
+History and Failure Rules
+-------------------------
+
+The RR camera jitter uses the same frame index and projection constants as the
+primary receiver producer. The global RR reset is restricted to explicit force
+reset, missing/cleared primary history, resolution changes and the existing
+true frame-reset mask. Internal reservoir/content-generation churn must not
+reset RR history.
+
+If Streamline evaluation fails or is unavailable, the ordinary UPT resolve
+texture remains the presentation source for that frame. An old reconstructed
+texture is never retained as a silent fallback.
+
+
+Validation
+----------
+
+Build/offline:
+
+    Vulkan host build succeeds;
+    no DX12 shader is compiled;
+    UPT resolve SPIR-V is byte-identical because UPT-39 changes no shader;
+    RR off retains the existing resolve output and primary guide-write gate;
+    RR on adds no ray/dispatch before the existing Streamline evaluation.
+
+Runtime:
+
+    exec uptrr (equivalent to accepted uptf2 plus the RR beauty controls);
+    require a UPT RR requested/effective log with beauty view 0;
+    verify the render resolution changes to the bridge-selected input size and
+        presentation remains full output resolution;
+    verify static convergence, camera/object motion, emissives, glossy PBR
+        objects, alpha-clipped geometry and portal crossings;
+    verify disabling RR immediately restores the raw UPT resolve;
+    reject black output, stale output, motion smearing, guide-only geometry,
+        color corruption, a per-frame history reset, or an unexplained extra
+        UPT dispatch/ray.
+
+Do not tune or clamp T0/S0 fireflies in this task. First observe them through
+the intended reconstruction path; reopen transport only for a reproducible
+estimator, replay, visibility or material defect.
+
+
+Build and Deployment Evidence, 2026-08-12
+-----------------------------------------
+
+The requested aggregate preset reconfigured successfully but entered the
+known zero-progress MSBuild wrapper stall while rebuilding unrelated dirty
+UPT-34 shader targets. Only that exact CMake/MSBuild process pair was stopped.
+The generated Release project then built successfully with project references
+disabled. The only diagnostics were the two pre-existing C4819 source-encoding
+warnings in PathTraceSmokeDispatch.cpp and RenderBackend.cpp.
+
+No shader source was edited for UPT-39. The production compact32 UPT resolve in
+the source and deployed trees is byte-identical:
+
+    SHA-256 00C5D3AB8151386554D83BD65EB82960020240530E55DBAAEB84822EC235C981
+
+The aborted aggregate build regenerated two non-production resolve variants
+from unrelated dirty source state, so they were deliberately not deployed. No
+SPIR-V was copied for this host-only task.
+
+Deployed executable:
+
+    bytes       16354816
+    SHA-256     E808793F4C8418E5B00D298E94273E2FE02BBF71C6CB783A27071295646D121F
+
+The source and deployed executable hashes match. `base/uptrr.cfg` was also
+deployed as the single-command runtime gate.

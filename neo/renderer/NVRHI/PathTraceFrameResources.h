@@ -38,6 +38,7 @@ struct RtPathTraceFrameCameraState
     idVec3 up = idVec3(0.0f, 0.0f, 1.0f);
     float tanX = 1.0f;
     float tanY = 1.0f;
+    idVec2 projectionJitterPixels = idVec2(0.0f, 0.0f);
 
     void Reset();
 };

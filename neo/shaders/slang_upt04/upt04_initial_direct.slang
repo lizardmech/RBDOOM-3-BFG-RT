@@ -149,6 +149,7 @@ public struct Upt04DirectRisProposal
     public uint lightIndex;
     public uint lightType;
     public float sourceProposalPdf;
+    public float emissiveReplayPdfScale;
     public float2 sampleCoordinates;
     public float3 contribution;
     public float target;
@@ -258,6 +259,11 @@ public Upt04DirectRisProposal Upt04EvaluateDirectRisProposal<
     proposal.lightType = selection.type;
     proposal.replayKey = Upt04InitialReplayKey(pixel);
     proposal.sourceProposalPdf = reservoirSourcePdf;
+    proposal.emissiveReplayPdfScale = selection.type == kUpt04LightEmissiveTriangle
+        ? asfloat(evaluated.sample.reserved) : 1.0f;
+    if (!Upt04FinitePositive(proposal.emissiveReplayPdfScale)
+        || proposal.emissiveReplayPdfScale > 4.0f)
+        return (Upt04DirectRisProposal)0;
     proposal.sampleCoordinates = evaluated.storedSampleCoordinates;
     proposal.sampleDirection = evaluated.sample.direction;
     proposal.sampleDistance = evaluated.sample.distance;
@@ -318,6 +324,7 @@ public Upt04DirectRisProposal Upt04EvaluatePreviousBestProposal<
     }
 
     Upt04LocalLightSample sample = (Upt04LocalLightSample)0;
+    float emissiveReplayPdfScale = 1.0f;
     if (emissive)
     {
         const Upt04EmissiveGeometrySample replay =
@@ -357,9 +364,16 @@ public Upt04DirectRisProposal Upt04EvaluatePreviousBestProposal<
         sample.normal = replay.normal;
         sample.distance = replay.distance;
         sample.direction = replay.direction;
+        emissiveReplayPdfScale = 4.0f
+            * Upt04EmissiveRegionSelectionPdf(regionWeights, region);
+        if (!Upt04FinitePositive(emissiveReplayPdfScale)
+            || emissiveReplayPdfScale > 4.0f)
+        {
+            diagnostics |= kUpt04D0DiagPreviousReplayFailure;
+            return proposal;
+        }
         sample.solidAnglePdf = replay.solidAnglePdf
-            * (4.0f * Upt04EmissiveRegionSelectionPdf(
-                regionWeights, region));
+            * emissiveReplayPdfScale;
         sample.radiance = emission.radiance;
     }
     else
@@ -458,6 +472,7 @@ public Upt04DirectRisProposal Upt04EvaluatePreviousBestProposal<
     proposal.replayIndex = source.candidate.replayIndex;
     proposal.lightIndex = currentDenseIndex;
     proposal.lightType = expectedType;
+    proposal.emissiveReplayPdfScale = emissiveReplayPdfScale;
     proposal.sampleCoordinates = float2(
         source.candidate.sampleCoord0,
         source.candidate.sampleCoord1);
@@ -611,7 +626,10 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial<
     work.lightType = selected.lightType;
     work.proposalPdf = effectiveProposalPdf;
     work.pathPdf = selected.sourceProposalPdf;
-    work.partialJacobian = 1.0f;
+    // The physical source PDF remains in pathPdf. D0 finalization uses this
+    // event-specific transient field to publish the exact emissive replay-scale
+    // payload, avoiding four endpoint probes in every later reuse mapping.
+    work.partialJacobian = selected.emissiveReplayPdfScale;
     work.accumulatedRouletteProbability = 1.0f;
     work.sampleCoordinates = selected.sampleCoordinates;
     work.pathLength = 1u;

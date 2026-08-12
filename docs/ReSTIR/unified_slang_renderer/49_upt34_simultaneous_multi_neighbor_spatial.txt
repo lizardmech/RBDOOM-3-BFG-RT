@@ -1,0 +1,185 @@
+UPT-34: simultaneous bounded multi-neighbor spatial reuse
+==========================================================
+
+Status
+------
+
+Implemented, built, statically verified and runtime rejected for production
+behind r_pathTracingUnifiedPtSpatialMultiNeighbor. UPT-32 and UPT-33 remain
+the accepted one-neighbor rollback artifacts. The user observed only a small
+image-quality improvement but approximately 40 percent lower frame rate.
+UPT-34 remains a separate default-off research artifact and preset.
+
+Paper authority
+---------------
+
+ReSTIR PT Enhanced section 3 uses one independent self-inverting reuse map per
+spatial neighbor. Its production configuration uses three maps. A pre-pass
+shifts every path to all three paired neighbors; a second pass resamples the
+canonical path and all three mapped neighbors simultaneously.
+
+That is not equivalent to applying the accepted two-proposal merge three
+times. Sequential pair merges change the proposal domains and confidence after
+each step, so later pairwise-MIS terms no longer describe the original four
+techniques. UPT-34 therefore uses one canonical proposal plus k=3 neighbor
+proposals in one GRIS stream.
+
+Estimator contract
+------------------
+
+For current/canonical technique c and paired neighbor technique i:
+
+    neighbor MIS_i(s_i) =
+        M_i p_i(s_i) / (k M_i p_i(s_i) + M_c p_c(s_i))
+
+    canonical pair_i(s_c) =
+        M_c p_c(s_c) / (k M_i p_i(s_c) + M_c p_c(s_c))
+
+    canonical MIS(s_c) =
+        (sum_i canonical pair_i + missingPairCount) / k
+
+The missing-pair contribution is one: a technique that was not admitted has
+no support with which to claim the canonical sample. The formula is the same
+simultaneous pairwise-MIS construction already exercised by the repo-owned
+clean GI oracle and by UPT-09 proof mode 6.
+
+Every admitted proposal then crosses the accepted UPT-10 conversion boundary:
+
+    source UCW = stored target-scaled weight / source target
+    mapped mass = MIS * target target * source UCW * forward Jacobian
+
+The forward Jacobian is applied exactly once. The canonical proposal has an
+identity mapping and Jacobian one. Winner selection is a single streaming WRS
+over all neighbor masses followed by the canonical mass. Output confidence is
+the saturated sum of the canonical confidence and each admitted mapped
+neighbor confidence; canonical confidence is never counted once per pair.
+
+Invalid, incompatible, stale, duplicate or zero-support mappings never become
+positive proposals. VALID_ZERO mappings may contribute their admitted source
+confidence but cannot win. Final light visibility remains winner-only.
+
+Scheduling and storage contract
+-------------------------------
+
+The first bounded implementation stays inside the accepted moving 8x8
+workgroup lattice and adds no full-resolution buffer:
+
+1. Derive three distinct nonzero six-bit XOR masks per workgroup and frame.
+   Each mask is fixed-point-free and self-inverting over the 64 lanes.
+2. Each lane maps its source sample to one partner for each mask and publishes
+   the three mapped records into disjoint group-shared slots.
+3. One group barrier completes the full shift pre-pass.
+4. Each lane reads its three reciprocal partner records, rejects duplicate
+   replay identities, evaluates all three pairwise terms, performs one
+   simultaneous four-technique merge, traces at most the selected neighbor's
+   deferred visibility, and writes only its own output pixel.
+
+Three copies of the existing transient mapped record fit in group-shared
+memory and avoid the read/write race that prevented using the alternate
+full-resolution reservoir page as both pre-pass storage and final output.
+UPT-34 does not yet reproduce the paper's 254/230/210 Gaussian full-screen
+pairing textures; it completes the configured three-neighbor estimator inside
+the already accepted translated workgroup domain.
+
+Duplication and rescue boundaries
+---------------------------------
+
+The canonical replay identity may not be proposed by a neighbor. A neighbor
+identity already admitted by an earlier pairing round may not be proposed
+again. Rejection occurs before confidence or mass is added.
+
+UPT-33 rescue remains a one-partner, one-frame, non-donating mechanism. Only
+the first randomized reciprocal map may target an explicitly rescue-marked
+empty center. Enabling multi-neighbor reuse must not turn rescue into a
+three-donor density search or change its replay-key/flag stamping.
+
+Work and resource ceilings
+--------------------------
+
+For k=3 the bounded selected-center path owns at most three mapping operations
+per output lane and one winner-only visibility operation. Each reciprocal map
+is computed once per direction and shared by both endpoints. There is one
+dispatch, one workgroup barrier, the existing two persistent reservoir pages,
+no per-frame full-buffer clear, no new descriptor binding and no persistent
+ABI change.
+
+Implementation and validation plan
+----------------------------------
+
+1. Add a UPT-34 shader specialization, cvar and `uptf3` preset. Preserve the
+   accepted UPT-32 and UPT-33 binaries byte-for-byte.
+2. Generalize only the workgroup transient arrays and publication code. Do not
+   alter D0, T0, compact32 resolve, proposal parity or duplication producers.
+3. Extend the structural verifier for 26 bindings, triangle bindings 9/13,
+   96-byte push constants, exactly one group barrier, no TraceRay and three
+   distinct fixed-point-free XOR maps.
+4. Build the Vulkan UPT-09 target, then the required host executable. Do not
+   compile DX12 shaders.
+5. Deploy only the executable and the new Vulkan SPIR-V artifact. Run
+   `exec uptf3` and require multi-neighbor requested/effective=1/1 plus a
+   pipeline line reporting neighbors=3.
+6. Compare directly against accepted `uptf2` at portal crossings, door-panel
+   emitters, emissive-heavy rooms, alpha masks, mirrors, rigid/skinned motion
+   and the previously visible 8x8 boundary poses. Reject brightness drift,
+   runaway energy, ghosts, color corruption, black output, missing geometry,
+   renewed block structure or an unjustified performance cliff.
+
+Offline result
+--------------
+
+The targeted Vulkan shader build and final host link pass. The aggregate
+preset was also invoked as required, but its wrapper twice orphaned an idle
+MSBuild/cmd pair before compilation; those exact processes were stopped and
+the generated host project was then built with project references disabled
+against the already verified shader artifacts. No DX12 shader was compiled.
+
+The verifier proves:
+
+    descriptor bindings                 26
+    triangle-class bindings             9 and 13, host/shader exact
+    push constants                      96 bytes
+    independent reciprocal maps         3, distinct XOR involutions
+    group barriers                      1
+    static RayQuery sites               5
+    TraceRay sites                      0
+    UPT-34 SPIR-V bytes                 579244
+    UPT-34 SHA-256                      EB7D15C7660C8818CB123EAFE85D8CB678481CBB90A16580F194A767B02C446C
+    accepted UPT-33 SHA-256             0BBB146E7421C9EA18C5BEE36EB9FCE3A7D9F437D5C5F9A04FD71D62F1E9B956
+    accepted UPT-32 SHA-256             F99D5582B81A1958572D62A8530A0D89A6C4B49258C03794F1F16E85BF514C71
+    executable bytes                    16348672
+    executable SHA-256                  53ECCBED2A4A5D252118B5DF7667EFEC6DE4A11F6F04CB417B2498864A157BFA
+
+Runtime gate
+------------
+
+Run `exec uptf3`. Require:
+
+    spatial multi-neighbor requested/effective=1/1
+    multiNeighbor=1
+    neighbors=3
+    emptyRescue=1
+
+The first pipeline creation may hitch and is not a steady-state performance
+sample. Compare only after warm-up with `exec uptf2`.
+
+Runtime result
+--------------
+
+The feature activated and rendered correctly. The user reported slightly
+better image quality and an approximately 40 percent frame-rate loss relative
+to the accepted one-neighbor path. This fails the performance acceptance gate.
+
+The result is consistent with the bounded work contract rather than evidence
+of a sequential-merge bug: UPT-33 performs one reciprocal mapping per lane,
+while UPT-34 performs three before the barrier. Pairing amortizes each map
+across its two endpoints, but it does not remove the two additional neighbor
+mappings. In this renderer global replay/reconnection is the expensive part of
+S0, so the paper's three-neighbor configuration is not free merely because the
+estimator is combined.
+
+Do not promote UPT-34 or spend more time micro-optimizing this monolithic
+three-neighbor artifact. `exec uptf2` remains the accepted feature-complete
+configuration. Any future revisit must first propose a materially different
+bounded schedule, such as selective or amortized extra-neighbor work, and must
+retain the simultaneous k-technique estimator. It may not approximate the
+result with sequential pair merges.

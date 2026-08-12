@@ -206,6 +206,7 @@ void RtPathTraceFrameCameraState::Reset()
     up = idVec3(0.0f, 0.0f, 1.0f);
     tanX = 1.0f;
     tanY = 1.0f;
+    projectionJitterPixels = idVec2(0.0f, 0.0f);
 }
 
 void RtPathTraceFrameResourceDiagnostics::ResetResizeStats()

@@ -10,6 +10,7 @@
 
 #include "PathTracePrimaryPass.h"
 #include "PathTraceCVars.h"
+#include "PathTraceEmissiveCandidates.h"
 #include "PathTraceCleanRtxdiDiMaterialFeatures.h"
 #include "PathTraceDoomLights.h"
 #include "PathTraceDynamicMaterialState.h"
@@ -36,6 +37,7 @@ bool RtSmokeSceneBufferHandles::IsValid() const
         unifiedLightBuffer && unifiedPreviousLightBuffer && unifiedLightRemapBuffer &&
         restirLightManagerCurrentToPreviousBuffer && restirLightManagerPreviousToCurrentBuffer &&
         restirLightManagerCurrentPayloadBuffer && restirLightManagerPreviousPayloadBuffer &&
+        unifiedPtEmissiveGeometryBuffer &&
         rigidRouteVertexBuffer && rigidRouteIndexBuffer && rigidRouteTriangleMaterialBuffer && rigidRouteTriangleMaterialIndexBuffer && rigidRouteInstanceBuffer &&
         skinnedHitRouteRecordBuffer && skinnedHitRouteTriangleBuffer &&
         skinnedPreviousPositionBuffer && skinnedSurfaceDispatchBuffer && skinnedTriangleDispatchIndexBuffer &&
@@ -167,6 +169,7 @@ static bool SmokeSceneBuffersChanged(const RtSmokeSceneBufferHandles& oldBuffers
         oldBuffers.restirLightManagerCurrentPayloadBuffer != newBuffers.restirLightManagerCurrentPayloadBuffer ||
         oldBuffers.restirLightManagerPreviousPayloadBuffer != newBuffers.restirLightManagerPreviousPayloadBuffer ||
         oldBuffers.unifiedPtEmissiveLookupBuffer != newBuffers.unifiedPtEmissiveLookupBuffer ||
+        oldBuffers.unifiedPtEmissiveGeometryBuffer != newBuffers.unifiedPtEmissiveGeometryBuffer ||
         oldBuffers.rigidRouteVertexBuffer != newBuffers.rigidRouteVertexBuffer ||
         oldBuffers.rigidRouteIndexBuffer != newBuffers.rigidRouteIndexBuffer ||
         oldBuffers.rigidRouteTriangleMaterialBuffer != newBuffers.rigidRouteTriangleMaterialBuffer ||
@@ -299,6 +302,7 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.restirLightManagerCurrentPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerCurrentPayloadBuffer, "PathTraceRestirLightManagerCurrentPayload", desc.restirLightManagerCurrentPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
     result.buffers.restirLightManagerPreviousPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerPreviousPayloadBuffer, "PathTraceRestirLightManagerPreviousPayload", desc.restirLightManagerPreviousPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
     result.buffers.unifiedPtEmissiveLookupBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedPtEmissiveLookupBuffer, "PathTraceUnifiedPtEmissiveLookup", desc.unifiedPtEmissiveLookupBytes, sizeof(PathTraceUnifiedEmissiveLookupEntry));
+    result.buffers.unifiedPtEmissiveGeometryBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedPtEmissiveGeometryBuffer, "PathTraceUnifiedPtEmissiveGeometry", desc.unifiedPtEmissiveGeometryBytes, sizeof(PathTraceUptEmissiveGeometry), false, false, false, true);
     result.buffers.rigidRouteVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteVertexBuffer, "PathTraceRigidRouteVertices", desc.rigidRouteVertexBytes, sizeof(PathTraceSmokeVertex), false, false, false);
     result.buffers.rigidRouteIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteIndexBuffer, "PathTraceRigidRouteIndices", desc.rigidRouteIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialBuffer, "PathTraceRigidRouteTriangleMaterials", desc.rigidRouteTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
@@ -1377,7 +1381,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
     skinnedEmissivePublishBindingLayoutDesc.addItem(
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
-    for (uint32_t slot = 0; slot < 6; ++slot)
+    for (uint32_t slot = 0; slot < 7; ++slot)
     {
         skinnedEmissivePublishBindingLayoutDesc.addItem(
             nvrhi::BindingLayoutItem::StructuredBuffer_UAV(
@@ -1885,6 +1889,7 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
     buffers.restirLightManagerCurrentPayloadBuffer = m_smokeRestirLightManagerCurrentPayloadBuffer;
     buffers.restirLightManagerPreviousPayloadBuffer = m_smokeRestirLightManagerPreviousPayloadBuffer;
     buffers.unifiedPtEmissiveLookupBuffer = m_smokeUnifiedPtEmissiveLookupBuffer;
+    buffers.unifiedPtEmissiveGeometryBuffer = m_smokeUnifiedPtEmissiveGeometryBuffer;
     buffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
     buffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
     buffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
@@ -1920,6 +1925,7 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
         m_smokeRestirLightManagerCurrentPayloadBuffer ||
         m_smokeRestirLightManagerPreviousPayloadBuffer ||
         m_smokeUnifiedPtEmissiveLookupBuffer ||
+        m_smokeUnifiedPtEmissiveGeometryBuffer ||
         m_smokeSkinnedHitRouteRecordBuffer ||
         m_smokeSkinnedHitRouteTriangleBuffer ||
         m_smokeSkinnedSourceVertexBuffer ||
@@ -1981,6 +1987,7 @@ RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeSc
     package.buffers.restirLightManagerCurrentPayloadBuffer = m_smokeRestirLightManagerCurrentPayloadBuffer;
     package.buffers.restirLightManagerPreviousPayloadBuffer = m_smokeRestirLightManagerPreviousPayloadBuffer;
     package.buffers.unifiedPtEmissiveLookupBuffer = m_smokeUnifiedPtEmissiveLookupBuffer;
+    package.buffers.unifiedPtEmissiveGeometryBuffer = m_smokeUnifiedPtEmissiveGeometryBuffer;
     package.buffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
     package.buffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
     package.buffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
@@ -2853,6 +2860,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeRestirLightManagerCurrentPayloadBuffer = nullptr;
     m_smokeRestirLightManagerPreviousPayloadBuffer = nullptr;
     m_smokeUnifiedPtEmissiveLookupBuffer = nullptr;
+    m_smokeUnifiedPtEmissiveGeometryBuffer = nullptr;
     m_smokeRigidRouteVertexBuffer = nullptr;
     m_smokeRigidRouteIndexBuffer = nullptr;
     m_smokeRigidRouteTriangleMaterialBuffer = nullptr;
@@ -3019,6 +3027,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeRestirLightManagerCurrentPayloadBuffer = desc.buffers.restirLightManagerCurrentPayloadBuffer;
     m_smokeRestirLightManagerPreviousPayloadBuffer = desc.buffers.restirLightManagerPreviousPayloadBuffer;
     m_smokeUnifiedPtEmissiveLookupBuffer = desc.buffers.unifiedPtEmissiveLookupBuffer;
+    m_smokeUnifiedPtEmissiveGeometryBuffer = desc.buffers.unifiedPtEmissiveGeometryBuffer;
     m_smokeRigidRouteVertexBuffer = desc.buffers.rigidRouteVertexBuffer;
     m_smokeRigidRouteIndexBuffer = desc.buffers.rigidRouteIndexBuffer;
     m_smokeRigidRouteTriangleMaterialBuffer = desc.buffers.rigidRouteTriangleMaterialBuffer;

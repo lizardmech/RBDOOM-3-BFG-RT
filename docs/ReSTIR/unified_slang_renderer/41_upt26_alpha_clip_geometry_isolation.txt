@@ -66,6 +66,56 @@ instruction footprint of alpha support still linked into the shader; a later
 shader specialization would be required only if that narrower code-footprint
 question becomes material.
 
+Runtime findings and capture caveat, 2026-08-10
+------------------------------------------------
+
+The first field pass measured a scene-dependent 3--10 ms improvement when
+alpha-clip surfaces were removed. The effect appeared only when indirect modes
+were enabled. Characters and monsters were approximately mid-range examples;
+their materials contain tiled death/dissolve alpha-test stages, so this
+authored-stage diagnostic removes the whole character even while that stage is
+inactive. The result is therefore a broad upper bound, not the cost of active
+alpha clipping alone.
+
+The strongest case was a floor grate covering substantial screen area but
+containing only about 30 visible polygons. Removing it recovered about 10 ms
+from indirect work. Polygon count is not the useful predictor: indirect rays
+can repeatedly execute candidate material lookup, triangle/UV replay, bindless
+coverage sampling and continued traversal across the grate's rejected texels.
+Screen coverage, transparent candidate depth and indirect RayQuery count are
+the relevant capture variables.
+
+Direct is not a control measurement for this cost. The current direct
+visibility route calls Upt04TraceVisibilityRayQuery with alphaClipTraversal
+disabled, and direct temporal visibility likewise commits programmable
+triangles without evaluating their alpha mask. Indirect continuation,
+indirect visibility and temporal replay execute the full alpha-clip evaluator.
+Consequently, a grate can have negligible direct timing impact while adding
+many milliseconds to indirect. Direct shadows through cutouts remain a later
+correctness/performance issue.
+
+For performance captures, leave
+r_pathTracingUnifiedPtRemoveAlphaClipSurfaces at 0 unless deliberately
+measuring the destructive upper bound. Record whether the camera is
+alpha-light or alpha-heavy, especially large grates and character crowds, and
+do not compare captures with materially different alpha screen coverage as if
+they represented the same workload.
+
+Deferred work
+-------------
+
+Opacity micromaps remain the likely production solution for genuine cutouts,
+but are deferred behind more consistently expensive work. Runtime-conditional
+character dissolve stages also need live opacity classification: shading can
+clear their inactive alpha flag while BLAS classification still conservatively
+treats the material as permanently programmable.
+
+Before implementing OMM, use a three-step indirect-only probe if attribution
+is needed: commit alpha candidates as solid without texture evaluation; force
+their geometry hardware-opaque; then remove the geometry. Those deltas isolate
+alpha decode/texture work, programmable-candidate overhead and ordinary
+geometry cost respectively.
+
 Build proof, 2026-08-10
 -----------------------
 
