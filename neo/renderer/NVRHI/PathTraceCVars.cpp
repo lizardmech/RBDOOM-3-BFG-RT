@@ -1491,6 +1491,12 @@ idCVar r_pathTracingUnifiedPtTemporalSearch(
     CVAR_RENDERER | CVAR_INTEGER,
     "UPT-07 reprojection A/B: 0 exact floor single tap, 1 sub-pixel-dithered single tap, 2 dither plus up to eight randomized radius-4 compatible-surface probes (default); reservoir contents never steer the search" );
 
+idCVar r_pathTracingUnifiedPtTemporalPermutationSampling(
+    "r_pathTracingUnifiedPtTemporalPermutationSampling",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-43.7 NVIDIA PT temporal permutation A/B: apply the frame-uniform shifted 4x4 XOR permutation only to the first reprojected history tap; preserves all fallback probes, replay and visibility work; default off like RTXDI PT" );
+
 idCVar r_pathTracingUnifiedPtTemporalMaxHistoryM(
     "r_pathTracingUnifiedPtTemporalMaxHistoryM",
     "32",

@@ -255,6 +255,7 @@ extern idCVar r_pathTracingUnifiedPtDirectProposalParity;
 extern idCVar r_pathTracingUnifiedPtD0PreviousBest;
 extern idCVar r_pathTracingUnifiedPtTemporal;
 extern idCVar r_pathTracingUnifiedPtTemporalSearch;
+extern idCVar r_pathTracingUnifiedPtTemporalPermutationSampling;
 extern idCVar r_pathTracingUnifiedPtTemporalMaxHistoryM;
 extern idCVar r_pathTracingUnifiedPtTemporalMaxAge;
 extern idCVar r_pathTracingUnifiedPtTemporalPreviousBest;

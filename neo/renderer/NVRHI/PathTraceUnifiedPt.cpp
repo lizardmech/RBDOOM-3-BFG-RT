@@ -88,6 +88,7 @@ static constexpr uint32_t UPT07_GEOMETRY_FLAG_INDIRECT_REPLAY = 1u << 25u;
 static constexpr uint32_t UPT07_GEOMETRY_FLAG_EARLY_RECONNECT = 1u << 24u;
 static constexpr uint32_t UPT07_GEOMETRY_FLAG_RECONNECT_DIAGNOSTICS = 1u << 23u;
 static constexpr uint32_t UPT07_GEOMETRY_FLAG_ROUTE_DIAGNOSTICS = 1u << 22u;
+static constexpr uint32_t UPT07_GEOMETRY_FLAG_TEMPORAL_PERMUTATION = 1u << 21u;
 static constexpr uint32_t UPT07_TEMPORAL_DIAGNOSTIC_COUNT = 32u;
 static constexpr uint32_t UPT07_TEMPORAL_DIAGNOSTIC_BYTES =
     UPT07_TEMPORAL_DIAGNOSTIC_COUNT * sizeof(uint32_t);
@@ -6197,6 +6198,8 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             ? UPT07_GEOMETRY_FLAG_RECONNECT_DIAGNOSTICS : 0u)
         | (r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool()
             ? UPT07_GEOMETRY_FLAG_ROUTE_DIAGNOSTICS : 0u)
+        | (r_pathTracingUnifiedPtTemporalPermutationSampling.GetBool()
+            ? UPT07_GEOMETRY_FLAG_TEMPORAL_PERMUTATION : 0u)
         | (r_pathTracingUnifiedPtDirectTargetPdfParity.GetBool()
             ? UPT04_DIRECT_TARGET_PDF_PARITY : 0u)
         | (r_pathTracingUnifiedPtAnalyticPortalDomain.GetBool()

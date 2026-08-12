@@ -376,6 +376,25 @@ add_custom_command(
     COMMENT "UPT-43.6 verifying bounded post-temporal boiling filter"
     VERBATIM)
 
+set(UPT437_TEMPORAL_PERMUTATION_VERIFY_STAMP
+    "${UPT07_OUTPUT_DIR}/upt437_temporal_permutation_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT437_TEMPORAL_PERMUTATION_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT437_ASM=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_classify.slang.spvasm
+        -DUPT437_SHADER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang
+        -DUPT437_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
+        -DUPT437_DISPATCH_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceSmokeDispatch.cpp
+        -DUPT437_STAMP=${UPT437_TEMPORAL_PERMUTATION_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt437TemporalPermutation.cmake"
+    DEPENDS ${temporal_common_gris_replay_classify_outputs}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+        "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceSmokeDispatch.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt437TemporalPermutation.cmake"
+    COMMENT "UPT-43.7 verifying first-tap temporal permutation"
+    VERBATIM)
+
 set(UPT10_TEMPORAL_ADAPTER_VERIFY_STAMP
     "${UPT07_OUTPUT_DIR}/upt10_temporal_shared_adapter_verified.txt")
 add_custom_command(
@@ -914,6 +933,7 @@ add_custom_target(PathTraceSlangUpt07ProductionRuntime
         "${UPT43_REPLAY_COMPACTION_VERIFY_STAMP}"
         ${UPT43_TEMPORAL_RUNTIME_OUTPUTS}
         "${UPT436_TEMPORAL_BOILING_RUNTIME_OUTPUT}"
+        "${UPT437_TEMPORAL_PERMUTATION_VERIFY_STAMP}"
         "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication_lambert.bin")
 set_target_properties(PathTraceSlangUpt07ProductionRuntime PROPERTIES
     FOLDER "Shaders/UPT-07")

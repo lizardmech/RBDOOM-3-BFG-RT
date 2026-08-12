@@ -3074,6 +3074,31 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 reportedTemporalReplayCompactionEffective =
                     temporalReplayCompactionEffective;
             }
+            const bool requestedTemporalPermutation =
+                r_pathTracingUnifiedPtTemporalPermutationSampling.GetBool();
+            const bool effectiveTemporalPermutation =
+                requestedTemporalPermutation && unifiedPtInputs.temporal;
+            static int reportedTemporalPermutationRequest = -1;
+            static int reportedTemporalPermutationEffective = -1;
+            const int temporalPermutationRequest =
+                requestedTemporalPermutation ? 1 : 0;
+            const int temporalPermutationEffective =
+                effectiveTemporalPermutation ? 1 : 0;
+            if (reportedTemporalPermutationRequest
+                    != temporalPermutationRequest
+                || reportedTemporalPermutationEffective
+                    != temporalPermutationEffective)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: temporal permutation requested/effective=%d/%d gate(temporal)=%u firstTapOnly=1 fallbackProbesUnchanged=1 extraRays=0 default=off\n",
+                    temporalPermutationRequest,
+                    temporalPermutationEffective,
+                    unifiedPtInputs.temporal ? 1u : 0u);
+                reportedTemporalPermutationRequest =
+                    temporalPermutationRequest;
+                reportedTemporalPermutationEffective =
+                    temporalPermutationEffective;
+            }
             const bool requestedTemporalBoilingFilter =
                 r_pathTracingUnifiedPtTemporalBoilingFilter.GetBool();
             const bool effectiveTemporalBoilingFilter =

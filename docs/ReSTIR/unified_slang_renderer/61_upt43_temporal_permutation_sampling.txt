@@ -1,0 +1,140 @@
+UPT-43.7: bounded temporal permutation sampling
+================================================
+
+Status
+------
+
+Implemented, statically verified, release-built and deployed for Vulkan as a
+default-off diagnostic A/B. Runtime timing rejected promotion; default 0 is
+retained.
+
+Why this is the next bounded experiment
+---------------------------------------
+
+After S43.6, the remaining temporal feature directly represented in NVIDIA's
+ReSTIR PT implementation is permutation sampling. RTXDI PT defaults it off,
+while DI defaults it on. That distinction matters: permutation can decorrelate
+history and disocclusion patterns, but it can also add noise on thin or high-
+detail surfaces. UPT therefore preserves the PT default and exposes an exact,
+isolated A/B rather than promoting it as a presumed improvement.
+
+The more ambitious PT spatial disocclusion boost was audited first and
+deferred. FullSample performs a simultaneous multi-neighbor estimator for
+short-history rcLength=2 samples. UPT's accepted UPT-33 empty-center rescue is
+not equivalent, and its previous always-on three-neighbor estimator was
+rejected for cost. A sparse boost needs its own simultaneous-GRIS design; it
+must not be disguised as another pairwise rescue.
+
+Reference behavior
+------------------
+
+RTXDI applies this integer map to the first non-jittered previous-frame
+history address:
+
+    offset = int2(random & 3, (random >> 2) & 3);
+    previous += offset;
+    previous.x ^= 3;
+    previous.y ^= 3;
+    previous -= offset;
+
+The uniform random word is JenkinsHash(frameIndex), identical for every pixel
+in a frame. This is a shifted permutation within 4x4 pixel domains; it is not
+per-pixel random jitter and does not sample another reservoir after inspecting
+contents.
+
+UPT integration contract
+------------------------
+
+The CVar is:
+
+    r_pathTracingUnifiedPtTemporalPermutationSampling 0|1
+
+Default is 0, matching RTXDI PT. Runtime bit 21 in the existing
+geometryAvailabilityFlags word carries the toggle, so there is:
+
+    no push-constant growth;
+    no history ABI/version change;
+    no new shader specialization;
+    no new buffer, descriptor, clear or dispatch;
+    no added ray or light/material/geometry lookup.
+
+UPT applies the permutation only when `probe == 0`. The existing randomized
+probes 1 through 8 remain exactly unchanged. The permuted coordinate still
+passes the existing signed screen bounds, compact previous-surface load and
+geometric compatibility checks. Reservoir contents still cannot steer which
+history pixel is selected, and only one reservoir is loaded after the first
+compatible surface is chosen.
+
+This rule applies to both the S43.4 classifier and its compact replay consumer
+because the consumer recomputes authoritative temporal state. Both see the
+same frame index and therefore select the same history receiver.
+
+Diagnostics and static gates
+----------------------------
+
+The console reports requested/effective, the temporal prerequisite,
+firstTapOnly=1, fallbackProbesUnchanged=1 and extraRays=0.
+
+Static verification requires:
+
+    runtime control bit 21;
+    exact six-step Jenkins hash;
+    shifted 4x4 x/y XOR by 3;
+    the `probe == 0` boundary;
+    the unchanged `Upt07HistoryProbeOffset` fallback path;
+    S43.4 classifier RayQuery count remains two;
+    TraceRay count remains zero.
+
+The focused UPT07 production target passes these checks. The S43.4 classifier
+retains exactly two RayQuery sites and zero TraceRay operations.
+
+Build and deployment proof, 2026-08-13
+--------------------------------------
+
+The required release build completed successfully from neo/:
+
+    cmake --build --preset win64-pt-dev-release
+
+The executable and the ten temporal Vulkan blobs rebuilt from the shared
+UPT-07 source were copied to the prebuilt tree. Every deployed SHA-256 matched
+its source artifact. No DX12 shader was compiled or deployed.
+
+Runtime acceptance
+------------------
+
+Start from the accepted compacted temporal configuration:
+
+    exec uptf2.cfg
+    r_pathTracingUnifiedPtTemporalReplayCompaction 1
+    r_pathTracingUnifiedPtTemporalBoilingFilter 1
+
+Compare:
+
+    r_pathTracingUnifiedPtTemporalPermutationSampling 0
+    r_pathTracingUnifiedPtTemporalGpuTiming 1
+
+against:
+
+    r_pathTracingUnifiedPtTemporalPermutationSampling 1
+    r_pathTracingUnifiedPtTemporalGpuTiming 1
+
+Acceptance requires requested/effective=1/1, no new thin-geometry shimmer,
+leading-edge history leak, disocclusion block pattern, portal/emissive border
+artifact or measurable timing regression. Specifically stress camera motion,
+doors, grates, character silhouettes and bright small emitters. If noise or
+motion quality worsens, retain default 0 and record the rejection; do not hide
+it with boiling strength, spatial reuse or DLSS-RR changes.
+
+Runtime result, 2026-08-13
+--------------------------
+
+At 2560x1440, 64 dispatch-only samples after 16 warm-up frames:
+
+    permutation 0: median 3.570 ms
+    permutation 1: median 3.794 ms
+    delta:         +0.224 ms, +6.3 percent
+
+The console confirmed requested/effective=1/1, temporal enabled, first-tap
+only, fallback probes unchanged and zero extra rays. This fails the no-timing-
+regression acceptance gate. Keep the CVar as a bounded diagnostic for future
+motion/noise comparisons, but do not enable it in production configurations.

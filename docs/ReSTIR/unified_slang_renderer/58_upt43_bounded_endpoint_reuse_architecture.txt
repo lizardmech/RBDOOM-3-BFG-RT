@@ -780,3 +780,25 @@ the temporal median moved from 3.266 ms with the filter off to 3.339 ms with it
 on: 0.073 ms / 2.2 percent incremental cost. S43.6 is accepted and may be
 checkpointed. Keep it default-off until the later biased-quality preset
 decision.
+
+S43.7 temporal permutation implementation, 2026-08-13
+------------------------------------------------------
+
+The next bounded temporal A/B implements RTXDI PT's exact first-history-tap
+permutation behind default-off
+`r_pathTracingUnifiedPtTemporalPermutationSampling 1`. JenkinsHash(frameIndex)
+provides one frame-uniform word and the reprojected coordinate receives the
+shifted 4x4 x/y XOR-by-3 map before the existing signed bounds and surface
+compatibility tests. Probes 1 through 8 are unchanged.
+
+The toggle uses free runtime bit 21 in geometryAvailabilityFlags. It adds no
+specialization, push-constant bytes, ABI generation, resource, clear, dispatch
+or ray. The S43.4 classifier and compact consumer recompute the same permuted
+history receiver from the same frame index. RTXDI PT defaults this feature off
+and UPT does too. The focused verifier and full Vulkan release build pass, and
+the executable plus ten rebuilt temporal SPIR-V blobs were deployed with exact
+source/deployed hash matches. Runtime timing at 2560x1440 regressed from a
+3.570 ms median to 3.794 ms, +0.224 ms or +6.3 percent. S43.7 therefore remains
+a default-off diagnostic and is not promoted into production configurations.
+The exact contract and A/B are in
+`61_upt43_temporal_permutation_sampling.txt`.

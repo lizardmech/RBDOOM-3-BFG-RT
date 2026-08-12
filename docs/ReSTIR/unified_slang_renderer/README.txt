@@ -579,6 +579,11 @@ Packet index
         filter over finalized target-scaled UCW, including exact weight
         convention, 8x8 threshold math, runtime controls and acceptance gate.
 
+    61_upt43_temporal_permutation_sampling.txt
+        Adds an exact default-off NVIDIA PT first-history-tap shifted 4x4 XOR
+        permutation A/B with no new specialization, storage, dispatch or rays,
+        while deferring sparse disocclusion boost to a proper GRIS design.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

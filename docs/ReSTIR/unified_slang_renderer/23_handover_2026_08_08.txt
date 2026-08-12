@@ -2517,3 +2517,26 @@ temporal median time from 3.266 to 3.339 ms: +0.073 ms / +2.2 percent. S43.6
 passes correctness and performance acceptance and is ready for a scoped
 checkpoint. It remains default-off because its rejection is deliberately
 biased; default promotion belongs to a later preset decision.
+
+UPT-43.7 temporal permutation ready for build/runtime A/B, 2026-08-13
+---------------------------------------------------------------------
+
+An exact NVIDIA PT first-history-tap permutation is implemented behind
+`r_pathTracingUnifiedPtTemporalPermutationSampling 1`, default 0 like RTXDI
+PT. It uses JenkinsHash(frameIndex) and the shifted 4x4 XOR-by-3 map. Only
+probe 0 changes; the eight fallback probes, signed bounds, surface validation,
+reservoir selection, replay compaction and visibility remain unchanged.
+
+The toggle occupies free temporal control bit 21 and introduces no shader
+matrix, ABI change, buffer, clear, dispatch or ray. The focused verifier keeps
+the S43.4 classifier at exactly two RayQuery sites and zero TraceRay operations.
+The full Vulkan release build passed; the executable and ten rebuilt temporal
+SPIR-V blobs were deployed with exact source/deployed SHA-256 matches. No DX12
+shader was built.
+
+Runtime timing rejected promotion. At 2560x1440 over 64 dispatch-only samples,
+permutation 0 measured 3.570 ms median and permutation 1 measured 3.794 ms:
++0.224 ms or +6.3 percent. requested/effective was 1/1 and the zero-extra-ray
+diagnostic was present. Retain default 0 and do not add the toggle to production
+configs. The implementation remains available only as a bounded diagnostic A/B
+specified in `61_upt43_temporal_permutation_sampling.txt`.

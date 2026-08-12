@@ -67,6 +67,8 @@ import upt07_temporal_indirect;
 #define UPT07_DUPLICATION_MAP 0
 #endif
 
+public static const uint kUpt07TemporalPermutationFlag = 1u << 21u;
+
 #if UPT07_INDIRECT_REPLAY && UPT07_ROUTE_DIAGNOSTICS
 public static const uint kUpt07RouteDiagnosticsFlag = 1u << 22u;
 
@@ -116,6 +118,34 @@ public int2 Upt07HistoryProbeOffset(uint2 pixel, uint probeIndex)
     const float x = Upt07HistorySearchRandom(pixel, 2u + probeIndex * 2u);
     const float y = Upt07HistorySearchRandom(pixel, 3u + probeIndex * 2u);
     return int2(int((x - 0.5f) * radius), int((y - 0.5f) * radius));
+}
+
+public uint Upt07JenkinsHash(uint value)
+{
+    value = (value + 0x7ed55d16u) + (value << 12u);
+    value = (value ^ 0xc761c23cu) ^ (value >> 19u);
+    value = (value + 0x165667b1u) + (value << 5u);
+    value = (value + 0xd3a2646cu) ^ (value << 9u);
+    value = (value + 0xfd7046c5u) + (value << 3u);
+    value = (value ^ 0xb55a4f09u) ^ (value >> 16u);
+    return value;
+}
+
+public int2 Upt07ApplyTemporalPermutation(int2 previousPixel)
+{
+    // Exact RTXDI reservoir-addressing permutation: one frame-uniform
+    // shifted 4x4 XOR map. It changes only the first history address; the
+    // existing signed bounds and surface compatibility gates remain final.
+    const uint uniformRandomNumber =
+        Upt07JenkinsHash(gUpt07Control.frameSampleIndex);
+    const int2 offset = int2(
+        int(uniformRandomNumber & 3u),
+        int((uniformRandomNumber >> 2u) & 3u));
+    previousPixel += offset;
+    previousPixel.x ^= 3;
+    previousPixel.y ^= 3;
+    previousPixel -= offset;
+    return previousPixel;
 }
 
 public bool Upt07DirectHistoryEligible(Upt07DecodedReservoir history)
@@ -940,8 +970,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             [loop]
             for (uint probe = 0u; probe < probeCount; ++probe)
             {
-                const int2 candidatePixel = projection.pixel
+                int2 candidatePixel = projection.pixel
                     + Upt07HistoryProbeOffset(pixel, probe);
+                if (probe == 0u
+                    && (gUpt07Control.geometryAvailabilityFlags
+                        & kUpt07TemporalPermutationFlag) != 0u)
+                {
+                    candidatePixel =
+                        Upt07ApplyTemporalPermutation(candidatePixel);
+                }
                 // Keep this signed test. Casting a negative coordinate to uint
                 // before rejection recreated a leading-edge history leak in
                 // the FullSample integration.
