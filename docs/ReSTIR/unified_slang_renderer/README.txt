@@ -594,6 +594,11 @@ Packet index
         surface-class separation and adopts the RTXDI PT/GI 0.6 geometric
         normal threshold without adding identity bandwidth or depth heuristics.
 
+    64_upt44_production_preset.txt
+        Consolidates the accepted compact D0, S43.4/S43.6 temporal and UPT-33
+        spatial paths into one deterministic `exec upt` production preset that
+        explicitly clears rejected and diagnostic console state.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

@@ -2607,3 +2607,21 @@ Runtime testing found a small visible improvement with no reported regression.
 Accept and retain the surface-class/0.6 gate, then continue feature completion.
 Defer stable-instance transport and any absolute depth cap unless final-feature
 testing leaves a repeatable material ghosting case.
+
+UPT-44 production preset ready for runtime validation, 2026-08-13
+-----------------------------------------------------------------
+
+`exec upt` now selects the accepted compact D0, common-GRIS unified temporal,
+S43.4 replay compaction, S43.6 boiling filter and UPT-33 spatial base in one
+self-contained configuration. Production DLSS RR validation additionally
+requires S43.7 temporal permutation and the Gaussian reuse texture with S43.5
+split spatial execution; these are enabled despite their isolated timing cost
+because the cheaper topology does not handle motion adequately. The preset
+explicitly disables multi-neighbor, sparse-disocclusion and early-reconnect
+experiments, optional three-vertex transport, and every timing/probe control so
+stale console state cannot contaminate production testing.
+
+This task changes configuration and documentation only; it adds no shader,
+resource, dispatch, ray, clear, estimator or ABI. Runtime activation and visual
+acceptance remain pending. Exact expected requested/effective and compiler-line
+proof is in document 64.

@@ -1,0 +1,103 @@
+UPT-44: deterministic feature-complete production preset
+========================================================
+
+Purpose
+-------
+
+The accepted renderer had become impractical to select reliably. `uptf2.cfg`
+selects the accepted UPT-33 spatial path, but it intentionally predates S43.4
+and does not enable temporal replay compaction. Many later A/B controls also
+survive console state, so an earlier Gaussian, multi-neighbor, three-vertex,
+probe or disocclusion experiment can silently contaminate the next run.
+
+UPT-44 adds one production entry point:
+
+    exec upt
+
+This is a configuration consolidation only. It adds no shader, specialization,
+resource, dispatch, ray, clear, estimator or ABI change.
+
+Accepted features selected
+--------------------------
+
+The preset selects:
+
+    compact32 primary receiver plus its cold history sidecar;
+    native geometry and compact64 lights;
+    split initial D0 with proposal parity and previous-best emissive reseed;
+    unified DI/GI pairwise temporal reuse;
+    shared shift adapter and common GRIS merge;
+    S43.4 replay classification plus compact continuation replay;
+    S43.6 boiling filter at accepted strength 0.2;
+    S43.7 temporal first-tap permutation sampling;
+    duplication control;
+    UPT-33 full-occupancy workgroup spatial pairing as the base estimator;
+    stored source targets and bounded non-donating empty-center rescue;
+    Gaussian self-inverting reuse-texture pairing;
+    S43.5 split spatial shift prepass and lean resampling/publication;
+    nine-probe temporal receiver search;
+    the accepted S43.9 surface-class and normal validation in shader code.
+
+The boiling filter is promoted with this preset because its exact runtime A/B
+passed visually and added only 0.073 ms / 2.2 percent at 2560x1440. It remains
+an explicit biased policy and is not made a CVar default outside `exec upt`.
+
+Temporal permutation and split Gaussian spatial are also production policy.
+Their isolated timing A/Bs were slower than the adjacent UPT-33 path, but
+extended DLSS RR testing found the cheaper temporal/spatial topology unable to
+handle motion acceptably. Image stability therefore overrides the earlier
+performance-only rejection. The split prepass remains mandatory whenever the
+Gaussian reuse texture is selected; it reduced that spatial path from 8.316 ms
+to 3.370 ms in the accepted A/B.
+
+Routes explicitly excluded
+--------------------------
+
+The preset explicitly disables:
+
+    three-vertex transport and its extra continuation;
+    early reconnect;
+    simultaneous multi-neighbor spatial;
+    sparse disocclusion boost;
+    Lambert, frozen-scene, alpha-removal and bottleneck probes;
+    all one-shot diagnostics and timing capture controls.
+
+Three-vertex D0/T0/S0 remains implemented and available as an optional feature
+for other projects. It is excluded from the Doom 3 production baseline because
+its extra ray cost was difficult to justify visually.
+
+State and activation contract
+-----------------------------
+
+The preset first disables UPT, T0 and S0, writes the complete production state,
+then enables UPT, waits one frame, and enables temporal plus spatial. The wait
+retains the established clean current-page publication boundary. Re-executing
+the preset therefore recovers from stale diagnostic state without requiring a
+game restart or an impractically long pasted command list.
+
+Runtime acceptance
+------------------
+
+Run:
+
+    exec upt
+
+The console must report requested/effective 1/1 for:
+
+    shared reuse adapter;
+    common GRIS merge;
+    temporal replay compaction;
+    shared spatial;
+    spatial workgroup pairing.
+
+The temporal compiler line must report replayCompaction=1 and boilingFilter=1.
+The temporal permutation diagnostic must report requested/effective=1/1. The
+spatial compiler line must report sharedSpatial=1, storedSourceTarget=1,
+workgroupPairing=1, emptyRescue=1, multiNeighbor=0, reuseTexturePairing=1,
+shiftPrepass=1 and disocclusionBoost=0.
+
+Validate ordinary play, portal transitions, moving characters/doors, emissive
+boundaries, alpha-cut surfaces and DLSS RR motion. Acceptance requires no new
+ghosting, boiling-filter dark 8x8 holes, missing emitters, energy growth or
+motion instability. Per-pass timing should remain near the already accepted
+S43.4 temporal and UPT-33 spatial measurements for the same scene/resolution.
