@@ -120,3 +120,16 @@ void DispatchPathTraceCleanRtxdiDiTransmissionPsrPass(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceFrameResources& frameResources,
     bool nsightGpuMarkers);
+// Dispatches only the glass composition feature. UPT-45 uses this after R0 so
+// the pre-D0 transmission producer is never executed a second time.
+void DispatchPathTraceCleanRtxdiDiGlassComposePass(
+    nvrhi::ICommandList* commandList,
+    const nvrhi::rt::State& baseState,
+    const nvrhi::rt::DispatchRaysArguments& args,
+    nvrhi::BufferHandle constantsBuffer,
+    const void* baseConstants,
+    size_t baseConstantsSize,
+    nvrhi::BufferHandle runtimeConstantsBuffer,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
+    const RtPathTraceFrameResources& frameResources,
+    bool nsightGpuMarkers);

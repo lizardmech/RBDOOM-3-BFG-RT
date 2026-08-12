@@ -296,6 +296,7 @@ extern idCVar r_pathTracingUnifiedPtDiagnostics;
 extern idCVar r_pathTracingUnifiedPtFixedSampleIndex;
 extern idCVar r_pathTracingUnifiedPtResolve;
 extern idCVar r_pathTracingUnifiedPtResolveView;
+extern idCVar r_pathTracingUnifiedPtGlassPsr;
 extern idCVar r_pathTracingCleanRtxdiDiEnable;
 extern idCVar r_pathTracingCleanRtxdiDiView;
 extern idCVar r_pathTracingCleanRtxdiDiTemporal;

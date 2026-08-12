@@ -50,3 +50,8 @@ void AddPathTraceMaterialFeatureRegistrationListBindings(
     const RtPathTraceFrameResources& frameResources,
     const RtPathTraceMaterialFeaturePassRegistration* registrations,
     size_t registrationCount);
+// Late consumers such as UPT-45 R0 composition keep the canonical t89 ABI but
+// substitute the renderer-owned resolve image without a full-screen copy.
+void OverridePathTraceMaterialFeatureOutputColorSource(
+    nvrhi::BindingSetDesc& desc,
+    nvrhi::TextureHandle texture);

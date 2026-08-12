@@ -283,6 +283,15 @@ void RayGen()
                 pixel,
                 composedColor);
         }
+        else if (CleanRtxdiDiStatus == 3u)
+        {
+            // UPT-45 uses a distinct R0 SRV and presentation UAV. The glass
+            // pass therefore also forwards untouched opaque pixels, avoiding
+            // an additional full-screen texture copy before composition.
+            PathTraceCleanRtxdiDiStoreGlassComposedColor(
+                pixel,
+                PathTraceCleanRtxdiDiOutputColorSource.Load(int3(pixel, 0)));
+        }
     }
 }
 

@@ -1737,6 +1737,12 @@ idCVar r_pathTracingUnifiedPtResolveView(
     CVAR_RENDERER | CVAR_INTEGER,
     "UPT-05 resolve view: 0 estimator, 1 direct/global classification, 2 diffuse/specular classification, 3 selected contribution, 4 normalization, 5 temporal state/rejection (selected blue-to-green; yellow no compatible history; red history empty; magenta unsupported event; cyan shift invalid; white shifted zero; green merge math), 6 emissive-triangle cast estimate only, 7 Doom-analytic estimate only, 8 emissive-triangle cast plus primary self-emission, 9 primary self-emission only" );
 
+idCVar r_pathTracingUnifiedPtGlassPsr(
+    "r_pathTracingUnifiedPtGlassPsr",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-45 opt-in clear-window primary-surface replacement: run the proven transmission producer before D0, dual-publish wide and compact32 receivers, then compose glass sidecars after R0; Vulkan compact32 production route only" );
+
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
     "1",

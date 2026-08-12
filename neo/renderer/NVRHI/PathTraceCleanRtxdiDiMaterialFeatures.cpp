@@ -469,3 +469,42 @@ void DispatchPathTraceCleanRtxdiDiTransmissionPsrPass(
             nsightGpuMarkers);
     }
 }
+
+void DispatchPathTraceCleanRtxdiDiGlassComposePass(
+    nvrhi::ICommandList* commandList,
+    const nvrhi::rt::State& baseState,
+    const nvrhi::rt::DispatchRaysArguments& args,
+    nvrhi::BufferHandle constantsBuffer,
+    const void* baseConstants,
+    size_t baseConstantsSize,
+    nvrhi::BufferHandle runtimeConstantsBuffer,
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
+    const RtPathTraceFrameResources& frameResources,
+    bool nsightGpuMarkers)
+{
+    RtPathTraceMaterialFeatureRuntimePass runtimePasses[RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
+    const size_t passCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRuntimePasses(
+        passes,
+        runtimePasses,
+        nullptr,
+        sizeof(runtimePasses) / sizeof(runtimePasses[0]));
+    for (size_t i = 0; i < Min(passCount, sizeof(runtimePasses) / sizeof(runtimePasses[0])); ++i)
+    {
+        if (!runtimePasses[i].desc.featureId ||
+            idStr::Cmp(runtimePasses[i].desc.featureId, "clean-rtxdi-di-glass") != 0)
+        {
+            continue;
+        }
+        DispatchPathTraceMaterialFeaturePassWithRuntimeInfo(
+            commandList,
+            baseState,
+            args,
+            constantsBuffer,
+            baseConstants,
+            baseConstantsSize,
+            runtimeConstantsBuffer,
+            runtimePasses[i],
+            frameResources,
+            nsightGpuMarkers);
+    }
+}

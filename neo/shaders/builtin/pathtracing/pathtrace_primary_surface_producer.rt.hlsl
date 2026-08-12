@@ -1207,8 +1207,10 @@ int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition, bool previousFrame)
 void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
 {
     // UPT's current-frame D0 input is deliberately independent from the
-    // multipurpose 176-byte DI/GI temporal history ABI.  MotionVectorInfo.z
-    // selects exactly one write; it never duplicates both records.
+    // multipurpose 176-byte DI/GI temporal history ABI. MotionVectorInfo.z
+    // normally selects exactly one write. UPT-45 mode 4 is the explicit
+    // exception: compact32 remains D0/T0/S0's receiver, while the proven glass
+    // PSR producer consumes and replaces the companion wide record.
     if (MotionVectorInfo.z >= 0.5)
     {
         if (PathTraceSafetyDisabled(
@@ -1240,6 +1242,11 @@ void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
                     PathTraceUnifiedPtPrimaryHistorySidecars[index] =
                         PackPathTraceUnifiedPtPrimaryHistorySidecar(
                             historyRecord);
+                }
+                if (MotionVectorInfo.z >= 3.5)
+                {
+                    PrimarySurfaceHistoryCurrent[index] =
+                        PackPathTracePrimarySurfaceRecord(surface);
                 }
             }
             else

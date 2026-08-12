@@ -12,14 +12,20 @@ after PSR.
 Verified ownership audit
 ------------------------
 
-The shared primary producer publishes three representations before either
-renderer runs:
+The shared primary producer can publish three representations before either
+renderer runs, but its accepted compact mode normally writes compact32 plus
+the sidecar and deliberately skips the wide record:
 
     PrimarySurfaceHistoryCurrent                 176 bytes / pixel
     PathTraceUnifiedPtPrimaryReceivers32          32 bytes / pixel
     PathTraceUnifiedPtPrimaryHistorySidecars      32 bytes / pixel
 
-The clean transmission producer currently replaces only the first record.
+UPT-45 therefore selects a new explicit producer mode 4 while its gate is
+effective: it retains the accepted compact32 and sidecar writes and adds a
+wide companion write for the proven glass producer only. D0/T0/S0 still read
+compact32; the 176-byte record is not a UPT reservoir fallback.
+
+The clean transmission producer currently replaces the first record.
 It also owns the clear-glass RR guide rewrite and the transmission, reflection
 and distortion sidecars. UPT D0 never reads the wide record; it consumes the
 compact32 receiver. Therefore dispatching the existing producer unchanged
@@ -75,7 +81,10 @@ Rejected, missed, incompatible and ordinary opaque pixels retain the compact
 record already written by the shared primary producer.
 
 No per-frame full-buffer clear, compact-buffer copy, new page, new history
-allocation, or fallback to the 176-byte UPT receiver is allowed.
+allocation, or fallback to the 176-byte UPT receiver is allowed. While the
+UPT glass gate is effective, the already allocated wide companion history is
+advanced after all consumers so sticky glass-lane validation sees N-1. This
+extra wide write/copy is opt-in and is not consumed by D0/T0/S0.
 
 Compatibility boundary
 ----------------------
@@ -118,6 +127,16 @@ S45.3 late composition
     UPT/RR presentation source. Do not dispatch the transmission producer a
     second time through the generic feature loop.
 
+S45.1 through S45.3 implementation status (2026-08-13)
+
+    Complete behind default-off `r_pathTracingUnifiedPtGlassPsr`.
+    The producer and composer share their proven shader implementations but
+    use a UPT-owned host pipeline state against the clean material-feature
+    layout. P0 mode 4 dual-publishes compact32 plus the wide PSR companion.
+    The composer binds R0 directly at t89 and forwards ordinary pixels, so no
+    R0 image copy is required. The Vulkan release build passes; runtime image,
+    history, RR-guide and cost acceptance remains pending.
+
 S45.4 default decision
 
     Keep the new UPT gate default off until runtime validates clear panes,
@@ -158,4 +177,3 @@ Acceptance
    pixels beyond the unavoidable full-frame raygen eligibility test already
    owned by the proven clean producer.
 7. Vulkan focused and full release builds pass; no DX12 shader is compiled.
-

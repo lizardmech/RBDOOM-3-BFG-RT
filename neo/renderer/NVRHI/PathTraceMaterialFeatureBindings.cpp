@@ -473,6 +473,13 @@ void AddPathTraceMaterialFeatureOutputBindings(nvrhi::BindingSetDesc& desc, cons
     }
 }
 
+void OverridePathTraceMaterialFeatureOutputColorSource(
+    nvrhi::BindingSetDesc& desc,
+    nvrhi::TextureHandle texture)
+{
+    AddOrReplaceTextureSrvBinding(desc, 89u, texture);
+}
+
 void AddPathTraceMaterialFeatureRegistrationLayoutBindings(
     nvrhi::BindingLayoutDesc& desc,
     const RtPathTraceMaterialFeaturePassRegistration& registration)

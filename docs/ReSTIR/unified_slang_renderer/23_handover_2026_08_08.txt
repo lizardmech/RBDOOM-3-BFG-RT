@@ -2650,3 +2650,36 @@ full Vulkan `win64-pt-dev-release` build passes. S45.2/S45.3 remain: extract a
 shared material-feature pass context, dispatch the producer before UPT D0,
 and dispatch only glass composition after R0 and before optional RR. Do not
 duplicate the large clean binding table inside the UPT branch.
+
+UPT-45 S45.2/S45.3 opt-in pass graph ready for runtime validation, 2026-08-13
+-----------------------------------------------------------------------------
+
+The default-off `r_pathTracingUnifiedPtGlassPsr` route now dispatches the
+existing clean transmission producer between shared P0 and UPT D0, then
+dispatches only the existing glass composer after R0 and before optional
+DLSS-RR. The producer and composer use a UPT-owned material-feature pipeline
+state compiled against the proven clean layout, preventing cross-layout
+pipeline reuse. No UPT reservoir, candidate, replay or resolve estimator math
+changed.
+
+The S45.1 audit contained one corrected assumption: compact producer mode 3
+does not also write the 176-byte primary record. Effective UPT-45 therefore
+selects explicit mode 4, which retains compact32 plus sidecar publication and
+adds a wide companion record solely for the proven glass producer. UPT
+D0/T0/S0 remain compact32 consumers. The already allocated wide companion is
+copied to N-1 only while UPT-45 is effective so sticky glass-lane validation
+has coherent history.
+
+The late composer reads R0 directly at canonical t89 and writes the existing
+presentation/RR outputs. Under producer status 3 it forwards non-glass R0
+pixels, avoiding a full-screen R0 copy. Producer sidecars are initialized for
+every pixel by the existing raygen, so no full-frame clear was added.
+
+The full Vulkan `win64-pt-dev-release` build passes and rebuilt exactly the
+glass composer, transmission producer and two primary-producer SPIR-V blobs.
+Runtime acceptance remains required before any default promotion. Start with
+`exec upt; r_pathTracingUnifiedPtGlassPsr 1`; expected host proof is
+`glass PSR requested/effective=1/1` and Nsight markers `UPT.PSR ClearWindow`
+before D0 plus `UPT.GlassCompose` after R0. Validate no-glass opacity, clear
+panes, mirrors, motion/history, RR guides and timing; gate 0 must preserve the
+accepted UPT baseline.
