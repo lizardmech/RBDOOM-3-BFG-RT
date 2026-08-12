@@ -148,6 +148,21 @@ void TestProjectionAndBoundedSearch() {
 		Near(offAxisProjection.linearDepth, std::sqrt(125.0)) &&
 		SurfacesCompatible(offAxis, offAxis, offAxisProjection.linearDepth),
 		"off-axis projection must validate against ray hitT, not forward-axis depth");
+	Surface differentClass = current;
+	differentClass.surfaceClass = current.surfaceClass + 1u;
+	Check(!SurfacesCompatible(
+		current, differentClass, current.previousViewDepth),
+		"temporal history must not cross receiver surface-class boundaries");
+	Surface rejectedNormal = current;
+	rejectedNormal.geometricNormal = { -0.59, 0.807403, 0.0 };
+	Check(!SurfacesCompatible(
+		current, rejectedNormal, current.previousViewDepth),
+		"temporal history must reject normals below the RTXDI PT/GI threshold");
+	Surface acceptedNormal = current;
+	acceptedNormal.geometricNormal = { -0.61, 0.792401, 0.0 };
+	Check(SurfacesCompatible(
+		current, acceptedNormal, current.previousViewDepth),
+		"temporal history must retain normals above the RTXDI PT/GI threshold");
 
 	std::vector<HistoryPixel> previous(64);
 	previous[4 * 8 + 4].surface = current;

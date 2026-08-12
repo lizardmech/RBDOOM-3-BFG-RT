@@ -2584,3 +2584,26 @@ ghosting. Retain the code only as a default-off reference diagnostic. The
 ghosting investigation should next target temporal history validation,
 shift/replay acceptance and the final temporal consumer, not additional
 spatial sample density.
+
+UPT-43.9 temporal receiver validation correction, 2026-08-13
+-------------------------------------------------------------
+
+The temporal gate audit confirmed that UPT admitted normals down to dot=0.35,
+looser than the RTXDI PT/GI default of 0.6, while omitting even the surface-
+class boundary already enforced by UPT spatial reuse. The bounded correction
+now requires equal compact-sidecar surface classes and dot(normal)>=0.6.
+
+The proposed direct instance comparison was not implemented: production
+compact32 history does not transport `instancePrimitiveObject`, so that field
+reconstructs as zero and cannot supply the claimed free identity check. The
+relative ten-percent depth gate matches the reference default; no uncalibrated
+absolute Doom-unit cap was added. `uptf2.cfg` already enables the nine-probe
+temporal search. Focused harness/build proof and runtime motion acceptance are
+recorded in document 63. The focused harness and full Vulkan release build
+pass; the executable and exactly ten rebuilt UPT-07 Vulkan blobs were deployed
+with matching hashes. Runtime motion acceptance remains pending.
+
+Runtime testing found a small visible improvement with no reported regression.
+Accept and retain the surface-class/0.6 gate, then continue feature completion.
+Defer stable-instance transport and any absolute depth cap unless final-feature
+testing leaves a repeatable material ghosting case.

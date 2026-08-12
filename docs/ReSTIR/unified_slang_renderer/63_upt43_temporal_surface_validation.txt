@@ -1,0 +1,96 @@
+UPT-43.9: temporal receiver validation correction
+=================================================
+
+Problem
+-------
+
+The accepted S43.8 spatial disocclusion boost increased spatial cost from
+1.063 ms to 3.735 ms at 2560x1440 but did not visibly affect the reported
+motion ghosting. That result points upstream at temporal receiver admission.
+
+The live UPT temporal gate admitted geometric normals down to a dot product of
+0.35, approximately 69.5 degrees apart, and did not compare any receiver
+domain identity. RTXDI's reference defaults use 0.6 for ReSTIR PT and ReSTIR
+GI. UPT spatial reuse already requires equal surface classes, but temporal
+reuse did not. A revealed world surface could therefore accept a nearby rigid
+or skinned receiver when the broad normal and ten-percent depth tests passed.
+
+Audit corrections
+-----------------
+
+The suggested full instance-ID comparison is not a zero-bandwidth change in
+the production configuration. Compact receiver mode 2 reconstructs temporal
+history from a 32-byte hot receiver plus a 32-byte sidecar. The full
+`instancePrimitiveObject` tuple is not present in that sidecar and reconstructs
+as zero. The producer's object/entity field is also still an explicit
+placeholder. Comparing it would silently compare zero with zero.
+
+The proposed absolute depth clamp is not part of this slice. The existing
+ten-percent relative depth threshold matches the RTXDI reference default, and
+an absolute Doom-world-unit limit needs a separately measured scale contract.
+The conditional "half the tolerance" identity rule is likewise not a
+reference contract.
+
+The existing compact sidecar does retain `materialAndSurface.w`, the receiver
+surface class. It distinguishes ordinary world geometry from rigid and skinned
+receivers without depending on frame-dense material indices or adding bytes.
+That is the safe identity boundary available now.
+
+Implemented bounded change
+--------------------------
+
+`Upt07SurfacesCompatibleScored` now rejects when:
+
+    current.materialAndSurface.w != previous.materialAndSurface.w
+
+or when:
+
+    dot(currentNormal, previousNormal) < 0.60
+
+Material identity and roughness remain outside the gate so animated receivers
+do not return to the previously observed alternating-validity failure. Alpha
+coverage retains its existing stable-material boundary. The relative depth
+test, projection, history-page validation, search ordering, replay, reservoir
+math, visibility and ray ceiling are unchanged.
+
+The production `uptf2.cfg` already sets temporal search mode 2, so its exact
+reprojection plus eight bounded fallback probes need no new toggle. After the
+stricter gate rejects the center, those probes may recover a nearby compatible
+surface; reservoir contents still cannot influence which receiver wins.
+
+Verification and runtime acceptance
+-----------------------------------
+
+The CPU contract harness adds explicit surface-class mismatch, dot=0.59 reject
+and dot=0.61 accept cases. Shader verification must continue to preserve the
+compact32 sidecar ABI and the established RayQuery ceilings.
+
+The focused temporal contract harness passes. The complete Vulkan release
+build from `neo/` also passes, including UPT temporal static verification and
+all retained production/diagnostic temporal variants. The executable and
+exactly ten rebuilt UPT-07 Vulkan blobs were deployed with matching SHA-256
+hashes. No DX12 shader was built.
+
+Runtime acceptance uses the normal `uptf2.cfg` production configuration with
+S43.4 replay compaction and S43.8 disabled. Inspect moving characters beside
+walls, doors revealing nearby geometry, portal boundaries and camera motion.
+Accept only if trails/disocclusion ghosts improve without animated receivers
+flickering, losing stable lighting or producing a material/energy change.
+
+If class separation plus the reference normal threshold is insufficient, the
+next step is not an unverified comparison against the zeroed compact instance
+field. First define and transport a genuinely stable object identity in the
+existing sidecar budget, with static-bucket, rigid, skinned and dynamic-
+aggregate stability proven independently. Only then may instance rejection be
+tested. An absolute depth cap remains a separate scale-calibrated A/B.
+
+Runtime result, 2026-08-13
+--------------------------
+
+Production-config testing found the temporal ghosting a little better, with no
+reported visual regression. The improvement is sufficient to retain the
+surface-class boundary and 0.6 normal threshold while leaving further temporal
+gate work until the renderer is feature complete. Do not spend another tuning
+slice on the absolute depth cap, conditional identity heuristic or compact
+identity transport now; revisit them only if final-feature testing still shows
+material ghosting and supplies a repeatable scene/camera case.

@@ -163,7 +163,8 @@ inline bool SurfacesCompatible(
 	}
 	const Vec3 currentNormal = Normalize(current.geometricNormal);
 	const Vec3 previousNormal = Normalize(previous.geometricNormal);
-	if (Dot(currentNormal, previousNormal) < 0.35) {
+	if (current.surfaceClass != previous.surfaceClass ||
+		Dot(currentNormal, previousNormal) < 0.60) {
 		return false;
 	}
 	const double depthTolerance = 0.10 * std::max(

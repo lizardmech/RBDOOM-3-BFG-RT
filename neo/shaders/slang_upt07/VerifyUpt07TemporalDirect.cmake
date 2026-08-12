@@ -7,7 +7,7 @@ foreach(required UPT07_FULL_REFLECTION UPT07_FULL_DISASSEMBLY
         UPT07_RECONNECT_REFLECTION UPT07_RECONNECT_DISASSEMBLY
         UPT07_RECONNECT_COMPACT_REFLECTION UPT07_RECONNECT_COMPACT_DISASSEMBLY
         UPT07_WORK_BUDGET_REFLECTION UPT07_WORK_BUDGET_DISASSEMBLY
-        UPT07_TEMPORAL_SOURCE UPT07_WORK_BUDGET_SOURCE
+        UPT07_TEMPORAL_SOURCE UPT07_SURFACE_SOURCE UPT07_WORK_BUDGET_SOURCE
         UPT07_STAMP)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "UPT-07 direct temporal verification missing ${required}")
@@ -33,7 +33,16 @@ file(READ "${UPT07_RECONNECT_COMPACT_DISASSEMBLY}" reconnect_compact_disassembly
 file(READ "${UPT07_WORK_BUDGET_REFLECTION}" work_budget_reflection)
 file(READ "${UPT07_WORK_BUDGET_DISASSEMBLY}" work_budget_disassembly)
 file(READ "${UPT07_TEMPORAL_SOURCE}" temporal_source)
+file(READ "${UPT07_SURFACE_SOURCE}" surface_source)
 file(READ "${UPT07_WORK_BUDGET_SOURCE}" work_budget_source)
+
+if(NOT surface_source MATCHES
+        "current\\.materialAndSurface\\.w[ \\t\\r\\n]*!=[ \\t\\r\\n]*previous\\.materialAndSurface\\.w" OR
+   NOT surface_source MATCHES
+        "dot\\(currentNormal,[ \\t\\r\\n]*previousNormal\\)[ \\t\\r\\n]*<[ \\t\\r\\n]*0\\.60f")
+    message(FATAL_ERROR
+        "UPT temporal lost compact surface-class separation or the RTXDI PT/GI normal gate")
+endif()
 
 foreach(kind full compact)
     foreach(binding 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 23 25 26 27 28 32)

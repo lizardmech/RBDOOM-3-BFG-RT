@@ -676,6 +676,7 @@ add_custom_command(
         -DUPT07_WORK_BUDGET_REFLECTION=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_probe12.slang.spirv-reflection.json
         -DUPT07_WORK_BUDGET_DISASSEMBLY=${UPT07_OUTPUT_DIR}/upt07_temporal_unified_rayquery_light64_duplication_probe12.slang.spvasm
         -DUPT07_TEMPORAL_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang
+        -DUPT07_SURFACE_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_surface_contract.slang
         -DUPT07_WORK_BUDGET_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_work_budget.slang
         -DUPT07_STAMP=${UPT07_DIRECT_VERIFY_STAMP}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt07TemporalDirect.cmake"
@@ -687,6 +688,7 @@ add_custom_command(
         ${temporal_unified_compact_reconnect_outputs}
         ${upt07_work_budget_outputs}
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt07TemporalDirect.cmake"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_surface_contract.slang"
         "${CMAKE_CURRENT_SOURCE_DIR}/upt07_work_budget.slang"
     COMMENT "UPT-07 verifying complete primary-direct temporal shift provider"
     VERBATIM)

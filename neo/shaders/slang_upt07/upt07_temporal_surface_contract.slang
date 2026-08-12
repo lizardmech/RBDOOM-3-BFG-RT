@@ -99,12 +99,13 @@ public bool Upt07SurfacesCompatibleScored(
         * rsqrt(currentLengthSquared);
     const float3 previousNormal = previous.geometricNormalAndRoughness.xyz
         * rsqrt(previousLengthSquared);
-    // Match the proven RTXDI DI temporal surface gate. The shifted light is
-    // re-evaluated against the current material, so material identity and
-    // roughness are not temporal-neighbor criteria. Requiring those fields
-    // made animated/rigid receivers alternate between valid and rejected
-    // history even when their geometric reprojection was sound.
-    if (dot(currentNormal, previousNormal) < 0.35f)
+    // Keep material identity and roughness out of the temporal gate: both can
+    // legitimately change on one animated receiver. Surface class is part of
+    // the compact history sidecar, however, and must not cross from a rigid or
+    // skinned receiver onto revealed world geometry. Match the RTXDI PT/GI
+    // normal threshold rather than the older, unusually permissive DI gate.
+    if (current.materialAndSurface.w != previous.materialAndSurface.w
+        || dot(currentNormal, previousNormal) < 0.60f)
         return false;
     const float depthError = abs(previous.worldPositionAndViewDepth.w
         - projectedPreviousLinearDepth);

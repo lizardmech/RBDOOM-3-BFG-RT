@@ -589,6 +589,11 @@ Packet index
         short-history-only compact spatial side lane that reuses S43.4 queue
         storage and never revives the rejected full-screen UPT-34 kernel.
 
+    63_upt43_temporal_surface_validation.txt
+        Audits the temporal disocclusion gate, restores compact sidecar
+        surface-class separation and adopts the RTXDI PT/GI 0.6 geometric
+        normal threshold without adding identity bandwidth or depth heuristics.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math
