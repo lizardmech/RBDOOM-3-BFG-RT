@@ -2851,7 +2851,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
             unifiedPtGlassInputs.transmissionStrength = 0.92f;
             unifiedPtGlassInputs.glassTintStrength = 0.35f;
-            unifiedPtGlassInputs.overlayStrength = 0.015f;
+            // Legacy accepted clear glass has no diffuse tint/opacity overlay;
+            // only normal-map distortion is a future pane contribution.
+            unifiedPtGlassInputs.overlayStrength = 0.0f;
             unifiedPtGlassInputs.nsightMarkers = nsightGpuMarkers;
             bool unifiedPtNativeGlassExecuted = false;
             if (unifiedPtGlassPsrEffective)

@@ -296,3 +296,30 @@ The unchanged composer remains 2364 bytes with SHA256
 The full Vulkan release build passes. Runtime acceptance must specifically
 exercise animated skinned surfaces through clear glass with RR normal, depth,
 motion, and final output views.
+
+S45.5 neutral clear glass and bounded stacked-pane continuation, 2026-08-13
+----------------------------------------------------------------------------
+
+Runtime confirmed the RR geometry correction, but also proved that UPT45 had
+invented two appearance behaviors absent from the accepted legacy baseline:
+it multiplied the result by the pane's packed diffuse color and added a small
+overlay. This made authored diffuse maps look like glass tint/opacity. Both are
+removed. The clear-glass composition token is now exactly `(1,1,1,1)` and the
+host overlay is zero. Pane material data is used only for eligibility; normal
+maps remain reserved for the later distortion lane.
+
+The original native traversal also committed the first hit behind the source
+pane. When that hit was another clear pane, it became the replacement receiver
+and therefore rendered solid. The single existing RayQuery now classifies each
+non-opaque candidate from narrow route-owned material/class words and declines
+to commit portal-window/object-glass candidates. Hardware traversal continues
+until it finds the first non-glass receiver. This adds no ray and preserves the
+one-RayQuery verifier ceiling. It is transmission visibility/receiver
+selection, not GI transport; indirect lighting through the resulting receiver
+remains owned by the ordinary unified D0/T0/S0/R0 estimator.
+
+The rebuilt producer is 61864 bytes with SHA256
+4C5F1D38CFD049AD0B953AB8A387502C16DC57A1F5E37B29CB9F4F9878F3EA18.
+The full Vulkan release build and descriptor/RayQuery verifier pass. Runtime
+acceptance must cover one pane, two or more overlapping panes, textured pane
+materials, and an opaque/skinned receiver behind the stack.

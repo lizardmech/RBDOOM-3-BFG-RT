@@ -54,8 +54,38 @@ public Upt45NarrowHit Upt45TraceBehind(float3 origin, float3 direction)
     query.TraceRayInline(gUpt45Scene, RAY_FLAG_NONE, 0xffu, ray);
     while (query.Proceed())
     {
-        if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
-            query.CommitNonOpaqueTriangleHit();
+        if (query.CandidateType() != CANDIDATE_NON_OPAQUE_TRIANGLE)
+            continue;
+        uint primitiveId;
+        if (!Upt45CanonicalPrimitive(
+                query.CandidateInstanceID(),
+                query.CandidateGeometryIndex(),
+                query.CandidatePrimitiveIndex(),
+                primitiveId))
+            continue;
+        uint materialIndex;
+        uint triangleClassAndFlags;
+        if (!Upt45ResolveCandidateMaterialClass(
+                query.CandidateInstanceID(),
+                primitiveId,
+                gUpt45Control,
+                materialIndex,
+                triangleClassAndFlags))
+            continue;
+        uint materialFlags = 0u;
+        if (materialIndex < gUpt45Control.materialCount)
+            materialFlags = gUpt45MaterialWords[materialIndex * 7u + 3u].z;
+        const uint surfaceClass = triangleClassAndFlags & kUpt45SurfaceClassMask;
+        const uint translucentSubtype =
+            (triangleClassAndFlags & 0x0f000000u) >> 24u;
+        const bool clearGlass =
+            (materialFlags &
+                (kUpt45MaterialPortalWindow | kUpt45MaterialObjectGlass)) != 0u ||
+            (surfaceClass == kUpt45SurfaceClassTranslucent &&
+                (translucentSubtype == 1u || translucentSubtype == 4u));
+        if (clearGlass)
+            continue;
+        query.CommitNonOpaqueTriangleHit();
     }
     if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
         return hit;
@@ -328,13 +358,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     Upt45WriteReplacementRrGuides(
         pixel, surface, baseColor, specularF0, roughness, emission);
 
-    const float3 frontTint = float3(
-        float(front.material.x & 0x3ffu),
-        float((front.material.x >> 10u) & 0x3ffu),
-        float((front.material.x >> 20u) & 0x3ffu)) / 1023.0f;
-    const float3 transmission = lerp(
-        float3(1.0f), saturate(frontTint),
-        saturate(gUpt45Control.glassTintStrength)) *
-        saturate(gUpt45Control.transmissionStrength);
-    gUpt45CompositionToken[pixel] = float4(transmission, 1.0f);
+    // Accepted legacy baseline: clear glass contributes no authored diffuse
+    // tint or partial opacity.  The pane is retained only for eligibility and
+    // future normal-map distortion; the resolved receiver owns appearance.
+    gUpt45CompositionToken[pixel] = float4(1.0f, 1.0f, 1.0f, 1.0f);
 }

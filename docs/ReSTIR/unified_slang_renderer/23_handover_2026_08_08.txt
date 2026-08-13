@@ -2787,3 +2787,14 @@ The full Vulkan build and the one-RayQuery/reflection verifier pass. Deployed
 runtime acceptance remains: inspect an animated skinned object through clear
 glass in final output and RR normal/depth/motion debug views, including camera
 and object motion. Exact artifact hashes and rejection semantics are in `66`.
+
+UPT-45 stacked/neutral clear-glass follow-up, 2026-08-13
+---------------------------------------------------------
+
+The accepted legacy clear-glass baseline does not use authored diffuse color
+or partial opacity; only normal-map distortion is intended. S45.5 therefore
+removes UPT45's diffuse-derived tint and overlay. It also fixes glass-behind-
+glass by declining clear-glass candidates inside the existing RayQuery until a
+non-glass replacement receiver is found. This remains one traversal and is not
+a separate GI transport implementation. Build, reflection, and one-RayQuery
+verification pass; runtime stacked-pane and textured-pane validation remains.

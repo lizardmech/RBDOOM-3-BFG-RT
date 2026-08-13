@@ -74,6 +74,72 @@ public bool Upt45CanonicalPrimitive(
     return true;
 }
 
+// Candidate classification for transparent continuation.  This intentionally
+// resolves only route-owned identity/class words: the RayQuery loop must not
+// inflate three vertices merely to decide whether a pane blends through.
+public bool Upt45ResolveCandidateMaterialClass(
+    uint instanceId,
+    uint primitiveId,
+    Upt45Control control,
+    out uint materialIndex,
+    out uint triangleClassAndFlags)
+{
+    materialIndex = kUpt45Invalid;
+    triangleClassAndFlags = 0u;
+    const bool staticBucket =
+        (instanceId & ~kUpt45ShaderInstanceMask) == 0u &&
+        (instanceId & kUpt45StaticBucketInstanceBit) != 0u;
+    if (staticBucket || instanceId == 0u)
+    {
+        const uint triangleIndex = staticBucket
+            ? (instanceId & kUpt45StaticBucketTriangleMask) + primitiveId
+            : primitiveId;
+        if (triangleIndex >= control.staticTriangleCount)
+            return false;
+        materialIndex = gUpt45StaticMaterialIndices[triangleIndex];
+        triangleClassAndFlags = gUpt45StaticClasses[triangleIndex];
+        return true;
+    }
+    if (instanceId == 1u)
+    {
+        if (primitiveId >= control.dynamicTriangleCount)
+            return false;
+        materialIndex = gUpt45DynamicMaterialIndices[primitiveId];
+        triangleClassAndFlags = gUpt45DynamicClasses[primitiveId];
+        return true;
+    }
+
+    const uint skinnedFirst = control.skinnedRouteCount != 0u
+        ? gUpt45SkinnedRouteWords[0u].x
+        : kUpt45Invalid;
+    if (instanceId >= skinnedFirst &&
+        instanceId - skinnedFirst < control.skinnedRouteCount)
+    {
+        const uint routeIndex = instanceId - skinnedFirst;
+        const uint wordBase = routeIndex * 5u;
+        const uint4 offsets = gUpt45SkinnedRouteWords[wordBase + 0u];
+        const uint4 counts = gUpt45SkinnedRouteWords[wordBase + 1u];
+        if (offsets.x != instanceId || primitiveId >= counts.w)
+            return false;
+        const uint metadataWord = (counts.x + primitiveId) * 9u;
+        if (metadataWord + 4u >= control.skinnedTriangleCount * 9u)
+            return false;
+        materialIndex = gUpt45SkinnedTriangleWords[metadataWord + 3u];
+        triangleClassAndFlags = gUpt45SkinnedTriangleWords[metadataWord + 4u];
+        return true;
+    }
+
+    if (instanceId < 2u || instanceId - 2u >= control.rigidInstanceCount)
+        return false;
+    const uint4 offsets = gUpt45RigidRouteWords[(instanceId - 2u) * 9u + 0u];
+    const uint4 counts = gUpt45RigidRouteWords[(instanceId - 2u) * 9u + 1u];
+    if (primitiveId >= counts.w)
+        return false;
+    materialIndex = counts.x;
+    triangleClassAndFlags = 1u;
+    return offsets.x < control.rigidVertexCount;
+}
+
 public bool Upt45LoadIndexedNarrow(
     StructuredBuffer<uint4> vertexWords,
     StructuredBuffer<uint> indices,
