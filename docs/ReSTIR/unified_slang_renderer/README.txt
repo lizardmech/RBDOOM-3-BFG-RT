@@ -620,6 +620,9 @@ Packet index
         secondary native mini-renderer described by the earlier rungs: clear
         panes now continue inside canonical lean P0, so the committed receiver
         inherits the ordinary alpha/material/skinned/indirect/RR contract.
+        S45.8 restores legacy distortion, transmission and reflection as a
+        bounded post-R0 optical layer: a deterministic canonical pane capture
+        feeds sidecars only and can never replace compact32 or reservoir state.
 
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,

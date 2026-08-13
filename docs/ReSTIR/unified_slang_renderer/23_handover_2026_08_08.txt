@@ -2839,3 +2839,20 @@ deleted state. Runtime should verify opaque/alpha/skinned/emissive receivers,
 indirect lighting, stacked panes and RR motion. Expected console proof is
 `primary-integrated glass PSR ... order=P0(with-PSR)-D0-T0-S0-R0-RR
 secondaryRenderer=0`; the old native PSR/compose markers must be absent.
+
+UPT-45 optical restoration follow-up, 2026-08-13
+--------------------------------------------------
+
+The primary-integrated receiver remains authoritative. A second canonical P0
+trace now captures only the first front pane into wide scratch storage, and
+the accepted clean-DI transmission producer runs in an explicit UPT
+optics-only mode. It publishes normal-map distortion, transmission and bounded
+reflection sidecars, then returns before its legacy receiver reconstruction.
+The existing late glass composer applies those sidecars after UPT R0 and before
+DLSS-RR. This restores legacy optical behavior without resurrecting the failed
+mini renderer or allowing glass to replace compact32/history/reservoir state.
+Mode 2 front-pane capture bypasses legacy stochastic glass coverage, while mode
+1 continues through all supported panes to the canonical receiver. Runtime
+must prove distortion, attenuation, reflection, stacked-pane transparency and
+RR-guide stability. The expected log is `glass optics requested/effective=1/1`
+with `receiverReplacement=0`; full contract and test matrix are in `66` S45.8.

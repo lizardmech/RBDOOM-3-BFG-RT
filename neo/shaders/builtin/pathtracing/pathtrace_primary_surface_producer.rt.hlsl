@@ -3713,10 +3713,12 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
 
 #if RB_PT_UPT_LEAN_PRIMARY
     // UPT clear-window PSR belongs to primary visibility, not to a secondary
-    // material renderer. Continue the canonical primary trace through an
-    // authored clear pane; the final committed receiver then uses the same
+    // material renderer. Mode 1 continues the canonical primary trace through
+    // an authored clear pane; the final committed receiver then uses the same
     // closest-hit, material, alpha, decal, rigid and skinned paths as any
-    // ordinary camera hit.
+    // ordinary camera hit. Mode 2 is the bounded optical-capture trace: accept
+    // the first supported pane deterministically so the late optical producer
+    // cannot inherit the legacy stochastic glass-coverage decision.
     if (RestirPTSurfaceInfo.x >= 0.5 && lookupTriangleValid)
     {
         PathTraceMaterialFeatureRecord glassFeature;
@@ -3726,6 +3728,10 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             PathTraceMaterialFeatureSupportsGlassTransmission(
                 PathTraceMaterialFeatureFromRecord(glassFeature)))
         {
+            if (RestirPTSurfaceInfo.x >= 1.5)
+            {
+                return;
+            }
             payload.debugFlags |= RT_SMOKE_PAYLOAD_CLEAR_GLASS_CROSSED;
             IgnoreHit();
             return;

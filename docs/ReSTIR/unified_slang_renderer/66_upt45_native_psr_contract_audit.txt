@@ -424,3 +424,59 @@ skinned and emissive receivers behind one and stacked panes, plus indirect
 lighting and DLSS-RR motion. No separate `UPT.PSR NativeClearWindow` or
 `UPT.Glass NativeCompose Last` marker should remain; the console must report
 `order=P0(with-PSR)-D0-T0-S0-R0-RR secondaryRenderer=0`.
+
+S45.8 restore legacy optics without restoring the secondary renderer, 2026-08-13
+-------------------------------------------------------------------------------
+
+S45.7 correctly made canonical lean P0 the sole owner of the receiver behind
+glass, but intentionally removed the legacy optical result. UPT therefore had
+correct opaque, alpha-tested, rigid, skinned, emissive and indirect surfaces
+behind a pane while losing its normal-map distortion, transmission attenuation
+and bounded reflection.
+
+The reference audit confirms that these concerns belong after opaque surface
+resolution. RTXDI Full Sample's Glass pass retraces transparent layers and
+composes throughput, overlay and a bounded secondary reflection over an
+already-lit image. Remix similarly carries a compact GbufferPSRData pane event
+into separate reflection/transmission work. Neither design replaces the opaque
+receiver with a partial material renderer.
+
+UPT now uses the same ownership split with existing proven components:
+
+    P0-behind mode 1
+        feature-supported panes call IgnoreHit;
+        canonical compact32 receiver/history and RR guides remain authoritative.
+
+    P0-pane mode 2
+        a second canonical primary trace deterministically accepts the first
+        feature-supported pane into the legacy wide scratch record;
+        no stochastic glass-coverage test and no RR-guide publication occurs.
+
+    optics-only transmission producer
+        reads the pane record, evaluates the accepted normal-map distortion,
+        transmission attenuation and one bounded reflection;
+        publishes only the existing optical sidecars and returns before the
+        legacy behind-glass receiver trace/rebuild/publication block.
+
+    R0 then legacy glass compose
+        applies the sidecars over the completed UPT result before DLSS-RR;
+        it cannot alter compact32, temporal or spatial reservoirs.
+
+This deliberately spends one extra canonical visibility trace for enabled
+glass rather than reintroducing a second geometry/material implementation. It
+adds no full-buffer clear and preserves the existing bounded reflection ray
+ceiling. Stacked panes remain transparent to the authoritative P0 receiver;
+the optical event is currently the first supported pane, matching the bounded
+adapter rather than claiming an unbounded transparent path integrator.
+
+Runtime proof must cover normal-map distortion, transmission attenuation and
+reflection on static, rigid, skinned, alpha-tested, emissive and indirectly lit
+receivers, including two panes. The console contract is:
+
+    glass optics requested/effective=1/1
+    order=P0-behind/P0-pane-optics/D0/T0/S0/R0/compose
+    receiverReplacement=0
+
+DLSS-RR normal, depth, position and motion must continue to describe the
+behind-glass receiver; distortion may offset the viewed result but the pane
+must never become RR geometry.

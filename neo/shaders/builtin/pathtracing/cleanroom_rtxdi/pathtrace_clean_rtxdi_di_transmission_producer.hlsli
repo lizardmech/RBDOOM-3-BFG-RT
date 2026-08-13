@@ -1049,6 +1049,23 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             PathTraceCleanRtxdiDiReflectionSidecarRadiance(reflectionRadiance);
     }
 
+    // UPT's canonical primary trace has already continued through the pane and
+    // published the authoritative compact receiver. In optics-only mode this
+    // legacy pass owns only the pane interaction. Publishing a resolved
+    // behind-glass surface here would duplicate the renderer and reintroduce
+    // the stale material/geometry bugs that UPT-45 removed.
+    if (CleanRtxdiDiMotionVectorInfo.z >= 0.5f)
+    {
+        const float overlayStrength =
+            PathTraceCleanRtxdiDiGlassOverlayStrength(glassPayload);
+        PathTraceCleanRtxdiDiTransmissionOutput[pixel] =
+            PathTraceCleanRtxdiDiTransmissionSidecarResolved(
+                transmissionSample.attenuation,
+                overlayStrength);
+        PathTraceCleanRtxdiDiFinalizeLiquidPoolSecondaryDiagnostic(pixel);
+        return;
+    }
+
     // Always resolve the behind-glass hit for clear-glass RR geometry when
     // possible. DI primary may be reflection-owned, but depth/normal/motion
     // ignore the pane and track the see-through surface (shipping/Remix).
