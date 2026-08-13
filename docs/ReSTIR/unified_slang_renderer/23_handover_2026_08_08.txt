@@ -2798,3 +2798,19 @@ glass by declining clear-glass candidates inside the existing RayQuery until a
 non-glass replacement receiver is found. This remains one traversal and is not
 a separate GI transport implementation. Build, reflection, and one-RayQuery
 verification pass; runtime stacked-pane and textured-pane validation remains.
+
+UPT-45 authoritative feature-admission follow-up, 2026-08-13
+-------------------------------------------------------------
+
+The remaining stochastic panes and window-diffuse projection onto behind-glass
+objects had one shared cause: native UPT45 classified fronts and intermediate
+panes from legacy fallback flags/subtypes, while the proven legacy PSR uses the
+authored material-feature record. P0 now publishes one cold sidecar bit after
+validating the full transmission-producer contract. Intermediate RayQuery hits
+load that same existing 32-byte feature record by the dense material index
+already recovered from the geometry route. Recognized panes continue through
+the one existing traversal; only the actual behind-glass receiver is committed
+and shaded. Compact32, the 224-byte push ABI, one-RayQuery ceiling, no-clear
+rule, and narrow geometry/material loading are preserved. Build and static
+verification pass; runtime should target the formerly missing panes and moving
+objects behind stacked textured glass. Details and artifact hash are in `66`.

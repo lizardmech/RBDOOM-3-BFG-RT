@@ -41,10 +41,10 @@ function(verify_binding_whitelist reflection_path allowed label)
     endforeach()
 endfunction()
 
-set(producer_allowed 0 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34)
+set(producer_allowed 0 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35)
 set(compose_allowed 0 1 2)
 verify_binding_whitelist("${INPUT_PRODUCER_REFLECTION}" "${producer_allowed}" "producer")
 verify_binding_whitelist("${INPUT_COMPOSE_REFLECTION}" "${compose_allowed}" "composer")
 
 message(STATUS
-    "UPT-45 native glass verified: RayQuery=1 producerBindings=0,3..34 composerBindings=0..2 forbiddenDependencies=0")
+    "UPT-45 native glass verified: RayQuery=1 producerBindings=0,3..35 composerBindings=0..2 forbiddenDependencies=0")

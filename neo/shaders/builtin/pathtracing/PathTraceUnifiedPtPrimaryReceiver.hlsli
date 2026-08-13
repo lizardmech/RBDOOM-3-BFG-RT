@@ -27,6 +27,11 @@ struct PathTraceUnifiedPtPrimaryReceiver32
 // Keeping them in this separate 32-byte stream lets D0 retain its 32-byte hot
 // receiver without falling back to the shared 176-byte history record.
 static const uint RT_UPT_PRIMARY_HISTORY_SIDECAR_VERSION = 1u;
+// P0 resolves the complete material-feature contract while the dense material
+// index is still available.  Publish the result as cold metadata so the native
+// UPT glass producer does not have to search stable material identity or admit
+// only the older fallback-flag subset.
+static const uint RT_UPT_PRIMARY_HISTORY_GLASS_TRANSMISSION_ELIGIBLE = 0x00010000u;
 struct PathTraceUnifiedPtPrimaryHistorySidecar
 {
     uint4 metadata; // version|surfaceClass, valid flags, material id, material flags

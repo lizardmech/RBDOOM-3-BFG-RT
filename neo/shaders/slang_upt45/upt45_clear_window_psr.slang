@@ -22,6 +22,7 @@ RWTexture2D<float4> gUpt45CompositionToken;
 [[vk::binding(32, 0)]] [[vk::image_format("r32f")]] RWTexture2D<float> gUpt45RrDepth;
 [[vk::binding(33, 0)]] [[vk::image_format("r32ui")]] RWTexture2D<uint> gUpt45RrResetMask;
 [[vk::binding(34, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> gUpt45RrPosition;
+[[vk::binding(35, 0)]] StructuredBuffer<uint4> gUpt45MaterialFeatureWords;
 [[vk::binding(0, 1)]] Texture2D<float4> gUpt45MaterialTextures[];
 [[vk::push_constant]] ConstantBuffer<Upt45Control> gUpt45Control;
 
@@ -40,6 +41,21 @@ public float3 Upt45YCoCgToRgb(float4 ycocg)
         dot(ycocg, float4(1.0f, -1.0f, 0.0f, 1.0f)),
         dot(ycocg, float4(0.0f, 1.0f, -0.50196078f, 1.0f)),
         dot(ycocg, float4(-1.0f, -1.0f, 1.00392156f, 1.0f))));
+}
+
+public bool Upt45MaterialFeatureSupportsGlass(uint materialIndex)
+{
+    if (materialIndex >= gUpt45Control.materialFeatureCount)
+        return false;
+    const uint4 feature0 = gUpt45MaterialFeatureWords[materialIndex * 2u + 0u];
+    const uint4 feature1 = gUpt45MaterialFeatureWords[materialIndex * 2u + 1u];
+    return feature1.y == materialIndex &&
+        feature1.z == kUpt45MaterialFeatureAbiVersion &&
+        feature0.x == kUpt45MaterialKindTranslucentGlass &&
+        (feature0.y & kUpt45MaterialCapPathTransmission) != 0u &&
+        (feature0.y & kUpt45MaterialCapDebugFailClosed) == 0u &&
+        (feature0.z & kUpt45MaterialLobeSpecularTransmission) != 0u &&
+        (feature0.w & kUpt45MaterialPassTransmissionProducer) != 0u;
 }
 
 public Upt45NarrowHit Upt45TraceBehind(float3 origin, float3 direction)
@@ -78,7 +94,7 @@ public Upt45NarrowHit Upt45TraceBehind(float3 origin, float3 direction)
         const uint surfaceClass = triangleClassAndFlags & kUpt45SurfaceClassMask;
         const uint translucentSubtype =
             (triangleClassAndFlags & 0x0f000000u) >> 24u;
-        const bool clearGlass =
+        const bool clearGlass = Upt45MaterialFeatureSupportsGlass(materialIndex) ||
             (materialFlags &
                 (kUpt45MaterialPortalWindow | kUpt45MaterialObjectGlass)) != 0u ||
             (surfaceClass == kUpt45SurfaceClassTranslucent &&

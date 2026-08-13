@@ -323,3 +323,48 @@ The rebuilt producer is 61864 bytes with SHA256
 The full Vulkan release build and descriptor/RayQuery verifier pass. Runtime
 acceptance must cover one pane, two or more overlapping panes, textured pane
 materials, and an opaque/skinned receiver behind the stack.
+
+S45.6 authoritative glass-feature admission, 2026-08-13
+--------------------------------------------------------
+
+Runtime showed two coupled failures after stacked traversal landed: some panes
+still remained on the old stochastic translucent lane, while a pane behind an
+accepted front pane could become the replacement receiver and project its
+diffuse texture over dynamic geometry. The cause was the same narrow admission
+mistake in two places. UPT45 recognized only portal/object fallback bits and
+triangle subtype. The accepted legacy path first loads the authored
+`PathTraceMaterialFeatureRecord` and requires the complete glass transmission
+contract:
+
+    materialKind == TRANSLUCENT_GLASS
+    PATH_TRANSMISSION set
+    DEBUG_FAIL_CLOSED clear
+    SPECULAR_TRANSMISSION set
+    TRANSMISSION_PRODUCER set
+
+P0 already has the dense material index and authoritative feature buffer. It
+now validates that contract once and publishes a cold sidecar eligibility bit.
+The compact32 hot record is unchanged. The native producer admits a front pane
+only from that bit, avoiding stable-ID search and avoiding the incomplete
+fallback-only test.
+
+RayQuery candidates already resolve a dense material index from their geometry
+route. Binding 35 exposes the existing 32-byte feature records as two narrow
+uint4 loads. Feature-supported panes are declined inside the same traversal;
+the first non-glass receiver is committed and shaded from its own material.
+Fallback subtype/flag checks remain only as a fail-safe for invalid feature
+records. No extra ray, full-record load, material search, buffer clear or new
+allocation was added. The producer push ABI remains 224 bytes by replacing two
+unused appearance floats with feature count/reserved words.
+
+Verified Vulkan artifacts after the full release build:
+
+    upt45_clear_window_psr.bin
+        bytes 63204
+        SHA256 05148B1FEFF5763E73C45169A11B53ED0AEF7B00FFE0926524B2EAF84E0BF091
+
+The reflected descriptor closure is now 0,3..35 and binding 35 is exactly
+`gUpt45MaterialFeatureWords`. The SPIR-V verifier still proves one RayQuery.
+Runtime acceptance must recheck the previously missing panes, a dynamic and a
+skinned receiver behind one and multiple panes, and confirm that no pane
+diffuse texture reaches the replacement receiver.

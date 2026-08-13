@@ -374,9 +374,40 @@ bool PathTraceMaterialIsSemanticLiquidPool(uint materialIndex)
                 RT_PATH_TRACE_MATERIAL_CAP_IDEMPOTENT_MODIFIER_BLEND);
 }
 
+bool PathTraceMaterialFeatureSupportsGlassTransmission(PathTraceMaterialFeature feature)
+{
+    return feature.materialKind == RT_PATH_TRACE_MATERIAL_KIND_TRANSLUCENT_GLASS &&
+        (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_PATH_TRANSMISSION) != 0u &&
+        (feature.materialCaps & RT_PATH_TRACE_MATERIAL_CAP_DEBUG_FAIL_CLOSED) == 0u &&
+        (feature.lobeCaps & RT_PATH_TRACE_MATERIAL_LOBE_SPECULAR_TRANSMISSION) != 0u &&
+        (feature.passSupport & RT_PATH_TRACE_MATERIAL_PASS_TRANSMISSION_PRODUCER) != 0u;
+}
+
 #define RB_PATH_TRACE_PRIMARY_SURFACE_HAS_RR_PROJECTION_DEPTH_INFO
 #define RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_PROJECTION_HELPERS
 #include "PathTracePrimarySurface.hlsli"
+
+bool PathTracePrimarySurfaceSupportsGlassTransmission(RAB_Surface surface)
+{
+    PathTraceMaterialFeatureRecord record;
+    if (TryLoadPathTraceMaterialFeatureRecord(surface.materialIndex, record))
+    {
+        return PathTraceMaterialFeatureSupportsGlassTransmission(
+            PathTraceMaterialFeatureFromRecord(record));
+    }
+    const uint translucentSubtype =
+        (surface.flags & RT_PATH_TRACE_FEATURE_TRANSLUCENT_SUBTYPE_MASK) >>
+            RT_PATH_TRACE_FEATURE_TRANSLUCENT_SUBTYPE_SHIFT;
+    const bool subtypeGlass =
+        surface.surfaceClass == RT_PATH_TRACE_FEATURE_SURFACE_CLASS_TRANSLUCENT &&
+        (translucentSubtype == RT_PATH_TRACE_FEATURE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS ||
+         translucentSubtype == RT_PATH_TRACE_FEATURE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW);
+    const bool fallbackGlass =
+        (surface.material.flags &
+            (RT_PATH_TRACE_FEATURE_MATERIAL_OBJECT_GLASS_FALLBACK |
+             RT_PATH_TRACE_FEATURE_MATERIAL_PORTAL_WINDOW_FALLBACK)) != 0u;
+    return subtypeGlass || fallbackGlass;
+}
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 static const uint RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
@@ -1239,9 +1270,15 @@ void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
                     // never loads it; temporal/spatial reuse does.
                     const PathTracePrimarySurfaceRecord historyRecord =
                         PackPathTracePrimarySurfaceRecord(surface);
-                    PathTraceUnifiedPtPrimaryHistorySidecars[index] =
+                    PathTraceUnifiedPtPrimaryHistorySidecar historySidecar =
                         PackPathTraceUnifiedPtPrimaryHistorySidecar(
                             historyRecord);
+                    if (PathTracePrimarySurfaceSupportsGlassTransmission(surface))
+                    {
+                        historySidecar.metadata.y |=
+                            RT_UPT_PRIMARY_HISTORY_GLASS_TRANSMISSION_ELIGIBLE;
+                    }
+                    PathTraceUnifiedPtPrimaryHistorySidecars[index] = historySidecar;
                 }
                 if (MotionVectorInfo.z >= 3.5)
                 {

@@ -35,8 +35,8 @@ struct Upt45Control
     float cameraOrigin[3];
     float emissiveScale;
     float forwardOffset;
-    float transmissionStrength;
-    float glassTintStrength;
+    uint32_t materialFeatureCount;
+    uint32_t reserved0;
     float rrNear;
     float cameraForwardAndTanX[4];
     float cameraLeftAndTanY[4];
@@ -103,6 +103,7 @@ static void Upt45AddProducerLayoutItems(nvrhi::BindingLayoutDesc& desc)
     desc.addItem(nvrhi::BindingLayoutItem::Sampler(25));
     for (uint32_t slot = 26u; slot <= 34u; ++slot)
         desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(slot));
+    desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(35));
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT45_PRODUCER_PUSH_BYTES));
 }
@@ -131,7 +132,9 @@ static bool Upt45InputsValid(const PathTraceUnifiedPtGlassInputs& inputs)
         g.rigidRouteInstanceBuffer && g.skinnedCurrentOutputVertexBuffer &&
         g.skinnedSourceIndexBuffer && g.skinnedHitRouteRecordBuffer &&
         g.skinnedHitRouteTriangleBuffer && g.skinnedPreviousPositionBuffer &&
-        m.materialTableBuffer && m.textureBindlessLayout &&
+        m.materialTableBuffer && m.materialFeatureBuffer &&
+        m.materialFeatureRecordCount >= m.materialTableEntryCount &&
+        m.textureBindlessLayout &&
         m.textureDescriptorTable && m.textureSampler;
 }
 
@@ -268,6 +271,7 @@ bool PathTraceUnifiedPtGlassState::EnsureProducerBindingSet(
     desc.addItem(nvrhi::BindingSetItem::Texture_UAV(32, inputs.rrGuideDepthTexture));
     desc.addItem(nvrhi::BindingSetItem::Texture_UAV(33, inputs.rrGuideResetMaskTexture));
     desc.addItem(nvrhi::BindingSetItem::Texture_UAV(34, inputs.rrGuidePositionTexture));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(35, m.materialFeatureBuffer));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(0, UPT45_PRODUCER_PUSH_BYTES));
     if (m_producerBindingSet && m_producerBindingSetDescValid &&
         m_producerBindingSetDesc == desc)
@@ -319,8 +323,8 @@ bool PathTraceUnifiedPtGlassState::ExecuteProducer(
     memcpy(control.cameraOrigin, inputs.cameraOrigin, sizeof(control.cameraOrigin));
     control.emissiveScale = inputs.emissiveScale;
     control.forwardOffset = inputs.forwardOffset;
-    control.transmissionStrength = inputs.transmissionStrength;
-    control.glassTintStrength = inputs.glassTintStrength;
+    control.materialFeatureCount = Max(0, m.materialFeatureRecordCount);
+    control.reserved0 = 0u;
     control.rrNear = inputs.rrNear;
     memcpy(control.cameraForwardAndTanX, inputs.cameraForward, sizeof(inputs.cameraForward));
     control.cameraForwardAndTanX[3] = inputs.cameraTanX;
@@ -338,6 +342,7 @@ bool PathTraceUnifiedPtGlassState::ExecuteProducer(
 
     inputs.commandList->setBufferState(inputs.primarySurface32, nvrhi::ResourceStates::UnorderedAccess);
     inputs.commandList->setBufferState(inputs.primaryHistorySidecar, nvrhi::ResourceStates::UnorderedAccess);
+    inputs.commandList->setBufferState(m.materialFeatureBuffer, nvrhi::ResourceStates::ShaderResource);
     inputs.commandList->setTextureState(m_compositionToken, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     if (inputs.writeRrGuides)
     {

@@ -20,7 +20,14 @@ public static const uint kUpt45GeometryChunkTriangles = 256u;
 public static const uint kUpt45PrimaryValid = 0x00000001u;
 public static const uint kUpt45PrimaryObjectMotion = 0x00000004u;
 public static const uint kUpt45PrimaryPreviousPosition = 0x00000008u;
+public static const uint kUpt45PrimaryGlassTransmissionEligible = 0x00010000u;
 public static const uint kUpt45ControlWriteRrGuides = 0x00000001u;
+public static const uint kUpt45MaterialKindTranslucentGlass = 5u;
+public static const uint kUpt45MaterialCapPathTransmission = 0x00000010u;
+public static const uint kUpt45MaterialCapDebugFailClosed = 0x80000000u;
+public static const uint kUpt45MaterialLobeSpecularTransmission = 0x00000008u;
+public static const uint kUpt45MaterialPassTransmissionProducer = 0x00000020u;
+public static const uint kUpt45MaterialFeatureAbiVersion = 4u;
 public static const uint kUpt45MotionValid = 0x00000001u;
 public static const uint kUpt45MotionSourceShift = 1u;
 public static const uint kUpt45MotionInvalidReasonShift = 5u;
@@ -54,8 +61,8 @@ public struct Upt45Control
     public float3 cameraOrigin;
     public float emissiveScale;
     public float forwardOffset;
-    public float transmissionStrength;
-    public float glassTintStrength;
+    public uint materialFeatureCount;
+    public uint reserved0;
     public float rrNear;
     public float4 cameraForwardAndTanX;
     public float4 cameraLeftAndTanY;
@@ -153,11 +160,8 @@ public bool Upt45FrontIsEligible(
     Upt04PrimaryHistorySidecar sidecar)
 {
     const uint header = packed.material.w >> 16u;
-    const uint surfaceClass = sidecar.metadata.x >> 16u;
     return (header & 0x7fffu) == kUpt04PackedPrimary32Version &&
         (header & kUpt04PackedPrimary32Valid) != 0u &&
         (sidecar.metadata.x & 0xffffu) == kUpt04PrimaryHistorySidecarVersion &&
-        surfaceClass == kUpt45SurfaceClassTranslucent &&
-        (sidecar.metadata.w &
-            (kUpt45MaterialPortalWindow | kUpt45MaterialObjectGlass)) != 0u;
+        (sidecar.metadata.y & kUpt45PrimaryGlassTransmissionEligible) != 0u;
 }
