@@ -2814,3 +2814,28 @@ and shaded. Compact32, the 224-byte push ABI, one-RayQuery ceiling, no-clear
 rule, and narrow geometry/material loading are preserved. Build and static
 verification pass; runtime should target the formerly missing panes and moving
 objects behind stacked textured glass. Details and artifact hash are in `66`.
+
+UPT-45 primary-integrated PSR correction, 2026-08-13
+-----------------------------------------------------
+
+Further runtime testing rejected the native compute producer even after its
+surface selection was repaired. It was a second miniature renderer: it traced
+and decoded the selected hit, then manually reconstructed a subset of primary
+material behavior. Consequently alpha-tested geometry, indirect-ready
+surfaces, skinned characters and other canonical primary features remained
+wrong behind glass. This is not accepted as a list of missing shader features.
+
+The separate Slang UPT45 producer/composer and host state are removed from the
+live build. `r_pathTracingUnifiedPtGlassPsr 1` now enables a narrow branch in
+the existing UPT lean P0 any-hit path. Feature-supported clear panes call
+`IgnoreHit` after canonical route/material resolution; the eventual receiver
+is resolved, alpha-tested, shaded, packed and exported by the ordinary primary
+producer. One payload bit records that glass was crossed for cold sidecar
+ownership. There is no second ray, geometry decoder, material evaluator,
+full-screen token, clear or late composition dispatch.
+
+The Vulkan release build passes with both primary RT blobs rebuilt from a
+deleted state. Runtime should verify opaque/alpha/skinned/emissive receivers,
+indirect lighting, stacked panes and RR motion. Expected console proof is
+`primary-integrated glass PSR ... order=P0(with-PSR)-D0-T0-S0-R0-RR
+secondaryRenderer=0`; the old native PSR/compose markers must be absent.

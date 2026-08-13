@@ -614,6 +614,13 @@ Packet index
         spatial paths into one deterministic `exec upt` production preset that
         explicitly clears rejected and diagnostic console state.
 
+    65_upt45_compact_clear_window_psr.txt
+    66_upt45_native_psr_contract_audit.txt
+        Track clear-window PSR ownership. S45.7 supersedes and rejects the
+        secondary native mini-renderer described by the earlier rungs: clear
+        panes now continue inside canonical lean P0, so the committed receiver
+        inherits the ordinary alpha/material/skinned/indirect/RR contract.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

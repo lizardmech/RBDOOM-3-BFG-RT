@@ -368,3 +368,59 @@ The reflected descriptor closure is now 0,3..35 and binding 35 is exactly
 Runtime acceptance must recheck the previously missing panes, a dynamic and a
 skinned receiver behind one and multiple panes, and confirm that no pane
 diffuse texture reaches the replacement receiver.
+
+S45.7 reject the secondary mini renderer; integrate PSR into P0, 2026-08-13
+----------------------------------------------------------------------------
+
+Runtime disproved the S45.1 premise that a deliberately narrow secondary
+surface evaluator could publish a complete receiver. Surface selection became
+correct after S45.6, but the selected receiver still lost canonical behavior:
+
+    alpha-tested candidates were committed without primary alpha evaluation;
+    indirect-ready material surfaces were incomplete;
+    skinned characters used a parallel route/attribute reconstruction;
+    normal maps, dynamic stages, emission and primary modifier handling were
+        either partial or absent.
+
+This was the same architectural failure mode as the old clean-DI transmission
+producer, even though UPT45 used one bounded RayQuery rather than the rejected
+unbounded any-hit traversal. It built a second geometry/material renderer
+behind glass. The geometry-modernization decision history accepted bounded
+traversal for safety, not duplicated shading as a canonical producer contract.
+
+The native compute producer, narrow geometry decoder, manual material
+evaluator, full-screen RGBA16F token and no-op late composer are therefore
+rejected and removed from the build. UPT clear-window PSR now executes inside
+the lean P0 any-hit shader, after canonical route and material-index resolution
+and before existing alpha/decal processing:
+
+    eligible clear pane -> set one payload bit -> IgnoreHit -> continue P0
+    final committed hit -> ordinary closest-hit -> ordinary BuildSurface
+    final receiver -> ordinary compact32/sidecar/RR guide publication
+
+The payload bit records only that a clear pane was crossed. It is copied across
+the existing filter-decal receiver retrace and becomes the cold sidecar glass
+ownership bit; it does not alter the final receiver's material identity. Stacked
+panes naturally repeat the same any-hit decision in one primary traversal.
+
+This makes alpha cards, rigid/skinned routes, dynamic materials, normal maps,
+emission, modifiers, compact packing, motion and RR guides exactly the same
+code path with and without glass. It also removes one full-screen RayQuery
+dispatch, one full-screen compose dispatch and the 8-byte/pixel token.
+
+Verified Vulkan build artifacts:
+
+    pathtrace_primary_surface_producer.rt.bin
+        bytes 1109404
+        SHA256 BD022FDA3D97F76614196DF586C0E08522D33F3C1FEC252018DD316204CBB057
+
+    pathtrace_primary_surface_producer_upt_lean.rt.bin
+        bytes 664504
+        SHA256 C8B47F833C188590E8808470B1A83079083C26EF3AE9F6EA87C1662E5761FF4A
+
+`cmake --build --preset win64-pt-dev-release` passes after deleting both
+affected RT blobs. Runtime acceptance must cover opaque, alpha-tested, rigid,
+skinned and emissive receivers behind one and stacked panes, plus indirect
+lighting and DLSS-RR motion. No separate `UPT.PSR NativeClearWindow` or
+`UPT.Glass NativeCompose Last` marker should remain; the console must report
+`order=P0(with-PSR)-D0-T0-S0-R0-RR secondaryRenderer=0`.

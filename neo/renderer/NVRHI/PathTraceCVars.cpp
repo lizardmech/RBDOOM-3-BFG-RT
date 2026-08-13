@@ -1741,7 +1741,7 @@ idCVar r_pathTracingUnifiedPtGlassPsr(
     "r_pathTracingUnifiedPtGlassPsr",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT-45 opt-in native Slang clear-window PSR: replace compact32 plus sidecar before D0, then apply the compact composition token after R0 and before RR; Vulkan compact32 route only" );
+    "UPT-45 opt-in primary-integrated clear-window PSR: feature-supported panes pass through canonical lean P0 so the committed compact32 receiver retains ordinary alpha/material/skinned/indirect/RR behavior; Vulkan compact32 route only" );
 
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",

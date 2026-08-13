@@ -1002,7 +1002,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         // UPT owns no persistent GPU allocation or pipeline while its route is
         // inactive. Re-enabling deliberately measures a fresh selected build.
         m_unifiedPtState.Release();
-        m_unifiedPtGlassState.Release();
     }
     const bool cleanRtxdiDiProductionView = cleanRtxdiDiView == 16;
     const int staticBucketSecondaryProbeStage =
@@ -2185,8 +2184,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_sceneInputs.valid &&
             m_sceneInputs.geometry.tlas &&
             m_sceneInputs.materials.materialTableBuffer &&
-            m_sceneInputs.materials.textureBindlessLayout &&
-            m_sceneInputs.materials.textureDescriptorTable;
+            m_sceneInputs.materials.materialFeatureBuffer;
         {
             static int reportedRequested = -1;
             static int reportedEffective = -1;
@@ -2195,7 +2193,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             if (requested != reportedRequested || effective != reportedEffective)
             {
                 common->Printf(
-                    "PathTraceUnifiedPt: native glass PSR requested/effective=%d/%d gate(vulkan/compact32/history/scene/tlas/materials/bindless)=1/%u/%u/%u/%u/%u/%u order=P0-PSR-D0-T0-S0-R0-compose-RR wide=0 cleanDi=0 default=off\n",
+                    "PathTraceUnifiedPt: primary-integrated glass PSR requested/effective=%d/%d gate(vulkan/compact32/history/scene/tlas/materials/features)=1/%u/%u/%u/%u/%u/%u order=P0(with-PSR)-D0-T0-S0-R0-RR secondaryRenderer=0 wide=0 cleanDi=0 default=off\n",
                     requested,
                     effective,
                     unifiedPtReceiverMode == 2 && useUptCompactPrimaryReceiver ? 1u : 0u,
@@ -2203,7 +2201,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     m_sceneInputs.valid ? 1u : 0u,
                     m_sceneInputs.geometry.tlas ? 1u : 0u,
                     m_sceneInputs.materials.materialTableBuffer ? 1u : 0u,
-                    m_sceneInputs.materials.textureDescriptorTable ? 1u : 0u);
+                    m_sceneInputs.materials.materialFeatureBuffer ? 1u : 0u);
                 reportedRequested = requested;
                 reportedEffective = effective;
             }
@@ -2449,6 +2447,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.motionVectorInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
             primarySurfaceConstants.restirPTInfo[0] = static_cast<float>(cleanRtxdiDiFrameIndexForDispatch);
             primarySurfaceConstants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
+            primarySurfaceConstants.restirPTSurfaceInfo[0] =
+                unifiedPtGlassPsrEffective ? 1.0f : 0.0f;
             primarySurfaceConstants.rayReconstructionInfo[0] = cleanDlssRrJitterPixels.x;
             primarySurfaceConstants.rayReconstructionInfo[1] = cleanDlssRrJitterPixels.y;
             primarySurfaceConstants.rayReconstructionInfo[2] = cleanDlssRrJitterEnabled ? 1.0f : 0.0f;
@@ -2768,100 +2768,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     viewDef,
                     m_frameResources.restirPTFrameIndex,
                     unifiedPtDlssRrEffective);
-            PathTraceUnifiedPtGlassInputs unifiedPtGlassInputs;
-            unifiedPtGlassInputs.device = device;
-            unifiedPtGlassInputs.commandList = commandList;
-            unifiedPtGlassInputs.sceneInputs = &m_sceneInputs;
-            unifiedPtGlassInputs.primarySurface32 =
-                m_frameResources.unifiedPtPrimaryReceiver32Buffer;
-            unifiedPtGlassInputs.primaryHistorySidecar =
-                m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer;
-            unifiedPtGlassInputs.compositionOutput =
-                m_frameResources.outputTexture;
-            unifiedPtGlassInputs.motionVectorTexture =
-                m_frameResources.motionVectorTexture;
-            unifiedPtGlassInputs.rrMotionVectorTexture =
-                m_frameResources.rrMotionVectorTexture;
-            unifiedPtGlassInputs.motionVectorMaskTexture =
-                m_frameResources.motionVectorMaskTexture;
-            unifiedPtGlassInputs.rrGuideAlbedoTexture =
-                m_frameResources.rrGuideAlbedoTexture;
-            unifiedPtGlassInputs.rrGuideSpecularAlbedoTexture =
-                m_frameResources.rrGuideSpecularAlbedoTexture;
-            unifiedPtGlassInputs.rrGuideNormalRoughnessTexture =
-                m_frameResources.rrGuideNormalRoughnessTexture;
-            unifiedPtGlassInputs.rrGuideDepthTexture =
-                m_frameResources.rrGuideDepthTexture;
-            unifiedPtGlassInputs.rrGuideResetMaskTexture =
-                m_frameResources.rrGuideResetMaskTexture;
-            unifiedPtGlassInputs.rrGuidePositionTexture =
-                m_frameResources.rrGuidePositionTexture;
-            unifiedPtGlassInputs.width =
-                static_cast<uint32_t>(m_frameResources.width);
-            unifiedPtGlassInputs.height =
-                static_cast<uint32_t>(m_frameResources.height);
-            unifiedPtGlassInputs.cameraOrigin[0] = viewDef->renderView.vieworg.x;
-            unifiedPtGlassInputs.cameraOrigin[1] = viewDef->renderView.vieworg.y;
-            unifiedPtGlassInputs.cameraOrigin[2] = viewDef->renderView.vieworg.z;
-            idVec3 unifiedPtGlassForward = viewDef->renderView.viewaxis[0];
-            idVec3 unifiedPtGlassLeft = viewDef->renderView.viewaxis[1];
-            idVec3 unifiedPtGlassUp = viewDef->renderView.viewaxis[2];
-            unifiedPtGlassForward.Normalize();
-            unifiedPtGlassLeft.Normalize();
-            unifiedPtGlassUp.Normalize();
-            for (int component = 0; component < 3; ++component)
-            {
-                unifiedPtGlassInputs.cameraForward[component] =
-                    unifiedPtGlassForward[component];
-                unifiedPtGlassInputs.cameraLeft[component] =
-                    unifiedPtGlassLeft[component];
-                unifiedPtGlassInputs.cameraUp[component] =
-                    unifiedPtGlassUp[component];
-                unifiedPtGlassInputs.previousCameraOrigin[component] =
-                    m_frameResources.primarySurfaceHistoryView.origin[component];
-                unifiedPtGlassInputs.previousCameraForward[component] =
-                    m_frameResources.primarySurfaceHistoryView.forward[component];
-                unifiedPtGlassInputs.previousCameraLeft[component] =
-                    m_frameResources.primarySurfaceHistoryView.left[component];
-                unifiedPtGlassInputs.previousCameraUp[component] =
-                    m_frameResources.primarySurfaceHistoryView.up[component];
-            }
-            unifiedPtGlassInputs.cameraTanX =
-                idMath::Tan(DEG2RAD(viewDef->renderView.fov_x * 0.5f));
-            unifiedPtGlassInputs.cameraTanY =
-                idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
-            unifiedPtGlassInputs.previousCameraTanX =
-                m_frameResources.primarySurfaceHistoryView.tanX;
-            unifiedPtGlassInputs.previousCameraTanY =
-                m_frameResources.primarySurfaceHistoryView.tanY;
-            unifiedPtGlassInputs.previousCameraValid =
-                m_frameResources.primarySurfaceHistoryState.previousValid &&
-                m_frameResources.primarySurfaceHistoryView.valid &&
-                m_frameResources.primarySurfaceHistoryView.width == m_frameResources.width &&
-                m_frameResources.primarySurfaceHistoryView.height == m_frameResources.height &&
-                !m_frameResources.primarySurfaceHistoryNeedsClear;
-            {
-                const float rrNearCvar = r_pathTracingDLSSRRCameraNear.GetFloat();
-                unifiedPtGlassInputs.rrNear = Max(
-                    rrNearCvar > 0.0f ? rrNearCvar : r_znear.GetFloat(),
-                    1.0e-4f);
-            }
-            unifiedPtGlassInputs.writeRrGuides = unifiedPtDlssRrEffective;
-            unifiedPtGlassInputs.emissiveScale = idMath::ClampFloat(
-                0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
-            unifiedPtGlassInputs.transmissionStrength = 0.92f;
-            unifiedPtGlassInputs.glassTintStrength = 0.35f;
-            // Legacy accepted clear glass has no diffuse tint/opacity overlay;
-            // only normal-map distortion is a future pane contribution.
-            unifiedPtGlassInputs.overlayStrength = 0.0f;
-            unifiedPtGlassInputs.nsightMarkers = nsightGpuMarkers;
-            bool unifiedPtNativeGlassExecuted = false;
-            if (unifiedPtGlassPsrEffective)
-            {
-                unifiedPtNativeGlassExecuted =
-                    m_unifiedPtGlassState.ExecuteProducer(
-                        unifiedPtGlassInputs);
-            }
             PathTraceUnifiedPtDispatchInputs unifiedPtInputs;
             unifiedPtInputs.device = device;
             unifiedPtInputs.commandList = commandList;
@@ -3540,19 +3446,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 // Never leave an old UPT image eligible for presentation when
                 // the current frame did not execute the admitted resolve.
                 m_unifiedPtState.ReleaseResolve();
-            }
-
-            if (unifiedPtResolveExecuted &&
-                unifiedPtNativeGlassExecuted &&
-                unifiedPtPostResolveOutput &&
-                m_unifiedPtGlassState.ExecuteCompose(
-                    unifiedPtGlassInputs,
-                    unifiedPtPostResolveOutput))
-            {
-                unifiedPtPostResolveOutput =
-                    m_unifiedPtGlassState.GetComposedOutput();
-                m_unifiedPtState.SetPresentationOutput(
-                    unifiedPtPostResolveOutput);
             }
 
             if (unifiedPtResolveExecuted && unifiedPtDlssRrEffective)

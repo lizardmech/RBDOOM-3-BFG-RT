@@ -14,6 +14,7 @@
 
 #define RT_SMOKE_DECAL_BIN_SIZE 3
 #define RT_LIQUID_POOL_CANDIDATE_CAPACITY 4
+#define RT_SMOKE_PAYLOAD_CLEAR_GLASS_CROSSED 0x00000001u
 
 struct PathTraceSmokePayload
 {
@@ -1168,6 +1169,7 @@ bool ResolvePrimaryFilterDecalReceiver(inout PathTraceSmokePayload payload, RayD
     }
 #endif
     receiverPayload.value = 2u;
+    receiverPayload.debugFlags = payload.debugFlags;
     receiverPayload.shadowIgnoreInstanceId = payload.instanceId;
     receiverPayload.shadowIgnorePrimitiveIndex = payload.primitiveIndex;
     receiverPayload.shadowIgnoreMaterialId = payload.materialId;
@@ -1235,7 +1237,10 @@ int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition, bool previousFrame)
 #undef RB_PT_STATIC_BUCKET_MOTION_ENABLED
 #include "cleanroom_rtxdi/pathtrace_clean_rtxdi_di_rr_geometry_guides.hlsli"
 
-void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
+void StorePrimarySurfaceRecord(
+    uint2 pixel,
+    RAB_Surface surface,
+    bool clearGlassCrossed)
 {
     // UPT's current-frame D0 input is deliberately independent from the
     // multipurpose 176-byte DI/GI temporal history ABI. MotionVectorInfo.z
@@ -1273,7 +1278,7 @@ void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
                     PathTraceUnifiedPtPrimaryHistorySidecar historySidecar =
                         PackPathTraceUnifiedPtPrimaryHistorySidecar(
                             historyRecord);
-                    if (PathTracePrimarySurfaceSupportsGlassTransmission(surface))
+                    if (clearGlassCrossed)
                     {
                         historySidecar.metadata.y |=
                             RT_UPT_PRIMARY_HISTORY_GLASS_TRANSMISSION_ELIGIBLE;
@@ -3532,7 +3537,10 @@ void RayGen()
     WritePrimaryLiquidPoolDebug(outputPixel, surface, payload, liquidResolve);
     PublishLiquidPoolExceptionalStatus(liquidResolve.statusMask);
 #endif
-    StorePrimarySurfaceRecord(pixel, surface);
+    StorePrimarySurfaceRecord(
+        pixel,
+        surface,
+        (payload.debugFlags & RT_SMOKE_PAYLOAD_CLEAR_GLASS_CROSSED) != 0u);
     // MotionVectorInfo.y is a host-owned publication bit for the shared
     // producer. UPT consumes only PrimarySurfaceHistoryCurrent; clean DI owns
     // the RR guide images. Avoid full-frame writes to unused guide UAVs when
@@ -3702,6 +3710,28 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
             lookupInstanceId,
             lookupPrimitiveIndex)
         : 0u;
+
+#if RB_PT_UPT_LEAN_PRIMARY
+    // UPT clear-window PSR belongs to primary visibility, not to a secondary
+    // material renderer. Continue the canonical primary trace through an
+    // authored clear pane; the final committed receiver then uses the same
+    // closest-hit, material, alpha, decal, rigid and skinned paths as any
+    // ordinary camera hit.
+    if (RestirPTSurfaceInfo.x >= 0.5 && lookupTriangleValid)
+    {
+        PathTraceMaterialFeatureRecord glassFeature;
+        if (TryLoadPathTraceMaterialFeatureRecord(
+                hitMaterialIndex,
+                glassFeature) &&
+            PathTraceMaterialFeatureSupportsGlassTransmission(
+                PathTraceMaterialFeatureFromRecord(glassFeature)))
+        {
+            payload.debugFlags |= RT_SMOKE_PAYLOAD_CLEAR_GLASS_CROSSED;
+            IgnoreHit();
+            return;
+        }
+    }
+#endif
 
     if ((RB_PT_UPT_LEAN_PRIMARY || PathTraceLiquidPoolCollectionEnabled()) &&
         lookupTriangleValid)
