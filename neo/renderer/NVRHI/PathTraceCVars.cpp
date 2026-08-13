@@ -1741,7 +1741,7 @@ idCVar r_pathTracingUnifiedPtGlassPsr(
     "r_pathTracingUnifiedPtGlassPsr",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT-45 opt-in clear-window primary-surface replacement: run the proven transmission producer before D0, dual-publish wide and compact32 receivers, then compose glass sidecars after R0; Vulkan compact32 production route only" );
+    "UPT-45 opt-in native Slang clear-window PSR: replace compact32 plus sidecar before D0, then apply the compact composition token after R0 and before RR; Vulkan compact32 route only" );
 
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",

@@ -212,3 +212,47 @@ Runtime promotion remains blocked until Nsight records registers/thread,
 maximum live-register site, occupancy, No Instructions and Long Scoreboard for
 no-glass, sparse-glass and full-view-glass cases. These figures must be kept in
 this document with the final artifact hash.
+
+S45.2/S45.3 implementation checkpoint, 2026-08-13
+--------------------------------------------------
+
+The first native Vulkan implementation now follows the split visible in the
+RTXDI Full Sample capture:
+
+    P0 -> UPT.PSR NativeClearWindow -> D0/T0/S0/R0
+       -> UPT.Glass NativeCompose Last -> optional RR/presentation
+
+The final Glass marker is therefore composition, not the receiver replacement
+itself. The early producer overwrites compact32 plus its current sidecar before
+any UPT estimator consumes them. The late compute pass binds only R0, the
+RGBA16F token and the existing frame output UAV.
+
+The producer is implemented in `neo/shaders/slang_upt45` and has one statically
+declared RayQuery. It uses direct word loads for route, vertex and material
+data, builds only `Upt45NarrowHit`/`Upt45NarrowSurface`, and does not import the
+general UPT triangle/surface decoder. It binds no light universe, reservoir,
+ReGIR, clean-DI state or 176-byte primary record. The token is the only new
+full-resolution allocation: RGBA16F, 8 bytes/pixel, overwritten by every
+dispatched pixel, no clear and no history. Composition reuses the existing
+frame output instead of allocating a second private image.
+
+The rejected adapter's UPT-side wide-record mode and clean material-feature
+state were removed. The existing u97/u98 aliases remain owned solely by the
+legacy clean-DI glass implementation; UPT neither binds nor imports them. This
+keeps legacy behavior intact and the native UPT descriptor closure independently
+auditable.
+
+Verified build artifacts:
+
+    upt45_clear_window_psr.bin
+        bytes 50324
+        SHA256 1C591FA401046C3A8183E9B9D9478BE24B44BA04E6F7BDA80EA6D9CCD8A7A748
+
+    upt45_glass_compose.bin
+        bytes 2364
+        SHA256 89CDCA18E9BDC0350FB460E7EF09E7C8FA1C3EE58E0A1955799D7666F3150AC7
+
+`cmake --build --preset win64-pt-dev-release` passes from `neo/`. Runtime and
+Nsight acceptance remain open: first prove correct glass/non-glass output and
+the two marker positions, then record the required register and dependency
+figures before considering default promotion.

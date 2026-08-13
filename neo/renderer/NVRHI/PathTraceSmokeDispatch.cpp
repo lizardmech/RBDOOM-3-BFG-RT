@@ -1002,6 +1002,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         // UPT owns no persistent GPU allocation or pipeline while its route is
         // inactive. Re-enabling deliberately measures a fresh selected build.
         m_unifiedPtState.Release();
+        m_unifiedPtGlassState.Release();
     }
     const bool cleanRtxdiDiProductionView = cleanRtxdiDiView == 16;
     const int staticBucketSecondaryProbeStage =
@@ -1134,11 +1135,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         unifiedPtRouteRequested &&
         !cleanRtxdiDiRouteRequested &&
         r_pathTracingUnifiedPtGlassPsr.GetBool();
-    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses unifiedPtGlassMaterialFeaturePasses =
-        BuildPathTraceCleanRtxdiDiMaterialFeaturePasses(
-            unifiedPtGlassPsrRequested,
-            16,
-            m_smokeUnifiedPtGlassMaterialFeatures);
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const int pdfNeeVerifierEntryVisibility = idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierVisibility.GetInteger());
     const int pdfNeeVerifierSelectedVisibilityPolicy = pdfNeeVerifierEntryVisibility != 0
@@ -1779,7 +1775,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     auto publishPrimarySurfaceHistory = [&](
         const char* copyMarker,
         bool publishUptCompactHistory = false,
-        bool publishWideUptGlassHistory = false,
         const idVec2& projectionJitterPixels = idVec2(0.0f, 0.0f))
     {
         if (publishUptCompactHistory)
@@ -1812,43 +1807,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer,
                 0,
                 m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer->getDesc().byteSize);
-            if (publishWideUptGlassHistory)
-            {
-                // UPT-45's compact reservoir path stays unchanged. The wide
-                // record is advanced solely for the proven glass producer's
-                // sticky lane/history validation on the next frame.
-                commandList->setBufferState(
-                    m_frameResources.primarySurfaceHistoryBuffers.current,
-                    nvrhi::ResourceStates::CopySource);
-                commandList->setBufferState(
-                    m_frameResources.primarySurfaceHistoryBuffers.previous,
-                    nvrhi::ResourceStates::CopyDest);
-                commandList->commitBarriers();
-                commandList->copyBuffer(
-                    m_frameResources.primarySurfaceHistoryBuffers.previous,
-                    0,
-                    m_frameResources.primarySurfaceHistoryBuffers.current,
-                    0,
-                    m_frameResources.primarySurfaceHistoryBuffers.current->getDesc().byteSize);
-            }
-        }
-        else if (publishWideUptGlassHistory)
-        {
-            // D0-only UPT has no compact N-1 consumer, but the glass producer
-            // still needs its own wide previous record for sticky lane choice.
-            commandList->setBufferState(
-                m_frameResources.primarySurfaceHistoryBuffers.current,
-                nvrhi::ResourceStates::CopySource);
-            commandList->setBufferState(
-                m_frameResources.primarySurfaceHistoryBuffers.previous,
-                nvrhi::ResourceStates::CopyDest);
-            commandList->commitBarriers();
-            commandList->copyBuffer(
-                m_frameResources.primarySurfaceHistoryBuffers.previous,
-                0,
-                m_frameResources.primarySurfaceHistoryBuffers.current,
-                0,
-                m_frameResources.primarySurfaceHistoryBuffers.current->getDesc().byteSize);
         }
         else if (r_pathTracingCleanRtxdiDiPrimarySurfaceHistorySwap.GetBool())
         {
@@ -2216,7 +2174,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.unifiedPtPrimaryReceiver32PreviousBuffer &&
             m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer &&
             m_frameResources.unifiedPtPrimaryHistorySidecarPreviousBuffer;
-        const bool unifiedPtGlassPsrCompactGate =
+        const bool unifiedPtGlassPsrEffective =
             unifiedPtGlassPsrRequested &&
             deviceManager &&
             deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN &&
@@ -2224,40 +2182,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             useUptCompactPrimaryReceiver &&
             m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer &&
             (!unifiedPtReuseRequested || useUptCompactPrimaryHistory) &&
-            m_frameResources.primarySurfaceHistoryBuffers.current &&
-            m_frameResources.primarySurfaceHistoryBuffers.previous &&
-            m_smokeCleanRtxdiDiSentinelBindingLayout &&
-            m_smokeCleanRtxdiDiSentinelConstantsBuffer &&
-            m_smokeMaterialFeatureRuntimeConstantsBuffer &&
-            m_frameResources.transmissionTexture &&
-            m_frameResources.reflectionSidecarTexture &&
-            m_frameResources.glassDistortionSidecarTexture &&
-            r_pathTracingCleanRtxdiDiTransmissionProducer.GetBool() &&
-            r_pathTracingCleanRtxdiDiTransmissionCompose.GetBool() &&
-            // The shared clean layout declares u69-u72, but the UPT glass
-            // producer and composer do not consume clean-DI reservoirs.
-            // Bind the persistent status UAV below and leave reservoirCount
-            // zero instead of allocating four full-resolution DI pages.
-            m_liquidPoolStatusBuffer &&
-            m_smokeReGIRState.placeholderSrvBuffer &&
-            PathTraceCleanRtxdiDiMaterialFeatureOutputsAvailable(
-                unifiedPtGlassMaterialFeaturePasses,
-                m_frameResources);
-        bool unifiedPtGlassPsrEffective = unifiedPtGlassPsrCompactGate;
-        bool unifiedPtGlassPsrPipelinesReady = false;
-        if (unifiedPtGlassPsrEffective)
-        {
-            const RtPathTraceCleanRtxdiDiPipelineContext pipelineContext =
-                BuildPathTraceCleanRtxdiDiPipelineContext(
-                    m_smokeTestInitialized,
-                    m_smokeCleanRtxdiDiSentinelBindingLayout,
-                    m_smokeTextureBindlessLayout);
-            unifiedPtGlassPsrPipelinesReady =
-                EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
-                    unifiedPtGlassMaterialFeaturePasses,
-                    pipelineContext);
-            unifiedPtGlassPsrEffective = unifiedPtGlassPsrPipelinesReady;
-        }
+            m_sceneInputs.valid &&
+            m_sceneInputs.geometry.tlas &&
+            m_sceneInputs.materials.materialTableBuffer &&
+            m_sceneInputs.materials.textureBindlessLayout &&
+            m_sceneInputs.materials.textureDescriptorTable;
         {
             static int reportedRequested = -1;
             static int reportedEffective = -1;
@@ -2266,17 +2195,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             if (requested != reportedRequested || effective != reportedEffective)
             {
                 common->Printf(
-                    "PathTraceUnifiedPt: glass PSR requested/effective=%d/%d gate(vulkan/compact32/history/wide/featureCvars/sidecars/fallbackUav/pipelines)=%u/%u/%u/%u/%u/%u/%u/%u order=P0-PSR-D0-T0-S0-R0-compose-RR default=off\n",
+                    "PathTraceUnifiedPt: native glass PSR requested/effective=%d/%d gate(vulkan/compact32/history/scene/tlas/materials/bindless)=1/%u/%u/%u/%u/%u/%u order=P0-PSR-D0-T0-S0-R0-compose-RR wide=0 cleanDi=0 default=off\n",
                     requested,
                     effective,
-                    deviceManager && deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN ? 1u : 0u,
                     unifiedPtReceiverMode == 2 && useUptCompactPrimaryReceiver ? 1u : 0u,
                     (!unifiedPtReuseRequested || useUptCompactPrimaryHistory) ? 1u : 0u,
-                    m_frameResources.primarySurfaceHistoryBuffers.current && m_frameResources.primarySurfaceHistoryBuffers.previous ? 1u : 0u,
-                    r_pathTracingCleanRtxdiDiTransmissionProducer.GetBool() && r_pathTracingCleanRtxdiDiTransmissionCompose.GetBool() ? 1u : 0u,
-                    m_frameResources.transmissionTexture && m_frameResources.reflectionSidecarTexture && m_frameResources.glassDistortionSidecarTexture ? 1u : 0u,
-                    m_liquidPoolStatusBuffer ? 1u : 0u,
-                    unifiedPtGlassPsrPipelinesReady ? 1u : 0u);
+                    m_sceneInputs.valid ? 1u : 0u,
+                    m_sceneInputs.geometry.tlas ? 1u : 0u,
+                    m_sceneInputs.materials.materialTableBuffer ? 1u : 0u,
+                    m_sceneInputs.materials.textureDescriptorTable ? 1u : 0u);
                 reportedRequested = requested;
                 reportedEffective = effective;
             }
@@ -2514,9 +2441,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (primarySchedule.requestedByCleanDi || unifiedPtDlssRrEffective)
                     ? 1.0f : 0.0f;
             primarySurfaceConstants.motionVectorInfo[2] =
-                unifiedPtGlassPsrEffective
-                    ? 4.0f
-                    : useUptCompactPrimaryHistory
+                useUptCompactPrimaryHistory
                     ? 3.0f
                     : useUptCompactPrimaryReceiver
                     ? static_cast<float>(unifiedPtReceiverMode)
@@ -2621,12 +2546,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer,
                         nvrhi::ResourceStates::UnorderedAccess);
                 }
-                if (unifiedPtGlassPsrEffective)
-                {
-                    commandList->setBufferState(
-                        m_frameResources.primarySurfaceHistoryBuffers.current,
-                        nvrhi::ResourceStates::UnorderedAccess);
-                }
             }
             else
             {
@@ -2704,12 +2623,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nvrhi::utils::BufferUavBarrier(
                     commandList,
                     m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer);
-            }
-            if (unifiedPtGlassPsrEffective)
-            {
-                nvrhi::utils::BufferUavBarrier(
-                    commandList,
-                    m_frameResources.primarySurfaceHistoryBuffers.current);
             }
 
             if (primarySchedule.requestedByCleanDi)
@@ -2855,225 +2768,35 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     viewDef,
                     m_frameResources.restirPTFrameIndex,
                     unifiedPtDlssRrEffective);
-            nvrhi::BindingSetHandle unifiedPtGlassBindingSet;
-            nvrhi::rt::State unifiedPtGlassState;
-            PathTraceCleanRtxdiDiSentinelConstants unifiedPtGlassConstants = {};
-            nvrhi::rt::DispatchRaysArguments unifiedPtGlassArgs;
-            unifiedPtGlassArgs.width = m_frameResources.width;
-            unifiedPtGlassArgs.height = m_frameResources.height;
-            unifiedPtGlassArgs.depth = 1;
+            PathTraceUnifiedPtGlassInputs unifiedPtGlassInputs;
+            unifiedPtGlassInputs.device = device;
+            unifiedPtGlassInputs.commandList = commandList;
+            unifiedPtGlassInputs.sceneInputs = &m_sceneInputs;
+            unifiedPtGlassInputs.primarySurface32 =
+                m_frameResources.unifiedPtPrimaryReceiver32Buffer;
+            unifiedPtGlassInputs.primaryHistorySidecar =
+                m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer;
+            unifiedPtGlassInputs.compositionOutput =
+                m_frameResources.outputTexture;
+            unifiedPtGlassInputs.width =
+                static_cast<uint32_t>(m_frameResources.width);
+            unifiedPtGlassInputs.height =
+                static_cast<uint32_t>(m_frameResources.height);
+            unifiedPtGlassInputs.cameraOrigin[0] = viewDef->renderView.vieworg.x;
+            unifiedPtGlassInputs.cameraOrigin[1] = viewDef->renderView.vieworg.y;
+            unifiedPtGlassInputs.cameraOrigin[2] = viewDef->renderView.vieworg.z;
+            unifiedPtGlassInputs.emissiveScale = idMath::ClampFloat(
+                0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
+            unifiedPtGlassInputs.transmissionStrength = 0.92f;
+            unifiedPtGlassInputs.glassTintStrength = 0.35f;
+            unifiedPtGlassInputs.overlayStrength = 0.015f;
+            unifiedPtGlassInputs.nsightMarkers = nsightGpuMarkers;
+            bool unifiedPtNativeGlassExecuted = false;
             if (unifiedPtGlassPsrEffective)
             {
-                PathTraceEnsureBlueNoise(
-                    m_smokeCleanRtxdiDiBlueNoise,
-                    device,
-                    "PathTraceUnifiedPt: glass PSR",
-                    "PathTraceUnifiedPtGlassBlueNoise");
-                unifiedPtGlassPsrEffective = m_smokeCleanRtxdiDiBlueNoise.texture != nullptr;
-            }
-            if (unifiedPtGlassPsrEffective)
-            {
-                const nvrhi::TextureHandle fallbackTexture =
-                    !m_smokeActiveTextureTable.empty()
-                        ? m_smokeActiveTextureTable[0]
-                        : nullptr;
-                const nvrhi::BufferHandle optionalSrv =
-                    m_smokeReGIRState.placeholderSrvBuffer;
-                const nvrhi::BufferHandle unusedCleanReservoirUav =
-                    m_liquidPoolStatusBuffer;
-                nvrhi::BindingSetDesc bindingSetDesc;
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_frameResources.outputTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeCleanRtxdiDiSentinelConstantsBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, dispatchStaticVertexBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, dispatchStaticIndexBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(5, dispatchStaticTriangleClassBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_smokeDynamicVertexBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, m_smokeDynamicIndexBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, m_smokeDynamicTriangleClassBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(9, dispatchStaticTriangleMaterialBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, m_smokeDynamicTriangleMaterialBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, dispatchStaticTriangleMaterialIndexBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, m_smokeDynamicTriangleMaterialIndexBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(13, m_smokeMaterialTableBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(14, fallbackTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(15, m_smokeDynamicMaterialBuffer ? m_smokeDynamicMaterialBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, m_smokeEmissiveTriangleBuffer ? m_smokeEmissiveTriangleBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(22, m_smokeRigidRouteVertexBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(23, m_smokeRigidRouteIndexBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(24, m_smokeRigidRouteTriangleMaterialBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, m_smokeRigidRouteTriangleMaterialIndexBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, m_smokeRigidRouteInstanceBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(18, m_smokeSkinnedHitRouteRecordBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, m_smokeSkinnedHitRouteTriangleBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(28, m_sceneInputs.geometry.skinnedSourceIndexBuffer ? m_sceneInputs.geometry.skinnedSourceIndexBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(29, m_smokeSkinnedCurrentOutputVertexBuffer ? m_smokeSkinnedCurrentOutputVertexBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(32, m_smokeSkinnedPreviousPositionBuffer ? m_smokeSkinnedPreviousPositionBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, m_smokeDoomAnalyticLightBuffer ? m_smokeDoomAnalyticLightBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, m_frameResources.primarySurfaceHistoryBuffers.current));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, m_frameResources.primarySurfaceHistoryBuffers.previous));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(39, m_frameResources.motionVectorTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(40, m_frameResources.motionVectorMaskTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(42, m_smokeDoomAnalyticCurrentIdentityBuffer ? m_smokeDoomAnalyticCurrentIdentityBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(43, m_smokeDoomAnalyticPreviousIdentityBuffer ? m_smokeDoomAnalyticPreviousIdentityBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(44, m_smokeDoomAnalyticRemapBuffer ? m_smokeDoomAnalyticRemapBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(45, m_smokeDoomAnalyticPreviousLightBuffer ? m_smokeDoomAnalyticPreviousLightBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(46, m_smokeEmissiveDistributionBuffer ? m_smokeEmissiveDistributionBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(48, m_frameResources.rrGuideAlbedoTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(49, m_frameResources.rrGuideNormalRoughnessTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(50, m_frameResources.rrGuideDepthTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(51, m_frameResources.rrGuideHitDistanceTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(52, m_frameResources.rrGuideResetMaskTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(53, m_frameResources.rrGuideSpecularAlbedoTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture));
-                AddPathTraceCleanRtxdiDiMaterialFeatureBindings(
-                    bindingSetDesc,
-                    unifiedPtGlassMaterialFeaturePasses,
-                    m_smokeMaterialTableBuffer,
-                    m_smokeMaterialFeatureBuffer,
-                    m_smokeMaterialFeatureParameterBuffer,
-                    m_smokeMaterialFeatureRuntimeConstantsBuffer,
-                    m_frameResources);
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(79, m_frameResources.rrGuidePositionTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(57, m_smokePreviousEmissiveTriangleBuffer ? m_smokePreviousEmissiveTriangleBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(64, m_smokeRestirLightManagerCurrentToPreviousBuffer ? m_smokeRestirLightManagerCurrentToPreviousBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(65, m_smokeRestirLightManagerPreviousToCurrentBuffer ? m_smokeRestirLightManagerPreviousToCurrentBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(66, m_smokeRestirLightManagerCurrentPayloadBuffer ? m_smokeRestirLightManagerCurrentPayloadBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(67, m_smokeRestirLightManagerPreviousPayloadBuffer ? m_smokeRestirLightManagerPreviousPayloadBuffer : optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(69, unusedCleanReservoirUav));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(70, unusedCleanReservoirUav));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(71, unusedCleanReservoirUav));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(72, unusedCleanReservoirUav));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, optionalSrv));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(94, m_liquidPoolStatusBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(97, m_frameResources.unifiedPtPrimaryReceiver32Buffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(98, m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(PATH_TRACE_BLUE_NOISE_BINDING, m_smokeCleanRtxdiDiBlueNoise.texture));
-                bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
-                unifiedPtGlassBindingSet = device->createBindingSet(
-                    bindingSetDesc,
-                    m_smokeCleanRtxdiDiSentinelBindingLayout);
-                unifiedPtGlassPsrEffective = unifiedPtGlassBindingSet != nullptr;
-                if (unifiedPtGlassPsrEffective)
-                {
-                    unifiedPtGlassState.bindings = {
-                        unifiedPtGlassBindingSet,
-                        m_smokeTextureDescriptorTable };
-                    PathTraceUploadBlueNoise(m_smokeCleanRtxdiDiBlueNoise, commandList);
-                }
-            }
-            if (unifiedPtGlassPsrEffective)
-            {
-                uint32_t flags = CLEAN_RTXDI_DI_FLAG_TRANSMISSION_PSR_PHASE;
-                if (r_pathTracingCleanRtxdiDiGlassReflectionPsr.GetBool()) flags |= CLEAN_RTXDI_DI_FLAG_GLASS_REFLECTION_PSR;
-                if (r_pathTracingCleanRtxdiDiGlassDistortion.GetBool()) flags |= CLEAN_RTXDI_DI_FLAG_GLASS_DISTORTION;
-                if (r_pathTracingCleanRtxdiDiGlassRefractedPsr.GetBool()) flags |= CLEAN_RTXDI_DI_FLAG_GLASS_REFRACTED_PSR;
-                if (r_pathTracingReflectionSecondaryShadows.GetInteger() == 0) flags |= CLEAN_RTXDI_DI_FLAG_REFLECTION_SECONDARY_NO_SHADOWS;
-                if (staticBucketBoundedTransmissionResolverRequired) flags |= CLEAN_RTXDI_DI_FLAG_TRANSMISSION_ITERATIVE_RESOLVE;
-                if (m_smokeCleanRtxdiDiBlueNoise.valid && r_pathTracingCleanRtxdiDiBlueNoise.GetBool()) flags |= CLEAN_RTXDI_DI_FLAG_BLUE_NOISE;
-                unifiedPtGlassConstants.view = 16u;
-                unifiedPtGlassConstants.status = 3u;
-                unifiedPtGlassConstants.width = static_cast<uint32_t>(m_frameResources.width);
-                unifiedPtGlassConstants.height = static_cast<uint32_t>(m_frameResources.height);
-                unifiedPtGlassConstants.frameIndex = m_frameResources.restirPTFrameIndex;
-                unifiedPtGlassConstants.flags = flags;
-                unifiedPtGlassConstants.staticTriangleCount = static_cast<uint32_t>(Max(0, m_sceneInputs.geometry.staticTriangleCount));
-                unifiedPtGlassConstants.dynamicTriangleCount = static_cast<uint32_t>(Max(0, m_sceneInputs.geometry.dynamicTriangleCount));
-                unifiedPtGlassConstants.rigidRouteTriangleCount = static_cast<uint32_t>(Max(0, m_sceneInputs.geometry.rigidRouteTriangleCount));
-                unifiedPtGlassConstants.currentEmissiveTriangleCount = static_cast<uint32_t>(Max(0, m_smokeEmissiveTriangleCount));
-                unifiedPtGlassConstants.previousEmissiveTriangleCount = static_cast<uint32_t>(Max(0, m_smokePreviousEmissiveTriangleCount));
-                unifiedPtGlassConstants.cameraOriginAndValid[0] = viewDef->renderView.vieworg.x;
-                unifiedPtGlassConstants.cameraOriginAndValid[1] = viewDef->renderView.vieworg.y;
-                unifiedPtGlassConstants.cameraOriginAndValid[2] = viewDef->renderView.vieworg.z;
-                unifiedPtGlassConstants.cameraOriginAndValid[3] = 1.0f;
-                unifiedPtGlassConstants.cameraForwardAndTanX[0] = viewDef->renderView.viewaxis[0].x;
-                unifiedPtGlassConstants.cameraForwardAndTanX[1] = viewDef->renderView.viewaxis[0].y;
-                unifiedPtGlassConstants.cameraForwardAndTanX[2] = viewDef->renderView.viewaxis[0].z;
-                unifiedPtGlassConstants.cameraForwardAndTanX[3] = idMath::Tan(DEG2RAD(viewDef->renderView.fov_x * 0.5f));
-                unifiedPtGlassConstants.cameraLeftAndTanY[0] = viewDef->renderView.viewaxis[1].x;
-                unifiedPtGlassConstants.cameraLeftAndTanY[1] = viewDef->renderView.viewaxis[1].y;
-                unifiedPtGlassConstants.cameraLeftAndTanY[2] = viewDef->renderView.viewaxis[1].z;
-                unifiedPtGlassConstants.cameraLeftAndTanY[3] = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
-                unifiedPtGlassConstants.cameraUpAndTanY[0] = viewDef->renderView.viewaxis[2].x;
-                unifiedPtGlassConstants.cameraUpAndTanY[1] = viewDef->renderView.viewaxis[2].y;
-                unifiedPtGlassConstants.cameraUpAndTanY[2] = viewDef->renderView.viewaxis[2].z;
-                unifiedPtGlassConstants.cameraUpAndTanY[3] = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
-                unifiedPtGlassConstants.prevCameraOriginAndValid[0] = m_frameResources.primarySurfaceHistoryView.origin.x;
-                unifiedPtGlassConstants.prevCameraOriginAndValid[1] = m_frameResources.primarySurfaceHistoryView.origin.y;
-                unifiedPtGlassConstants.prevCameraOriginAndValid[2] = m_frameResources.primarySurfaceHistoryView.origin.z;
-                unifiedPtGlassConstants.prevCameraOriginAndValid[3] = m_frameResources.primarySurfaceHistoryView.valid ? 1.0f : 0.0f;
-                unifiedPtGlassConstants.prevCameraForwardAndTanX[0] = m_frameResources.primarySurfaceHistoryView.forward.x;
-                unifiedPtGlassConstants.prevCameraForwardAndTanX[1] = m_frameResources.primarySurfaceHistoryView.forward.y;
-                unifiedPtGlassConstants.prevCameraForwardAndTanX[2] = m_frameResources.primarySurfaceHistoryView.forward.z;
-                unifiedPtGlassConstants.prevCameraForwardAndTanX[3] = m_frameResources.primarySurfaceHistoryView.tanX;
-                unifiedPtGlassConstants.prevCameraLeftAndTanY[0] = m_frameResources.primarySurfaceHistoryView.left.x;
-                unifiedPtGlassConstants.prevCameraLeftAndTanY[1] = m_frameResources.primarySurfaceHistoryView.left.y;
-                unifiedPtGlassConstants.prevCameraLeftAndTanY[2] = m_frameResources.primarySurfaceHistoryView.left.z;
-                unifiedPtGlassConstants.prevCameraLeftAndTanY[3] = m_frameResources.primarySurfaceHistoryView.tanY;
-                unifiedPtGlassConstants.prevCameraUpAndTanY[0] = m_frameResources.primarySurfaceHistoryView.up.x;
-                unifiedPtGlassConstants.prevCameraUpAndTanY[1] = m_frameResources.primarySurfaceHistoryView.up.y;
-                unifiedPtGlassConstants.prevCameraUpAndTanY[2] = m_frameResources.primarySurfaceHistoryView.up.z;
-                unifiedPtGlassConstants.prevCameraUpAndTanY[3] = m_frameResources.primarySurfaceHistoryView.tanY;
-                unifiedPtGlassConstants.motionVectorInfo[0] = unifiedPtDlssRrEffective ? 1.0f : 0.0f;
-                unifiedPtGlassConstants.motionVectorInfo[1] = static_cast<float>(idMath::ClampInt(1, 16, r_pathTracingReflectionSecondarySamples.GetInteger()));
-                unifiedPtGlassConstants.toyPathInfo[0] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRtxdiDiGlassRefractedPsrStrength.GetFloat());
-                const float rrNearCvar = r_pathTracingDLSSRRCameraNear.GetFloat();
-                unifiedPtGlassConstants.toyPathInfo[1] = Max(rrNearCvar > 0.0f ? rrNearCvar : r_znear.GetFloat(), 1.0e-4f);
-                unifiedPtGlassConstants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
-                unifiedPtGlassConstants.toyPathInfo[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
-                unifiedPtGlassConstants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
-                unifiedPtGlassConstants.geometryInfo0[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticIndexCount));
-                unifiedPtGlassConstants.geometryInfo0[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticTriangleCount));
-                unifiedPtGlassConstants.geometryInfo0[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicVertexCount));
-                unifiedPtGlassConstants.geometryInfo1[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicIndexCount));
-                unifiedPtGlassConstants.geometryInfo1[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicTriangleCount));
-                unifiedPtGlassConstants.geometryInfo1[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteVertexCount));
-                unifiedPtGlassConstants.geometryInfo1[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteIndexCount));
-                unifiedPtGlassConstants.textureInfo[0] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
-                unifiedPtGlassConstants.textureInfo[1] = r_pathTracingTextureSampleEnable.GetBool() ? static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger())) : 0.0f;
-                unifiedPtGlassConstants.textureInfo[2] = static_cast<float>(Max(0, m_smokeMaterialTableEntryCount));
-                unifiedPtGlassConstants.textureInfo[3] = static_cast<float>(
-                    (r_pathTracingTextureBindlessEnable.GetBool() ? 1u : 0u) |
-                    (r_pathTracingTextureFilter.GetBool() ? 2u : 0u) |
-                    (r_pathTracingTextureDecode.GetBool() ? 4u : 0u) |
-                    (r_pathTracingUseNormalMaps.GetBool() ? 8u : 0u) |
-                    (r_pathTracingUseSpecularMaps.GetBool() ? 16u : 0u) |
-                    (r_pathTracingUseEmissiveMaps.GetBool() ? 32u : 0u) |
-                    64u |
-                    (r_pathTracingToyFakePBRSpecular.GetBool() ? 128u : 0u) |
-                    (r_pathTracingNormalMapFlipGreen.GetBool() ? 256u : 0u) |
-                    (r_pathTracingSkyCubeEnvironment.GetBool() && m_smokeSkyEnvironmentCube ? RT_SMOKE_TEXTURE_FLAG_SKY_CUBE : 0u));
-                unifiedPtGlassConstants.staticBucketRouteInfo[0] = m_sceneInputs.geometry.staticBucketRouteFirstInstanceId;
-                unifiedPtGlassConstants.staticBucketRouteInfo[1] = m_sceneInputs.geometry.staticBucketRoutePublicationValid ? m_sceneInputs.geometry.staticBucketTriangleCount : 0u;
-                unifiedPtGlassConstants.staticBucketRouteInfo[2] = static_cast<uint32_t>(m_sceneInputs.geometry.staticBucketRouteGeneration);
-                unifiedPtGlassConstants.staticBucketRouteInfo[3] = static_cast<uint32_t>(m_sceneInputs.geometry.staticBucketRouteGeneration >> 32);
-                commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
-                commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
-                commandList->setBufferState(m_frameResources.unifiedPtPrimaryReceiver32Buffer, nvrhi::ResourceStates::UnorderedAccess);
-                commandList->setBufferState(m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer, nvrhi::ResourceStates::UnorderedAccess);
-                SetPathTraceCleanRtxdiDiMaterialFeatureOutputsUnorderedAccess(commandList, unifiedPtGlassMaterialFeaturePasses, m_frameResources);
-                commandList->setTextureState(m_smokeCleanRtxdiDiBlueNoise.texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
-                commandList->commitBarriers();
-                {
-                    PathTraceGpuMarkerScope marker(commandList, "UPT.PSR ClearWindow", nsightGpuMarkers);
-                    DispatchPathTraceCleanRtxdiDiTransmissionPsrPass(
-                        commandList,
-                        unifiedPtGlassState,
-                        unifiedPtGlassArgs,
-                        m_smokeCleanRtxdiDiSentinelConstantsBuffer,
-                        &unifiedPtGlassConstants,
-                        sizeof(unifiedPtGlassConstants),
-                        m_smokeMaterialFeatureRuntimeConstantsBuffer,
-                        unifiedPtGlassMaterialFeaturePasses,
-                        m_frameResources,
-                        nsightGpuMarkers);
-                }
-                nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
-                nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.unifiedPtPrimaryReceiver32Buffer);
-                nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer);
+                unifiedPtNativeGlassExecuted =
+                    m_unifiedPtGlassState.ExecuteProducer(
+                        unifiedPtGlassInputs);
             }
             PathTraceUnifiedPtDispatchInputs unifiedPtInputs;
             unifiedPtInputs.device = device;
@@ -3756,73 +3479,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
 
             if (unifiedPtResolveExecuted &&
-                unifiedPtGlassPsrEffective &&
+                unifiedPtNativeGlassExecuted &&
                 unifiedPtPostResolveOutput &&
-                unifiedPtGlassBindingSet)
+                m_unifiedPtGlassState.ExecuteCompose(
+                    unifiedPtGlassInputs,
+                    unifiedPtPostResolveOutput))
             {
-                nvrhi::BindingSetDesc composeBindingSetDesc =
-                    *unifiedPtGlassBindingSet->getDesc();
-                OverridePathTraceMaterialFeatureOutputColorSource(
-                    composeBindingSetDesc,
+                unifiedPtPostResolveOutput =
+                    m_unifiedPtGlassState.GetComposedOutput();
+                m_unifiedPtState.SetPresentationOutput(
                     unifiedPtPostResolveOutput);
-                nvrhi::BindingSetHandle composeBindingSet = device->createBindingSet(
-                    composeBindingSetDesc,
-                    m_smokeCleanRtxdiDiSentinelBindingLayout);
-                if (composeBindingSet)
-                {
-                    nvrhi::rt::State composeState = unifiedPtGlassState;
-                    composeState.bindings = {
-                        composeBindingSet,
-                        m_smokeTextureDescriptorTable };
-                    PathTraceCleanRtxdiDiSentinelConstants composeConstants =
-                        unifiedPtGlassConstants;
-                    composeConstants.flags &=
-                        ~CLEAN_RTXDI_DI_FLAG_TRANSMISSION_PSR_PHASE;
-                    commandList->setTextureState(
-                        unifiedPtPostResolveOutput,
-                        nvrhi::AllSubresources,
-                        nvrhi::ResourceStates::ShaderResource);
-                    commandList->setTextureState(
-                        m_frameResources.transmissionTexture,
-                        nvrhi::AllSubresources,
-                        nvrhi::ResourceStates::ShaderResource);
-                    commandList->setTextureState(
-                        m_frameResources.reflectionSidecarTexture,
-                        nvrhi::AllSubresources,
-                        nvrhi::ResourceStates::ShaderResource);
-                    commandList->setTextureState(
-                        m_frameResources.outputTexture,
-                        nvrhi::AllSubresources,
-                        nvrhi::ResourceStates::UnorderedAccess);
-                    commandList->setTextureState(
-                        m_frameResources.rrInputColorTexture,
-                        nvrhi::AllSubresources,
-                        nvrhi::ResourceStates::UnorderedAccess);
-                    commandList->commitBarriers();
-                    {
-                        PathTraceGpuMarkerScope marker(
-                            commandList,
-                            "UPT.GlassCompose",
-                            nsightGpuMarkers);
-                        DispatchPathTraceCleanRtxdiDiGlassComposePass(
-                            commandList,
-                            composeState,
-                            unifiedPtGlassArgs,
-                            m_smokeCleanRtxdiDiSentinelConstantsBuffer,
-                            &composeConstants,
-                            sizeof(composeConstants),
-                            m_smokeMaterialFeatureRuntimeConstantsBuffer,
-                            unifiedPtGlassMaterialFeaturePasses,
-                            m_frameResources,
-                            nsightGpuMarkers);
-                    }
-                    nvrhi::utils::TextureUavBarrier(
-                        commandList,
-                        m_frameResources.outputTexture);
-                    unifiedPtPostResolveOutput = m_frameResources.outputTexture;
-                    m_unifiedPtState.SetPresentationOutput(
-                        unifiedPtPostResolveOutput);
-                }
             }
 
             if (unifiedPtResolveExecuted && unifiedPtDlssRrEffective)
@@ -3943,7 +3609,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             publishPrimarySurfaceHistory(
                 "UPT.P0 PrimarySurfaceHistory Copy",
                 useUptCompactPrimaryHistory,
-                unifiedPtGlassPsrEffective,
                 unifiedPtCurrentRrJitterPixels);
             // The shared legacy increment lives below this early-returning
             // route. Advance the same live index here so FixedSampleIndex -1

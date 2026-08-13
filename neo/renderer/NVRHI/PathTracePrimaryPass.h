@@ -28,6 +28,7 @@
 #include "PathTraceSkinnedOutputAllocator.h"
 #include "PathTraceSmokeResources.h"
 #include "PathTraceUnifiedPt.h"
+#include "PathTraceUnifiedPtGlass.h"
 
 #include <nvrhi/nvrhi.h>
 #include <condition_variable>
@@ -761,6 +762,7 @@ private:
     nvrhi::BufferHandle m_smokeCleanRtxdiDiSpatialReservoirBuffer;
     PathTraceBlueNoiseState m_smokeCleanRtxdiDiBlueNoise;
     PathTraceUnifiedPtState m_unifiedPtState;
+    PathTraceUnifiedPtGlassState m_unifiedPtGlassState;
     PathTraceCleanRestirGiState m_cleanRestirGiState;
     PathTraceNeeCacheState m_smokeNeeCacheState;
     PathTraceReGIRState m_smokeReGIRState;
@@ -891,11 +893,6 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeReGIRDebugShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeNeeCacheDebugShaderLibrary;
     RtPathTraceCleanRtxdiDiMaterialFeatureState m_smokeCleanRtxdiDiMaterialFeatures;
-    // UPT-45 compiles the same proven glass feature registrations against a
-    // UPT-owned binding layout. Keep shader-table state separate from Clean-DI
-    // so mutually exclusive renderer routes cannot reuse a layout-incompatible
-    // pipeline.
-    RtPathTraceCleanRtxdiDiMaterialFeatureState m_smokeUnifiedPtGlassMaterialFeatures;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ShaderHandle
         m_smokeSkinnedEmissivePublishShader;

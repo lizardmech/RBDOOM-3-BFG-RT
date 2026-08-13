@@ -1,0 +1,213 @@
+import upt45_glass_contract;
+import upt45_narrow_geometry;
+import upt04_binary16;
+import upt04_packed_primary_surface;
+import upt04_packed_primary_surface32;
+import upt04_primary_history_sidecar;
+
+[[vk::binding(0, 0)]] RaytracingAccelerationStructure gUpt45Scene;
+[[vk::binding(3, 0)]] RWStructuredBuffer<Upt04PackedPrimarySurfaceRecord32> gUpt45PrimaryOutput;
+[[vk::binding(4, 0)]] RWStructuredBuffer<Upt04PrimaryHistorySidecar> gUpt45SidecarOutput;
+[[vk::binding(5, 0)]]
+[[vk::image_format("rgba16f")]]
+RWTexture2D<float4> gUpt45CompositionToken;
+[[vk::binding(16, 0)]] StructuredBuffer<uint4> gUpt45MaterialWords;
+[[vk::binding(25, 0)]] SamplerState gUpt45MaterialSampler;
+[[vk::binding(0, 1)]] Texture2D<float4> gUpt45MaterialTextures[];
+[[vk::push_constant]] ConstantBuffer<Upt45Control> gUpt45Control;
+
+public float Upt45SrgbToLinear(float value)
+{
+    return value <= 0.04045f ? value / 12.92f :
+        pow((value + 0.055f) / 1.055f, 2.4f);
+}
+
+public float3 Upt45YCoCgToRgb(float4 ycocg)
+{
+    ycocg.z = ycocg.z * 31.875f + 1.0f;
+    ycocg.z = 1.0f / ycocg.z;
+    ycocg.xy *= ycocg.z;
+    return saturate(float3(
+        dot(ycocg, float4(1.0f, -1.0f, 0.0f, 1.0f)),
+        dot(ycocg, float4(0.0f, 1.0f, -0.50196078f, 1.0f)),
+        dot(ycocg, float4(-1.0f, -1.0f, 1.00392156f, 1.0f))));
+}
+
+public Upt45NarrowHit Upt45TraceBehind(float3 origin, float3 direction)
+{
+    Upt45NarrowHit hit = (Upt45NarrowHit)0;
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.TMin = 0.01f;
+    ray.Direction = direction;
+    ray.TMax = 1.0e30f;
+    RayQuery<0> query = RayQuery<0>();
+    query.TraceRayInline(gUpt45Scene, RAY_FLAG_NONE, 0xffu, ray);
+    while (query.Proceed())
+    {
+        if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+            query.CommitNonOpaqueTriangleHit();
+    }
+    if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+        return hit;
+    uint primitiveId;
+    if (!Upt45CanonicalPrimitive(
+            query.CommittedInstanceID(),
+            query.CommittedGeometryIndex(),
+            query.CommittedPrimitiveIndex(),
+            primitiveId))
+        return hit;
+    hit.valid = 1u;
+    hit.instanceId = query.CommittedInstanceID();
+    hit.primitiveId = primitiveId;
+    hit.frontFace = query.CommittedTriangleFrontFace() ? 1u : 0u;
+    hit.barycentrics = query.CommittedTriangleBarycentrics();
+    hit.hitT = query.CommittedRayT();
+    return hit;
+}
+
+public void Upt45EvaluateMaterial(
+    Upt45NarrowSurface surface,
+    out float3 baseColor,
+    out float3 specularF0,
+    out float roughness,
+    out float3 emission,
+    out float alphaCutoff,
+    out uint materialFlags)
+{
+    baseColor = float3(0.5f);
+    specularF0 = float3(0.04f);
+    roughness = 1.0f;
+    emission = float3(0.0f);
+    alphaCutoff = 0.0f;
+    materialFlags = 0u;
+    if (surface.materialIndex >= gUpt45Control.materialCount)
+        return;
+    const uint wordBase = surface.materialIndex * 7u;
+    const float4 debugAlbedo = asfloat(gUpt45MaterialWords[wordBase + 0u]);
+    const float4 emissiveColor = asfloat(gUpt45MaterialWords[wordBase + 1u]);
+    const uint4 textureWords = gUpt45MaterialWords[wordBase + 2u];
+    const uint4 sizeWords = gUpt45MaterialWords[wordBase + 3u];
+    const uint diffuseTexture = textureWords.x;
+    const uint specularTexture = textureWords.w;
+    const uint emissiveTexture = sizeWords.x;
+    alphaCutoff = asfloat(sizeWords.y);
+    materialFlags = sizeWords.z;
+    float4 diffuse = saturate(debugAlbedo);
+    if ((materialFlags & kUpt45MaterialForceDebugAlbedo) == 0u &&
+        diffuseTexture != kUpt45Invalid &&
+        diffuseTexture < gUpt45Control.logicalTextureCount)
+    {
+        diffuse = saturate(gUpt45MaterialTextures[
+            NonUniformResourceIndex(diffuseTexture)].SampleLevel(
+                gUpt45MaterialSampler, frac(surface.texCoord), 0.0f));
+        if ((materialFlags & kUpt45MaterialDiffuseYCoCg) != 0u)
+            diffuse.xyz = Upt45YCoCgToRgb(diffuse);
+    }
+    baseColor = diffuse.xyz;
+    if (specularTexture != kUpt45Invalid &&
+        specularTexture < gUpt45Control.logicalTextureCount)
+    {
+        const float3 specular = saturate(gUpt45MaterialTextures[
+            NonUniformResourceIndex(specularTexture)].SampleLevel(
+                gUpt45MaterialSampler, frac(surface.texCoord), 0.0f).xyz);
+        const float luminance = dot(specular, float3(0.2125f, 0.7154f, 0.0721f));
+        specularF0 = max(specular, float3(0.04f));
+        roughness = clamp(1.0f - sqrt(saturate(luminance)), 0.02f, 1.0f);
+    }
+    if ((materialFlags & kUpt45MaterialEmissive) != 0u &&
+        (surface.triangleClassAndFlags & kUpt45TriangleEmissiveStageOff) == 0u)
+    {
+        float3 texel = float3(1.0f);
+        if (emissiveTexture != kUpt45Invalid &&
+            emissiveTexture < gUpt45Control.logicalTextureCount)
+            texel = saturate(gUpt45MaterialTextures[
+                NonUniformResourceIndex(emissiveTexture)].SampleLevel(
+                    gUpt45MaterialSampler, frac(surface.texCoord), 0.0f).xyz);
+        emission = max(emissiveColor.xyz, float3(0.0f)) * texel *
+            1.75f * max(gUpt45Control.emissiveScale, 0.0f);
+    }
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    const uint2 pixel = dispatchThreadId.xy;
+    if (pixel.x >= gUpt45Control.width || pixel.y >= gUpt45Control.height)
+        return;
+    const uint index = pixel.y * gUpt45Control.width + pixel.x;
+    if (index >= gUpt45Control.surfaceCount)
+        return;
+    gUpt45CompositionToken[pixel] = float4(0.0f);
+
+    const Upt04PackedPrimarySurfaceRecord32 front = gUpt45PrimaryOutput[index];
+    const Upt04PrimaryHistorySidecar frontSidecar = gUpt45SidecarOutput[index];
+    if (!Upt45FrontIsEligible(front, frontSidecar))
+        return;
+
+    const float hitDistance = asfloat(front.geometry.x);
+    const float3 toCamera = Upt04DecodeOctahedral(front.geometry.w);
+    if (!isfinite(hitDistance) || hitDistance <= 0.0f)
+        return;
+    const float3 frontPosition = gUpt45Control.cameraOrigin - toCamera * hitDistance;
+    const float3 direction = -toCamera;
+    const Upt45NarrowHit hit = Upt45TraceBehind(
+        frontPosition + direction * max(gUpt45Control.forwardOffset, 0.01f),
+        direction);
+    if (hit.valid == 0u)
+        return;
+    const Upt45NarrowSurface surface = Upt45ResolveNarrowHit(hit, gUpt45Control);
+    if (surface.valid == 0u)
+        return;
+
+    float3 baseColor, specularF0, emission;
+    float roughness, alphaCutoff;
+    uint materialFlags;
+    Upt45EvaluateMaterial(
+        surface, baseColor, specularF0, roughness, emission,
+        alphaCutoff, materialFlags);
+    const float3 replacementToCamera = Upt45SafeNormalize(
+        gUpt45Control.cameraOrigin - surface.position, toCamera);
+    const float replacementDistance = length(
+        gUpt45Control.cameraOrigin - surface.position);
+    Upt04PackedPrimarySurfaceRecord32 replacement = (Upt04PackedPrimarySurfaceRecord32)0;
+    replacement.geometry = uint4(
+        asuint(replacementDistance),
+        Upt45PackOctahedral(surface.geometricNormal),
+        Upt45PackOctahedral(surface.shadingNormal),
+        Upt45PackOctahedral(replacementToCamera));
+    replacement.material = uint4(
+        Upt45PackRgb10(baseColor),
+        Upt45PackRgb10(specularF0),
+        Upt45PackSharedExponent(emission),
+        (Upt04PackBinary16Pair(float2(saturate(roughness), 0.0f)) & 0xffffu) |
+            ((kUpt04PackedPrimary32Version | kUpt04PackedPrimary32Valid) << 16u));
+    gUpt45PrimaryOutput[index] = replacement;
+
+    const uint surfaceClass = surface.triangleClassAndFlags & kUpt45SurfaceClassMask;
+    uint historyFlags = kUpt45PrimaryValid;
+    if (surface.hasPreviousPosition != 0u)
+        historyFlags |= kUpt45PrimaryPreviousPosition;
+    if (surfaceClass == 1u || surfaceClass == 2u)
+        historyFlags |= kUpt45PrimaryObjectMotion;
+    Upt04PrimaryHistorySidecar sidecar = (Upt04PrimaryHistorySidecar)0;
+    sidecar.metadata = uint4(
+        kUpt04PrimaryHistorySidecarVersion | (surfaceClass << 16u),
+        historyFlags,
+        surface.materialId,
+        materialFlags);
+    sidecar.previousPositionAndAlphaCutoff = float4(
+        surface.previousPosition, alphaCutoff);
+    gUpt45SidecarOutput[index] = sidecar;
+
+    const float3 frontTint = float3(
+        float(front.material.x & 0x3ffu),
+        float((front.material.x >> 10u) & 0x3ffu),
+        float((front.material.x >> 20u) & 0x3ffu)) / 1023.0f;
+    const float3 transmission = lerp(
+        float3(1.0f), saturate(frontTint),
+        saturate(gUpt45Control.glassTintStrength)) *
+        saturate(gUpt45Control.transmissionStrength);
+    gUpt45CompositionToken[pixel] = float4(transmission, 1.0f);
+}

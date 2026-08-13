@@ -2747,3 +2747,26 @@ also forbidden in the native producer: its three 112-byte vertices and
 356/124-byte logical triangle/surface values would recreate the register
 failure. The first native appearance payload is limited to one overwritten
 RGBA16F token (8 bytes/pixel, no clear, no history).
+
+UPT-45 native producer/composer checkpoint, 2026-08-13
+-------------------------------------------------------
+
+S45.2/S45.3 are now implemented as UPT-owned Vulkan Slang compute passes. The
+pass order is `P0 -> native PSR producer -> D0/T0/S0/R0 -> native Glass compose
+last -> optional RR`, matching the important distinction in the RTXDI Full
+Sample capture: its final Glass marker is composition, while the replacement
+surface must exist before reuse and shading.
+
+The producer overwrites only compact32 plus the accepted sidecar and writes one
+RGBA16F composition token. It performs one bounded RayQuery only for eligible
+clear-window pixels, uses narrow word-level geometry/material reads and imports
+neither the general UPT geometry decoder nor clean-DI state. The composer binds
+only R0, token and the existing frame output. There is no full-buffer clear,
+wide receiver, clean-DI reservoir, ReGIR binding or second private output.
+
+The full requested Vulkan build passes. Runtime remains default-off under
+`r_pathTracingUnifiedPtGlassPsr 1`; expected proof is requested/effective 1/1,
+`UPT.PSR NativeClearWindow` before D0 and `UPT.Glass NativeCompose Last` after
+R0. Validate clear panes, no-glass parity, motion/history and RR before Nsight
+register/occupancy acceptance. Artifact hashes and the remaining profile gate
+are recorded in `66`.
