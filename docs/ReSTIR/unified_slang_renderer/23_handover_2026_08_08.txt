@@ -2770,3 +2770,20 @@ The full requested Vulkan build passes. Runtime remains default-off under
 R0. Validate clear panes, no-glass parity, motion/history and RR before Nsight
 register/occupancy acceptance. Artifact hashes and the remaining profile gate
 are recorded in `66`.
+
+UPT-45 RR/skinned follow-up, 2026-08-13
+---------------------------------------
+
+Runtime proved basic native glass, then showed that the clear pane still owned
+P0's DLSS-RR normal/depth/motion and that some skinned surfaces behind glass
+resolved the wrong material. S45.4 corrects both at the native producer: the
+skinned range begins at route-header `shaderInstanceId`, not a derived rigid
+count, and accepted behind-glass surfaces overwrite the RR geometry/material
+guide bundle plus PT/RR motion before D0. Clear glass is intentionally absent
+from normal, depth, position and motion. Distortion is still deferred and may
+later offset these viewed guides, never replace them with pane geometry.
+
+The full Vulkan build and the one-RayQuery/reflection verifier pass. Deployed
+runtime acceptance remains: inspect an animated skinned object through clear
+glass in final output and RR normal/depth/motion debug views, including camera
+and object motion. Exact artifact hashes and rejection semantics are in `66`.

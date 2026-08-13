@@ -203,7 +203,13 @@ public Upt45NarrowSurface Upt45ResolveNarrowHit(Upt45NarrowHit hit, Upt45Control
     }
     else
     {
-        const uint skinnedFirst = 2u + control.rigidInstanceCount;
+        // The TLAS publishes the skinned instance range through the route
+        // header.  It is not required to begin immediately after the rigid
+        // range, so deriving it from rigidInstanceCount can resolve the right
+        // triangle through the wrong material route.
+        const uint skinnedFirst = control.skinnedRouteCount != 0u
+            ? gUpt45SkinnedRouteWords[0u].x
+            : kUpt45Invalid;
         if (hit.instanceId >= skinnedFirst &&
             hit.instanceId - skinnedFirst < control.skinnedRouteCount)
         {

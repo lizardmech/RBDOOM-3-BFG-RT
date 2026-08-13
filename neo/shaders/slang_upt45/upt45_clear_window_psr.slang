@@ -13,6 +13,15 @@ import upt04_primary_history_sidecar;
 RWTexture2D<float4> gUpt45CompositionToken;
 [[vk::binding(16, 0)]] StructuredBuffer<uint4> gUpt45MaterialWords;
 [[vk::binding(25, 0)]] SamplerState gUpt45MaterialSampler;
+[[vk::binding(26, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> gUpt45MotionVectors;
+[[vk::binding(27, 0)]] [[vk::image_format("rg16f")]] RWTexture2D<float2> gUpt45RrMotionVectors;
+[[vk::binding(28, 0)]] [[vk::image_format("r32ui")]] RWTexture2D<uint> gUpt45MotionMask;
+[[vk::binding(29, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> gUpt45RrAlbedo;
+[[vk::binding(30, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> gUpt45RrSpecularAlbedo;
+[[vk::binding(31, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> gUpt45RrNormalRoughness;
+[[vk::binding(32, 0)]] [[vk::image_format("r32f")]] RWTexture2D<float> gUpt45RrDepth;
+[[vk::binding(33, 0)]] [[vk::image_format("r32ui")]] RWTexture2D<uint> gUpt45RrResetMask;
+[[vk::binding(34, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> gUpt45RrPosition;
 [[vk::binding(0, 1)]] Texture2D<float4> gUpt45MaterialTextures[];
 [[vk::push_constant]] ConstantBuffer<Upt45Control> gUpt45Control;
 
@@ -129,6 +138,118 @@ public void Upt45EvaluateMaterial(
     }
 }
 
+public float Upt45RrDepthFromViewZ(float viewZ)
+{
+    const float zNear = max(gUpt45Control.rrNear, 1.0e-4f);
+    const float zFar = 100000.0f;
+    return saturate((zFar / max(zFar - zNear, 1.0e-4f)) *
+        (1.0f - zNear / max(viewZ, zNear)));
+}
+
+public uint Upt45MotionSource(Upt45NarrowSurface surface)
+{
+    const uint surfaceClass = surface.triangleClassAndFlags & kUpt45SurfaceClassMask;
+    if (surfaceClass == 2u)
+        return 2u;
+    if (surfaceClass == 1u)
+        return 3u;
+    return 1u;
+}
+
+public void Upt45WriteReplacementMotion(uint2 pixel, Upt45NarrowSurface surface)
+{
+    const uint sourceBits = (Upt45MotionSource(surface) & 0x0fu) <<
+        kUpt45MotionSourceShift;
+    if (gUpt45Control.cameraUpAndPreviousValid.w < 0.5f)
+    {
+        gUpt45MotionVectors[pixel] = float4(0.0f);
+        gUpt45RrMotionVectors[pixel] = float2(0.0f);
+        gUpt45MotionMask[pixel] = sourceBits |
+            (kUpt45MotionMissingPreviousCamera << kUpt45MotionInvalidReasonShift);
+        return;
+    }
+    if (surface.hasPreviousPosition == 0u)
+    {
+        gUpt45MotionVectors[pixel] = float4(0.0f);
+        gUpt45RrMotionVectors[pixel] = float2(0.0f);
+        gUpt45MotionMask[pixel] = sourceBits |
+            (kUpt45MotionRejectedPrevious << kUpt45MotionInvalidReasonShift);
+        return;
+    }
+    const float3 previousDelta = surface.previousPosition -
+        gUpt45Control.previousCameraOrigin.xyz;
+    const float3 currentDelta = surface.position - gUpt45Control.cameraOrigin;
+    const float previousViewZ = dot(previousDelta,
+        gUpt45Control.previousCameraForwardAndTanX.xyz);
+    const float currentViewZ = dot(currentDelta,
+        gUpt45Control.cameraForwardAndTanX.xyz);
+    if (previousViewZ <= 0.05f || currentViewZ <= 0.05f)
+    {
+        gUpt45MotionVectors[pixel] = float4(0.0f);
+        gUpt45RrMotionVectors[pixel] = float2(0.0f);
+        gUpt45MotionMask[pixel] = sourceBits |
+            (kUpt45MotionPreviousBehindCamera << kUpt45MotionInvalidReasonShift);
+        return;
+    }
+    const float2 previousNdc = float2(
+        -dot(previousDelta, gUpt45Control.previousCameraLeftAndTanY.xyz) /
+            max(previousViewZ * gUpt45Control.previousCameraForwardAndTanX.w, 1.0e-5f),
+        -dot(previousDelta, gUpt45Control.previousCameraUp.xyz) /
+            max(previousViewZ * gUpt45Control.previousCameraLeftAndTanY.w, 1.0e-5f));
+    const float2 currentNdc = float2(
+        -dot(currentDelta, gUpt45Control.cameraLeftAndTanY.xyz) /
+            max(currentViewZ * gUpt45Control.cameraForwardAndTanX.w, 1.0e-5f),
+        -dot(currentDelta, gUpt45Control.cameraUpAndPreviousValid.xyz) /
+            max(currentViewZ * gUpt45Control.cameraLeftAndTanY.w, 1.0e-5f));
+    const float2 dimensions = float2(gUpt45Control.width, gUpt45Control.height);
+    const float2 motionPixels = (previousNdc - currentNdc) * 0.5f * dimensions;
+    if (!all(isfinite(motionPixels)))
+    {
+        gUpt45MotionVectors[pixel] = float4(0.0f);
+        gUpt45RrMotionVectors[pixel] = float2(0.0f);
+        gUpt45MotionMask[pixel] = sourceBits |
+            (kUpt45MotionRejectedPrevious << kUpt45MotionInvalidReasonShift);
+        return;
+    }
+    const float previousDepth = Upt45RrDepthFromViewZ(previousViewZ);
+    const float currentDepth = Upt45RrDepthFromViewZ(currentViewZ);
+    gUpt45MotionVectors[pixel] = float4(
+        motionPixels, previousDepth - currentDepth, 0.0f);
+    gUpt45RrMotionVectors[pixel] = motionPixels;
+    gUpt45MotionMask[pixel] = kUpt45MotionValid | sourceBits;
+}
+
+public void Upt45WriteReplacementRrGuides(
+    uint2 pixel,
+    Upt45NarrowSurface surface,
+    float3 baseColor,
+    float3 specularF0,
+    float roughness,
+    float3 emission)
+{
+    if ((gUpt45Control.flags & kUpt45ControlWriteRrGuides) == 0u)
+        return;
+    const float peak = max(emission.x, max(emission.y, emission.z));
+    const float3 rrSpecular = peak > 1.0e-4f
+        ? max(saturate(specularF0), saturate(emission / peak))
+        : saturate(specularF0);
+    const float viewZ = dot(surface.position - gUpt45Control.cameraOrigin,
+        gUpt45Control.cameraForwardAndTanX.xyz);
+    gUpt45RrAlbedo[pixel] = float4(saturate(baseColor), 1.0f);
+    gUpt45RrSpecularAlbedo[pixel] = float4(rrSpecular, 1.0f);
+    gUpt45RrNormalRoughness[pixel] = float4(
+        Upt45SafeNormalize(surface.shadingNormal, surface.geometricNormal),
+        saturate(roughness));
+    gUpt45RrDepth[pixel] = Upt45RrDepthFromViewZ(viewZ);
+    gUpt45RrPosition[pixel] = float4(surface.position, 1.0f);
+    Upt45WriteReplacementMotion(pixel, surface);
+    gUpt45RrResetMask[pixel] =
+        gUpt45Control.cameraUpAndPreviousValid.w < 0.5f ||
+        surface.hasPreviousPosition == 0u
+            ? kUpt45RrResetStochasticTranslucent
+            : 0u;
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -200,6 +321,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     sidecar.previousPositionAndAlphaCutoff = float4(
         surface.previousPosition, alphaCutoff);
     gUpt45SidecarOutput[index] = sidecar;
+
+    // Clear glass is absent from RR's geometric contract.  Publish the actual
+    // see-through receiver for normal/depth/position and reconstruct motion
+    // from that receiver, matching the established glass PSR path.
+    Upt45WriteReplacementRrGuides(
+        pixel, surface, baseColor, specularF0, roughness, emission);
 
     const float3 frontTint = float3(
         float(front.material.x & 0x3ffu),

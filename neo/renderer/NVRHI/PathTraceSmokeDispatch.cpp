@@ -2778,6 +2778,24 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer;
             unifiedPtGlassInputs.compositionOutput =
                 m_frameResources.outputTexture;
+            unifiedPtGlassInputs.motionVectorTexture =
+                m_frameResources.motionVectorTexture;
+            unifiedPtGlassInputs.rrMotionVectorTexture =
+                m_frameResources.rrMotionVectorTexture;
+            unifiedPtGlassInputs.motionVectorMaskTexture =
+                m_frameResources.motionVectorMaskTexture;
+            unifiedPtGlassInputs.rrGuideAlbedoTexture =
+                m_frameResources.rrGuideAlbedoTexture;
+            unifiedPtGlassInputs.rrGuideSpecularAlbedoTexture =
+                m_frameResources.rrGuideSpecularAlbedoTexture;
+            unifiedPtGlassInputs.rrGuideNormalRoughnessTexture =
+                m_frameResources.rrGuideNormalRoughnessTexture;
+            unifiedPtGlassInputs.rrGuideDepthTexture =
+                m_frameResources.rrGuideDepthTexture;
+            unifiedPtGlassInputs.rrGuideResetMaskTexture =
+                m_frameResources.rrGuideResetMaskTexture;
+            unifiedPtGlassInputs.rrGuidePositionTexture =
+                m_frameResources.rrGuidePositionTexture;
             unifiedPtGlassInputs.width =
                 static_cast<uint32_t>(m_frameResources.width);
             unifiedPtGlassInputs.height =
@@ -2785,6 +2803,50 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtGlassInputs.cameraOrigin[0] = viewDef->renderView.vieworg.x;
             unifiedPtGlassInputs.cameraOrigin[1] = viewDef->renderView.vieworg.y;
             unifiedPtGlassInputs.cameraOrigin[2] = viewDef->renderView.vieworg.z;
+            idVec3 unifiedPtGlassForward = viewDef->renderView.viewaxis[0];
+            idVec3 unifiedPtGlassLeft = viewDef->renderView.viewaxis[1];
+            idVec3 unifiedPtGlassUp = viewDef->renderView.viewaxis[2];
+            unifiedPtGlassForward.Normalize();
+            unifiedPtGlassLeft.Normalize();
+            unifiedPtGlassUp.Normalize();
+            for (int component = 0; component < 3; ++component)
+            {
+                unifiedPtGlassInputs.cameraForward[component] =
+                    unifiedPtGlassForward[component];
+                unifiedPtGlassInputs.cameraLeft[component] =
+                    unifiedPtGlassLeft[component];
+                unifiedPtGlassInputs.cameraUp[component] =
+                    unifiedPtGlassUp[component];
+                unifiedPtGlassInputs.previousCameraOrigin[component] =
+                    m_frameResources.primarySurfaceHistoryView.origin[component];
+                unifiedPtGlassInputs.previousCameraForward[component] =
+                    m_frameResources.primarySurfaceHistoryView.forward[component];
+                unifiedPtGlassInputs.previousCameraLeft[component] =
+                    m_frameResources.primarySurfaceHistoryView.left[component];
+                unifiedPtGlassInputs.previousCameraUp[component] =
+                    m_frameResources.primarySurfaceHistoryView.up[component];
+            }
+            unifiedPtGlassInputs.cameraTanX =
+                idMath::Tan(DEG2RAD(viewDef->renderView.fov_x * 0.5f));
+            unifiedPtGlassInputs.cameraTanY =
+                idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
+            unifiedPtGlassInputs.previousCameraTanX =
+                m_frameResources.primarySurfaceHistoryView.tanX;
+            unifiedPtGlassInputs.previousCameraTanY =
+                m_frameResources.primarySurfaceHistoryView.tanY;
+            unifiedPtGlassInputs.previousCameraValid =
+                m_frameResources.primarySurfaceHistoryState.previousValid &&
+                m_frameResources.primarySurfaceHistoryView.valid &&
+                m_frameResources.primarySurfaceHistoryView.width == m_frameResources.width &&
+                m_frameResources.primarySurfaceHistoryView.height == m_frameResources.height &&
+                !m_frameResources.primarySurfaceHistoryNeedsClear;
+            {
+                const float rrNearCvar = r_pathTracingDLSSRRCameraNear.GetFloat();
+                unifiedPtGlassInputs.rrNear = Max(
+                    rrNearCvar > 0.0f ? rrNearCvar : r_znear.GetFloat(),
+                    1.0e-4f);
+            }
+            unifiedPtGlassInputs.writeRrGuides = unifiedPtDlssRrEffective;
             unifiedPtGlassInputs.emissiveScale = idMath::ClampFloat(
                 0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
             unifiedPtGlassInputs.transmissionStrength = 0.92f;

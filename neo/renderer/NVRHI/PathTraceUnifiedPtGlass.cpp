@@ -7,7 +7,7 @@
 
 namespace {
 
-static constexpr uint32_t UPT45_PRODUCER_PUSH_BYTES = 112u;
+static constexpr uint32_t UPT45_PRODUCER_PUSH_BYTES = 224u;
 static constexpr uint32_t UPT45_COMPOSE_PUSH_BYTES = 16u;
 
 struct Upt45Control
@@ -37,7 +37,14 @@ struct Upt45Control
     float forwardOffset;
     float transmissionStrength;
     float glassTintStrength;
-    float reserved0;
+    float rrNear;
+    float cameraForwardAndTanX[4];
+    float cameraLeftAndTanY[4];
+    float cameraUpAndPreviousValid[4];
+    float previousCameraOrigin[4];
+    float previousCameraForwardAndTanX[4];
+    float previousCameraLeftAndTanY[4];
+    float previousCameraUp[4];
 };
 static_assert(sizeof(Upt45Control) == UPT45_PRODUCER_PUSH_BYTES,
     "UPT-45 producer push ABI mismatch");
@@ -94,6 +101,8 @@ static void Upt45AddProducerLayoutItems(nvrhi::BindingLayoutDesc& desc)
     for (uint32_t slot = 6u; slot <= 24u; ++slot)
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
     desc.addItem(nvrhi::BindingLayoutItem::Sampler(25));
+    for (uint32_t slot = 26u; slot <= 34u; ++slot)
+        desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(slot));
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT45_PRODUCER_PUSH_BYTES));
 }
@@ -103,6 +112,13 @@ static bool Upt45InputsValid(const PathTraceUnifiedPtGlassInputs& inputs)
     if (!inputs.device || !inputs.commandList || !inputs.sceneInputs ||
         !inputs.sceneInputs->valid || !inputs.primarySurface32 ||
         !inputs.primaryHistorySidecar || inputs.width == 0u || inputs.height == 0u)
+        return false;
+    if (inputs.writeRrGuides &&
+        (!inputs.motionVectorTexture || !inputs.rrMotionVectorTexture ||
+         !inputs.motionVectorMaskTexture || !inputs.rrGuideAlbedoTexture ||
+         !inputs.rrGuideSpecularAlbedoTexture ||
+         !inputs.rrGuideNormalRoughnessTexture || !inputs.rrGuideDepthTexture ||
+         !inputs.rrGuideResetMaskTexture || !inputs.rrGuidePositionTexture))
         return false;
     const RtPathTraceSceneInputGeometry& g = inputs.sceneInputs->geometry;
     const RtPathTraceSceneInputMaterials& m = inputs.sceneInputs->materials;
@@ -243,6 +259,15 @@ bool PathTraceUnifiedPtGlassState::EnsureProducerBindingSet(
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(23, g.skinnedHitRouteTriangleBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(24, g.skinnedPreviousPositionBuffer));
     desc.addItem(nvrhi::BindingSetItem::Sampler(25, m.textureSampler));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(26, inputs.motionVectorTexture));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(27, inputs.rrMotionVectorTexture));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(28, inputs.motionVectorMaskTexture));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(29, inputs.rrGuideAlbedoTexture));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(30, inputs.rrGuideSpecularAlbedoTexture));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(31, inputs.rrGuideNormalRoughnessTexture));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(32, inputs.rrGuideDepthTexture));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(33, inputs.rrGuideResetMaskTexture));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(34, inputs.rrGuidePositionTexture));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(0, UPT45_PRODUCER_PUSH_BYTES));
     if (m_producerBindingSet && m_producerBindingSetDescValid &&
         m_producerBindingSetDesc == desc)
@@ -290,15 +315,42 @@ bool PathTraceUnifiedPtGlassState::ExecuteProducer(
     control.skinnedRouteCount = Max(0, g.skinnedHitRouteRecordCount);
     control.skinnedTriangleCount = Max(0, g.skinnedHitRouteTriangleCount);
     control.skinnedPreviousCount = Max(0, g.skinnedPreviousPositionCount);
+    control.flags = inputs.writeRrGuides ? 1u : 0u;
     memcpy(control.cameraOrigin, inputs.cameraOrigin, sizeof(control.cameraOrigin));
     control.emissiveScale = inputs.emissiveScale;
     control.forwardOffset = inputs.forwardOffset;
     control.transmissionStrength = inputs.transmissionStrength;
     control.glassTintStrength = inputs.glassTintStrength;
+    control.rrNear = inputs.rrNear;
+    memcpy(control.cameraForwardAndTanX, inputs.cameraForward, sizeof(inputs.cameraForward));
+    control.cameraForwardAndTanX[3] = inputs.cameraTanX;
+    memcpy(control.cameraLeftAndTanY, inputs.cameraLeft, sizeof(inputs.cameraLeft));
+    control.cameraLeftAndTanY[3] = inputs.cameraTanY;
+    memcpy(control.cameraUpAndPreviousValid, inputs.cameraUp, sizeof(inputs.cameraUp));
+    control.cameraUpAndPreviousValid[3] = inputs.previousCameraValid ? 1.0f : 0.0f;
+    memcpy(control.previousCameraOrigin, inputs.previousCameraOrigin, sizeof(inputs.previousCameraOrigin));
+    control.previousCameraOrigin[3] = inputs.previousCameraValid ? 1.0f : 0.0f;
+    memcpy(control.previousCameraForwardAndTanX, inputs.previousCameraForward, sizeof(inputs.previousCameraForward));
+    control.previousCameraForwardAndTanX[3] = inputs.previousCameraTanX;
+    memcpy(control.previousCameraLeftAndTanY, inputs.previousCameraLeft, sizeof(inputs.previousCameraLeft));
+    control.previousCameraLeftAndTanY[3] = inputs.previousCameraTanY;
+    memcpy(control.previousCameraUp, inputs.previousCameraUp, sizeof(inputs.previousCameraUp));
 
     inputs.commandList->setBufferState(inputs.primarySurface32, nvrhi::ResourceStates::UnorderedAccess);
     inputs.commandList->setBufferState(inputs.primaryHistorySidecar, nvrhi::ResourceStates::UnorderedAccess);
     inputs.commandList->setTextureState(m_compositionToken, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    if (inputs.writeRrGuides)
+    {
+        inputs.commandList->setTextureState(inputs.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setTextureState(inputs.rrMotionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setTextureState(inputs.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setTextureState(inputs.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setTextureState(inputs.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setTextureState(inputs.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setTextureState(inputs.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setTextureState(inputs.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setTextureState(inputs.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    }
     inputs.commandList->commitBarriers();
     nvrhi::ComputeState state;
     state.pipeline = m_producerPipeline;
@@ -318,6 +370,18 @@ bool PathTraceUnifiedPtGlassState::ExecuteProducer(
     nvrhi::utils::BufferUavBarrier(inputs.commandList, inputs.primarySurface32);
     nvrhi::utils::BufferUavBarrier(inputs.commandList, inputs.primaryHistorySidecar);
     nvrhi::utils::TextureUavBarrier(inputs.commandList, m_compositionToken);
+    if (inputs.writeRrGuides)
+    {
+        nvrhi::utils::TextureUavBarrier(inputs.commandList, inputs.motionVectorTexture);
+        nvrhi::utils::TextureUavBarrier(inputs.commandList, inputs.rrMotionVectorTexture);
+        nvrhi::utils::TextureUavBarrier(inputs.commandList, inputs.motionVectorMaskTexture);
+        nvrhi::utils::TextureUavBarrier(inputs.commandList, inputs.rrGuideAlbedoTexture);
+        nvrhi::utils::TextureUavBarrier(inputs.commandList, inputs.rrGuideSpecularAlbedoTexture);
+        nvrhi::utils::TextureUavBarrier(inputs.commandList, inputs.rrGuideNormalRoughnessTexture);
+        nvrhi::utils::TextureUavBarrier(inputs.commandList, inputs.rrGuideDepthTexture);
+        nvrhi::utils::TextureUavBarrier(inputs.commandList, inputs.rrGuideResetMaskTexture);
+        nvrhi::utils::TextureUavBarrier(inputs.commandList, inputs.rrGuidePositionTexture);
+    }
     return true;
 }
 

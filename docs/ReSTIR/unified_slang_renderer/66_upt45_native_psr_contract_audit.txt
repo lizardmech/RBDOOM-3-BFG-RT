@@ -256,3 +256,43 @@ Verified build artifacts:
 Nsight acceptance remain open: first prove correct glass/non-glass output and
 the two marker positions, then record the required register and dependency
 figures before considering default promotion.
+
+S45.4 behind-glass geometry guides and skinned route correction, 2026-08-13
+----------------------------------------------------------------------------
+
+Initial runtime validation proved the native PSR/compose split and exposed two
+producer-contract defects. First, compact receiver replacement alone was not
+enough for DLSS-RR: P0's guide textures still described the clear pane. Second,
+the narrow resolver derived the first skinned shader-instance ID as
+`2 + rigidInstanceCount`, although the established skinned route header owns
+the actual ID. A non-contiguous route range could therefore select a wrong
+skinned route and material.
+
+The producer now reads the first skinned instance ID from route record zero,
+then validates the selected record's own `shaderInstanceId` before loading its
+triangle/material data. It does not broaden the route or add a search.
+
+For every accepted replacement, and only while DLSS-RR is effective, the same
+narrow post-RayQuery surface now publishes:
+
+    albedo and specular/F0 guides from the replacement material;
+    normal and roughness from the replacement surface;
+    hardware-depth encoding and world position from the replacement hit;
+    PT and RR motion from replacement current/previous positions;
+    an invalid motion reason when prior camera/object position is unavailable.
+
+Thus ordinary clear glass is invisible to RR geometry. The pane no longer
+owns normal, depth, position, or motion for objects behind it. No distortion is
+performed in this baseline; a later distortion lane may offset the viewed
+guide lookup deliberately, but may not restore pane geometry to these guides.
+The RR UAV writes are gated by the existing effective RR state. D0/T0/S0
+receiver publication remains unconditional for accepted PSR hits.
+
+The Vulkan verifier still proves one RayQuery and now admits producer bindings
+0,3..34. The rebuilt producer is 57696 bytes with SHA256
+299FF7474DBEA75C50F382A1D77BCE2AD436EDEE6D64393E289D1877F667F9CB.
+The unchanged composer remains 2364 bytes with SHA256
+89CDCA18E9BDC0350FB460E7EF09E7C8FA1C3EE58E0A1955799D7666F3150AC7.
+The full Vulkan release build passes. Runtime acceptance must specifically
+exercise animated skinned surfaces through clear glass with RR normal, depth,
+motion, and final output views.

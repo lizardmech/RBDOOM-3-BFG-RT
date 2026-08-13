@@ -20,6 +20,14 @@ public static const uint kUpt45GeometryChunkTriangles = 256u;
 public static const uint kUpt45PrimaryValid = 0x00000001u;
 public static const uint kUpt45PrimaryObjectMotion = 0x00000004u;
 public static const uint kUpt45PrimaryPreviousPosition = 0x00000008u;
+public static const uint kUpt45ControlWriteRrGuides = 0x00000001u;
+public static const uint kUpt45MotionValid = 0x00000001u;
+public static const uint kUpt45MotionSourceShift = 1u;
+public static const uint kUpt45MotionInvalidReasonShift = 5u;
+public static const uint kUpt45MotionMissingPreviousCamera = 4u;
+public static const uint kUpt45MotionRejectedPrevious = 5u;
+public static const uint kUpt45MotionPreviousBehindCamera = 6u;
+public static const uint kUpt45RrResetStochasticTranslucent = 0x00000020u;
 
 public struct Upt45Control
 {
@@ -48,7 +56,14 @@ public struct Upt45Control
     public float forwardOffset;
     public float transmissionStrength;
     public float glassTintStrength;
-    public float reserved0;
+    public float rrNear;
+    public float4 cameraForwardAndTanX;
+    public float4 cameraLeftAndTanY;
+    public float4 cameraUpAndPreviousValid;
+    public float4 previousCameraOrigin;
+    public float4 previousCameraForwardAndTanX;
+    public float4 previousCameraLeftAndTanY;
+    public float4 previousCameraUp;
 };
 
 public struct Upt45NarrowHit
