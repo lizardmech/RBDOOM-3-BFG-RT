@@ -1,0 +1,214 @@
+UPT-45 S45.1: native PSR compact-contract audit
+================================================
+
+Result
+------
+
+The native Slang PSR can replace the rejected clean-DI adapter without a
+176-byte companion receiver. The accepted UPT compact streams already contain
+the complete post-replacement shading/history contract. One fact required
+only while resolving the front pane needs narrow native ownership:
+
+    front-pane transmission/reflection composition payload.
+
+That fact does not justify importing the clean feature registry or a wide
+primary record.
+
+Current compact receiver
+------------------------
+
+`Upt04PackedPrimarySurfaceRecord32` is exactly 32 bytes:
+
+    geometry.x     full-precision camera hit distance
+    geometry.y     oct16 geometric normal
+    geometry.z     oct16 shading normal
+    geometry.w     oct16 surface-to-camera direction
+    material.x     RGB10 base color
+    material.y     RGB10 specular F0
+    material.z     shared-exponent RGB emission
+    material.w     fp16 roughness plus version/valid header
+
+`Upt04PrimaryHistorySidecar` is exactly 32 bytes:
+
+    metadata.x     sidecar version plus surface class
+    metadata.y     validity/object-motion/previous-position flags
+    metadata.z     stable material ID
+    metadata.w     material flags
+    previous.xyz   previous world position
+    previous.w     alpha cutoff
+
+Together they publish every fact currently reconstructed by D0/T0/S0:
+
+    current position, normals and view direction;
+    evaluated base color, F0, roughness and emission;
+    stable material identity and coverage class;
+    previous position and motion validity;
+    alpha-reuse boundary.
+
+The 176-byte `Upt04PrimarySurfaceRecord` constructed in Slang is a logical
+evaluation value, not required source storage. A native PSR must pack the
+replacement directly into compact32 and the sidecar.
+
+Facts deliberately absent from compact history
+-----------------------------------------------
+
+The compact streams do not retain:
+
+    current dense material-table index;
+    source instance ID;
+    source primitive ID.
+
+Those are not D0/T0/S0 history facts. They were present only because the old
+clean producer consumed its 176-byte record.
+
+Front material classification
+-----------------------------
+
+Eligibility is available without a material-table access from the stable
+material flags and translucent surface class in the sidecar. Stable material
+IDs are 32-bit FNV hashes, so they are intentionally sparse and cannot index a
+dense GPU array. The native baseline classifies the front receiver from the
+sidecar and derives its tint/transport inputs from the already packed receiver
+values. It performs no front-material identity translation.
+
+The committed back hit obtains its current dense material index directly from
+the geometry route. That is the index needed for back-surface material
+evaluation and does not require a search.
+
+Forbidden alternatives:
+
+    linear scan of the material table;
+    GPU hash/probe lookup;
+    binary search over sorted material IDs;
+    a sparse array indexed by the 32-bit stable material hash;
+    full-screen 16-byte identity companion solely to retain a dense index;
+    assuming stable material ID equals the current dense index.
+
+Source-pane exclusion should use a forward ray-origin offset. If an explicit
+same-pane check proves necessary, source instance/primitive may be retained in
+a producer-local scalar token; it must not become persistent receiver history.
+
+Narrow hit resolver
+-------------------
+
+The existing general UPT decoder is intentionally too broad for PSR:
+
+    Upt04SmokeVertex                 112 bytes
+    Upt04ResolvedTriangle            356 bytes logical payload
+    Upt04GeometryHitSurface          124 bytes logical payload
+
+It expands three complete vertices and retains tangent, bitangent, two color
+channels, two UV sets and secondary-shading state. Importing it wholesale would
+defeat the register/occupancy goal.
+
+The native PSR resolver must word-address the existing vertex buffers and load
+only:
+
+    position.xyz;
+    normal.xyz;
+    primary texcoord.xy;
+    route material index and stable material ID;
+    triangle class/flags;
+    current and previous transform/position only when required.
+
+The traversal live value is limited to compact hit facts:
+
+    instance ID, canonical primitive ID, barycentrics, hit distance, face bit.
+
+Triangle attributes are reconstructed only after the selected committed hit.
+Material identity, texture sampling, previous-position reconstruction and
+compact output packing happen after RayQuery so they do not extend its live
+range.
+
+Material evaluation boundary
+----------------------------
+
+The 112-byte source material and 96-byte feature-parameter records remain
+authoritative storage but must be word-addressed. The clear-window producer
+loads only:
+
+    glass eligibility/capability words;
+    params0 and params1 for transmittance, thickness, IOR, strength,
+        reflection boost and transmission floor;
+    diffuse/specular texture indices and material flags for the accepted hit;
+    debug fallback colors needed when a texture is absent.
+
+It must not construct the full OpenPBR closure or import the general secondary
+material evaluator. Normal mapping, tangent reconstruction, emission and
+additional texture roles require independent measured admission.
+
+Composition token
+-----------------
+
+Replacing the receiver discards the front pane by design, but late appearance
+composition still needs its transport weight. The old accepted sidecar proves
+that one RGBA value is sufficient:
+
+    rgb    transmission or reflection-owned throughput
+    a      empty/pending/reflection-owned/resolved marker plus reflection energy
+
+The native first implementation therefore owns one full-frame RGBA16F token:
+
+    8 bytes / pixel
+    overwritten for every pixel by the PSR classify/producer dispatch
+    no clear
+    read once by native post-R0 composition
+    no temporal history
+
+It is not a primary-surface stream and cannot be read by D0/T0/S0. Any proposal
+to widen it or add history requires a new ledger entry.
+
+RR and previous-position publication
+------------------------------------
+
+The replacement compact sidecar must publish the accepted hit's stable
+material ID, class/flags, alpha cutoff and previous position. Previous position
+comes from the existing route-specific sources:
+
+    static/current-stable geometry    current position when history is stable;
+    dynamic geometry                  previous dynamic vertex source when valid;
+    rigid geometry                    previous object transform;
+    skinned geometry                  previous skinned position buffer.
+
+If a route cannot prove its previous position, it clears the motion-valid bits
+and publishes current position as a non-reprojectable fallback. It must not
+invent motion. RR guide texture writes are derived from the same accepted
+replacement, after compact publication, and are statically absent when RR is
+not requested.
+
+Native descriptor closure
+-------------------------
+
+The producer may bind only:
+
+    TLAS;
+    compact32 receiver UAV;
+    current sidecar UAV;
+    narrow word views of material, feature and parameter tables;
+    current geometry route/index/position/normal/UV data;
+    route-specific previous position/transform data;
+    bindless textures plus the existing material sampler;
+    RGBA16F composition token UAV;
+    optional RR guide UAVs in an RR-specific specialization;
+    one small push-constant block.
+
+The composer may bind only R0, the composition token and its output UAV. It
+does not bind TLAS, geometry, material, light, reservoir or history resources.
+
+Build and profile gates
+-----------------------
+
+The build verifier must fail if reflection/disassembly shows:
+
+    a clean-DI reservoir or ReGIR binding;
+    the 176-byte primary record;
+    a light record/distribution/remap binding;
+    more than the declared producer RayQuery count;
+    the general `Upt04ResolvedTriangle` or `Upt04GeometryHitSurface` decoder;
+    an unbounded search loop;
+    unexpected material/geometry word loads.
+
+Runtime promotion remains blocked until Nsight records registers/thread,
+maximum live-register site, occupancy, No Instructions and Long Scoreboard for
+no-glass, sparse-glass and full-view-glass cases. These figures must be kept in
+this document with the final artifact hash.

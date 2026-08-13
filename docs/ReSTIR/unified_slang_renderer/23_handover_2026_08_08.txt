@@ -2737,3 +2737,13 @@ and output reconstruction until after traversal, report reflected dependencies,
 SPIR-V size and RayQuery sites, and be accepted with Nsight registers/thread,
 occupancy, No Instructions and Long Scoreboard evidence. No further work should
 attempt to make the old adapter's final pipeline gate pass.
+
+S45.1 then audited the native compact contract in `66`. Compact32 plus its
+32-byte sidecar contains every post-replacement D0/T0/S0 fact; no wide companion
+is required. Stable material IDs are sparse 32-bit FNV hashes, so the front is
+classified from sidecar flags with no identity translation; the committed back
+hit gets its dense index directly from its route. The general UPT decoder is
+also forbidden in the native producer: its three 112-byte vertices and
+356/124-byte logical triangle/surface values would recreate the register
+failure. The first native appearance payload is limited to one overwritten
+RGBA16F token (8 bytes/pixel, no clear, no history).

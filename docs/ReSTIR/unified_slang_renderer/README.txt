@@ -549,6 +549,13 @@ Packet index
         reservoir/wide-record ABI, and gate the feature on explicit
         register/occupancy and dependency-footprint evidence.
 
+    66_upt45_native_psr_contract_audit.txt
+        Completes S45.1: proves compact32 plus the sidecar replace the wide
+        receiver, proves sparse stable material hashes must not become a GPU
+        lookup, rejects the fat general geometry decoder, admits only one
+        8-byte/pixel composition token, and freezes the native
+        producer/composer descriptor and register-profile gates.
+
     55_upt40_rr_jitter_temporal_reprojection.txt
         Corrects D0 previous-best and T0 history addressing for the exact
         previous-frame RR projection jitter while leaving search dither,
