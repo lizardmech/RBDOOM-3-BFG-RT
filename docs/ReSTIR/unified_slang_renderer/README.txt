@@ -543,10 +543,11 @@ Packet index
         while deferring glass PSR until it can publish compact32 receivers.
 
     65_upt45_compact_clear_window_psr.txt
-        Defines the bounded compact32 clear-window PSR adapter: reuse the proven
-        clean producer before D0, publish coherent wide and compact receivers,
-        compose its sidecars after R0 and before RR, and add no new buffers,
-        clears or reservoir work.
+        Supersedes the rejected clean-DI adapter with a UPT-owned native Slang
+        clear-window PSR: publish compact32/sidecar receivers before D0, keep
+        late transparent composition distinct after R0, import no clean
+        reservoir/wide-record ABI, and gate the feature on explicit
+        register/occupancy and dependency-footprint evidence.
 
     55_upt40_rr_jitter_temporal_reprojection.txt
         Corrects D0 previous-best and T0 history addressing for the exact

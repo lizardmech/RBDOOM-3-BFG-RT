@@ -2713,3 +2713,27 @@ Runtime acceptance remains required before any default promotion. Start with
 before D0 plus `UPT.GlassCompose` after R0. Validate no-glass opacity, clear
 panes, mirrors, motion/history, RR guides and timing; gate 0 must preserve the
 accepted UPT baseline.
+UPT-45 authority correction: native Slang PSR, 2026-08-13
+---------------------------------------------------------
+
+Runtime continued to report the final UPT glass pipeline gate as false after
+the descriptor-collision and unreachable-reservoir corrections. The attempted
+clean-DI adapter is rejected rather than widened again. `65` now requires the
+accepted older clear-glass behavior to be rebuilt in a UPT-owned Slang file
+against compact32 plus its history sidecar. Clean-DI reservoirs, ReGIR, the
+176-byte companion receiver, global feature registry and HLSL producer layout
+are explicitly forbidden dependencies.
+
+The RTXDI Full Sample Nsight ordering was also resolved. Its final `Glass`
+marker is a separate transparent forward/composition pass after ReSTIR PT,
+denoising and opaque composition. Its actual PSR guide data is produced inside
+the earlier PT initial/reuse path. UPT-45 therefore retains a native receiver
+PSR before D0 and a distinct native appearance composition after R0.
+
+Because prior UPT profiling repeatedly found occupancy collapse and serialized
+loads caused by fat records and long live ranges, UPT-45 now has an explicit
+GPU-footprint gate. The new producer must use narrow field loads, defer identity
+and output reconstruction until after traversal, report reflected dependencies,
+SPIR-V size and RayQuery sites, and be accepted with Nsight registers/thread,
+occupancy, No Instructions and Long Scoreboard evidence. No further work should
+attempt to make the old adapter's final pipeline gate pass.

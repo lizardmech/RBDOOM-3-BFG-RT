@@ -1,206 +1,267 @@
-UPT-45: compact32 clear-window PSR integration
-==============================================
+UPT-45: native compact clear-window PSR
+========================================
 
 Purpose
 -------
 
-Bring the already verified clean clear-window primary-surface replacement
-(PSR) path to UPT without changing the accepted UPT reservoir estimator,
-falling back to the 176-byte receiver, or copying a full-screen wide record
-after PSR.
+Rebuild the accepted clear-window primary-surface replacement behavior as a
+UPT-owned Slang feature. Preserve the useful transport, classification and
+guide semantics of the older clean renderer without importing that renderer's
+host pass, binding layout, reservoir pages, wide receiver or feature registry.
 
-Verified ownership audit
-------------------------
+This document supersedes the earlier UPT-45 adapter design that attempted to
+dispatch the clean-DI transmission producer from the UPT route. That adapter
+never reached an effective pipeline in runtime testing and exposed hidden
+clean-renderer dependencies. Its u97/u98 alias and fallback-reservoir fixes are
+historical diagnostics, not the architecture to complete.
 
-The shared primary producer can publish three representations before either
-renderer runs, but its accepted compact mode normally writes compact32 plus
-the sidecar and deliberately skips the wide record:
+Reference clarification: RTXDI Full Sample
+-------------------------------------------
 
-    PrimarySurfaceHistoryCurrent                 176 bytes / pixel
-    PathTraceUnifiedPtPrimaryReceivers32          32 bytes / pixel
-    PathTraceUnifiedPtPrimaryHistorySidecars      32 bytes / pixel
+Nsight shows a final pass named `Glass` in RTXDI Full Sample, but that marker
+is not its denoiser PSR producer. Source order is:
 
-UPT-45 therefore selects a new explicit producer mode 4 while its gate is
-effective: it retains the accepted compact32 and sidecar writes and adds a
-wide companion write for the proven glass producer only. D0/T0/S0 still read
-compact32; the 176-byte record is not a UPT reservoir fallback.
+    G-buffer
+    ReSTIR PT initial / temporal / spatial / final shading
+        PSR data is recorded by the PT path and updated by reuse here
+    denoiser
+    opaque lighting composition
+    Glass
+        separate transparent forward/composition pass
+    TAA or DLSS
 
-The clean transmission producer currently replaces the first record.
-It also owns the clear-glass RR guide rewrite and the transmission, reflection
-and distortion sidecars. UPT D0 never reads the wide record; it consumes the
-compact32 receiver. Therefore dispatching the existing producer unchanged
-would make RR guides and clean DI see the resolved surface while UPT continued
-to shade the front glass pane.
+The final Glass pass traces visible transparent layers and composites their
+transmission, reflection and emission over the already lit image. The PSR
+guide data consumed by PT reuse and the denoiser was generated earlier.
 
-The global Vulkan smoke binding ABI already reserves and binds the canonical
-compact UAVs used by P0 and UPT D0:
+UPT must preserve the same ownership distinction:
 
-    u89  canonical current compact32 primary receiver
-    u90  canonical current compact32 history sidecar
+    native receiver PSR before D0
+        supplies the surface consumed by D0/T0/S0 and RR guides
 
-The clean material-feature layout already owns t89/t90. Vulkan applies zero
-SRV/UAV binding offsets here, so declaring the producer writes at u89/u90
-would collide with those texture descriptors. The producer therefore binds
-the same two allocated buffers through clean-layout-local aliases u97/u98.
-This adds two layout descriptors, but no GPU buffer, copy, clear, or alternate
-history stream. The missing data contract remains successful-PSR dual
-publication in the glass producer.
+    native clear-window appearance composition after R0
+        applies front-pane transmission/reflection/overlay to the lit result
+
+The late composition pass must never be mistaken for a replacement receiver,
+and the pre-D0 receiver pass must not grow into a full transparent renderer.
+
+Authoritative ownership
+-----------------------
+
+The UPT feature is implemented in its own Slang source and owned by the UPT
+renderer. The old clean PSR files are references for externally visible
+behavior only:
+
+    eligible clear-window classification;
+    reflection versus transmission lane selection;
+    Fresnel/attenuation and composition convention;
+    fail-closed handling of unsupported, missed or invalid hits;
+    replacement depth, motion, normal, material identity and RR guides;
+    history invalidation when the selected replacement route changes.
+
+The UPT implementation must not include or bind:
+
+    clean-DI reservoir pages or reservoir-count state;
+    clean-DI light/ReGIR resources;
+    clean material-feature registry or its global binding layout;
+    the 176-byte clean primary-surface record as a companion or fallback;
+    HLSL producer/composer entry points;
+    a copied second glass classification system hidden in ReSTIR code.
+
+The material implementation owns clear-glass classification and transport
+parameters. The PSR pass owns tracing and replacement publication. D0/T0/S0
+continue to see one final receiver contract and contain no glass branch.
+
+Native compact contract
+-----------------------
+
+The producer reads the canonical UPT current receiver and history sidecar:
+
+    Upt04PackedPrimarySurfaceRecord32             32 bytes / pixel
+    Upt04PrimaryHistorySidecar                     32 bytes / pixel
+
+It publishes the replacement directly into those same canonical UPT outputs.
+No wide companion record is produced. The replacement must retain all fields
+needed by:
+
+    D0 receiver evaluation;
+    T0/S0 surface validation and stable identity;
+    previous-frame reprojection;
+    DLSS Ray Reconstruction depth, normal, motion and material guides;
+    late clear-window composition.
+
+Ordinary opaque and rejected pixels retain the primary producer's original
+compact record. A replacement is admitted only after a valid compatible hit
+and complete compact/sidecar construction. Missing data fails closed; density
+is never a reason to publish an invalid receiver.
 
 Pass graph
 ----------
 
-The admitted order is:
+The admitted graph is:
 
-    shared primary surface producer
-    UPT-45 clear-window PSR producer
-        trace the existing bounded mirror/transmission rays
-        publish the resolved 176-byte primary record
-        publish the matching compact32 receiver and history sidecar
-        publish RR guides and glass sidecars
+    shared compact primary producer
+    UPT.PSR ClearWindow (native Slang)
+        classify the front receiver
+        trace only the selected replacement route
+        publish compact32 + history sidecar + RR guide facts
     UPT D0
     UPT T0
     UPT S0
     UPT R0
-    UPT-45 glass sidecar composition into R0
+    UPT.GlassCompose (native Slang)
+        apply front-pane transmission/reflection/overlay to R0
     optional DLSS Ray Reconstruction
 
-PSR is a primary-surface producer. It must not be placed inside D0/T0/S0 and
-must not be delayed until after reservoir reuse. Glass composition is a late
-material-feature consumer and must happen after R0 but before RR so RR sees the
-same composed input that is presented.
+The two UPT-45 entry points may share a small glass transport contract, but
+neither may import D0/T0/S0 implementation modules. Composition may consume a
+narrow PSR sidecar when front-pane facts cannot be represented in compact32;
+such a resource requires a separate work-ledger admission and must not become
+a second full primary-surface stream.
 
-Estimator and work contract
----------------------------
+Ray and work ceiling
+--------------------
 
-UPT-45 reuses the existing clean glass transport and composition code. It adds
-no candidate, reservoir, temporal, spatial, duplication or resolve math.
+The native implementation remains bounded to:
 
-The producer remains bounded to the existing glass budget:
+    zero PSR rays for an ineligible or unsupported primary material;
+    at most one selected replacement ray for the first receiver mode;
+    at most one reflection ray and one transmission ray only if the accepted
+        old behavior genuinely requires both for late composition;
+    no candidate, reservoir, temporal, spatial or duplication work;
+    no per-frame full-buffer clears;
+    no full-screen wide-record copy;
+    no new light selection or emissive identity search.
 
-    at most one mirror ray per eligible clear-glass pixel;
-    at most one transmission ray per eligible clear-glass pixel;
-    no ray for an ineligible or unsupported primary material.
+An eligibility-first full-screen kernel is the first implementation. A compact
+work queue is admitted only when counters prove that eligible pixels are sparse
+and total queue classify/dispatch cost wins. It must reuse an existing bounded
+queue where possible and never add a clear-sized-to-resolution requirement.
 
-The compact publication is executed only after a replacement surface has been
-accepted. Through the producer-local u97/u98 aliases it overwrites the same
-canonical compact buffers at the same linear pixel as the wide record.
-Rejected, missed, incompatible and ordinary opaque pixels retain the compact
-record already written by the shared primary producer.
+GPU footprint and register contract
+-----------------------------------
 
-No per-frame full-buffer clear, compact-buffer copy, new page, new history
-allocation, or fallback to the 176-byte UPT receiver is allowed. While the
-UPT glass gate is effective, the already allocated wide companion history is
-advanced after all consumers so sticky glass-lane validation sees N-1. This
-extra wide write/copy is opt-in and is not consumed by D0/T0/S0.
+Correct output is insufficient if the new pass recreates the latency and
+occupancy failures already found in UPT. The native Slang PSR must be designed
+around a narrow live working set.
 
-Compatibility boundary
-----------------------
+Mandatory source rules:
 
-The compact publisher uses the exact existing packers:
+1. Load receiver, geometry and material fields individually or through a
+   purpose-built narrow PSR view. Do not return the 176-byte receiver, the
+   112-byte light record, or a full OpenPBR closure into the ray loop.
+2. Keep persistent identity, previous-frame facts and composition-only fields
+   out of the traversal live range. Materialize them after a hit is selected.
+3. Request only position, geometric/shading normal, texcoord and the glass
+   parameters actually used by the selected mode. Do not decode tangent,
+   emission, every texture channel or every material flag unconditionally.
+4. Store compact hit identity and barycentrics across the query; reconstruct
+   the output after traversal. Do not keep complete triangle/material records
+   live across RayQuery.
+5. Use static specializations for clear transmission and sharp reflection
+   when that removes dead resources/code. Do not add runtime material-interface
+   dispatch or a monolithic all-material closure.
+6. Keep the eligibility reject before geometry/material expansion and before
+   any ray query.
 
-    PackPathTraceUnifiedPtPrimaryReceiver32
-    PackPathTraceUnifiedPtPrimaryHistorySidecar
+Required build evidence per entry point:
 
-The sidecar is packed from the exact resolved wide record written at u30, so
-surface class, material identity, material flags, alpha cutoff and previous
-position remain coherent with T0/S0 validation. The clean-DI route must not
-write the u97/u98 aliases; compact publication is guarded by the UPT-45 route
-flag. P0 and UPT D0 retain their accepted canonical u89/u90 ABI.
+    Slang blob bytes and hash;
+    SPIR-V instruction count and RayQuery-site count;
+    reflected descriptor list proving no clean-DI/light/reservoir imports;
+    compact record sizes and maximum declared ray count;
+    dependency closure proving D0/T0/S0 modules are unchanged.
 
-The clean producer and composer remain the source of truth for glass energy,
-reflection/transmission lane ownership and RR guide policy. UPT does not grow
-a second glass implementation.
+Required Nsight acceptance at 2560x1440 and matched camera positions:
+
+    registers per thread, including maximum live register site;
+    achieved occupancy and active warps;
+    No Instructions and Long Scoreboard fractions;
+    eligible-pixel and rays-per-pixel counters;
+    pass time with no visible glass, sparse glass and glass filling the view.
+
+The initial budget is a gate, not a guessed performance promise:
+
+    no-glass cost must be close to one compact eligibility read per pixel;
+    no full-screen traversal or material decode when eligible count is zero;
+    no regression in D0/T0/S0 register count or shader binaries;
+    no PSR kernel whose register pressure lowers occupancy below the accepted
+        UPT pass it replaces without a measured total-frame win;
+    any field or descriptor not named by the live algorithm is a build failure.
 
 Staged implementation
 ---------------------
 
-S45.1 compact publication
+S45.0 authority correction
 
-    Add clean-layout-local u97/u98 declarations to the transmission producer
-    and an explicit UPT-only publication flag. On every successful wide-record
-    PSR publish, write the exact matching compact receiver and sidecar.
+    Remove the clean-adapter design from the accepted contract. Record the
+    Full Sample PSR-versus-final-Glass distinction and the GPU footprint gate.
 
-S45.2 opt-in UPT producer dispatch
+S45.1 narrow contract audit
 
-    Admit the existing transmission producer before UPT D0 through a dedicated
-    UPT glass-PSR gate. Reuse the existing material feature parameters,
-    geometry/material universe and sidecar outputs. Fail closed unless the
-    compact32 current receiver, current sidecar, wide primary record, feature
-    resources, RR guides and both producer pipelines are available.
+    Trace the canonical compact32/sidecar producer and every D0/T0/S0/RR
+    consumer. Derive the minimum replacement receiver, material feature and
+    optional composition-sidecar fields. Record exact byte and binding costs
+    before adding a shader.
 
-S45.3 late composition
+S45.2 native Slang receiver producer
 
-    Dispatch only the existing glass composition feature after UPT R0 and
-    before optional RR. Its readable source is R0 and its output becomes the
-    UPT/RR presentation source. Do not dispatch the transmission producer a
-    second time through the generic feature loop.
+    Add a UPT-owned Slang entry point and UPT-owned host pipeline. Implement
+    eligibility-first replacement tracing and direct compact32/sidecar/RR-guide
+    publication. It must run correctly with temporal and spatial disabled.
 
-S45.1 through S45.3 implementation status (2026-08-13)
+S45.3 native Slang appearance composition
 
-    Complete behind default-off `r_pathTracingUnifiedPtGlassPsr`.
-    The producer and composer share their proven shader implementations but
-    use a UPT-owned host pipeline state against the clean material-feature
-    layout. P0 mode 4 dual-publishes compact32 plus the wide PSR companion.
-    The composer binds R0 directly at t89 and forwards ordinary pixels, so no
-    R0 image copy is required. The Vulkan release build passes; runtime image,
-    history, RR-guide and cost acceptance remains pending.
+    Add the separate post-R0 pass for the front-pane energy convention. Match
+    the accepted old clear-glass appearance without using its host layout or
+    shader entry point.
 
-Runtime gate correction (2026-08-13)
-------------------------------------
+S45.4 remove rejected adapter
 
-The first post-layout-fix runtime log remained requested/effective=1/0 without
-attempting shader load. The UPT compact gate incorrectly required all four
-clean-DI reservoir pages, but those pages are allocated only later inside the
-mutually exclusive clean-DI route. UPT glass therefore could never reach its
-pipeline initializer.
+    Remove UPT-only clean-DI aliases, wide companion mode, fallback reservoir
+    bindings and clean material-feature pipeline dependencies. Preserve clean
+    renderer behavior and unrelated dirty work.
 
-The producer/composer shared shader layout declares u69-u72, but neither live
-UPT glass entry point reads those reservoirs. The UPT binding set now satisfies
-the declarations with the existing persistent 64-byte status UAV and publishes
-CleanRtxdiDiReservoirCount=0. Thus any future accidental reservoir request
-fails its bounds test before a load, while UPT avoids allocating four unused
-full-resolution clean-DI reservoir pages. The gate diagnostic now separates
-this fallback-UAV prerequisite from actual pipeline readiness.
-    D0-only operation requires only current compact32 plus its current sidecar;
-    compact N-1 buffers are additionally required only when T0/S0 is enabled.
+S45.5 runtime and footprint acceptance
 
-S45.4 default decision
-
-    Keep the new UPT gate default off until runtime validates clear panes,
-    mirrors, portal transitions, motion, RR guides and cost. Promotion into
-    `exec upt` and `exec uptrr` is a separate accepted-policy change.
+    Validate image/history/RR behavior, counters, descriptor closure, Nsight
+    register/occupancy evidence and matched timings. Default promotion is a
+    separate decision after this gate passes.
 
 Diagnostics
 -----------
 
-The host must print requested/effective and the individual gates:
+The native host and shader diagnostics must distinguish:
 
-    Vulkan;
-    compact32 receiver mode;
-    primary/history buffers;
-    material feature table and parameters;
-    transmission producer pipeline;
-    glass composer pipeline;
-    sidecar outputs;
-    RR guide outputs when RR is active.
+    requested / effective and every resource/pipeline gate;
+    eligible primary pixels;
+    unsupported material rejection;
+    replacement query attempted / hit / miss;
+    geometry decode and material decode failure;
+    compact receiver publication;
+    history-sidecar and RR-guide publication;
+    late composition pixels and reflection/transmission lanes;
+    exact rays issued by lane;
+    descriptor and SPIR-V footprint summary.
 
-The compiler/dispatch log must identify `UPT.PSR` and `UPT.GlassCompose` as
-separate work. Existing clean transmission diagnostics remain authoritative;
-UPT-45 must not invent a second set of shader-side glass classifications.
+Counters are atomics-free per-pixel or compact reductions where practical and
+default off. Enabling diagnostics must not change estimator acceptance.
 
 Acceptance
 ----------
 
-1. Clear windows shade the geometry behind them in D0 with temporal/spatial
-   disabled.
-2. Enabling T0/S0 introduces no front-pane ghost receiver, history poisoning,
-   white/color-corrupted replay or energy growth.
-3. Reflection/transmission composition matches the clean production route for
-   the same material and camera position.
-4. RR depth, normal, motion, albedo, specular and hit-distance guides follow
-   the resolved geometry without pane-edge smearing or reset storms.
-5. Opaque UPT output and timing are unchanged when the UPT-45 gate is off.
-6. The producer issues no work when the scene contains no eligible glass
-   pixels beyond the unavoidable full-frame raygen eligibility test already
-   owned by the proven clean producer.
-7. Vulkan focused and full release builds pass; no DX12 shader is compiled.
+1. Clear windows shade the valid replacement receiver in D0 with T0/S0 off.
+2. T0/S0 introduce no front-pane ghost receiver, stale identity, corrupted
+   replay, white/color error or runaway energy.
+3. Late composition matches the accepted old clear-window transmission and
+   sharp-reflection behavior at the same material and camera position.
+4. RR guides follow the replacement surface without pane-edge smearing or
+   history reset storms.
+5. Opaque UPT output, bindings, shader binaries and timing are unchanged when
+   UPT-45 is compiled or gated out.
+6. No clean-DI reservoir, ReGIR, wide receiver or feature-registry dependency
+   exists in the UPT-45 reflected binding/dependency closure.
+7. No per-frame full-buffer clear or full-screen wide copy is added.
+8. Nsight proves the native PSR live working set does not introduce needless
+   register pressure, occupancy collapse or serialized dependent-load chains.
+9. Vulkan focused and full release builds pass. No DX12 shader is compiled.

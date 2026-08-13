@@ -140,6 +140,8 @@ primary surface or a replacement surface.
 
 Future PSR work must:
 
+    rebuild the accepted older PSR behavior in a UPT-owned Slang source;
+    treat the old renderer as a behavioral reference, not a host/layout ABI;
     run only on an eligible pixel mask/worklist;
     compare masked full-screen dispatch with compacted dispatch before adding a
         worklist buffer;
@@ -148,6 +150,19 @@ Future PSR work must:
         and RR guides;
     invalidate history when the replacement route changes;
     remain absent from baseline pipeline bindings and payload.
+
+The UPT PSR must publish the native compact receiver directly. It must not
+import the older clean renderer's wide primary record, reservoir pages, ReGIR
+state, global material-feature layout, or HLSL pipeline. A separate late glass
+appearance pass may composite transmission/reflection after UPT resolve, but
+that pass is not the receiver PSR and cannot repair a receiver after reuse.
+
+PSR admission also requires a GPU-footprint proof. The shader must use a
+purpose-built narrow receiver/material/geometry view, keep identity and output
+reconstruction outside the RayQuery live range, report SPIR-V size and query
+sites, and be measured for registers/thread, occupancy, No Instructions and
+Long Scoreboard. Correct glass that needlessly expands every hit or chokes
+occupancy is not an accepted implementation.
 
 Basic clear transmission and sharp reflection are separate PSR modes. Generic
 glossy reflections are not silently folded into the clear-window pass.
