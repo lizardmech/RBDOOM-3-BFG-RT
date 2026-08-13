@@ -2856,3 +2856,7 @@ Mode 2 front-pane capture bypasses legacy stochastic glass coverage, while mode
 must prove distortion, attenuation, reflection, stacked-pane transparency and
 RR-guide stability. The expected log is `glass optics requested/effective=1/1`
 with `receiverReplacement=0`; full contract and test matrix are in `66` S45.8.
+The initial private UPT glass pipeline cache failed runtime admission despite
+all resource/cvar gates passing. It was removed: UPT now reuses the immutable,
+proven clean-DI glass shader tables with UPT-owned bindings/constants. There is
+no additional pipeline cvar.

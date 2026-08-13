@@ -480,3 +480,14 @@ receivers, including two panes. The console contract is:
 DLSS-RR normal, depth, position and motion must continue to describe the
 behind-glass receiver; distortion may offset the viewed result but the pane
 must never become RR geometry.
+
+Pipeline admission correction
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The first S45.8 host integration allocated a second private material-feature
+pipeline cache for UPT. Runtime reported every resource/cvar gate admitted but
+`pipelines=0`. UPT now shares the proven clean-DI glass shader-library,
+pipeline and shader-table cache. These objects are immutable execution state;
+UPT still supplies its own bindings and optics-only constants, so sharing them
+does not enable or dispatch clean DI and cannot replace the UPT receiver. No
+additional pipeline-enable cvar exists or is required.

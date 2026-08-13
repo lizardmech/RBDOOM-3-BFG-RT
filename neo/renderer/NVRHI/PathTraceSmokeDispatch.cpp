@@ -1139,7 +1139,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             BuildPathTraceCleanRtxdiDiMaterialFeaturePasses(
                 unifiedPtGlassPsrRequested,
                 16,
-                m_smokeUnifiedPtGlassMaterialFeatures);
+                m_smokeCleanRtxdiDiMaterialFeatures);
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const int pdfNeeVerifierEntryVisibility = idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierVisibility.GetInteger());
     const int pdfNeeVerifierSelectedVisibilityPolicy = pdfNeeVerifierEntryVisibility != 0

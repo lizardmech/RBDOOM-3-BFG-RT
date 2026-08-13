@@ -891,9 +891,6 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeReGIRDebugShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeNeeCacheDebugShaderLibrary;
     RtPathTraceCleanRtxdiDiMaterialFeatureState m_smokeCleanRtxdiDiMaterialFeatures;
-    // UPT uses the proven glass feature shaders with a UPT-owned pipeline
-    // state. The shader runs in optics-only mode and cannot replace compact P0.
-    RtPathTraceCleanRtxdiDiMaterialFeatureState m_smokeUnifiedPtGlassMaterialFeatures;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ShaderHandle
         m_smokeSkinnedEmissivePublishShader;
