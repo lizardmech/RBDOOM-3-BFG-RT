@@ -9279,7 +9279,7 @@ bool PathTraceUnifiedPtState::ExecuteGlassCompose(
         inputs.width,
         inputs.height,
         inputs.distortionEnabled ? 1u : 0u,
-        0u,
+        inputs.legacySidecarEncoding ? 1u : 0u,
         inputs.reflectionBoost,
         inputs.transmissionFloor,
         2.0f,

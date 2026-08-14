@@ -1749,6 +1749,12 @@ idCVar r_pathTracingUnifiedPtGlassPsrDiagnostics(
     CVAR_RENDERER | CVAR_BOOL,
     "One-shot UPT glass crosshair diagnostic: reads back the captured P0 interaction, glass classification, canonical receiver, optical endpoints, transmission weight and G1 output mode, then resets to 0" );
 
+idCVar r_pathTracingUnifiedPtGlassLegacyOpticalDiagnostic(
+    "r_pathTracingUnifiedPtGlassLegacyOpticalDiagnostic",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT glass source isolation: 0 uses native Slang UPT46 plus optional UPT47 reuse; 1 bypasses both and composes the exact legacy view-16 transmission/reflection/distortion sidecars already produced by the front-pane pass" );
+
 idCVar r_pathTracingUnifiedPtGlassReflectionReuse(
     "r_pathTracingUnifiedPtGlassReflectionReuse",
     "0",

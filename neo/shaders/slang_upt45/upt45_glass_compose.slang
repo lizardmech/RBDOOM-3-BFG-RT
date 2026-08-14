@@ -3,7 +3,7 @@ public struct Upt45GlassComposeControl
     public uint renderWidth;
     public uint renderHeight;
     public uint distortionEnabled;
-    public uint reserved0;
+    public uint legacySidecarEncoding;
     public float reflectionBoost;
     public float transmissionFloor;
     public float distortionScale;
@@ -172,8 +172,16 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     //   1 = straight-through UPT source plus attenuation
     //   2 = resolved refracted radiance (replace the source)
     //   3 = exact-mirror marker (replace from reflection)
-    const bool resolvedRefraction = transmission.a >= 1.5f && transmission.a < 2.5f;
-    const bool exactMirror = transmission.a >= 2.5f;
+    // The exact legacy view-16 producer packs attenuation in RGB and
+    // reflection energy in alpha 1..2. Native UPT46 instead uses alpha 2 as a
+    // resolved-radiance replacement and alpha 3 as an exact-mirror marker.
+    // Keep the diagnostic source explicit so legacy energy can be compared
+    // without accidentally decoding a bright legacy pane as UPT refraction.
+    const bool legacySidecarEncoding =
+        gUpt45Control.legacySidecarEncoding != 0u;
+    const bool resolvedRefraction = !legacySidecarEncoding &&
+        transmission.a >= 1.5f && transmission.a < 2.5f;
+    const bool exactMirror = !legacySidecarEncoding && transmission.a >= 2.5f;
     float4 base = resolvedRefraction
         ? float4(max(transmission.rgb, float3(0.0f)), source.a)
         : source;

@@ -298,6 +298,7 @@ extern idCVar r_pathTracingUnifiedPtResolve;
 extern idCVar r_pathTracingUnifiedPtResolveView;
 extern idCVar r_pathTracingUnifiedPtGlassPsr;
 extern idCVar r_pathTracingUnifiedPtGlassPsrDiagnostics;
+extern idCVar r_pathTracingUnifiedPtGlassLegacyOpticalDiagnostic;
 extern idCVar r_pathTracingUnifiedPtGlassReflectionReuse;
 extern idCVar r_pathTracingUnifiedPtGlassReflectionReuseResolution;
 extern idCVar r_pathTracingCleanRtxdiDiEnable;

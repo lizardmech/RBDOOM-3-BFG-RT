@@ -1126,6 +1126,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         unifiedPtRouteRequested &&
         !cleanRtxdiDiRouteRequested &&
         r_pathTracingUnifiedPtGlassPsr.GetBool();
+    const bool unifiedPtGlassLegacyOpticalDiagnosticRequested =
+        unifiedPtGlassPsrRequested &&
+        r_pathTracingUnifiedPtGlassLegacyOpticalDiagnostic.GetBool();
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses
         unifiedPtGlassMaterialFeaturePasses =
             BuildPathTraceCleanRtxdiDiMaterialFeaturePasses(
@@ -2223,6 +2226,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     pipelineContext);
             unifiedPtGlassPsrEffective = unifiedPtGlassPsrPipelinesReady;
         }
+        const bool unifiedPtGlassLegacyOpticalDiagnosticEffective =
+            unifiedPtGlassLegacyOpticalDiagnosticRequested &&
+            unifiedPtGlassPsrEffective;
         {
             static int reportedRequested = -1;
             static int reportedEffective = -1;
@@ -2249,6 +2255,23 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     m_liquidPoolStatusBuffer ? 1u : 0u,
                     unifiedPtGlassOptionalSrv ? 1u : 0u,
                     unifiedPtGlassPsrPipelinesReady ? 1u : 0u);
+                reportedRequested = requested;
+                reportedEffective = effective;
+            }
+        }
+        {
+            static int reportedRequested = -1;
+            static int reportedEffective = -1;
+            const int requested =
+                unifiedPtGlassLegacyOpticalDiagnosticRequested ? 1 : 0;
+            const int effective =
+                unifiedPtGlassLegacyOpticalDiagnosticEffective ? 1 : 0;
+            if (requested != reportedRequested || effective != reportedEffective)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: legacy glass optical diagnostic requested/effective=%d/%d source=legacy-view16-sidecars nativeUpt46=off privateUpt47=off compose=UPT45\n",
+                    requested,
+                    effective);
                 reportedRequested = requested;
                 reportedEffective = effective;
             }
@@ -2982,6 +3005,26 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtGlassConstants.rigidRouteTriangleCount = static_cast<uint32_t>(Max(0, m_sceneInputs.geometry.rigidRouteTriangleCount));
                 unifiedPtGlassConstants.currentEmissiveTriangleCount = static_cast<uint32_t>(Max(0, m_smokeEmissiveTriangleCount));
                 unifiedPtGlassConstants.previousEmissiveTriangleCount = static_cast<uint32_t>(Max(0, m_smokePreviousEmissiveTriangleCount));
+                // The UPT adapter invokes the exact legacy view-16 optical
+                // producer, whose reflection-secondary shader samples the
+                // full Doom analytic domain directly. These fields were left
+                // zero by the original adapter, so the diagnostic could emit
+                // only exact terminal emissive and incorrectly rendered every
+                // ordinary reflected surface black.
+                unifiedPtGlassConstants.analyticLightCount =
+                    static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
+                unifiedPtGlassConstants.analyticIdentityCount =
+                    static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticCurrentIdentityCount));
+                unifiedPtGlassConstants.previousAnalyticLightCount =
+                    static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticPreviousLightCount));
+                unifiedPtGlassConstants.previousAnalyticIdentityCount =
+                    static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticPreviousIdentityCount));
+                unifiedPtGlassConstants.analyticRemapCount =
+                    static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticRemapCount));
+                unifiedPtGlassConstants.doomAnalyticFullCurrentCount =
+                    static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
+                unifiedPtGlassConstants.doomAnalyticFullPreviousCount =
+                    static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticPreviousLightCount));
                 unifiedPtGlassConstants.cameraOriginAndValid[0] = viewDef->renderView.vieworg.x;
                 unifiedPtGlassConstants.cameraOriginAndValid[1] = viewDef->renderView.vieworg.y;
                 unifiedPtGlassConstants.cameraOriginAndValid[2] = viewDef->renderView.vieworg.z;
@@ -2998,6 +3041,21 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtGlassConstants.cameraUpAndTanY[1] = viewDef->renderView.viewaxis[2].y;
                 unifiedPtGlassConstants.cameraUpAndTanY[2] = viewDef->renderView.viewaxis[2].z;
                 unifiedPtGlassConstants.cameraUpAndTanY[3] = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
+                unifiedPtGlassConstants.doomAnalyticLightInfo[0] =
+                    static_cast<float>(Max(0, m_smokeDoomAnalyticLightCount));
+                unifiedPtGlassConstants.doomAnalyticLightInfo[1] =
+                    static_cast<float>(idMath::ClampInt(
+                        0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger()));
+                unifiedPtGlassConstants.doomAnalyticLightInfo[2] =
+                    idMath::ClampFloat(
+                        0.0f, 16.0f,
+                        r_pathTracingAnalyticLightIntensityScale.GetFloat());
+                const uint32_t unifiedPtGlassAnalyticLightFlags =
+                    (r_pathTracingAnalyticLightCandidates.GetBool() ? 1u : 0u) |
+                    (r_pathTracingAnalyticLightReplaceSelected.GetBool() ? 2u : 0u) |
+                    (r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool() ? 4u : 0u);
+                unifiedPtGlassConstants.doomAnalyticLightInfo[3] =
+                    static_cast<float>(unifiedPtGlassAnalyticLightFlags);
                 unifiedPtGlassConstants.prevCameraOriginAndValid[0] = m_frameResources.primarySurfaceHistoryView.origin.x;
                 unifiedPtGlassConstants.prevCameraOriginAndValid[1] = m_frameResources.primarySurfaceHistoryView.origin.y;
                 unifiedPtGlassConstants.prevCameraOriginAndValid[2] = m_frameResources.primarySurfaceHistoryView.origin.z;
@@ -3884,6 +3942,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     r_pathTracingSkyCubeBrightness.GetFloat());
                 opticalInputs.rayTMax = 100000.0f;
                 const bool nativeGlassOpticalExecuted =
+                    !unifiedPtGlassLegacyOpticalDiagnosticEffective &&
                     m_unifiedPtState.ExecuteGlassOpticalTransport(
                         opticalInputs);
 
@@ -3929,6 +3988,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     0.0f,
                     1.0f,
                     r_pathTracingCleanRtxdiDiGlassTransmissionFloor.GetFloat());
+                composeInputs.legacySidecarEncoding =
+                    unifiedPtGlassLegacyOpticalDiagnosticEffective;
                 // The native UPT front-pane producer always publishes the
                 // bounded distortion sidecar. Do not silently discard it via
                 // the legacy clean-DI diagnostic cvar (whose default is 0).

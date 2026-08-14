@@ -41,6 +41,8 @@ struct PathTraceCleanRestirGiRayTracingPipelineState
     nvrhi::rt::ShaderTableHandle specularSeedTraceShaderTable;
     nvrhi::rt::ShaderTableHandle specularSeedShadeShaderTable;
     nvrhi::rt::ShaderTableHandle specularSeedShadeFastShaderTable;
+    nvrhi::rt::ShaderTableHandle spatialReuseOnlyShaderTable;
+    nvrhi::rt::ShaderTableHandle finalShadingShaderTable;
     nvrhi::rt::ShaderTableHandle reuseShaderTable;
     uint32_t pipelineBuildIndex = 0;
     uint32_t pipelineBuildCooldownFrames = 0;
@@ -87,6 +89,10 @@ struct PathTraceCleanRestirGiState
     nvrhi::BindingLayoutHandle temporalComputeBindingLayout;
     nvrhi::ComputePipelineHandle temporalComputePipeline;
     bool temporalComputeInitAttempted = false;
+    nvrhi::ShaderHandle spatialComputeShader;
+    nvrhi::BindingLayoutHandle spatialComputeBindingLayout;
+    nvrhi::ComputePipelineHandle spatialComputePipeline;
+    bool spatialComputeInitAttempted = false;
     nvrhi::BufferHandle skyResolveRadianceConstantsBuffer;
     nvrhi::BufferHandle skyResolveSurfaceConstantsBuffer;
     nvrhi::ShaderHandle skyResolveShader;

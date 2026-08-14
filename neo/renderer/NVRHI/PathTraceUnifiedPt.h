@@ -143,6 +143,7 @@ struct PathTraceUnifiedPtGlassComposeInputs
     uint32_t height = 0;
     float reflectionBoost = 1.0f;
     float transmissionFloor = 0.0f;
+    bool legacySidecarEncoding = false;
     bool distortionEnabled = true;
     bool nsightMarkers = false;
 };

@@ -181,6 +181,8 @@ const CleanRestirGiRayPipelineSpec CLEAN_RESTIR_GI_RAY_PIPELINE_SPECS[] = {
     { "first_indirect_simple", "FirstIndirectSimpleRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::producerSimpleShaderTable },
     { "first_indirect_rough_fallback", "FirstIndirectTraceRoughFallbackRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::producerRoughFallbackShaderTable },
     { "first_indirect_shade", "FirstIndirectShadeRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::shadeShaderTable },
+    { "spatial_reuse_only", "SpatialReuseOnlyRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::spatialReuseOnlyShaderTable },
+    { "final_shading", "FinalShadingRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::finalShadingShaderTable },
     { "reuse", "ReuseRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::reuseShaderTable },
     { "seed", "SeedRayGen", &PathTraceCleanRestirGiRayTracingPipelineState::seedShaderTable }
 };
@@ -188,7 +190,7 @@ const CleanRestirGiRayPipelineSpec CLEAN_RESTIR_GI_RAY_PIPELINE_SPECS[] = {
 const uint32_t CLEAN_RESTIR_GI_RAY_PIPELINE_COUNT =
     sizeof(CLEAN_RESTIR_GI_RAY_PIPELINE_SPECS) /
     sizeof(CLEAN_RESTIR_GI_RAY_PIPELINE_SPECS[0]);
-static_assert(CLEAN_RESTIR_GI_RAY_PIPELINE_COUNT == 16,
+static_assert(CLEAN_RESTIR_GI_RAY_PIPELINE_COUNT == 18,
     "GI split-pipeline table must cover every ray-generation entry point");
 const uint32_t CLEAN_RESTIR_GI_PIPELINE_WARMUP_INTERVAL_FRAMES = 15;
 
@@ -865,6 +867,91 @@ bool CleanRestirGiEnsureTemporalComputePipeline(PathTraceCleanRestirGiState& sta
     return true;
 }
 
+bool CleanRestirGiEnsureSpatialComputePipeline(
+    PathTraceCleanRestirGiState& state,
+    const PathTraceCleanRestirGiDispatchInputs& inputs)
+{
+    if (state.spatialComputePipeline)
+    {
+        return true;
+    }
+    if (state.spatialComputeInitAttempted || !inputs.isVulkan)
+    {
+        return false;
+    }
+    state.spatialComputeInitAttempted = true;
+
+    const char* shaderPath =
+        "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_spatial.cs.bin";
+    void* shaderData = nullptr;
+    ID_TIME_T shaderTimestamp = 0;
+    const int shaderSize = fileSystem->ReadFile(
+        shaderPath,
+        &shaderData,
+        &shaderTimestamp);
+    if (shaderSize <= 0 || !shaderData)
+    {
+        common->Printf(
+            "PathTraceCleanRestirGi: couldn't read GI spatial compute shader %s\n",
+            shaderPath);
+        return false;
+    }
+
+    nvrhi::ShaderDesc csDesc;
+    csDesc.shaderType = nvrhi::ShaderType::Compute;
+    csDesc.entryName = "main";
+    csDesc.debugName = "PathTraceCleanRestirGiSpatialCS";
+    state.spatialComputeShader = inputs.device->createShader(
+        csDesc,
+        shaderData,
+        shaderSize);
+    Mem_Free(shaderData);
+    if (!state.spatialComputeShader)
+    {
+        common->Printf(
+            "PathTraceCleanRestirGi: failed to create GI spatial compute shader\n");
+        return false;
+    }
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setConstantBufferOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    CleanRestirGiAddCommonComputeBindingLayoutItems(layoutDesc);
+    state.spatialComputeBindingLayout =
+        inputs.device->createBindingLayout(layoutDesc);
+    if (!state.spatialComputeBindingLayout)
+    {
+        common->Printf(
+            "PathTraceCleanRestirGi: failed to create GI spatial compute binding layout\n");
+        state.spatialComputeShader = nullptr;
+        return false;
+    }
+
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = state.spatialComputeShader;
+    pipelineDesc.bindingLayouts = {
+        state.spatialComputeBindingLayout,
+        inputs.textureBindlessLayout
+    };
+    state.spatialComputePipeline =
+        inputs.device->createComputePipeline(pipelineDesc);
+    if (!state.spatialComputePipeline)
+    {
+        common->Printf(
+            "PathTraceCleanRestirGi: failed to create GI spatial compute pipeline\n");
+        state.spatialComputeBindingLayout = nullptr;
+        state.spatialComputeShader = nullptr;
+        return false;
+    }
+
+    common->Printf(
+        "PathTraceCleanRestirGi: GI spatial compute pipeline initialized\n");
+    return true;
+}
+
 bool CleanRestirGiEnsureProducerRayQueryComputePipeline(PathTraceCleanRestirGiState& state, const PathTraceCleanRestirGiDispatchInputs& inputs)
 {
     if (state.producerRayQueryComputePipeline)
@@ -1311,6 +1398,8 @@ void PathTraceCleanRestirGiRayTracingPipelineState::Release()
     specularSeedTraceShaderTable = nullptr;
     specularSeedShadeShaderTable = nullptr;
     specularSeedShadeFastShaderTable = nullptr;
+    spatialReuseOnlyShaderTable = nullptr;
+    finalShadingShaderTable = nullptr;
     reuseShaderTable = nullptr;
     pipelineBuildIndex = 0;
     pipelineBuildCooldownFrames = 0;
@@ -1359,6 +1448,10 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     temporalComputeBindingLayout = nullptr;
     temporalComputePipeline = nullptr;
     temporalComputeInitAttempted = false;
+    spatialComputeShader = nullptr;
+    spatialComputeBindingLayout = nullptr;
+    spatialComputePipeline = nullptr;
+    spatialComputeInitAttempted = false;
     boilingFilterConstantsBuffer = nullptr;
     boilingFilterShader = nullptr;
     boilingFilterBindingLayout = nullptr;
@@ -1893,6 +1986,30 @@ bool PathTraceCleanRestirGiExecute(
         }
     }
     const bool temporalComputeActive = temporalComputeBindingSet != nullptr;
+
+    nvrhi::BindingSetHandle spatialComputeBindingSet;
+    const bool spatialComputeRequested =
+        view == 0 &&
+        tail.spatialEnabled != 0u &&
+        tail.spatialVisibilityMode == 0u &&
+        r_pathTracingCleanRestirGiSplitSpatialFinal.GetInteger() != 0 &&
+        r_pathTracingCleanRestirGiSpatialCompute.GetInteger() != 0;
+    if (spatialComputeRequested &&
+        CleanRestirGiEnsureSpatialComputePipeline(state, inputs))
+    {
+        spatialComputeBindingSet = CleanRestirGiGetOrCreateBindingSet(
+            state,
+            inputs.device,
+            bindingSetDesc,
+            state.spatialComputeBindingLayout);
+        if (!spatialComputeBindingSet)
+        {
+            common->Printf(
+                "PathTraceCleanRestirGi: failed to create GI spatial compute binding set; falling back to raygen\n");
+        }
+    }
+    const bool spatialComputeActive = spatialComputeBindingSet != nullptr;
+
     const bool defaultOneSampleShade =
         view == 0 &&
         r_pathTracingCleanRestirGiForceFullShade.GetInteger() == 0 &&
@@ -2118,11 +2235,14 @@ bool PathTraceCleanRestirGiExecute(
         }
     }
 
-    // INIT-page seed pass: mode 1 splits the specular producer's trace and
-    // shade work away from the INIT clear/NEE seed so Nsight can isolate the
-    // broad work. Mode 2 keeps specular final-output eligibility active but
-    // deliberately skips this extra full-screen first-indirect seed path.
+    // The temporal pass creates and stores the ordinary diffuse initial
+    // reservoir itself. The separate INIT-page pass is needed only when an
+    // optional source must preload that page before temporal merges the
+    // diffuse sample. Do not dispatch the full seed RT module merely to clear
+    // a transient page that temporal overwrites without reading.
     const bool splitSpecularSeed = tail.specularProducerEnabled == 1u;
+    const bool glossySeed = tail.glossySecondRayEnabled != 0u;
+    const bool neeCacheSeed = tail.neeCacheSeedEnabled != 0u;
     if (splitSpecularSeed)
     {
         nvrhi::rt::State seedNoSpecState;
@@ -2166,7 +2286,7 @@ bool PathTraceCleanRestirGiExecute(
         if (nsightGpuMarkers) { commandList->endMarker(); }
         nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
     }
-    else
+    else if (glossySeed)
     {
         nvrhi::rt::State seedState;
         seedState.shaderTable = rayTracing.seedShaderTable;
@@ -2177,10 +2297,28 @@ bool PathTraceCleanRestirGiExecute(
         if (nsightGpuMarkers) { commandList->endMarker(); }
         nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
     }
+    else if (neeCacheSeed)
+    {
+        // NEE-only seeding never needs the full module's specular/glossy
+        // producer trace graph. Keep it on the substantially smaller
+        // no-spec pipeline.
+        nvrhi::rt::State seedNoSpecState;
+        seedNoSpecState.shaderTable = rayTracing.seedNoSpecShaderTable;
+        seedNoSpecState.bindings = { bindingSet, inputs.textureDescriptorTable };
+        if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0c InitSeedNee DispatchRays"); }
+        commandList->setRayTracingState(seedNoSpecState);
+        commandList->dispatchRays(giArgs);
+        if (nsightGpuMarkers) { commandList->endMarker(); }
+        nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
+    }
 
     nvrhi::rt::State reuseState;
     reuseState.shaderTable = rayTracing.reuseShaderTable;
     reuseState.bindings = { bindingSet, inputs.textureDescriptorTable };
+    const bool splitSpatialFinal =
+        view == 0 &&
+        tail.spatialVisibilityMode == 0u &&
+        r_pathTracingCleanRestirGiSplitSpatialFinal.GetInteger() != 0;
     if (temporalComputeActive)
     {
         nvrhi::ComputeState temporalState;
@@ -2222,12 +2360,55 @@ bool PathTraceCleanRestirGiExecute(
         tail.phase = 1u;
         std::memcpy(constants + CLEAN_RESTIR_GI_DI_BLOB_SIZE, &tail, sizeof(tail));
         commandList->writeBuffer(state.constantsBuffer, constants, sizeof(constants));
-        if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.2 SpatialReuse DispatchRays"); }
-        commandList->setRayTracingState(reuseState);
-        commandList->dispatchRays(giArgs);
+        if (spatialComputeActive)
+        {
+            nvrhi::ComputeState spatialComputeState;
+            spatialComputeState.pipeline = state.spatialComputePipeline;
+            spatialComputeState.bindings = {
+                spatialComputeBindingSet,
+                inputs.textureDescriptorTable
+            };
+            if (nsightGpuMarkers)
+            {
+                commandList->beginMarker(
+                    "CleanGI.2 SpatialReuseOnly Dispatch");
+            }
+            commandList->setComputeState(spatialComputeState);
+            commandList->dispatch(
+                static_cast<uint32_t>((inputs.width + 15) / 16),
+                static_cast<uint32_t>((inputs.height + 7) / 8),
+                1);
+        }
+        else
+        {
+            nvrhi::rt::State spatialState = reuseState;
+            if (splitSpatialFinal)
+            {
+                spatialState.shaderTable = rayTracing.spatialReuseOnlyShaderTable;
+            }
+            if (nsightGpuMarkers)
+            {
+                commandList->beginMarker(splitSpatialFinal
+                    ? "CleanGI.2 SpatialReuseOnly DispatchRays"
+                    : "CleanGI.2 SpatialReuse+Final DispatchRays");
+            }
+            commandList->setRayTracingState(spatialState);
+            commandList->dispatchRays(giArgs);
+        }
         if (nsightGpuMarkers) { commandList->endMarker(); }
-        nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
         nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
+
+        if (splitSpatialFinal)
+        {
+            nvrhi::rt::State finalShadingState = reuseState;
+            finalShadingState.shaderTable = rayTracing.finalShadingShaderTable;
+            if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.3 FinalShading DispatchRays"); }
+            commandList->setRayTracingState(finalShadingState);
+            commandList->dispatchRays(giArgs);
+            if (nsightGpuMarkers) { commandList->endMarker(); }
+        }
+
+        nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
         nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
         nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseLobeTexture);
         nvrhi::utils::TextureUavBarrier(commandList, state.indirectSpecularLobeTexture);

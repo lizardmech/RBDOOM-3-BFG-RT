@@ -959,6 +959,12 @@ int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
     RemixRAB_GetGISampleTargetPdfForSurface((reservoir).position, (reservoir).radiance, (surface))
 bool CleanGiValidateSpatialReuseSample(uint2 pixel, int2 neighborPixel, uint sampleIndex, RAB_Surface surface, RTXDI_GIReservoir reservoir)
 {
+#if defined(CLEAN_GI_EXPORT_SPATIAL_REUSE_ONLY) || defined(CLEAN_GI_SPATIAL_REUSE_TRACE_FREE)
+    // The host selects this specialized module only when spatial visibility
+    // mode is zero. Compile the callback out completely so the spatial-only
+    // pipeline carries no dormant TraceRay or hit-shader stack requirement.
+    return true;
+#else
     if (CleanRestirGiSpatialVisibilityMode == 0u)
     {
         return true;
@@ -983,6 +989,7 @@ bool CleanGiValidateSpatialReuseSample(uint2 pixel, int2 neighborPixel, uint sam
         RAB_GetSurfaceWorldPos(surface),
         RAB_GetSurfaceGeoNormal(surface),
         reservoir.position) > 0.0;
+#endif
 }
 #define RBPT_GI_VALIDATE_REUSE_SAMPLE(pixel, neighborPixel, sampleIndex, surface, reservoir) \
     CleanGiValidateSpatialReuseSample(pixel, neighborPixel, sampleIndex, surface, reservoir)
@@ -8549,6 +8556,91 @@ void SeedRayGen()
     CleanGiSeedInitPageFromSpecularProducer(pixel, surfaceValid, record);
     CleanGiSeedInitPageFromGlossySecondRay(pixel, surfaceValid, record);
     CleanGiSeedInitPageFromNeeCache(pixel, surfaceValid, record);
+}
+
+// Production-only performance split for the spatial contract. The legacy
+// ReuseRayGen below selects temporal versus spatial work with a runtime phase
+// and also performs final shading in its spatial branch. Keeping this entry
+// spatial-only makes its GPU marker directly comparable to a dedicated RTXDI
+// GI spatial pass and prevents final visibility TraceRay sites from broadening
+// the spatial module.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_SPATIAL_REUSE_ONLY)
+[shader("raygeneration")]
+#endif
+void SpatialReuseOnlyRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y ||
+        CleanRestirGiView != 0u)
+    {
+        return;
+    }
+
+    PathTracePrimarySurfaceRecord spatialRecord;
+    const bool spatialSurfaceValid = CleanGiLoadSurfaceRecord(
+        pixel,
+        dimensions,
+        spatialRecord);
+    RAB_Surface spatialSurface = RAB_EmptySurface();
+    if (spatialSurfaceValid)
+    {
+        spatialSurface = CleanGiMaterialSurfaceFromCurrentRecord(
+            pixel,
+            spatialRecord);
+    }
+
+    const RTXDI_GIReservoir spatialInput = RAB_LoadGIReservoir(
+        int2(pixel),
+        int(RemixRAB_GetGITemporalOutputReservoirIndex()));
+    RTXDI_GIReservoir spatialReservoir = spatialInput;
+    if (CleanRestirGiSpatialEnabled != 0u)
+    {
+        uint4 spatialDebugStats;
+        spatialReservoir = CleanGiRunSpatialReuse(
+            pixel,
+            spatialSurface,
+            spatialInput,
+            spatialDebugStats);
+    }
+    RAB_StoreGIReservoir(
+        spatialReservoir,
+        int2(pixel),
+        int(RemixRAB_GetGISpatialOutputReservoirIndex()));
+}
+
+// Completes the output work removed from SpatialReuseOnlyRayGen. This pass
+// deliberately retains the live final-mix and optional reservoir-visibility
+// contract, so split mode changes module shape and marker ownership without
+// changing the rendered GI result.
+#if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_FINAL_SHADING)
+[shader("raygeneration")]
+#endif
+void FinalShadingRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y ||
+        CleanRestirGiView != 0u)
+    {
+        return;
+    }
+
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(
+        pixel,
+        dimensions,
+        record);
+    RAB_Surface surface = RAB_EmptySurface();
+    if (surfaceValid)
+    {
+        surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
+    }
+
+    const RTXDI_GIReservoir reservoir = RAB_LoadGIReservoir(
+        int2(pixel),
+        int(RemixRAB_GetGISpatialOutputReservoirIndex()));
+    CleanGiFinalShadingAndResolve(pixel, surface, reservoir);
 }
 
 #if !defined(CLEAN_GI_FILTER_RAYGEN_EXPORTS) || defined(CLEAN_GI_EXPORT_REUSE)
