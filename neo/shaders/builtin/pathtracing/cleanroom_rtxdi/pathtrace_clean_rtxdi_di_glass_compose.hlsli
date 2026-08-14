@@ -6,6 +6,9 @@ Texture2D<float4> PathTraceCleanRtxdiDiOutputColorSource : register(t89);
 static const float RT_CLEAN_RTXDI_DI_GLASS_SUPPORTED_SOURCE_TAP_WEIGHT = 0.25;
 static const float RT_CLEAN_RTXDI_DI_GLASS_SOURCE_DEPTH_EPSILON = 0.05;
 static const float RT_CLEAN_RTXDI_DI_GLASS_CHROMATIC_REFRACTION_SCALE = 0.06;
+static const float RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_MAX_PIXELS = 12.0;
+static const float RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_MAX_BLEND = 0.85;
+static const float RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_PRESENTATION_SCALE = 2.0;
 
 float PathTraceCleanRtxdiDiGlassColorEnergy(float4 color)
 {

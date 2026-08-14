@@ -1,0 +1,249 @@
+68_upt47_glass_reflection_reuse_experiment.txt
+================================================
+
+Status
+------
+
+Vulkan implementation and offline validation complete on 2026-08-14.
+Runtime image-quality and timing acceptance is pending.  This is an opt-in
+experiment and does not replace the accepted deterministic UPT46 reflection.
+
+Question
+--------
+
+Can glass use a low-resolution direct-light reservoir followed by the accepted
+UPT temporal and spatial algorithms, then blend that result over the stable
+one-ray PSR reflection before DLSS-RR?
+
+Implemented domain
+------------------
+
+`r_pathTracingUnifiedPtGlassReflectionReuse 1` creates a private reflection
+domain owned by `PathTraceUnifiedPtState`:
+
+* G1 traces the existing deterministic full-resolution reflected ray;
+* one even/even pixel per 2x2 block publishes a 48-byte reflected receiver;
+* a 32-byte sidecar keeps the front-pane previous-position reprojection anchor
+  and pane depth, while target evaluation remains at the reflected hit;
+* a child UPT state owns two half-resolution receiver pages, two reservoir
+  pages, D0, T0, S0 and R0;
+* D0/T0/S0 are direct-only and analytic-only for this first isolation test;
+  reflected emissive endpoints remain receiver self-emission, but emissive RIS
+  is deliberately excluded;
+* T0 and S0 use compact48 specializations of the accepted direct reuse math;
+* G2 bilinearly reconstructs the half-resolution result and multiplies it by
+  the pane reflection weight;
+* invalid/unsupported child pixels retain the original deterministic RGB
+  reflection; exact mirrors stay entirely on the full-resolution path;
+* the final reflected HDR contribution is duplicated into the DLSS-RR
+  specular guide at the same brightness as beauty.
+
+The child domain never aliases the main UPT receiver history or reservoir
+pages.  It adds no per-frame full-buffer clear.  Disabling the cvar destroys
+the private child resources and restores the prior UPT46/G2 behavior.
+
+Why compact48
+-------------
+
+Compact32 is camera-relative and cannot independently preserve the exact
+reflected hit position, bent-path view direction and pane reprojection anchor.
+Compact48 stores the hit position and view direction exactly enough for D0
+target evaluation; its ordinary history sidecar is specialized so T0 projects
+the pane rather than pretending that the reflected terminal is camera-visible.
+
+Runtime A/B
+-----------
+
+Use the normal accepted glass configuration, then toggle only:
+
+    r_pathTracingUnifiedPtGlassReflectionReuse 0
+    r_pathTracingUnifiedPtGlassReflectionReuse 1
+
+The child resolution is independently selectable:
+
+    r_pathTracingUnifiedPtGlassReflectionReuseResolution 50
+    r_pathTracingUnifiedPtGlassReflectionReuseResolution 100
+
+Values below 75 select 50% per axis; values 75 or greater select 100%. A
+runtime change reallocates only the private reflection child, invalidates its
+private history and logs requested/effective resolution plus receiver size.
+G1 publication and G2 reconstruction both consume the effective mode, so full
+resolution is a real one-receiver-per-pixel path rather than a larger sparse
+half-resolution page. The Vulkan build and UPT45/UPT46 `spirv-val` pass;
+deployed hashes are EXE
+`CA63393022DFF68F8DEA00E1E4D0B7A4799C8124C8D81C6F67ECF3C3CDA6E81F`,
+UPT45 `BD4E7C954CC3D872BD37DBAA8B8D431DC0347086F4962E107A62AFBD5E851AD8`
+and both UPT46 light-layout variants
+`D95D732416B2D67EFA0E22EAF2760F9F1025FBC434CCE46045FC35725E3EE22E`.
+
+Acceptance observations:
+
+1. no startup descriptor mismatch or child-dispatch failure log;
+2. glass reflections gain stable direct-light shading without reverting to
+   the earlier full-resolution noisy mini-renderer;
+3. emissive shapes remain present through self-emission;
+4. no 2x2 block boundaries, pane-edge leaks or reflected-history swimming;
+5. DLSS-RR retains the same reflection brightness as noisy color;
+6. G1 plus child D0/T0/S0 cost is competitive with the deterministic UPT46
+   fallback and materially below the rejected full reflection estimator.
+
+Build proof
+-----------
+
+`cmake --build --preset win64-pt-dev-release` passes.  `spirv-val` passes for
+the six deployed Vulkan artifacts: UPT05 reflection resolve, UPT07 reflection
+temporal, UPT09 reflection spatial, UPT45 compose, and both UPT46 light-layout
+variants.  No DX12 shader was compiled.
+
+RR classification correction, 2026-08-14
+-----------------------------------------
+
+The first runtime image was raw ReSTIR under DLSS-RR and diagnostics classified
+the reflection as diffuse. Two ordering/ownership errors caused it. G1 blended
+the reflected terminal's diffuse albedo into the pane's diffuse guide even
+though the entire bent camera path is specular. G2 initially wrote reflected
+radiance to the specular guide, but its later distortion-consistent guide copy
+could overwrite that value with the transmitted receiver's material F0.
+
+When reflection reuse is enabled, G1 now leaves the canonical behind-pane
+diffuse guide untouched. G2 records the exact final reflection contribution,
+performs any distortion guide remap, and then writes that HDR contribution to
+the specular guide as the final operation. The value is therefore identical to
+the term added to combined noisy color and cannot be replaced downstream by
+the transmitted surface. The targeted UPT45/UPT46 Vulkan rebuild and
+`spirv-val` pass; runtime DLSS-RR acceptance remains pending.
+
+Reflection-history correction, 2026-08-14
+-----------------------------------------
+
+The reflection child exists to produce an already stabilized direct-light
+estimate before G2 and DLSS-RR. DLSS-RR is not the glass denoiser. The first
+runtime image remained raw because the compact48 sidecar stored the front-pane
+reprojection anchor but marked it valid only when the pane already carried an
+object-motion previous-position flag. Static glass therefore reprojected the
+off-camera reflected hit itself, which is not the inverse of the mirror path,
+and T0 rejected the prior reflected receiver.
+
+UPT46 now always marks the stored pane anchor as the reflection receiver's
+previous position. Moving panes still use their true prior pane position;
+static panes use their unchanged world position. The private reflection
+history gate now depends only on the child allocation/epoch contract, not on
+the unrelated main receiver-history validity. Finally, G1 requires all four
+child stages D0/T0/S0/R0 to succeed before exposing the reuse texture; a T0 or
+S0 failure logs the four stage bits and retains deterministic reflection
+instead of silently presenting raw D0 as a successful reused result.
+
+Legacy black-noise parity, 2026-08-15
+-------------------------------------
+
+Runtime disproved the assumption that ordinary unbiased UPT D0/T0/S0 would
+be sufficiently stable at half resolution.  The legacy reflection sampler's
+actual contract is deliberately biased and much more aggressive:
+
+* zero-target, malformed and occluded candidates never enter the reservoir
+  and never increase M;
+* initial RIS divides by the number of positive candidates rather than the
+  fixed proposal schedule;
+* an empty center steals the closest compatible positive spatial sample;
+* incompatible or zero donors are skipped; the closest viable donor receives
+  the one existing current-receiver visibility test;
+* a successful rescue is allowed to donate again, filling sparse stochastic
+  holes until fresh D0 coverage replaces it.
+
+UPT47 now owns a separate `UPT47_REFLECTION_POSITIVE_ONLY` specialization in
+all three child stages.  D0 restores the legacy positive-count convention and
+does not stream visibility failures; the later energy correction retains that
+admission policy while restoring the fixed-schedule denominator. T0 erases
+count-only current records and
+does not admit a shifted valid-zero history sample.  Empty-center S0 searches
+the ordered immediate eight-pixel ring, re-evaluates each light at the current
+receiver, then performs one visibility ray for the closest viable donor. A
+non-empty center retains its original reservoir if a chosen
+neighbor later fails normalization or visibility.
+
+This bias is restricted to the private glass-reflection child artifact.  The
+main unified DI/GI reservoir continues to count defined zero trials exactly as
+required by its accepted estimator contract.  The change adds no full-buffer
+clear and preserves the existing one-visibility-ray-per-pixel spatial ceiling.
+The
+full Vulkan release build and `spirv-val` for the new D0 plus specialized T0/S0
+artifacts pass. The EXE and exactly those three reflection-only Vulkan blobs
+were deployed. Deployed SHA-256 values are EXE
+`A6176888DDD366440D4926FB5644AAE3F4F8A38E38B4158B76240EA4FEC1A6D4`,
+D0 `9EC79CD5B043BF0B9EBFF14D2EDC8F9503DA327F6263A468914A28646F99FA19`,
+T0 `1E493844ABE6CDA1BD2D8D7A72A03A7A6DEE24222B272236F156136E248F7BED`
+and S0 `410D8FFCCFEC9D6B3661BFF5027054B97D315B8C4F26720319D12A10422DA175`.
+Runtime quality and cost acceptance remain pending.
+
+Motion floor and energy correction, 2026-08-15
+----------------------------------------------
+
+The legacy glass reflection did not own temporal/spatial reservoir pages. Its
+motion-stable floor came from rebuilding eight analytic RIS candidates every
+frame (`r_pathTracingReflectionSecondarySamples`, default 8), selecting one
+shade and tracing at most one shadow ray. UPT47 had accidentally inherited the
+global UPT emissive-trial default of one candidate, so camera motion exposed a
+one-candidate D0 image while long T0 history hid it at rest.
+
+The reflection child now uses the existing legacy reflection-sample cvar in
+D0 and in T0/S0 source-PDF replay. Its admitted history M and age are capped at
+4 rather than the main UPT defaults of 32, deliberately narrowing the quality
+gap between rest and motion.
+
+Positive-only admission is retained, but its added energy is compensated
+explicitly. D0 computes the conditional positive estimate and multiplies it by
+`positiveCandidateCount / candidateCount`, algebraically restoring the fixed
+schedule denominator. Zero trials therefore affect energy but still never
+become count-only black reservoirs. This is narrower than a post-resolve clamp
+and propagates consistently through T0/S0 weights. Full Vulkan build and D0
+`spirv-val` pass; deployed hashes are EXE
+`C671F4E3BADD7C33596A0C315C41008B7892727FEA3007D6FE797465046F7ABC`
+and reflection D0
+`7080F6852A379E9F85A289D6B203AF90C6A364362ECA0689AFDF1034034BFCE4`.
+
+Legacy emissive-path audit, 2026-08-15
+--------------------------------------
+
+`pathtrace_reflection_secondary.hlsli` confirms that legacy reflection did not
+put emissive lights into its secondary NEE candidate set. It traced the sharp
+reflection ray once, added exact emission at the terminal hit, and then ran
+positive-only RIS over the Doom analytic-light array. UPT47 has the same
+zero-noise emissive ownership: G1 evaluates and packs the reflected terminal's
+emission into the compact48 receiver, and reflection R0 adds that receiver's
+self-emission after resolving analytic DI. Therefore emissive RIS remains
+excluded from the child; adding it would introduce precisely the stochastic
+emissive noise the legacy path avoided.
+
+Literal legacy D0 retry correction, 2026-08-15
+----------------------------------------------
+
+The motion-floor comparison disproved two conclusions above. With only the
+analytic domain populated, ordinary UPT baseline scheduling already produced
+eight proposals; routing `r_pathTracingReflectionSecondarySamples` through the
+emissive-trial payload did not reduce the baseline to one. More importantly,
+legacy did not accept an occluded selected RIS proposal as a black pixel.
+`PathTraceReflectionSecondaryShade` retained up to four positive proposals,
+tried the selected proposal first, and walked the retained alternatives until
+one passed shade and visibility. UPT47 selected before visibility and had no
+retry set, so a single occluded winner erased the reflection pixel even when
+the same RIS draw contained usable lights. Motion across occluder boundaries
+made that upstream loss dominate T0/S0.
+
+The private reflection D0 artifact now reproduces the legacy estimator shape:
+
+* the legacy sample cvar is authoritative for 1..16 analytic proposals;
+* zero-target proposals never enter the retained set;
+* at most four positive proposals are retained;
+* the selected proposal is tried first and occlusion falls through to the
+  other retained proposals;
+* the published reservoir still contains exactly one visible sample; and
+* mass is divided by positive proposal count, preserving legacy's intentional
+  zero-conditioned energy bias rather than cancelling it back to the fixed
+  schedule denominator.
+
+This specialization can issue at most four D0 visibility rays, but only inside
+the private glass-reflection child. The accepted main UPT D0 ceiling and
+estimator remain unchanged. Full Vulkan release build and artifact validation
+pass. The deployed reflection D0 SHA-256 is
+`CF9CE9BAC4DBA1C3C0EDCC5F10B309CD7B9DCD499E7300A43BF47987C8ED5045`.
+Runtime movement-quality and performance acceptance are pending.

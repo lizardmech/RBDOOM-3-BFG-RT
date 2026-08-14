@@ -8,6 +8,9 @@ import upt04_material_primary_live;
 #ifndef UPT05_PRIMARY_RECEIVER_MODE
 #define UPT05_PRIMARY_RECEIVER_MODE 0
 #endif
+#ifndef UPT05_REFLECTION_REUSE_DOMAIN
+#define UPT05_REFLECTION_REUSE_DOMAIN 0
+#endif
 
 public static const uint kUpt05CandidateFlagGlobal = 1u << 1u;
 public static const uint kUpt05LobeDiffuse = 1u << 0u;
@@ -34,6 +37,9 @@ RWTexture2D<float4> gUpt05Output;
 #else
 [[vk::binding(2, 0)]] StructuredBuffer<Upt04PrimarySurfaceRecord> gUpt05PrimarySurfaces;
 #endif
+[[vk::binding(3, 0)]]
+[[vk::image_format("rgba16f")]]
+RWTexture2D<float4> gUpt05RrSpecularAlbedo;
 [[vk::push_constant]] ConstantBuffer<Upt05ResolveControl> gUpt05Control;
 
 public bool Upt05FiniteNonNegative3(float3 value)
@@ -321,5 +327,22 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         gUpt05Control.view == 8u ||
         gUpt05Control.view == 9u)
         color += Upt05LoadPrimaryEmission(surfaceIndex);
-    gUpt05Output[pixel] = float4(color, 1.0f);
+#if UPT05_REFLECTION_REUSE_DOMAIN
+    const float outputAlpha = Upt04PrimarySurfaceRecordValid(
+        Upt05LoadPrimarySurface(surfaceIndex)) ? 1.0f : 0.0f;
+#else
+    const float outputAlpha = 1.0f;
+#endif
+    gUpt05Output[pixel] = float4(color, outputAlpha);
+
+    // Export the actual noisy reflected transport carried by the combined
+    // reservoir. This reconstruction signal is deliberately HDR radiance,
+    // not F0. Direct BRDF mixtures remain on the primary material guide
+    // because their diffuse and specular terms are not stored separately.
+    const bool reflectedTransport = valid
+        && (flags & kUpt05CandidateFlagGlobal) != 0u
+        && (lobeMask & kUpt05LobeSpecular) != 0u;
+    if (gUpt05Control.view == 0u && reflectedTransport)
+        gUpt05RrSpecularAlbedo[pixel] = float4(
+            max(color, float3(0.0f)), 1.0f);
 }

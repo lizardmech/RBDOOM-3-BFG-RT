@@ -6,6 +6,10 @@ import upt04_light_contract;
 import upt04_random_white_hash;
 import upt04_random_contract;
 
+#ifndef UPT47_REFLECTION_POSITIVE_ONLY
+#define UPT47_REFLECTION_POSITIVE_ONLY 0
+#endif
+
 public void Upt04StreamInitialTraceWork(
     inout Upt03LogicalReservoir reservoir,
     Upt04InitialTraceWork work,
@@ -14,6 +18,13 @@ public void Upt04StreamInitialTraceWork(
 {
     if (work.valid == 0u || work.candidateReady == 0u)
         return;
+#if UPT47_REFLECTION_POSITIVE_ONLY
+    // A failed/occluded reflection candidate is an empty pixel, not a
+    // count-only reservoir.  Let S0 repair it from a nearby positive donor;
+    // never give stochastic darkness confidence that temporal reuse can age.
+    if (work.candidateStatus != kUpt04SampleValidPositive)
+        return;
+#endif
     Upt03Candidate candidate = (Upt03Candidate)0;
     candidate.status = work.candidateStatus;
     candidate.eventKind = work.eventKind;

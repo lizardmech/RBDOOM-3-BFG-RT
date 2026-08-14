@@ -44,6 +44,8 @@ public static const uint kUpt07SurfaceClassTranslucent = 3u;
 public static const uint kUpt07TranslucentSubtypeShift = 24u;
 public static const uint kUpt07TranslucentSubtypeMask = 0x0f000000u;
 public static const uint kUpt07TranslucentSubtypeGuiScreen = 5u;
+public static const uint kUpt07MaterialPortalWindowFallback = 0x00000200u;
+public static const uint kUpt07MaterialObjectGlassFallback = 0x00000400u;
 
 public float3 Upt07MaterialYCoCgToRgb(float4 ycocg)
 {
@@ -97,6 +99,27 @@ public bool Upt07MaterialTextureCounted(
         && all(isfinite(texCoord)) && !any(abs(texCoord) > 65536.0f))
         Upt07WorkAdd(work, kUpt07WorkTextureSamples);
     return Upt07MaterialTexture(textureIndex, texCoord, texel);
+}
+
+public bool Upt07MaterialAlwaysTransmitsCandidate(
+    Upt04HitFacts candidate,
+    inout Upt07WorkCounters work)
+{
+    uint materialIndex;
+    Upt07WorkAdd(work, kUpt07WorkGeometryResolves);
+    if (!Upt04ResolveTriangleMaterialIndex(candidate, materialIndex)
+        || materialIndex >= gUpt07Control.materialCount)
+        return false;
+    Upt07WorkAdd(work, kUpt07WorkMaterialRecordLoads);
+    const uint flags = gUptDirectEmitterMaterials[materialIndex].flags;
+    if ((flags & (kUpt07MaterialPortalWindowFallback
+            | kUpt07MaterialObjectGlassFallback)) != 0u)
+        return true;
+    uint triangleClassAndFlags;
+    Upt07WorkAdd(work, kUpt07WorkGeometryResolves);
+    return Upt04ResolveTriangleClassAndFlags(
+            candidate, triangleClassAndFlags)
+        && Upt04TriangleClassIsTransmittingGlass(triangleClassAndFlags);
 }
 
 // Reject only a proven discarded texel. Missing route/material/texture data

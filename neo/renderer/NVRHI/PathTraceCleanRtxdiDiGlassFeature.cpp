@@ -26,7 +26,8 @@ static RtPathTraceMaterialFeaturePassDesc BuildPathTraceCleanRtxdiDiGlassFeature
         PathTraceCleanRtxdiDiEnableComposedOutput(desc, true);
         desc.resourceInputs |=
             RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_SIDECAR |
-            RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_SIDECAR;
+            RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_SIDECAR |
+            RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_SIDECAR;
     }
     desc.enabled = cleanGlassRoute && (beautyOutput || debugOutputRequested || sidecarComposeOutput);
     desc.debugLabel = debugOutput ? "clean-rtxdi-di-glass-debug" : "clean-rtxdi-di-glass";

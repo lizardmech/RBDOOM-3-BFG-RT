@@ -491,3 +491,55 @@ pipeline and shader-table cache. These objects are immutable execution state;
 UPT still supplies its own bindings and optics-only constants, so sharing them
 does not enable or dispatch clean DI and cannot replace the UPT receiver. No
 additional pipeline-enable cvar exists or is required.
+S45.9 - Optical sidecars and temporal receiver ownership (2026-08-14)
+
+Verified failure mechanisms after the first native-glass runtime admission:
+
+1. UPT status=3 was described as optics-only, but the inherited reflection PSR
+   lane could still publish a reflected surface into the authoritative compact
+   receiver. That violated receiverReplacement=0 and made T0 alternate between
+   the behind-pane receiver and the reflected receiver. It also replaced valid
+   transmitted sky/emissive receivers.
+
+2. The transmission producer generated the bounded normal-map distortion
+   sidecar, but the late UPT glass composer had no SRV for it and never sampled
+   it. Distortion therefore could not appear regardless of producer validity.
+
+3. The existing sky reflection compute resolve uses RR guide position as a
+   one-dispatch direction carrier. Its clean-DI restore path reads the wide PSR
+   replacement record. UPT keeps the wide record as front-pane scratch, so that
+   restore is incorrect for UPT.
+
+Accepted correction:
+
+- status=3 may trace and shade the reflection lane into an optical sidecar, but
+  cannot run reflection PSR selection or publish a replacement receiver;
+- glass compose receives the distortion sidecar as canonical t92 and applies
+  the existing bounded bilinear distortion to the already-lit UPT R0 source;
+- UPT enables that bounded distortion with its glass route rather than relying
+  on the legacy clean-DI diagnostic cvar;
+- reflected sky radiance is resolved by the existing compute service after the
+  optical producer, but the temporary RR guide position is restored from the
+  compact32 behind-pane receiver using the current camera origin;
+- D0/T0/S0 and DLSS RR therefore retain one receiver identity and one motion
+  domain: the surface visible through the pane. The pane remains optical data,
+  never a reusable receiver.
+
+RTXDI FullSample comparison:
+
+- PT temporal explicitly selects PSR motion vectors for resampling and can
+  update PSR buffers when history wins. The transferable rule is not to give
+  glass a second temporal estimator; it is to make resampling and presentation
+  agree on the same PSR-resolved receiver.
+- GlassPass composes throughput/reflection over already-lit color. UPT follows
+  that shape: transmitted emissive and sky energy comes from UPT R0, while the
+  pane contributes bounded attenuation, distortion and reflected radiance.
+
+Build proof:
+
+- win64-pt-dev-release succeeded, Vulkan only;
+- pathtrace_clean_rtxdi_di_glass.rt.bin was forcibly removed and rebuilt;
+- pathtrace_clean_rtxdi_di_transmission_producer.rt.bin was forcibly removed
+  and rebuilt;
+- pathtrace_sky_surface_resolve.cs.bin rebuilt after its compact receiver ABI
+  extension.

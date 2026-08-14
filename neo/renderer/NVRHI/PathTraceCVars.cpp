@@ -1743,6 +1743,24 @@ idCVar r_pathTracingUnifiedPtGlassPsr(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT-45 opt-in clear-window PSR: feature-supported panes pass through canonical lean P0 so compact32 remains authoritative, while a deterministic front-pane capture restores the legacy transmission/reflection sidecars and optional r_pathTracingCleanRtxdiDiGlassDistortion compose; Vulkan compact32 route only" );
 
+idCVar r_pathTracingUnifiedPtGlassPsrDiagnostics(
+    "r_pathTracingUnifiedPtGlassPsrDiagnostics",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "One-shot UPT glass crosshair diagnostic: reads back the captured P0 interaction, glass classification, canonical receiver, optical endpoints, transmission weight and G1 output mode, then resets to 0" );
+
+idCVar r_pathTracingUnifiedPtGlassReflectionReuse(
+    "r_pathTracingUnifiedPtGlassReflectionReuse",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Experimental isolated half-resolution glass-reflection DI domain: one reflected receiver per 2x2 block, private direct-only D0/T0/S0 pages and resolve, with the deterministic UPT-46 reflection retained as rollback" );
+
+idCVar r_pathTracingUnifiedPtGlassReflectionReuseResolution(
+    "r_pathTracingUnifiedPtGlassReflectionReuseResolution",
+    "50",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Glass-reflection reuse resolution percent: values below 75 select the original 50% per-axis child; values 75 or greater select a full-resolution 100% child" );
+
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
     "1",

@@ -1,0 +1,54 @@
+UPT-07 legacy-DI estimator parity alternate (unused)
+===================================================
+
+Archived 2026-08-04 before restoring the 12:35 unified/PT-oriented temporal
+estimator. This is intentionally not compiled or exposed as a runtime CVar.
+It preserves the exact experimental delta that made primary-direct temporal
+use the legacy clean-DI support-count BASIC normalization and relative history
+length clamp.
+
+To recreate the alternate, add a runtime policy bit and apply this shader delta
+to Upt07MergeTemporal:
+
+--- neo/shaders/slang_upt07/upt07_temporal_reservoir.slang
++++ neo/shaders/slang_upt07/upt07_temporal_reservoir.slang
+@@
+-    const uint historyM = min(history.logical.effectiveM, maximumHistoryM);
++    const uint currentMForLimit = max(current.logical.effectiveM, 1u);
++    const uint directHistoryLimit = maximumHistoryM
++            > 0xffffffffu / currentMForLimit
++        ? 0xffffffffu : maximumHistoryM * currentMForLimit;
++    const uint historyM = min(
++        history.logical.effectiveM,
++        directDiParity != 0u ? directHistoryLimit : maximumHistoryM);
+@@
+-    const float finalizedMeanWeight = outputSelected
+-            && isfinite(selectedSourceTarget) && selectedSourceTarget > 0.0f
+-            && isfinite(targetWeightedDenominator)
+-            && targetWeightedDenominator > 0.0f
+-        ? totalMass * selectedSourceTarget / targetWeightedDenominator
+-        : 0.0f;
++    const uint supportCount =
++        (selectedTargetAtCurrent > 0.0f
++            ? current.logical.effectiveM : 0u)
++        + (selectedTargetAtHistory > 0.0f ? historyM : 0u);
++    const float finalizedMeanWeight = outputSelected
++            && (directDiParity != 0u
++                ? supportCount > 0u
++                : (isfinite(selectedSourceTarget)
++                    && selectedSourceTarget > 0.0f
++                    && isfinite(targetWeightedDenominator)
++                    && targetWeightedDenominator > 0.0f))
++        ? (directDiParity != 0u
++            ? totalMass / float(supportCount)
++            : totalMass * selectedSourceTarget / targetWeightedDenominator)
++        : 0.0f;
+
+The archived host switch was:
+
+    r_pathTracingUnifiedPtTemporalDirectDiParity 0/1
+
+It used geometryAvailabilityFlags bit 30 and passed directDiParity as the final
+Upt07MergeTemporal argument. Do not re-enable this in the active unified path
+without separately deciding whether the reservoir is a direct-DI reservoir or
+a combined DI/GI/PT reservoir; the two estimators have different ownership.

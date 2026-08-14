@@ -3,6 +3,7 @@ import upt04_hit_contract;
 import upt04_initial_work_contract;
 import upt04_initial_control;
 import upt04_geometry_contract;
+import upt04_geometry_decode;
 import upt04_light_contract;
 import upt04_local_light_proposal;
 import upt04_emissive_replay;
@@ -52,6 +53,12 @@ import upt09_spatial_direct_bindings;
 #endif
 #ifndef UPT438_SPATIAL_BOOST_COMPACT
 #define UPT438_SPATIAL_BOOST_COMPACT 0
+#endif
+#ifndef UPT47_REFLECTION_POSITIVE_ONLY
+#define UPT47_REFLECTION_POSITIVE_ONLY 0
+#endif
+#ifndef UPT09_REFLECTION_RECEIVER48
+#define UPT09_REFLECTION_RECEIVER48 0
 #endif
 #if UPT10_SHARED_SPATIAL
 import upt07_work_budget;
@@ -114,6 +121,21 @@ public float Upt09Random(uint2 pixel, uint ordinal, uint stream)
     return float(value >> 8u) * (1.0f / 16777216.0f);
 }
 
+public bool Upt09MaterialAlwaysTransmitsCandidate(Upt04HitFacts candidate)
+{
+    uint materialIndex;
+    if (!Upt04ResolveTriangleMaterialIndex(candidate, materialIndex)
+        || materialIndex >= gUpt09Control.materialCount)
+        return false;
+    const uint flags = gUptDirectEmitterMaterials[materialIndex].flags;
+    if ((flags & (0x00000200u | 0x00000400u)) != 0u)
+        return true;
+    uint triangleClassAndFlags;
+    return Upt04ResolveTriangleClassAndFlags(
+            candidate, triangleClassAndFlags)
+        && Upt04TriangleClassIsTransmittingGlass(triangleClassAndFlags);
+}
+
 public bool Upt09VisibilityPassed(
     Upt04TraceRequest request,
     Upt04VisibilityIgnore ignore)
@@ -144,6 +166,16 @@ public bool Upt09VisibilityPassed(
                 ignore,
                 query.CandidateInstanceID(),
                 candidatePrimitiveId))
+            continue;
+        Upt04HitFacts candidate = (Upt04HitFacts)0;
+        candidate.status = kUpt04HitTriangle;
+        candidate.instanceId = query.CandidateInstanceID();
+        candidate.geometryId = 0u;
+        candidate.primitiveId = candidatePrimitiveId;
+        candidate.barycentrics = query.CandidateTriangleBarycentrics();
+        candidate.hitT = query.CandidateTriangleRayT();
+        candidate.frontFace = 1u;
+        if (Upt09MaterialAlwaysTransmitsCandidate(candidate))
             continue;
         query.CommitNonOpaqueTriangleHit();
     }
@@ -371,6 +403,16 @@ public bool Upt09SpatialSurfacesCompatible(
     Upt04PrimarySurfaceRecord receiver,
     Upt04PrimarySurfaceRecord neighbor)
 {
+#if UPT09_REFLECTION_RECEIVER48
+    // Compact reflection receivers carry a nonzero hash of the reflected TLAS
+    // instance in their otherwise unused roughness companion lane. Appearance
+    // similarity alone cannot distinguish a prop silhouette from the wall
+    // revealed behind it, which lets positive-only rescue grow blocky edges.
+    if (receiver.instancePrimitiveObject.x == 0u
+        || receiver.instancePrimitiveObject.x
+            != neighbor.instancePrimitiveObject.x)
+        return false;
+#endif
     if (!Upt04PrimarySurfaceRecordValid(neighbor)
         || receiver.materialAndSurface.w != neighbor.materialAndSurface.w
         || !Upt04PrimarySurfaceAlphaReuseCompatible(receiver, neighbor)
@@ -417,6 +459,42 @@ public int2 Upt09NeighborPixel(
         int2(0, 0),
         int2(dimensions) - int2(1, 1));
 }
+
+#if UPT47_REFLECTION_POSITIVE_ONLY
+public int2 Upt47NearestPositiveOffset(uint ordinal)
+{
+    // Ordered Chebyshev rings.  Empty reflection pixels take the first
+    // compatible visible positive donor, matching the legacy sample-stealing
+    // behavior without a random far-neighbor walk or a count-only fallback.
+    switch (ordinal)
+    {
+    case 0u: return int2(-1, 0);
+    case 1u: return int2(1, 0);
+    case 2u: return int2(0, -1);
+    case 3u: return int2(0, 1);
+    case 4u: return int2(-1, -1);
+    case 5u: return int2(1, -1);
+    case 6u: return int2(-1, 1);
+    case 7u: return int2(1, 1);
+    case 8u: return int2(-2, 0);
+    case 9u: return int2(2, 0);
+    case 10u: return int2(0, -2);
+    case 11u: return int2(0, 2);
+    case 12u: return int2(-2, -1);
+    case 13u: return int2(-1, -2);
+    case 14u: return int2(1, -2);
+    case 15u: return int2(2, -1);
+    case 16u: return int2(2, 1);
+    case 17u: return int2(1, 2);
+    case 18u: return int2(-1, 2);
+    case 19u: return int2(-2, 1);
+    case 20u: return int2(-2, -2);
+    case 21u: return int2(2, -2);
+    case 22u: return int2(-2, 2);
+    default: return int2(2, 2);
+    }
+}
+#endif
 
 public Upt03PackedReservoir Upt09PackSpatialResult(
     Upt03LogicalReservoir logical,
@@ -2526,6 +2604,96 @@ void main(
         gUpt09OutputReservoirs[index] = gUpt09InputReservoirs[index];
         return;
     }
+#if UPT47_REFLECTION_POSITIVE_ONLY
+    if (!centerSelected)
+    {
+        const int2 dimensions = int2(
+            gUpt09Control.renderWidth, gUpt09Control.renderHeight);
+        uint donorFound = 0u;
+        uint stolenM = 0u;
+        float stolenWeight = 0.0f;
+        Upt03Candidate stolenCandidate = (Upt03Candidate)0;
+        Upt04TraceRequest stolenVisibility = (Upt04TraceRequest)0;
+        Upt04VisibilityIgnore stolenVisibilityIgnore =
+            Upt04NoVisibilityIgnore();
+        [loop]
+        for (uint donorOrdinal = 0u; donorOrdinal < 8u; ++donorOrdinal)
+        {
+            const int2 donorPixel = int2(pixel)
+                + Upt47NearestPositiveOffset(donorOrdinal);
+            if (any(donorPixel < int2(0, 0))
+                || any(donorPixel >= dimensions))
+                continue;
+            const uint donorIndex = uint(donorPixel.y)
+                * uint(dimensions.x) + uint(donorPixel.x);
+            if (donorIndex >= gUpt09Control.surfaceCount)
+                continue;
+            const Upt04PrimarySurfaceRecord donorSurface =
+                Upt09LoadSurface(donorIndex);
+            if (!Upt09SpatialSurfacesCompatible(receiver, donorSurface))
+                continue;
+            const Upt07DecodedReservoir donor = Upt07DecodeReservoir(
+                gUpt09InputReservoirs[donorIndex]);
+            if (!Upt09DirectReservoirEligible(donor))
+                continue;
+            const uint donorM = min(
+                donor.logical.effectiveM, gUpt09Control.maximumInputM);
+            if (donorM == 0u)
+                continue;
+            Upt03Candidate shifted;
+            Upt04TraceRequest visibility;
+            Upt04VisibilityIgnore visibilityIgnore;
+            if (Upt09ShiftPrimaryDirectUnshadowed<UPT09_SELECTED_PRIMARY_MATERIAL_SET>(
+                    donor.logical.selected,
+                    receiver,
+                    shifted,
+                    visibility,
+                    visibilityIgnore) == 0u
+                || shifted.status != kUpt04SampleValidPositive)
+                continue;
+            const float donorTarget =
+                Upt09PrimaryDirectTargetAtReceiver<UPT09_SELECTED_PRIMARY_MATERIAL_SET>(
+                    donor.logical.selected, donorSurface);
+            const float shiftedWeight = Upt04FinitePositive(donorTarget)
+                ? donor.logical.weightSum * (shifted.target / donorTarget)
+                : 0.0f;
+            if (!Upt04FinitePositive(shiftedWeight))
+                continue;
+            donorFound = 1u;
+            stolenM = donorM;
+            stolenWeight = shiftedWeight;
+            stolenCandidate = shifted;
+            stolenVisibility = visibility;
+            stolenVisibilityIgnore = visibilityIgnore;
+            break;
+        }
+        if (donorFound != 0u
+            && Upt09VisibilityPassed(
+                stolenVisibility, stolenVisibilityIgnore))
+        {
+            stolenCandidate.flags =
+                (stolenCandidate.flags
+                    & ~(kUpt04CandidateFlagVisibilityKnown
+                        | kUpt04CandidateFlagVisibilityPassed))
+                | kUpt04CandidateFlagVisibilityKnown
+                | kUpt04CandidateFlagVisibilityPassed;
+            // Do not stamp this donor as a one-frame rescue.  UPT-47 wants a
+            // positive sample to propagate through a sparse reflection region
+            // until fresh D0 coverage replaces it.
+            stolenCandidate.replayKey &= ~kUpt03ReplayKeyRescueBit;
+            Upt03LogicalReservoir stolen = (Upt03LogicalReservoir)0;
+            stolen.hasSelectedSample = 1u;
+            stolen.effectiveM = stolenM;
+            stolen.weightSum = stolenWeight;
+            stolen.selected = stolenCandidate;
+            gUpt09OutputReservoirs[index] =
+                Upt09PackSpatialResult(stolen, 0u);
+            return;
+        }
+        gUpt09OutputReservoirs[index] = (Upt03PackedReservoir)0;
+        return;
+    }
+#endif
     const uint centerM = center.valid != 0u
         ? min(center.logical.effectiveM, gUpt09Control.maximumInputM) : 0u;
     const float centerReceiverTarget = centerSelected
@@ -2643,6 +2811,9 @@ void main(
         // allow them to become the selected sample or issue a visibility ray.
         if (neighbor.logical.hasSelectedSample == 0u)
         {
+#if UPT47_REFLECTION_POSITIVE_ONLY
+            continue;
+#else
             if (gUpt09Control.proofMode == 4u)
                 continue;
             outputM += neighborM;
@@ -2650,6 +2821,7 @@ void main(
             acceptedM[acceptedCount] = neighborM;
             ++acceptedCount;
             continue;
+#endif
         }
         if (!Upt09DirectReservoirEligible(neighbor))
             continue;
@@ -2664,10 +2836,12 @@ void main(
                 visibility,
                 visibilityIgnore) == 0u)
             continue;
+#if !UPT47_REFLECTION_POSITIVE_ONLY
         outputM += neighborM;
         acceptedPixels[acceptedCount] = neighborPixel;
         acceptedM[acceptedCount] = neighborM;
         ++acceptedCount;
+#endif
 
         // Basic correction needs the target of this sample in its source
         // domain twice: once to shift the reservoir mass and, if it wins, once
@@ -2711,6 +2885,15 @@ void main(
         }
         if (!isfinite(neighborMass) || neighborMass <= 0.0f)
             continue;
+#if UPT47_REFLECTION_POSITIVE_ONLY
+        // In the reflection child, only a positive shifted proposal owns M.
+        // This is the exact point at which source replay and current target
+        // have both succeeded, so no later zero can dilute the center.
+        outputM += neighborM;
+        acceptedPixels[acceptedCount] = neighborPixel;
+        acceptedM[acceptedCount] = neighborM;
+        ++acceptedCount;
+#endif
         const float newMass = totalMass + neighborMass;
         if (!Upt04FinitePositive(newMass))
             continue;
@@ -2769,7 +2952,11 @@ void main(
         || !Upt04FinitePositive(totalMass)
         || !Upt04FinitePositive(selectedSourceTarget))
     {
+#if UPT47_REFLECTION_POSITIVE_ONLY
+        gUpt09OutputReservoirs[index] = gUpt09InputReservoirs[index];
+#else
         gUpt09OutputReservoirs[index] = Upt09PackSpatialResult(result, 1u);
+#endif
         return;
     }
 
@@ -2813,7 +3000,11 @@ void main(
     }
     if (!Upt04FinitePositive(finalizedMeanWeight))
     {
+#if UPT47_REFLECTION_POSITIVE_ONLY
+        gUpt09OutputReservoirs[index] = gUpt09InputReservoirs[index];
+#else
         gUpt09OutputReservoirs[index] = Upt09PackSpatialResult(result, 1u);
+#endif
         return;
     }
 
@@ -2826,7 +3017,11 @@ void main(
         if (!Upt09VisibilityPassed(
                 selectedVisibility, selectedVisibilityIgnore))
         {
+#if UPT47_REFLECTION_POSITIVE_ONLY
+            gUpt09OutputReservoirs[index] = gUpt09InputReservoirs[index];
+#else
             gUpt09OutputReservoirs[index] = Upt09PackSpatialResult(result, 1u);
+#endif
             return;
         }
         selected.flags |= kUpt04CandidateFlagVisibilityPassed;
@@ -2842,7 +3037,9 @@ void main(
     if (!centerSelected && selectedFromNeighbor != 0u
         && gUpt09Control.proofMode != 2u)
     {
+#if !UPT47_REFLECTION_POSITIVE_ONLY
         selected.replayKey |= kUpt03ReplayKeyRescueBit;
+#endif
     }
     result.hasSelectedSample = 1u;
     result.weightSum = finalizedMeanWeight;

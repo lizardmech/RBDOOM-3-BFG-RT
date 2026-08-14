@@ -476,6 +476,94 @@ public bool Upt04ResolveTriangleMaterialIndex(
 #endif
 }
 
+// Resolve only the packed surface class. This is the narrow metadata companion
+// to Upt04ResolveTriangleMaterialIndex: visibility traversal needs the
+// authoritative translucent subtype but must not fetch indices or vertices.
+public bool Upt04ResolveTriangleClassAndFlags(
+    Upt04HitFacts hit,
+    out uint triangleClassAndFlags)
+{
+    triangleClassAndFlags = 0u;
+    if (hit.status != kUpt04HitTriangle || hit.geometryId != 0u)
+        return false;
+
+#if UPT_FROZEN_STATIC_GEOMETRY
+    if (hit.instanceId != 0u
+        || hit.primitiveId >= Upt04StaticTriangleCount())
+        return false;
+    triangleClassAndFlags = gUpt04StaticTriangleClasses[hit.primitiveId];
+    return true;
+#else
+    const bool staticBucket =
+        Upt04StaticBucketRouteAvailable()
+        && (hit.instanceId & ~kUpt04ShaderInstanceMask) == 0u
+        && (hit.instanceId & kUpt04StaticBucketInstanceBit) != 0u;
+    if (staticBucket)
+    {
+        const uint triangleBase =
+            hit.instanceId & kUpt04StaticBucketTriangleMask;
+        if (triangleBase >= Upt04StaticTriangleCount()
+            || hit.primitiveId >= Upt04StaticTriangleCount() - triangleBase)
+            return false;
+        triangleClassAndFlags = gUpt04StaticTriangleClasses[
+            triangleBase + hit.primitiveId];
+        return true;
+    }
+    if (hit.instanceId == 0u)
+    {
+        if (hit.primitiveId >= Upt04StaticTriangleCount())
+            return false;
+        triangleClassAndFlags = gUpt04StaticTriangleClasses[hit.primitiveId];
+        return true;
+    }
+    if (hit.instanceId == 1u)
+    {
+        if (hit.primitiveId >= Upt04DynamicTriangleCount())
+            return false;
+        triangleClassAndFlags = gUpt04DynamicTriangleClasses[hit.primitiveId];
+        return true;
+    }
+
+    uint skinnedRouteIndex;
+    if (Upt04SkinnedInstanceInRange(hit.instanceId, skinnedRouteIndex))
+    {
+        const Upt04SkinnedResolveRoute route =
+            Upt04LoadSkinnedResolveRoute(skinnedRouteIndex);
+        if (route.shaderInstanceId != hit.instanceId
+            || route.routeCount != Upt04SkinnedRouteRecordCount()
+            || route.triangleMetadataCount != Upt04SkinnedRouteTriangleCount()
+            || hit.primitiveId >= route.triangleCount
+            || route.triangleMetadataOffset > Upt04SkinnedRouteTriangleCount()
+            || hit.primitiveId >= Upt04SkinnedRouteTriangleCount()
+                - route.triangleMetadataOffset)
+            return false;
+        const Upt04SkinnedRouteTriangle metadata = gUpt04SkinnedTriangles[
+            route.triangleMetadataOffset + hit.primitiveId];
+        if (metadata.sourcePrimitiveIndex != hit.primitiveId)
+            return false;
+        triangleClassAndFlags = metadata.triangleClassAndFlags;
+        return true;
+    }
+
+    if (hit.instanceId < 2u
+        || hit.instanceId - 2u >= Upt04RigidInstanceCount())
+        return false;
+    const uint2 rigidMaterialAndTriangleCount =
+        Upt04LoadRigidMaterialAndTriangleCount(hit.instanceId - 2u);
+    if (hit.primitiveId >= rigidMaterialAndTriangleCount.y)
+        return false;
+    triangleClassAndFlags = kUpt04RigidSurfaceClass;
+    return true;
+#endif
+}
+
+public bool Upt04TriangleClassIsTransmittingGlass(uint triangleClassAndFlags)
+{
+    const uint surfaceClass = triangleClassAndFlags & 0x000000ffu;
+    const uint subtype = (triangleClassAndFlags & 0x0f000000u) >> 24u;
+    return surfaceClass == 3u && (subtype == 1u || subtype == 4u);
+}
+
 public Upt04GeometryHitSurface Upt04BuildGeometryHitSurface(
     Upt04ResolvedTriangle triangle,
     float2 hitBarycentrics,

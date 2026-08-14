@@ -32,6 +32,7 @@ import upt07_temporal_reservoir;
 import upt07_temporal_surface_contract;
 import upt07_emissive_material;
 import upt07_work_budget;
+import upt07_indirect_material;
 #ifndef UPT07_INDIRECT_REPLAY
 #define UPT07_INDIRECT_REPLAY 0
 #endif
@@ -55,6 +56,9 @@ import upt07_work_budget;
 #endif
 #ifndef UPT43_TEMPORAL_REPLAY_COMPACT
 #define UPT43_TEMPORAL_REPLAY_COMPACT 0
+#endif
+#ifndef UPT07_REFLECTION_RECEIVER48
+#define UPT07_REFLECTION_RECEIVER48 0
 #endif
 #if UPT10_SHARED_REUSE_ADAPTER
 #include "../slang_upt10/upt10_reuse_contract.slangh"
@@ -196,6 +200,16 @@ public bool Upt07VisibilityPassed(
                 ignore,
                 query.CandidateInstanceID(),
                 candidatePrimitiveId))
+            continue;
+        Upt04HitFacts candidate = (Upt04HitFacts)0;
+        candidate.status = kUpt04HitTriangle;
+        candidate.instanceId = query.CandidateInstanceID();
+        candidate.geometryId = 0u;
+        candidate.primitiveId = candidatePrimitiveId;
+        candidate.barycentrics = query.CandidateTriangleBarycentrics();
+        candidate.hitT = query.CandidateTriangleRayT();
+        candidate.frontFace = 1u;
+        if (Upt07MaterialAlwaysTransmitsCandidate(candidate, work))
             continue;
         query.CommitNonOpaqueTriangleHit();
     }
@@ -990,7 +1004,20 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                     + uint(candidatePixel.x);
                 const Upt04PrimarySurfaceRecord previous =
                     Upt07LoadPreviousSurface(candidateIndex);
-                if (Upt07SurfacesCompatible(
+#if UPT07_REFLECTION_RECEIVER48
+                // The reflected endpoint is not the front pane used for
+                // reprojection. Reject history from another reflected TLAS
+                // instance before the intentionally broad material/normal
+                // gate can smear it across a moving silhouette.
+                const bool reflectionEndpointCompatible =
+                    receiver.instancePrimitiveObject.x != 0u
+                    && receiver.instancePrimitiveObject.x
+                        == previous.instancePrimitiveObject.x;
+#else
+                const bool reflectionEndpointCompatible = true;
+#endif
+                if (reflectionEndpointCompatible
+                    && Upt07SurfacesCompatible(
                         receiver, previous, projection.linearDepth))
                 {
                     historyPixel = candidatePixel;

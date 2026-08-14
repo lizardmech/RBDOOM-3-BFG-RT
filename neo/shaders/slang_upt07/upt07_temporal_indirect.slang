@@ -287,7 +287,8 @@ public Upt04HitFacts Upt07TraceIndirect(
         candidate.barycentrics = query.CandidateTriangleBarycentrics();
         candidate.hitT = query.CandidateTriangleRayT();
         candidate.frontFace = 1u;
-        if (Upt07MaterialRejectsAlphaClipCandidate(candidate, work))
+        if (Upt07MaterialAlwaysTransmitsCandidate(candidate, work)
+            || Upt07MaterialRejectsAlphaClipCandidate(candidate, work))
             continue;
         query.CommitNonOpaqueTriangleHit();
     }

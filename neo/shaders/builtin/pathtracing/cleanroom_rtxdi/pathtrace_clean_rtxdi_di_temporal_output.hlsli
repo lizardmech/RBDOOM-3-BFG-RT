@@ -295,7 +295,11 @@ bool PathTraceCleanRoomTemporalDiagnosticsNeeded(uint view)
         return true;
     }
 
-    return view != 12u && view != 16u;
+    // Band 17 reads only the final reservoir state. Keep it on the same fast
+    // temporal producer used by production view 16 so the comparison does not
+    // change the algorithm merely by observing it.
+    return view != 12u && view != 16u
+        && !(view == 8u && CleanRtxdiDiView8Band == 17u);
 }
 
 RTXDI_DIReservoir PathTraceCleanRoomRunTemporalProducerFast(uint2 pixel, uint2 dimensions, RTXDI_DIReservoir currentReservoir, PathTracePrimarySurfaceRecord currentSurface)
@@ -1089,6 +1093,22 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomLoadStoredInitialReservoirF
 }
 #endif
 
+#if defined(CLEAN_RTXDI_DI_INITIAL_ENTRY) || defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY)
+float3 PathTraceCleanRoomTemporalPackedStateColor(RTXDI_DIReservoir reservoir)
+{
+    if (RTXDI_IsValidDIReservoir(reservoir))
+    {
+        const float age = saturate(float(reservoir.age) / 63.0);
+        return float3(0.05, 0.20 + 0.80 * age, 1.0 - 0.75 * age);
+    }
+    // Match UPT view 5 where possible: a defined count-only trial is red and
+    // a canonical empty reservoir is black. Legacy carries no per-rejection
+    // reason in its packed reservoir, so the other UPT rejection colors have
+    // no honest legacy equivalent.
+    return reservoir.M > 0.0 ? float3(1.0, 0.0, 0.0) : float3(0.0, 0.0, 0.0);
+}
+#endif
+
 float3 PathTraceCleanRoomInitialReservoirOutput(uint2 pixel, uint2 dimensions, uint view)
 {
     if (view == 8u && CleanRtxdiDiView8Band == 10u)
@@ -1121,6 +1141,12 @@ float3 PathTraceCleanRoomInitialReservoirOutput(uint2 pixel, uint2 dimensions, u
     }
     if (view == 8u)
     {
+#if defined(CLEAN_RTXDI_DI_INITIAL_ENTRY) || defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY)
+        if (CleanRtxdiDiView8Band == 17u)
+        {
+            return PathTraceCleanRoomTemporalPackedStateColor(result.reservoir);
+        }
+#endif
         if (CleanRtxdiDiView8Band == 7u)
         {
             return PathTraceCleanRoomNeeCacheProviderDiagnosticColor(result);
@@ -1180,6 +1206,11 @@ float3 PathTraceCleanRoomTemporalReservoirOutputForInitial(uint2 pixel, uint2 di
     if (CleanRtxdiDiTemporalAudit != 0u)
     {
         return PathTraceCleanRoomTemporalAuditColor(initial, temporal);
+    }
+
+    if (view == 8u && CleanRtxdiDiView8Band == 17u)
+    {
+        return PathTraceCleanRoomTemporalPackedStateColor(temporalReservoir);
     }
 
     if (view == 6u)

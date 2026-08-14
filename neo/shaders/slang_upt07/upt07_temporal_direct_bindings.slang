@@ -2,6 +2,7 @@ import upt03_reservoir_contract;
 import upt04_light_contract;
 import upt04_primary_surface_live_contract;
 import upt04_packed_primary_surface32;
+import upt04_packed_primary_surface;
 import upt04_primary_history_sidecar;
 import upt07_temporal_surface_contract;
 
@@ -28,6 +29,9 @@ import upt07_temporal_surface_contract;
 #endif
 #ifndef UPT43_TEMPORAL_REPLAY_COMPACT
 #define UPT43_TEMPORAL_REPLAY_COMPACT 0
+#endif
+#ifndef UPT07_REFLECTION_RECEIVER48
+#define UPT07_REFLECTION_RECEIVER48 0
 #endif
 
 public struct Upt07TemporalDirectControl
@@ -59,8 +63,13 @@ public struct Upt07TemporalDirectControl
 };
 
 public [[vk::binding(0, 0)]] RaytracingAccelerationStructure gUpt07Scene;
+#if UPT07_REFLECTION_RECEIVER48
+public [[vk::binding(1, 0)]] StructuredBuffer<Upt04PackedPrimarySurfaceRecord> gUpt07CurrentSurfaces;
+public [[vk::binding(2, 0)]] StructuredBuffer<Upt04PackedPrimarySurfaceRecord> gUpt07PreviousSurfaces;
+#else
 public [[vk::binding(1, 0)]] StructuredBuffer<Upt04PackedPrimarySurfaceRecord32> gUpt07CurrentSurfaces;
 public [[vk::binding(2, 0)]] StructuredBuffer<Upt04PackedPrimarySurfaceRecord32> gUpt07PreviousSurfaces;
+#endif
 public [[vk::binding(3, 0)]] RWStructuredBuffer<Upt03PackedReservoir> gUpt07CurrentReservoirs;
 public [[vk::binding(4, 0)]] StructuredBuffer<Upt03PackedReservoir> gUpt07HistoryReservoirs;
 #if UPT07_PACKED_LIGHT_RECORD
@@ -103,18 +112,47 @@ public Upt04UnifiedLightRecord Upt07LoadLight(uint index)
 
 public Upt04PrimarySurfaceRecord Upt07LoadCurrentSurface(uint index)
 {
+#if UPT07_REFLECTION_RECEIVER48
+    const Upt04PrimaryHistorySidecar sidecar = gUpt07CurrentSurfaceSidecars[index];
+    const Upt04PackedPrimarySurfaceRecord packed = gUpt07CurrentSurfaces[index];
+    Upt04PrimarySurfaceRecord surface = Upt04ApplyPrimaryHistorySidecar(
+        Upt04UnpackPrimarySurface(packed), sidecar);
+    // Reflection reuse is reprojected by the front-pane anchor carried in the
+    // sidecar, while target evaluation remains at the exact reflected hit.
+    // The sidecar's fourth float is therefore pane linear depth, not alpha.
+    surface.worldPositionAndViewDepth.w =
+        sidecar.previousPositionAndAlphaCutoff.w;
+    surface.albedoAndAlphaCutoff.w = 0.0f;
+    surface.instancePrimitiveObject.x =
+        (packed.directionsAndRoughness.w >> 16u) & 0xffffu;
+    return surface;
+#else
     return Upt04ApplyPrimaryHistorySidecar(
         Upt04UnpackPrimarySurface32(
             gUpt07CurrentSurfaces[index],
             gUpt07Control.primaryCameraOrigin),
         gUpt07CurrentSurfaceSidecars[index]);
+#endif
 }
 
 public Upt04PrimarySurfaceRecord Upt07LoadPreviousSurface(uint index)
 {
+#if UPT07_REFLECTION_RECEIVER48
+    const Upt04PrimaryHistorySidecar sidecar = gUpt07PreviousSurfaceSidecars[index];
+    const Upt04PackedPrimarySurfaceRecord packed = gUpt07PreviousSurfaces[index];
+    Upt04PrimarySurfaceRecord surface = Upt04ApplyPrimaryHistorySidecar(
+        Upt04UnpackPrimarySurface(packed), sidecar);
+    surface.worldPositionAndViewDepth.w =
+        sidecar.previousPositionAndAlphaCutoff.w;
+    surface.albedoAndAlphaCutoff.w = 0.0f;
+    surface.instancePrimitiveObject.x =
+        (packed.directionsAndRoughness.w >> 16u) & 0xffffu;
+    return surface;
+#else
     return Upt04ApplyPrimaryHistorySidecar(
         Upt04UnpackPrimarySurface32(
             gUpt07PreviousSurfaces[index],
             gUpt07Control.previousCamera.origin),
         gUpt07PreviousSurfaceSidecars[index]);
+#endif
 }

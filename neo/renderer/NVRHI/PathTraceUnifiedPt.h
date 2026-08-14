@@ -15,6 +15,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 
 struct PathTraceUnifiedLightRecord;
 struct PathTraceSmokeEmissiveTriangle;
@@ -56,6 +57,7 @@ struct PathTraceUnifiedPtDispatchInputs
     nvrhi::BufferHandle primarySurfacePreviousBuffer;
     nvrhi::BufferHandle primaryHistorySidecarCurrentBuffer;
     nvrhi::BufferHandle primaryHistorySidecarPreviousBuffer;
+    nvrhi::TextureHandle rrGuideSpecularAlbedo;
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t frameSampleIndex = 0;
@@ -84,6 +86,10 @@ struct PathTraceUnifiedPtDispatchInputs
     bool temporal = false;
     bool duplication = false;
     bool spatial = false;
+    // Private half-resolution glass-reflection domain.  This selects the
+    // compact48 receiver specializations and forces direct-only reuse without
+    // changing the main UPT estimator or its two persistent pages.
+    bool reflectionReuseDomain = false;
     bool primarySurfaceHistoryValid = false;
     uint64_t historyEpoch = 0;
     uint32_t historyResetReasonFlags = 0;
@@ -117,6 +123,44 @@ struct PathTraceUnifiedPtPageMetadata
     }
 };
 
+struct PathTraceUnifiedPtGlassComposeInputs
+{
+    nvrhi::IDevice* device = nullptr;
+    nvrhi::ICommandList* commandList = nullptr;
+    nvrhi::TextureHandle source;
+    nvrhi::TextureHandle transmission;
+    nvrhi::TextureHandle reflection;
+    nvrhi::TextureHandle reflectionReuse;
+    nvrhi::TextureHandle distortion;
+    nvrhi::TextureHandle output;
+    nvrhi::TextureHandle rrGuideAlbedo;
+    nvrhi::TextureHandle rrGuideSpecularAlbedo;
+    nvrhi::TextureHandle rrGuideNormalRoughness;
+    nvrhi::TextureHandle rrGuidePosition;
+    nvrhi::TextureHandle rrGuideDepth;
+    nvrhi::TextureHandle rrMotionVectors;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    float reflectionBoost = 1.0f;
+    float transmissionFloor = 0.0f;
+    bool distortionEnabled = true;
+    bool nsightMarkers = false;
+};
+
+struct PathTraceUnifiedPtGlassOpticalInputs
+{
+    const PathTraceUnifiedPtDispatchInputs* dispatch = nullptr;
+    nvrhi::BufferHandle opticalSurfaceBuffer;
+    nvrhi::BufferHandle canonicalPrimaryReceiver32Buffer;
+    nvrhi::TextureHandle skyEnvironment;
+    nvrhi::TextureHandle rrGuideAlbedo;
+    nvrhi::TextureHandle rrGuideSpecularAlbedo;
+    nvrhi::TextureHandle rrGuideHitDistance;
+    float reflectionComposeBoost = 1.0f;
+    float skyBrightness = 1.0f;
+    float rayTMax = 100000.0f;
+};
+
 class PathTraceUnifiedPtState
 {
 public:
@@ -127,6 +171,48 @@ public:
     bool ExecuteResolve(
         const PathTraceUnifiedPtDispatchInputs& inputs,
         uint32_t view);
+    bool ExecuteGlassCompose(
+        const PathTraceUnifiedPtGlassComposeInputs& inputs);
+    bool ExecuteGlassOpticalTransport(
+        const PathTraceUnifiedPtGlassOpticalInputs& inputs);
+    nvrhi::TextureHandle GetGlassTransmissionTexture() const
+    {
+        return m_glassOpticalTransmission;
+    }
+    nvrhi::TextureHandle GetGlassReflectionTexture() const
+    {
+        return m_glassOpticalReflection;
+    }
+    nvrhi::TextureHandle GetGlassReflectionReuseTexture() const
+    {
+        return m_glassReflectionReuseReady && m_glassReflectionReuseState
+            ? m_glassReflectionReuseState->GetResolveOutputTexture()
+            : nullptr;
+    }
+    nvrhi::TextureHandle GetGlassRrGuideAlbedoTexture() const
+    {
+        return m_glassComposeRrAlbedo;
+    }
+    nvrhi::TextureHandle GetGlassRrGuideSpecularAlbedoTexture() const
+    {
+        return m_glassComposeRrSpecularAlbedo;
+    }
+    nvrhi::TextureHandle GetGlassRrGuideNormalRoughnessTexture() const
+    {
+        return m_glassComposeRrNormalRoughness;
+    }
+    nvrhi::TextureHandle GetGlassRrGuidePositionTexture() const
+    {
+        return m_glassComposeRrPosition;
+    }
+    nvrhi::TextureHandle GetGlassRrGuideDepthTexture() const
+    {
+        return m_glassComposeRrDepth;
+    }
+    nvrhi::TextureHandle GetGlassRrMotionVectorTexture() const
+    {
+        return m_glassComposeRrMotion;
+    }
     void CompleteFrame();
     nvrhi::TextureHandle GetOutputTexture() const
     {
@@ -173,6 +259,20 @@ private:
     bool EnsureResolveResources(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolvePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureResolveBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureGlassComposePipeline(
+        const PathTraceUnifiedPtGlassComposeInputs& inputs);
+    bool EnsureGlassComposeResources(
+        const PathTraceUnifiedPtGlassComposeInputs& inputs);
+    bool EnsureGlassComposeBindingSet(
+        const PathTraceUnifiedPtGlassComposeInputs& inputs);
+    bool EnsureGlassOpticalResources(
+        const PathTraceUnifiedPtGlassOpticalInputs& inputs);
+    bool EnsureGlassOpticalPipeline(
+        const PathTraceUnifiedPtGlassOpticalInputs& inputs);
+    bool EnsureGlassOpticalBindingSet(
+        const PathTraceUnifiedPtGlassOpticalInputs& inputs);
+    void DrainGlassOpticalDiagnosticReadback(
+        const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureTemporalReplayCompactionBuffers(
@@ -363,6 +463,7 @@ private:
     bool m_temporalLambertDiagnostic = false;
     bool m_temporalFrozenStaticDiagnostic = false;
     bool m_temporalFrozenLightDiagnostic = false;
+    bool m_temporalReflectionReuseDomain = false;
     uint32_t m_temporalBottleneckProbe = 0;
     bool m_temporalPipelineAttempted = false;
     nvrhi::BindingLayoutHandle m_temporalBindingLayout;
@@ -453,6 +554,7 @@ private:
     bool m_spatialShiftPrepass = false;
     bool m_spatialThreeVertexReplay = false;
     bool m_spatialLambertDiagnostic = false;
+    bool m_spatialReflectionReuseDomain = false;
     bool m_spatialPipelineAttempted = false;
     nvrhi::BufferHandle m_spatialReuseTextureBuffer;
     nvrhi::BufferHandle m_spatialShiftBuffer;
@@ -517,4 +619,46 @@ private:
     std::array<bool, 2> m_resolveBindingSetDescValid = { false, false };
     nvrhi::ShaderHandle m_resolveShader;
     nvrhi::ComputePipelineHandle m_resolvePipeline;
+    bool m_glassComposePipelineAttempted = false;
+    nvrhi::BindingLayoutHandle m_glassComposeBindingLayout;
+    nvrhi::BindingSetHandle m_glassComposeBindingSet;
+    nvrhi::BindingSetDesc m_glassComposeBindingSetDesc;
+    bool m_glassComposeBindingSetDescValid = false;
+    nvrhi::ShaderHandle m_glassComposeShader;
+    nvrhi::ComputePipelineHandle m_glassComposePipeline;
+    nvrhi::TextureHandle m_glassComposeRrAlbedo;
+    nvrhi::TextureHandle m_glassComposeRrSpecularAlbedo;
+    nvrhi::TextureHandle m_glassComposeRrNormalRoughness;
+    nvrhi::TextureHandle m_glassComposeRrPosition;
+    nvrhi::TextureHandle m_glassComposeRrDepth;
+    nvrhi::TextureHandle m_glassComposeRrMotion;
+    uint32_t m_glassComposeWidth = 0;
+    uint32_t m_glassComposeHeight = 0;
+    bool m_glassOpticalPipelineAttempted = false;
+    bool m_glassOpticalCompactLights = false;
+    nvrhi::BindingLayoutHandle m_glassOpticalBindingLayout;
+    nvrhi::BindingSetHandle m_glassOpticalBindingSet;
+    nvrhi::BindingSetDesc m_glassOpticalBindingSetDesc;
+    bool m_glassOpticalBindingSetDescValid = false;
+    nvrhi::ShaderHandle m_glassOpticalShader;
+    nvrhi::ComputePipelineHandle m_glassOpticalPipeline;
+    nvrhi::BufferHandle m_glassOpticalConstants;
+    nvrhi::BufferHandle m_glassOpticalDiagnosticBuffer;
+    nvrhi::BufferHandle m_glassOpticalDiagnosticReadback;
+    bool m_glassOpticalDiagnosticReadbackPending = false;
+    int m_glassOpticalDiagnosticReadbackDelayFrames = 0;
+    nvrhi::TextureHandle m_glassOpticalTransmission;
+    nvrhi::TextureHandle m_glassOpticalReflection;
+    std::array<nvrhi::BufferHandle, 2> m_glassReflectionReceivers;
+    std::array<nvrhi::BufferHandle, 2> m_glassReflectionSidecars;
+    nvrhi::TextureHandle m_glassReflectionRrSpecular;
+    std::unique_ptr<PathTraceUnifiedPtState> m_glassReflectionReuseState;
+    uint32_t m_glassReflectionReceiverCurrentIndex = 0u;
+    uint32_t m_glassReflectionWidth = 0u;
+    uint32_t m_glassReflectionHeight = 0u;
+    uint64_t m_glassReflectionHistoryEpoch = 0u;
+    bool m_glassReflectionHistoryValid = false;
+    bool m_glassReflectionReuseReady = false;
+    uint32_t m_glassOpticalWidth = 0;
+    uint32_t m_glassOpticalHeight = 0;
 };

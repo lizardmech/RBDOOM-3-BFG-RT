@@ -49,6 +49,7 @@ static const char* PathTraceMaterialFeatureResourceName(uint32_t resource)
     case RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_SIDECAR: return "reflection-sidecar";
     case RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_OUTPUT: return "reflection-output";
     case RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_OUTPUT: return "glass-distortion-output";
+    case RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_SIDECAR: return "glass-distortion-sidecar";
     default: return "unknown";
     }
 }

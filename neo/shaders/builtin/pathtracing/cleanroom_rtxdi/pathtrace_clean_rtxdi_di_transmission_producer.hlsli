@@ -10,10 +10,6 @@ VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceCleanRtxdiDiTransmission
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceCleanRtxdiDiReflectionSidecarOutput : register(u96);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceCleanRtxdiDiGlassDistortionSidecarOutput : register(u91);
 
-static const float RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_MAX_PIXELS = 12.0;
-static const float RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_MAX_BLEND = 0.85;
-static const float RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_PRESENTATION_SCALE = 2.0;
-
 float4 PathTraceCleanRtxdiDiPresentLiquidPoolSecondaryDiagnostic(
     uint2 pixel,
     uint2 dimensions,
@@ -834,7 +830,15 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
             ? PathTraceCleanRtxdiDiGlassNormalMapDiagnosticSidecar(glassSurface)
             : PathTraceCleanRtxdiDiGlassDistortionSidecarBuild(glassSurface, materialParams, glassPayload);
 
-    const bool reflectionPsrEnabled = (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION_PSR) != 0u;
+    const bool opticsOnly = CleanRtxdiDiMotionVectorInfo.z >= 0.5f;
+    const bool reflectionTransportEnabled =
+        (CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_REFLECTION_PSR) != 0u;
+    // UPT has already published the authoritative behind-pane compact
+    // receiver.  The legacy reflection PSR lane may still provide a dense
+    // optical reflection sidecar, but it must never replace that receiver.
+    // Allowing lane selection here made T0 alternate between transmitted and
+    // reflected identities and also discarded sky/emissive transmission.
+    const bool reflectionPsrEnabled = reflectionTransportEnabled && !opticsOnly;
     // Large authored portal windows must remain reliably see-through. The
     // sticky reflection/transmission PSR owner selection can otherwise make a
     // whole panel reflection-owned at some locations and hide emissives or the
@@ -857,7 +861,7 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     float reflectionGuideHitT = 0.0;
     float3 reflectionGuideRayDirection = float3(0.0, 0.0, 0.0);
     bool liquidReflectionDiagnosticWritten = false;
-    if (reflectionPsrEnabled)
+    if (reflectionTransportEnabled)
     {
         PathTraceReflectionSecondaryHit reflectionHit;
         if (PathTraceReflectionSecondaryTraceMirrorFromSurface(glassSurface, reflectionHit))
@@ -1030,7 +1034,7 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     // commits at most one analytic RIS light shade and one shadow ray.
     if (!reflectionPrimaryPublished &&
         reflectionGuideSurfaceValid &&
-        reflectionPsrEnabled &&
+        reflectionTransportEnabled &&
         PathTraceCleanRoomLuminance(max(glassPayload.reflection, float3(0.0, 0.0, 0.0))) > 1.0e-5)
     {
         RTXDI_RandomSamplerState reflectionRng =
@@ -1054,7 +1058,7 @@ void PathTraceCleanRtxdiDiTransmissionPsrPhase(
     // legacy pass owns only the pane interaction. Publishing a resolved
     // behind-glass surface here would duplicate the renderer and reintroduce
     // the stale material/geometry bugs that UPT-45 removed.
-    if (CleanRtxdiDiMotionVectorInfo.z >= 0.5f)
+    if (opticsOnly)
     {
         const float overlayStrength =
             PathTraceCleanRtxdiDiGlassOverlayStrength(glassPayload);

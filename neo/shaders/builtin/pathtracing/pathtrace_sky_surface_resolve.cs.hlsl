@@ -25,9 +25,18 @@ cbuffer PathTraceSkySurfaceResolveConstants : register(b0)
     uint2 PathTraceSkySurfaceResolveDimensions;
     float PathTraceSkySurfaceResolveBrightness;
     uint PathTraceSkySurfaceResolveEnabled;
+    float3 PathTraceSkySurfaceResolveCameraOrigin;
+    uint PathTraceSkySurfaceResolveUseUnifiedPtCompactReceiver;
 };
 
 TextureCube<float4> PathTraceSkySurfaceResolveCube : register(t0);
+struct PathTraceUnifiedPtPrimaryReceiver32
+{
+    uint4 geometry;
+    uint4 material;
+};
+StructuredBuffer<PathTraceUnifiedPtPrimaryReceiver32>
+    PathTraceSkySurfaceUnifiedPtReceivers : register(t1);
 SamplerState PathTraceSkySurfaceResolveSampler : register(s0);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PathTraceSkySurfaceRecords : register(u0);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceSkySurfaceSpecularAlbedo : register(u1);
@@ -41,6 +50,50 @@ static const uint CLEAN_SURFACE_FLAG_TRANSMISSION_PSR_RESOLVED = 0x80000000u;
 static const uint CLEAN_SURFACE_FLAG_REFLECTION_PSR_RESOLVED = 0x20000000u;
 static const float PATH_TRACE_REFLECTION_SIDECAR_HYBRID_RADIANCE = 0.875;
 static const float PATH_TRACE_SKY_REFLECTION_DIRECTION_MARKER = -2.0;
+static const uint RT_UPT_PRIMARY_RECEIVER_VERSION = 2u;
+static const uint RT_UPT_PRIMARY_RECEIVER_VALID = 0x8000u;
+
+float3 PathTraceSkySurfaceDecodeOctahedral(uint packed)
+{
+    const float2 encoded = float2(
+        float(packed & 0xffffu),
+        float((packed >> 16u) & 0xffffu)) / 65535.0;
+    const float2 f = encoded * 2.0 - 1.0;
+    float3 value = float3(f, 1.0 - abs(f.x) - abs(f.y));
+    if (value.z < 0.0)
+    {
+        const float2 signValue = float2(
+            value.x >= 0.0 ? 1.0 : -1.0,
+            value.y >= 0.0 ? 1.0 : -1.0);
+        value.xy = (1.0 - abs(value.yx)) * signValue;
+    }
+    const float lengthSquared = dot(value, value);
+    return isfinite(lengthSquared) && lengthSquared > 1.0e-12
+        ? value * rsqrt(lengthSquared)
+        : float3(0.0, 0.0, 1.0);
+}
+
+bool PathTraceSkySurfaceUnifiedPtWorldPosition(
+    uint recordIndex,
+    out float3 worldPosition)
+{
+    worldPosition = float3(0.0, 0.0, 0.0);
+    const PathTraceUnifiedPtPrimaryReceiver32 receiver =
+        PathTraceSkySurfaceUnifiedPtReceivers[recordIndex];
+    const uint header = receiver.material.w >> 16u;
+    const float hitDistance = asfloat(receiver.geometry.x);
+    if ((header & 0x7fffu) != RT_UPT_PRIMARY_RECEIVER_VERSION ||
+        (header & RT_UPT_PRIMARY_RECEIVER_VALID) == 0u ||
+        !isfinite(hitDistance) || hitDistance < 0.0)
+    {
+        return false;
+    }
+    const float3 viewDirection =
+        PathTraceSkySurfaceDecodeOctahedral(receiver.geometry.w);
+    worldPosition =
+        PathTraceSkySurfaceResolveCameraOrigin - viewDirection * hitDistance;
+    return all(isfinite(worldPosition));
+}
 
 float PathTraceSkySurfaceLinear1(float value)
 {
@@ -122,8 +175,18 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 float3(0.0, 0.0, 0.0));
             PathTraceSkySurfaceReflectionSidecar[pixel] = reflectionSidecar;
         }
-        PathTraceSkySurfaceGuidePosition[pixel] = float4(
-            record.worldPositionAndViewDepth.xyz,
-            1.0);
+        float3 restoredPosition = record.worldPositionAndViewDepth.xyz;
+        if (PathTraceSkySurfaceResolveUseUnifiedPtCompactReceiver != 0u)
+        {
+            float3 compactPosition;
+            if (PathTraceSkySurfaceUnifiedPtWorldPosition(
+                    recordIndex,
+                    compactPosition))
+            {
+                restoredPosition = compactPosition;
+            }
+        }
+        PathTraceSkySurfaceGuidePosition[pixel] =
+            float4(restoredPosition, 1.0);
     }
 }

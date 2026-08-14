@@ -1468,6 +1468,10 @@ bool PathTraceCleanRoomTryStoredReservoirVisibility(RTXDI_DIReservoir reservoir,
     return false;
 }
 
+#if !defined(CLEAN_RTXDI_DI_INITIAL_ENTRY) && \
+    !defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY)
+[noinline]
+#endif
 float PathTraceCleanRoomTraceVisibilityWithIgnore(
     PathTracePrimarySurfaceRecord surface,
     float3 samplePosition,
@@ -1736,9 +1740,21 @@ PathTraceCleanRoomPreviousBestSeed PathTraceCleanRoomResolvePreviousBestInitialS
     return seed;
 }
 
-bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
-    inout RTXDI_DIReservoir reservoir,
-    inout RTXDI_RandomSamplerState rng,
+struct PathTraceCleanRoomTypedRluStreamResult
+{
+    RTXDI_DIReservoir reservoir;
+    RTXDI_RandomSamplerState rng;
+    uint streamedAny;
+};
+
+#if !defined(CLEAN_RTXDI_DI_INITIAL_ENTRY) && \
+    !defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY)
+[noinline]
+#endif
+PathTraceCleanRoomTypedRluStreamResult
+PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
+    RTXDI_DIReservoir reservoir,
+    RTXDI_RandomSamplerState rng,
     RAB_Surface surface,
     uint lightType,
     uint2 range,
@@ -1747,30 +1763,41 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
     bool excludeLight,
     uint excludedLightIndex)
 {
+    PathTraceCleanRoomTypedRluStreamResult stream;
+    stream.reservoir = reservoir;
+    stream.rng = rng;
+    stream.streamedAny = 0u;
     if (range.y == 0u || sampleCount == 0u || totalSampleCount == 0u)
     {
-        return false;
+        return stream;
     }
 
-    const uint boundedSampleCount = sampleCount;
+    // Repeated UV proposals are useful for emissive triangles, which is why
+    // their requested sample count may exceed the number of triangle records.
+    // Doom analytic records do not use that replay contract. Letting their
+    // count exceed the range makes stride clamp to one and repeatedly samples
+    // the final light after every distinct light has already been visited.
+    const uint boundedSampleCount =
+        lightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC
+            ? min(sampleCount, range.y)
+            : sampleCount;
     if (boundedSampleCount == 0u)
     {
-        return false;
+        return stream;
     }
 
     const float stride = max(1.0, (float)range.y / (float)boundedSampleCount);
     const float uniformSourcePdf = PathTraceCleanRoomRluTypedSourcePdf(lightType);
     if (uniformSourcePdf <= 0.0)
     {
-        return false;
+        return stream;
     }
 
-    bool streamedAny = false;
     [loop]
     for (uint sampleIndex = 0u; sampleIndex < boundedSampleCount; ++sampleIndex)
     {
         const float lightIndexInRange = min(
-            ((float)sampleIndex + RTXDI_GetNextRandom(rng)) * stride,
+            ((float)sampleIndex + RTXDI_GetNextRandom(stream.rng)) * stride,
             (float)range.y - 1.0);
         uint lightIndex = range.x + min((uint)lightIndexInRange, range.y - 1u);
         float sourcePdf = uniformSourcePdf;
@@ -1782,7 +1809,7 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
                 range,
                 boundedSampleCount,
                 totalSampleCount,
-                RTXDI_GetNextRandom(rng),
+                RTXDI_GetNextRandom(stream.rng),
                 weightedLightIndex,
                 weightedSourcePdf))
             {
@@ -1796,7 +1823,7 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
         {
             const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
             float targetPdf = 0.0;
-            const float2 uv = PathTraceCleanRoomRandomLightUv(rng);
+            const float2 uv = PathTraceCleanRoomRandomLightUv(stream.rng);
             if (RAB_IsLightInfoValid(lightInfo))
             {
                 const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
@@ -1810,18 +1837,18 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
             if (targetPdf > 1.0e-8)
             {
                 RTXDI_StreamSample(
-                    reservoir,
+                    stream.reservoir,
                     lightIndex,
                     uv,
-                    RTXDI_GetNextRandom(rng),
+                    RTXDI_GetNextRandom(stream.rng),
                     targetPdf,
                     invSourcePdf);
-                streamedAny = true;
+                stream.streamedAny = 1u;
             }
         }
     }
 
-    return streamedAny;
+    return stream;
 }
 
 PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(uint2 pixel, uint2 dimensions)
@@ -1891,7 +1918,8 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(
         PathTraceCleanRoomInitDecorrelatedSampler(pixel, CleanRtxdiDiFrameIndex, 0x524c553cu);
     const PathTraceCleanRoomPreviousBestSeed previousBestSeed =
         PathTraceCleanRoomResolvePreviousBestInitialSeed(pixel, dimensions, result.surface, surface, rng);
-    const bool streamedEmissive = PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
+    const PathTraceCleanRoomTypedRluStreamResult emissiveStream =
+        PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
         result.reservoir,
         rng,
         surface,
@@ -1901,7 +1929,10 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(
         totalSampleCount,
         previousBestSeed.translationValid != 0u,
         previousBestSeed.currentLightIndex);
-    const bool streamedDoomAnalytic = PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
+    result.reservoir = emissiveStream.reservoir;
+    rng = emissiveStream.rng;
+    const PathTraceCleanRoomTypedRluStreamResult doomAnalyticStream =
+        PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
         result.reservoir,
         rng,
         surface,
@@ -1911,6 +1942,11 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(
         totalSampleCount,
         previousBestSeed.translationValid != 0u,
         previousBestSeed.currentLightIndex);
+    result.reservoir = doomAnalyticStream.reservoir;
+    rng = doomAnalyticStream.rng;
+    const bool streamedEmissive = emissiveStream.streamedAny != 0u;
+    const bool streamedDoomAnalytic =
+        doomAnalyticStream.streamedAny != 0u;
 
     result.previousBestSourceValid = previousBestSeed.sourceValid;
     result.previousBestTranslationValid = previousBestSeed.translationValid;

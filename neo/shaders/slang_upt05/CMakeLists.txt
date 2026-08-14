@@ -41,6 +41,16 @@ path_tracing_declare_slang_spirv_module(
     DEFINES UPT05_PRIMARY_RECEIVER_MODE=1
     OUT_VAR resolve_compact_outputs)
 path_tracing_declare_slang_spirv_module(
+    NAME upt05_resolve_reflection_compact
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt05_resolve.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT05_OUTPUT_DIR}"
+    INCLUDE_DIRS ${UPT05_INCLUDE_DIRS}
+    DEPENDS ${UPT05_DEPENDS}
+    DEFINES UPT05_PRIMARY_RECEIVER_MODE=1 UPT05_REFLECTION_REUSE_DOMAIN=1
+    OUT_VAR resolve_reflection_compact_outputs)
+path_tracing_declare_slang_spirv_module(
     NAME upt05_resolve_compact32
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt05_resolve.slang"
     ENTRY main
@@ -50,7 +60,8 @@ path_tracing_declare_slang_spirv_module(
     DEPENDS ${UPT05_DEPENDS}
     DEFINES UPT05_PRIMARY_RECEIVER_MODE=2
     OUT_VAR resolve_compact32_outputs)
-set(resolve_outputs ${resolve_legacy_outputs} ${resolve_compact_outputs} ${resolve_compact32_outputs})
+set(resolve_outputs ${resolve_legacy_outputs} ${resolve_compact_outputs}
+    ${resolve_reflection_compact_outputs} ${resolve_compact32_outputs})
 
 set(UPT05_VERIFY_STAMP "${UPT05_OUTPUT_DIR}/upt05_resolve_verified.txt")
 add_custom_command(
@@ -72,7 +83,8 @@ add_custom_command(
 set(UPT05_RUNTIME_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../../../base/renderprogs2/spirv/builtin/pathtracing/slang_upt05")
 set(UPT05_RUNTIME_OUTPUTS)
-foreach(resolve_variant upt05_resolve_legacy upt05_resolve_compact upt05_resolve_compact32)
+foreach(resolve_variant upt05_resolve_legacy upt05_resolve_compact
+        upt05_resolve_reflection_compact upt05_resolve_compact32)
     set(runtime_output "${UPT05_RUNTIME_DIR}/${resolve_variant}.bin")
     list(APPEND UPT05_RUNTIME_OUTPUTS "${runtime_output}")
     add_custom_command(

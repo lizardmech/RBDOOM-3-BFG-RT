@@ -84,6 +84,11 @@ inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiGlassDistortio
     return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_OUTPUT);
 }
 
+inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiGlassDistortionSidecarBinding()
+{
+    return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_SIDECAR);
+}
+
 inline RtPathTraceMaterialFeatureBindingDesc PathTraceCleanRtxdiDiRrInputColorBinding()
 {
     return PathTraceCleanRtxdiDiCanonicalBinding(RT_MATERIAL_FEATURE_RESOURCE_RR_INPUT_COLOR);
@@ -128,7 +133,8 @@ inline uint32_t PathTraceCleanRtxdiDiGlassComposeInputResources()
     return
         PathTraceCleanRtxdiDiComposedInputResources() |
         RT_MATERIAL_FEATURE_RESOURCE_TRANSMISSION_SIDECAR |
-        RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_SIDECAR;
+        RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_SIDECAR |
+        RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_SIDECAR;
 }
 
 inline uint32_t PathTraceCleanRtxdiDiTransmissionProducerOutputResources()
@@ -166,6 +172,7 @@ inline const RtPathTraceMaterialFeatureBindingDesc* PathTraceCleanRtxdiDiObjectG
         PathTraceCleanRtxdiDiOutputColorSourceBinding(),
         PathTraceCleanRtxdiDiTransmissionSidecarBinding(),
         PathTraceCleanRtxdiDiReflectionSidecarBinding(),
+        PathTraceCleanRtxdiDiGlassDistortionSidecarBinding(),
         PathTraceCleanRtxdiDiRrInputColorBinding(),
         PathTraceCleanRtxdiDiOutputColorBinding()
     };

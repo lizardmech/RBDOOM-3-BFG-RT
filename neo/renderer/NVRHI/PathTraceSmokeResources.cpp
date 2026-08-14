@@ -942,7 +942,8 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     }
 
     nvrhi::BufferDesc skySurfaceResolveConstantsDesc;
-    skySurfaceResolveConstantsDesc.byteSize = 16;
+    skySurfaceResolveConstantsDesc.byteSize =
+        sizeof(PathTraceSkySurfaceResolveConstants);
     skySurfaceResolveConstantsDesc.debugName = "PathTraceSkySurfaceResolveConstants";
     skySurfaceResolveConstantsDesc.isConstantBuffer = true;
     skySurfaceResolveConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
@@ -1529,6 +1530,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     skySurfaceResolveBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets();
     skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
     skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(0));
+    skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
     skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(0));
     skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
     skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(2));

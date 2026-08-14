@@ -44,19 +44,21 @@ public Upt04HitFacts Upt04TraceRayQueryProof(
                 query.CandidateInstanceID(),
                 candidatePrimitiveId))
             continue;
-        if (alphaClipTraversal)
-        {
-            Upt04HitFacts candidate = (Upt04HitFacts)0;
-            candidate.status = kUpt04HitTriangle;
-            candidate.instanceId = query.CandidateInstanceID();
-            candidate.geometryId = 0u;
-            candidate.primitiveId = candidatePrimitiveId;
-            candidate.barycentrics = query.CandidateTriangleBarycentrics();
-            candidate.hitT = query.CandidateTriangleRayT();
-            candidate.frontFace = 1u;
-            if (Upt04MaterialRejectsAlphaClipCandidate(candidate))
-                continue;
-        }
+        Upt04HitFacts candidate = (Upt04HitFacts)0;
+        candidate.status = kUpt04HitTriangle;
+        candidate.instanceId = query.CandidateInstanceID();
+        candidate.geometryId = 0u;
+        candidate.primitiveId = candidatePrimitiveId;
+        candidate.barycentrics = query.CandidateTriangleBarycentrics();
+        candidate.hitT = query.CandidateTriangleRayT();
+        candidate.frontFace = 1u;
+        const bool materialTransmits = visibilityTraversal
+            ? Upt04MaterialDoesNotOccludeVisibilityCandidate(candidate)
+            : Upt04MaterialAlwaysTransmitsCandidate(candidate);
+        if (materialTransmits
+            || (alphaClipTraversal
+                && Upt04MaterialRejectsAlphaClipCandidate(candidate)))
+            continue;
         query.CommitNonOpaqueTriangleHit();
     }
     if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT)

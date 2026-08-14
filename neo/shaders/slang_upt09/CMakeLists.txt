@@ -72,6 +72,24 @@ path_tracing_declare_slang_spirv_module(
     OUT_VAR spatial_direct_compact_outputs
     RAY_QUERY)
 
+path_tracing_declare_slang_spirv_module(
+    NAME upt09_spatial_reflection_direct_rayquery
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt09_spatial_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT09_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt07"
+    DEPENDS ${UPT09_DIRECT_MODULES}
+    DEFINES UPT09_SPATIAL_GEOMETRY_REPLAY=1 UPT09_REFLECTION_RECEIVER48=1
+        UPT47_REFLECTION_POSITIVE_ONLY=1
+    OUT_VAR spatial_reflection_direct_outputs
+    RAY_QUERY)
+
 # S30.1 bounded combined direct+global proof. One lane owns a disjoint
 # reciprocal two-pixel pair and publishes both directions from two shifts. The
 # accepted multi-neighbor direct S0 remains a separate runtime artifact.
@@ -485,6 +503,17 @@ set(UPT09_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_direct_rayquery.bin")
 set(UPT09_COMPACT_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_direct_rayquery_light64.bin")
+set(UPT09_REFLECTION_DIRECT_RUNTIME_OUTPUT
+    "${UPT09_RUNTIME_DIR}/upt09_spatial_reflection_direct_rayquery.bin")
+add_custom_command(
+    OUTPUT "${UPT09_REFLECTION_DIRECT_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT09_RUNTIME_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT09_OUTPUT_DIR}/upt09_spatial_reflection_direct_rayquery.slang.spv"
+        "${UPT09_REFLECTION_DIRECT_RUNTIME_OUTPUT}"
+    DEPENDS ${spatial_reflection_direct_outputs}
+    COMMENT "UPT Vulkan half-resolution reflection spatial artifact"
+    VERBATIM)
 set(UPT09_LAMBERT_RUNTIME_OUTPUT
     "${UPT09_RUNTIME_DIR}/upt09_spatial_direct_rayquery_lambert.bin")
 set(UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT
@@ -637,6 +666,7 @@ set_target_properties(PathTraceSlangUpt09Spatial PROPERTIES FOLDER "Shaders/UPT-
 # UPT-38 third-vertex replay.
 add_custom_target(PathTraceSlangUpt09ProductionRuntime
     DEPENDS
+        "${UPT09_REFLECTION_DIRECT_RUNTIME_OUTPUT}"
         "${UPT09_COMPACT_RUNTIME_OUTPUT}"
         "${UPT09_COMPACT_LAMBERT_RUNTIME_OUTPUT}"
         "${UPT33_SPATIAL_WORKGROUP_PAIR_RESCUE_RUNTIME_OUTPUT}"

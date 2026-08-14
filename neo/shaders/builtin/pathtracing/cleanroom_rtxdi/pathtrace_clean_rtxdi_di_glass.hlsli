@@ -2,6 +2,48 @@
 
 Texture2D<float4> PathTraceCleanRtxdiDiTransmissionSidecar : register(t87);
 Texture2D<float4> PathTraceCleanRtxdiDiReflectionSidecar : register(t90);
+Texture2D<float4> PathTraceCleanRtxdiDiGlassDistortionSidecar : register(t92);
+
+float4 PathTraceCleanRtxdiDiGlassApplyLateDistortion(
+    uint2 pixel,
+    uint2 dimensions,
+    float4 baseColor)
+{
+    if ((CleanRtxdiDiFlags & CLEAN_FLAG_GLASS_DISTORTION) == 0u)
+    {
+        return baseColor;
+    }
+
+    const float4 distortion =
+        PathTraceCleanRtxdiDiGlassDistortionSidecar.Load(int3(pixel, 0));
+    if (distortion.a < 0.5 || distortion.z <= 0.0)
+    {
+        return baseColor;
+    }
+
+    const float presentationMaxPixels =
+        RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_MAX_PIXELS *
+        RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_PRESENTATION_SCALE;
+    const float2 samplePixel = float2(pixel) + clamp(
+        distortion.xy *
+            RT_CLEAN_RTXDI_DI_GLASS_COSMETIC_DISTORTION_PRESENTATION_SCALE,
+        float2(-presentationMaxPixels, -presentationMaxPixels),
+        float2(presentationMaxPixels, presentationMaxPixels));
+    float validWeight;
+    const float4 distortedColor =
+        PathTraceCleanRtxdiDiGlassOutputSourceColorBilinearWithValidity(
+            PathTraceCleanRtxdiDiOutputColorSource,
+            samplePixel,
+            dimensions,
+            RAB_EmptySurface(),
+            false,
+            baseColor,
+            validWeight);
+    return lerp(
+        baseColor,
+        distortedColor,
+        saturate(distortion.z) * saturate(validWeight));
+}
 
 bool PathTraceCleanRtxdiDiGlassSidecarComposeEnabled(PathTraceMaterialFeatureRuntimeInfo runtimeInfo)
 {
@@ -204,10 +246,14 @@ bool PathTraceCleanRtxdiDiTryGlassSidecarComposeColor(
     bool sidecarComposeEnabled,
     out float4 composedColor)
 {
-    const float4 baseColor = PathTraceCleanRtxdiDiGlassOutputSourceColor(
+    const float4 undistortedBaseColor = PathTraceCleanRtxdiDiGlassOutputSourceColor(
         PathTraceCleanRtxdiDiOutputColorSource,
         pixel,
         fallbackColor);
+    const float4 baseColor = PathTraceCleanRtxdiDiGlassApplyLateDistortion(
+        pixel,
+        dimensions,
+        undistortedBaseColor);
     const float4 transmissionSidecar = sidecarComposeEnabled
         ? PathTraceCleanRtxdiDiTransmissionSidecar.Load(int3(pixel, 0))
         : PathTraceCleanRtxdiDiTransmissionSidecarEmpty();

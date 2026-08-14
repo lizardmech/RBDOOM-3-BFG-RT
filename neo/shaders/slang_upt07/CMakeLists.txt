@@ -109,6 +109,25 @@ path_tracing_declare_slang_spirv_module(
     DEFINES UPT07_PACKED_LIGHT_RECORD=1 UPT07_TEMPORAL_GEOMETRY_REPLAY=1
     OUT_VAR temporal_direct_compact_outputs)
 
+# Isolated glass-reflection reuse domain.  The 48-byte receiver keeps the
+# reflected hit position and its bent-path view direction independent; its
+# sidecar carries the front-pane reprojection anchor and depth.
+path_tracing_declare_slang_spirv_module(
+    NAME upt07_temporal_reflection_direct_rayquery
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT07_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04"
+    DEPENDS ${UPT07_DIRECT_MODULES}
+    DEFINES UPT07_TEMPORAL_GEOMETRY_REPLAY=1 UPT07_REFLECTION_RECEIVER48=1
+        UPT47_REFLECTION_POSITIVE_ONLY=1
+    OUT_VAR temporal_reflection_direct_outputs)
+
 path_tracing_declare_slang_spirv_module(
     NAME upt07_temporal_direct_rayquery_duplication
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_direct_rayquery.slang"
@@ -699,6 +718,17 @@ set(UPT07_DIRECT_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_direct_rayquery.bin")
 set(UPT07_DIRECT_COMPACT_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_direct_rayquery_light64.bin")
+set(UPT07_REFLECTION_DIRECT_RUNTIME_OUTPUT
+    "${UPT07_RUNTIME_DIR}/upt07_temporal_reflection_direct_rayquery.bin")
+add_custom_command(
+    OUTPUT "${UPT07_REFLECTION_DIRECT_RUNTIME_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${UPT07_RUNTIME_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${UPT07_OUTPUT_DIR}/upt07_temporal_reflection_direct_rayquery.slang.spv"
+        "${UPT07_REFLECTION_DIRECT_RUNTIME_OUTPUT}"
+    DEPENDS ${temporal_reflection_direct_outputs}
+    COMMENT "UPT Vulkan half-resolution reflection temporal artifact"
+    VERBATIM)
 set(UPT07_DIRECT_DUPLICATION_RUNTIME_OUTPUT
     "${UPT07_RUNTIME_DIR}/upt07_temporal_direct_rayquery_duplication.bin")
 set(UPT07_DIRECT_COMPACT_DUPLICATION_RUNTIME_OUTPUT
@@ -927,6 +957,7 @@ set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
 # Lambert diagnostic during normal iteration.
 add_custom_target(PathTraceSlangUpt07ProductionRuntime
     DEPENDS
+        "${UPT07_REFLECTION_DIRECT_RUNTIME_OUTPUT}"
         "${UPT07_DIRECT_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
         "${UPT07_UNIFIED_COMPACT_DUPLICATION_RUNTIME_OUTPUT}"
         "${UPT10_TEMPORAL_SHARED_ADAPTER_RUNTIME_OUTPUT}"

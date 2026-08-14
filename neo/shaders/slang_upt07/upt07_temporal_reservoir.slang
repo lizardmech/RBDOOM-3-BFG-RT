@@ -1,5 +1,9 @@
 import upt03_reservoir_contract;
 
+#ifndef UPT47_REFLECTION_POSITIVE_ONLY
+#define UPT47_REFLECTION_POSITIVE_ONLY 0
+#endif
+
 public static const uint kUpt07RejectNoCompatibleHistory = 1u;
 public static const uint kUpt07RejectHistoryNoSelection = 2u;
 public static const uint kUpt07RejectUnsupportedHistoryEvent = 3u;
@@ -288,12 +292,24 @@ public Upt07TemporalMergeResult Upt07MergeTemporal(
         && current.logical.hasSelectedSample != 0u;
     const bool historySelected = history.valid != 0u
         && history.logical.hasSelectedSample != 0u;
+#if UPT47_REFLECTION_POSITIVE_ONLY
+    // Count-only reflection records are stochastic holes, not evidence.  Do
+    // not carry their M into either side of the temporal merge.
+    if (!currentSelected)
+    {
+        current.logical = (Upt03LogicalReservoir)0;
+        result.logical = (Upt03LogicalReservoir)0;
+    }
+#endif
     // Age 63 is the saturated six-bit representation, not an expiry marker.
     // Rejecting age == 63 forced coherent history to reset after roughly 63
     // frames, producing a visible blue reset wave across stationary views.
     const bool historyAgeUsable = maximumHistoryAge >= 63u
         || history.logical.selected.age < maximumHistoryAge;
     const bool historyUsable = shiftedValid != 0u && historySelected
+#if UPT47_REFLECTION_POSITIVE_ONLY
+        && shiftedHistory.status == 2u
+#endif
         && historyAgeUsable
         && Upt03StructurallyValid(shiftedHistory)
         && isfinite(shiftJacobian) && shiftJacobian > 0.0f

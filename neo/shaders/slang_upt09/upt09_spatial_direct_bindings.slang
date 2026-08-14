@@ -2,6 +2,7 @@ import upt03_reservoir_contract;
 import upt04_light_contract;
 import upt04_primary_surface_live_contract;
 import upt04_packed_primary_surface32;
+import upt04_packed_primary_surface;
 import upt04_primary_history_sidecar;
 
 #ifndef UPT09_PACKED_LIGHT_RECORD
@@ -21,6 +22,9 @@ import upt04_primary_history_sidecar;
 #endif
 #ifndef UPT438_SPATIAL_BOOST_COMPACT
 #define UPT438_SPATIAL_BOOST_COMPACT 0
+#endif
+#ifndef UPT09_REFLECTION_RECEIVER48
+#define UPT09_REFLECTION_RECEIVER48 0
 #endif
 
 public struct Upt09SpatialDirectControl
@@ -50,7 +54,11 @@ public struct Upt09SpatialDirectControl
 };
 
 public [[vk::binding(0, 0)]] RaytracingAccelerationStructure gUpt09Scene;
+#if UPT09_REFLECTION_RECEIVER48
+public [[vk::binding(1, 0)]] StructuredBuffer<Upt04PackedPrimarySurfaceRecord> gUpt09Surfaces;
+#else
 public [[vk::binding(1, 0)]] StructuredBuffer<Upt04PackedPrimarySurfaceRecord32> gUpt09Surfaces;
+#endif
 public [[vk::binding(2, 0)]] StructuredBuffer<Upt03PackedReservoir> gUpt09InputReservoirs;
 public [[vk::binding(3, 0)]] RWStructuredBuffer<Upt03PackedReservoir> gUpt09OutputReservoirs;
 #if UPT09_PACKED_LIGHT_RECORD
@@ -93,9 +101,22 @@ public Upt04UnifiedLightRecord Upt09LoadLight(uint index)
 
 public Upt04PrimarySurfaceRecord Upt09LoadSurface(uint index)
 {
+#if UPT09_REFLECTION_RECEIVER48
+    const Upt04PrimaryHistorySidecar sidecar = gUpt09SurfaceSidecars[index];
+    const Upt04PackedPrimarySurfaceRecord packed = gUpt09Surfaces[index];
+    Upt04PrimarySurfaceRecord surface = Upt04ApplyPrimaryHistorySidecar(
+        Upt04UnpackPrimarySurface(packed), sidecar);
+    surface.worldPositionAndViewDepth.w =
+        sidecar.previousPositionAndAlphaCutoff.w;
+    surface.albedoAndAlphaCutoff.w = 0.0f;
+    surface.instancePrimitiveObject.x =
+        (packed.directionsAndRoughness.w >> 16u) & 0xffffu;
+    return surface;
+#else
     return Upt04ApplyPrimaryHistorySidecar(
         Upt04UnpackPrimarySurface32(
             gUpt09Surfaces[index],
             gUpt09Control.primaryCameraOrigin),
         gUpt09SurfaceSidecars[index]);
+#endif
 }

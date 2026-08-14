@@ -44,6 +44,22 @@ class idRenderBackend;
 class TonemapPass;
 struct viewDef_t;
 
+// Host half of pathtrace_sky_surface_resolve.cs.hlsl b0. Keep the allocation
+// tied to sizeof(this type); duplicating a literal byte count caused the UPT
+// glass startup crash when the shader ABI grew from one to two registers.
+struct PathTraceSkySurfaceResolveConstants
+{
+    uint32_t width = 0;
+    uint32_t height = 0;
+    float brightness = 1.0f;
+    uint32_t enabled = 0;
+    float cameraOrigin[3] = {};
+    uint32_t useUnifiedPtCompactReceiver = 0;
+};
+static_assert(
+    sizeof(PathTraceSkySurfaceResolveConstants) == 32u,
+    "sky-surface resolve constant ABI must remain two 16-byte registers");
+
 struct RtSmokeSkinnedHistoryState
 {
     PtCanonicalHistoryOwnerKey owner;

@@ -3,6 +3,32 @@
 
 #include "PathTraceMaterialFeaturePipelines.h"
 
+namespace {
+
+void ReportPathTraceMaterialFeaturePipelineAdmissionFailure(
+    const RtPathTraceMaterialFeaturePassRegistration& registration,
+    const char* reason)
+{
+    static idStr lastFailure;
+    idStr failure;
+    failure.Format(
+        "%s:%s",
+        registration.shaderDesc.label ? registration.shaderDesc.label : "unknown",
+        reason ? reason : "unknown");
+    if (lastFailure.Icmp(failure) == 0)
+    {
+        return;
+    }
+    lastFailure = failure;
+    common->Printf(
+        "PathTracePrimaryPass: material-feature pipeline admission failed feature='%s' shader='%s' reason=%s\n",
+        registration.passDesc.featureId ? registration.passDesc.featureId : "unknown",
+        registration.shaderDesc.label ? registration.shaderDesc.label : "unknown",
+        reason ? reason : "unknown");
+}
+
+}
+
 bool LoadPathTraceMaterialFeatureShaderLibrary(
     nvrhi::IDevice* device,
     const char* shaderPath,
@@ -143,6 +169,9 @@ bool InitPathTraceMaterialFeaturePipeline(
 {
     if (!context.shaderState)
     {
+        ReportPathTraceMaterialFeaturePipelineAdmissionFailure(
+            registration,
+            "missing-shader-state");
         return false;
     }
 
@@ -152,19 +181,35 @@ bool InitPathTraceMaterialFeaturePipeline(
         return true;
     }
 
-    if (!context.runtimeInitialized || !context.textureBindlessLayout)
+    if (!context.runtimeInitialized)
     {
+        ReportPathTraceMaterialFeaturePipelineAdmissionFailure(
+            registration,
+            "runtime-not-initialized");
+        return false;
+    }
+    if (!context.textureBindlessLayout)
+    {
+        ReportPathTraceMaterialFeaturePipelineAdmissionFailure(
+            registration,
+            "missing-bindless-layout");
         return false;
     }
 
     if (!PathTraceMaterialFeatureBindingMetadataCoversPass(registration))
     {
         common->Printf("PathTracePrimaryPass: %s material-feature registration is missing binding metadata\n", registration.shaderDesc.label);
+        ReportPathTraceMaterialFeaturePipelineAdmissionFailure(
+            registration,
+            "binding-metadata-does-not-cover-pass");
         return false;
     }
 
     if (!context.device)
     {
+        ReportPathTraceMaterialFeaturePipelineAdmissionFailure(
+            registration,
+            "missing-device");
         return false;
     }
 
@@ -175,11 +220,24 @@ bool InitPathTraceMaterialFeaturePipeline(
         context.graphicsApi);
     if (!pipelineRequest.shaderState)
     {
+        ReportPathTraceMaterialFeaturePipelineAdmissionFailure(
+            registration,
+            "invalid-pipeline-request");
         return false;
     }
 
-    if (!pipelineRequest.bindingLayout || pipelineRequest.shaderPath.empty())
+    if (!pipelineRequest.bindingLayout)
     {
+        ReportPathTraceMaterialFeaturePipelineAdmissionFailure(
+            registration,
+            "missing-global-binding-layout");
+        return false;
+    }
+    if (pipelineRequest.shaderPath.empty())
+    {
+        ReportPathTraceMaterialFeaturePipelineAdmissionFailure(
+            registration,
+            "empty-shader-path");
         return false;
     }
 
@@ -232,11 +290,19 @@ bool EnsurePathTraceMaterialFeatureRuntimePassPipeline(
     }
     if (!pass.shader)
     {
+        ReportPathTraceMaterialFeaturePipelineAdmissionFailure(
+            registration,
+            "runtime-pass-missing-shader-state");
         return false;
     }
     if (!pass.shader->shaderTable)
     {
-        InitPathTraceMaterialFeaturePipeline(registration, context);
+        if (!InitPathTraceMaterialFeaturePipeline(registration, context))
+        {
+            ReportPathTraceMaterialFeaturePipelineAdmissionFailure(
+                registration,
+                "pipeline-initialization-failed");
+        }
     }
     return static_cast<bool>(pass.shader->shaderTable);
 }

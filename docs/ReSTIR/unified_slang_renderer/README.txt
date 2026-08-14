@@ -624,6 +624,15 @@ Packet index
         bounded post-R0 optical layer: a deterministic canonical pane capture
         feeds sidecars only and can never replace compact32 or reservoir state.
 
+    67_upt46_native_glass_optics_cutover.txt
+        Replaces the temporary legacy glass adapter with native Slang optical
+        transport and distortion-consistent beauty/RR composition.
+
+    68_upt47_glass_reflection_reuse_experiment.txt
+        Adds an opt-in isolated half-resolution reflected-receiver domain that
+        reuses direct D0/T0/S0 on private pages, reconstructs into G2 and keeps
+        the accepted deterministic reflection as per-pixel rollback.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math
@@ -648,3 +657,6 @@ The no-reuse renderer had to:
     eliminates the proven unused/duplicate no-reuse traffic in 18;
     resolves the payload/live-state occupancy gate in 19;
     and admits a bounded UPT-owned hot receiver ABI before neighbor reads.
+67_upt46_native_glass_optics_cutover.txt
+  Replacement plan for the temporary legacy HLSL glass adapter: UPT-owned
+  Slang pane capture, optical transport and late composition with compact PSOs.

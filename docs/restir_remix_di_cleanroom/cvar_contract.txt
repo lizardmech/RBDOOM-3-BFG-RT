@@ -93,6 +93,10 @@ r_pathTracingCleanRtxdiDiView
             full-screen
         r_pathTracingCleanRtxdiDiView8Band 8 = selected-sample black-output
             classifier; with temporal on, left is current and right is temporal
+        r_pathTracingCleanRtxdiDiView8Band 17 = final temporal reservoir state
+            using the same age palette as UPT resolve view 5: age-zero selected
+            samples are blue, older selected history trends green, count-only
+            is red, and canonical empty is black
         r_pathTracingCleanRtxdiDiView18Tile -1 = 2x3 DLSS RR input mosaic
         r_pathTracingCleanRtxdiDiView18Tile 0 = RR guide albedo full-screen
         r_pathTracingCleanRtxdiDiView18Tile 1 = RR guide normal.xy/roughness

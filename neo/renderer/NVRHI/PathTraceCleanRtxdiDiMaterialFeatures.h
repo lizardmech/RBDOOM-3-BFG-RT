@@ -71,6 +71,9 @@ size_t BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
 bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceCleanRtxdiDiPipelineContext& context);
+bool EnsurePathTraceCleanRtxdiDiTransmissionPsrPipeline(
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
+    const RtPathTraceCleanRtxdiDiPipelineContext& context);
 bool EnsurePathTraceCleanRtxdiDiMaterialFeatureLayoutPipelines(
     const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
     const RtPathTraceCleanRtxdiDiPipelineContext& context);

@@ -116,7 +116,7 @@ static const RtPathTraceMaterialFeatureRegistryEntry kCleanRtxdiDiMaterialFeatur
             "glass material writes thin-glass attenuation/reflectance through the material-feature ABI",
             "opaque material writes dark unsupported debug color",
             "clean RTXDI DI primary view 16 unchanged unless the glass shader owns output-color",
-            "RtPathTraceMaterialFeatureBindingDesc transmission-sidecar t87, output-color-source t89, output-color u1, rr-input-color u54 for DLSSRR color presentation",
+            "RtPathTraceMaterialFeatureBindingDesc transmission-sidecar t87, output-color-source t89, reflection-sidecar t90, distortion-sidecar t92, output-color u1, rr-input-color u54 for DLSSRR color presentation",
             "PathTraceMaterialFeatureRecord t80 plus PathTraceMaterialFeatureParameters t81 with b88 defaults"
         },
         RtPathTraceMaterialFeaturePassKind::TransmissionProducer,

@@ -77,6 +77,11 @@ static constexpr uint32_t UPT04_DIAGNOSTIC_PROBE_BYTES =
 static constexpr uint32_t UPT04_DIAGNOSTIC_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_BYTES + UPT04_DIAGNOSTIC_PROBE_BYTES;
 static constexpr uint32_t UPT05_PUSH_CONSTANT_BYTES = 32u;
+static constexpr uint32_t UPT45_GLASS_COMPOSE_PUSH_CONSTANT_BYTES = 32u;
+static constexpr uint32_t UPT46_GLASS_OPTICAL_CONSTANT_BYTES = 48u;
+static constexpr uint32_t UPT46_GLASS_DIAGNOSTIC_WORDS = 24u;
+static constexpr uint32_t UPT46_GLASS_DIAGNOSTIC_BYTES =
+    UPT46_GLASS_DIAGNOSTIC_WORDS * sizeof(uint32_t);
 static constexpr uint32_t UPT07_PUSH_CONSTANT_BYTES = 168u;
 static constexpr uint32_t UPT43_TEMPORAL_BOILING_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT07_MAXIMUM_HISTORY_AGE = 63u;
@@ -823,7 +828,9 @@ static uint64_t Upt06BuildContentGeneration(
     hash = Upt04HashValue(hash, UPT04_TRANSPORT_POLICY_ID);
     const uint32_t emissiveTrialCount = static_cast<uint32_t>(
         idMath::ClampInt(1, UPT04_NEE_RIS_MAX_EMISSIVE_CANDIDATE_COUNT,
-            r_pathTracingReservoirCandidateTrials.GetInteger()));
+            dispatch.reflectionReuseDomain
+                ? r_pathTracingReflectionSecondarySamples.GetInteger()
+                : r_pathTracingReservoirCandidateTrials.GetInteger()));
     hash = Upt04HashValue(hash, dispatch.directProposalParity
         ? UPT04_NEE_RIS_PARITY_ANALYTIC_CANDIDATE_COUNT + emissiveTrialCount
         : UPT04_NEE_RIS_BASELINE_CANDIDATE_COUNT);
@@ -909,6 +916,39 @@ struct Upt05ResolveControl
 };
 static_assert(sizeof(Upt05ResolveControl) == UPT05_PUSH_CONSTANT_BYTES,
     "UPT-05 host push constants must match Slang reflection");
+
+struct Upt45GlassComposeControl
+{
+    uint32_t renderWidth;
+    uint32_t renderHeight;
+    uint32_t distortionEnabled;
+    uint32_t reserved0;
+    float reflectionBoost;
+    float transmissionFloor;
+    float distortionScale;
+    float distortionMaxPixels;
+};
+static_assert(
+    sizeof(Upt45GlassComposeControl) ==
+        UPT45_GLASS_COMPOSE_PUSH_CONSTANT_BYTES,
+    "UPT-45 glass-compose host push constants must match Slang reflection");
+
+struct Upt46GlassOpticalControl
+{
+    uint32_t renderWidth;
+    uint32_t renderHeight;
+    uint32_t surfaceCount;
+    uint32_t flags;
+    float cameraOrigin[3];
+    float reflectionComposeBoost;
+    float skyBrightness;
+    float rayTMax;
+    uint32_t materialFeatureCount;
+    uint32_t materialFeatureParameterCount;
+};
+static_assert(
+    sizeof(Upt46GlassOpticalControl) == UPT46_GLASS_OPTICAL_CONSTANT_BYTES,
+    "UPT-46 optical host constants must match Slang reflection");
 
 struct Upt07TemporalDirectControl
 {
@@ -1537,13 +1577,15 @@ static Upt04InitialControl Upt04BuildControl(
         (static_cast<uint32_t>(dispatch.backend) << 8u);
     const uint32_t emissiveTrialCount = static_cast<uint32_t>(
         idMath::ClampInt(1, UPT04_NEE_RIS_MAX_EMISSIVE_CANDIDATE_COUNT,
-            r_pathTracingReservoirCandidateTrials.GetInteger()));
+            dispatch.reflectionReuseDomain
+                ? r_pathTracingReflectionSecondarySamples.GetInteger()
+                : r_pathTracingReservoirCandidateTrials.GetInteger()));
     const uint32_t availabilityFlags =
         (!dispatch.frozenStaticDiagnostic &&
                 geometry.staticBucketRoutePublicationValid
             ? UPT04_ROUTE_STATIC_BUCKETS
             : 0u) |
-        (!dispatch.frozenLightDiagnostic &&
+        (!dispatch.frozenLightDiagnostic && !dispatch.reflectionReuseDomain &&
                 lights.unifiedPtEmissiveLookupExact
             ? UPT04_EMISSIVE_LOOKUP_EXACT
             : 0u) |
@@ -1565,7 +1607,8 @@ static Upt04InitialControl Upt04BuildControl(
         (dispatch.directProposalParity
             ? UPT04_DIRECT_PROPOSAL_PARITY
             : 0u) |
-        (!dispatch.frozenLightDiagnostic && previousBestHistoryAvailable &&
+        (!dispatch.frozenLightDiagnostic && !dispatch.reflectionReuseDomain &&
+                previousBestHistoryAvailable &&
                 r_pathTracingUnifiedPtD0PreviousBest.GetBool()
             ? UPT04_D0_PREVIOUS_BEST
             : 0u) |
@@ -1586,9 +1629,11 @@ static Upt04InitialControl Upt04BuildControl(
     control.frameSampleIndex = dispatch.frameSampleIndex;
     control.enabledFamilyMask = enabledFamilyMask;
     control.primaryCameraOriginX = dispatch.primaryCameraOrigin[0];
-    control.emissiveRangeStart = dispatch.frozenLightDiagnostic
+    const bool analyticOnly = dispatch.frozenLightDiagnostic ||
+        dispatch.reflectionReuseDomain;
+    control.emissiveRangeStart = analyticOnly
         ? 0u : lights.restirLightManagerEmissiveRangeOffset;
-    control.emissiveRangeCount = dispatch.frozenLightDiagnostic
+    control.emissiveRangeCount = analyticOnly
         ? 0u : lights.restirLightManagerEmissiveRangeCount;
     control.analyticRangeStart = lights.restirLightManagerDoomAnalyticRangeOffset;
     control.analyticRangeCount = lights.restirLightManagerDoomAnalyticSampleableCount;
@@ -1632,7 +1677,7 @@ static Upt04InitialControl Upt04BuildControl(
         control.previousCameraLeft[axis] = dispatch.previousCameraLeft[axis];
         control.previousCameraUp[axis] = dispatch.previousCameraUp[axis];
     }
-    const uint32_t previousToCurrentCount = dispatch.frozenLightDiagnostic
+    const uint32_t previousToCurrentCount = analyticOnly
         ? control.currentLightCount
         : static_cast<uint32_t>(Max(
             0, lights.restirLightManagerPreviousToCurrentCount));
@@ -1642,14 +1687,14 @@ static Upt04InitialControl Upt04BuildControl(
             ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
     control.previousCameraTanX = dispatch.previousCameraTanX;
     control.previousCameraTanY = dispatch.previousCameraTanY;
-    const uint32_t distributionCount = dispatch.frozenLightDiagnostic
+    const uint32_t distributionCount = analyticOnly
         ? 0u : static_cast<uint32_t>(Max(
             0, lights.emissiveDistributionCount));
     control.emissiveDistributionCountAndValid =
         (distributionCount & UPT04_CONTROL_METADATA_COUNT_MASK)
         | (lights.emissiveDistributionValid && distributionCount != 0u
             ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
-    const uint32_t emissiveLookupCapacity = dispatch.frozenLightDiagnostic
+    const uint32_t emissiveLookupCapacity = analyticOnly
         ? 0u : static_cast<uint32_t>(Max(
             0, lights.unifiedPtEmissiveLookupCount));
     control.emissiveLookupCapacityAndValid =
@@ -1983,6 +2028,52 @@ void PathTraceUnifiedPtState::ReleaseResolve()
     m_resolvePipelineAttempted = false;
     m_resolveFailureLogged = false;
     m_resolveReady = false;
+    m_glassComposeBindingSet = nullptr;
+    m_glassComposeBindingSetDesc = nvrhi::BindingSetDesc();
+    m_glassComposeBindingSetDescValid = false;
+    m_glassComposePipeline = nullptr;
+    m_glassComposeShader = nullptr;
+    m_glassComposeBindingLayout = nullptr;
+    m_glassComposePipelineAttempted = false;
+    m_glassComposeRrAlbedo = nullptr;
+    m_glassComposeRrSpecularAlbedo = nullptr;
+    m_glassComposeRrNormalRoughness = nullptr;
+    m_glassComposeRrPosition = nullptr;
+    m_glassComposeRrDepth = nullptr;
+    m_glassComposeRrMotion = nullptr;
+    m_glassComposeWidth = 0u;
+    m_glassComposeHeight = 0u;
+    m_glassOpticalBindingSet = nullptr;
+    m_glassOpticalBindingSetDesc = nvrhi::BindingSetDesc();
+    m_glassOpticalBindingSetDescValid = false;
+    m_glassOpticalPipeline = nullptr;
+    m_glassOpticalShader = nullptr;
+    m_glassOpticalBindingLayout = nullptr;
+    m_glassOpticalPipelineAttempted = false;
+    m_glassOpticalConstants = nullptr;
+    m_glassOpticalDiagnosticBuffer = nullptr;
+    m_glassOpticalDiagnosticReadback = nullptr;
+    m_glassOpticalDiagnosticReadbackPending = false;
+    m_glassOpticalDiagnosticReadbackDelayFrames = 0;
+    m_glassOpticalTransmission = nullptr;
+    m_glassOpticalReflection = nullptr;
+    for (uint32_t page = 0u; page < 2u; ++page)
+    {
+        m_glassReflectionReceivers[page] = nullptr;
+        m_glassReflectionSidecars[page] = nullptr;
+    }
+    m_glassReflectionRrSpecular = nullptr;
+    if (m_glassReflectionReuseState)
+        m_glassReflectionReuseState->Release();
+    m_glassReflectionReuseState.reset();
+    m_glassReflectionReceiverCurrentIndex = 0u;
+    m_glassReflectionWidth = 0u;
+    m_glassReflectionHeight = 0u;
+    m_glassReflectionHistoryEpoch = 0u;
+    m_glassReflectionHistoryValid = false;
+    m_glassReflectionReuseReady = false;
+    m_glassOpticalWidth = 0u;
+    m_glassOpticalHeight = 0u;
 }
 
 nvrhi::BufferHandle PathTraceUnifiedPtState::CurrentPage() const
@@ -2262,7 +2353,9 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         return false;
     }
 
-    const char* initialPath = inputs.diagnostics
+    const char* initialPath = inputs.reflectionReuseDomain
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_reflection_direct_rayquery.bin"
+        : (inputs.diagnostics
         ? Upt04DiagnosticShaderPath()
         : (liveTlasProbe
         ? Upt04LiveTlasProbePath(pipelineVariant)
@@ -2286,7 +2379,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.compactLights,
             inputs.compactMaterials,
             inputs.splitContinuation,
-            inputs.directProposalParity)))));
+            inputs.directProposalParity))))));
     void* initialData = nullptr;
     int initialSize = 0;
     ID_TIME_T initialTimestamp = 0;
@@ -4756,7 +4849,8 @@ bool PathTraceUnifiedPtState::EnsureDuplicationBindingSets(
 bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
-    const bool indirect = r_pathTracingUnifiedPtTemporalIndirect.GetBool();
+    const bool indirect = !inputs.reflectionReuseDomain &&
+        r_pathTracingUnifiedPtTemporalIndirect.GetBool();
     const bool earlyReconnect = indirect
         && r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool();
     const bool routeDiagnostics = indirect && !earlyReconnect
@@ -4805,6 +4899,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
             inputs.frozenStaticDiagnostic
         && m_temporalFrozenLightDiagnostic ==
             inputs.frozenLightDiagnostic
+        && m_temporalReflectionReuseDomain == inputs.reflectionReuseDomain
         && m_temporalBottleneckProbe == inputs.temporalBottleneckProbe)
     {
         return true;
@@ -4824,6 +4919,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
             inputs.frozenStaticDiagnostic
         || m_temporalFrozenLightDiagnostic !=
             inputs.frozenLightDiagnostic
+        || m_temporalReflectionReuseDomain != inputs.reflectionReuseDomain
         || m_temporalBottleneckProbe != inputs.temporalBottleneckProbe)
     {
         if (m_temporalCommonGrisMerge != commonGrisMerge)
@@ -4855,6 +4951,7 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
             inputs.frozenStaticDiagnostic;
         m_temporalFrozenLightDiagnostic =
             inputs.frozenLightDiagnostic;
+        m_temporalReflectionReuseDomain = inputs.reflectionReuseDomain;
         m_temporalBottleneckProbe = inputs.temporalBottleneckProbe;
     }
     if (m_temporalPipelineAttempted)
@@ -5004,7 +5101,9 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe11.bin",
         "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_probe12.bin"
     };
-    const char* path = replayCompaction
+    const char* path = inputs.reflectionReuseDomain
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_reflection_direct_rayquery.bin"
+        : replayCompaction
         ? (threeVertexReplay
             ? "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_common_gris_three_vertex_replay_classify.bin"
             : "renderprogs2/spirv/builtin/pathtracing/slang_upt07/upt07_temporal_unified_rayquery_light64_duplication_common_gris_replay_classify.bin")
@@ -5871,23 +5970,27 @@ nvrhi::TimerQueryHandle PathTraceUnifiedPtState::BeginTemporalGpuTiming(
 bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
-    const bool indirect = r_pathTracingUnifiedPtTemporalIndirect.GetBool();
+    const bool indirect = m_temporalIndirect;
+    const uint32_t expectedReceiverStride = inputs.reflectionReuseDomain
+        ? PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE
+        : PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE;
     if (!inputs.compactPrimaryHistory ||
         !inputs.primarySurfaceCurrentBuffer ||
         !inputs.primarySurfacePreviousBuffer ||
         !inputs.primaryHistorySidecarCurrentBuffer ||
         !inputs.primaryHistorySidecarPreviousBuffer ||
         inputs.primarySurfaceCurrentBuffer->getDesc().structStride !=
-            PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE ||
+            expectedReceiverStride ||
         inputs.primarySurfacePreviousBuffer->getDesc().structStride !=
-            PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE ||
+            expectedReceiverStride ||
         inputs.primaryHistorySidecarCurrentBuffer->getDesc().structStride !=
             PATH_TRACE_UNIFIED_PT_PRIMARY_HISTORY_SIDECAR_STRIDE ||
         inputs.primaryHistorySidecarPreviousBuffer->getDesc().structStride !=
             PATH_TRACE_UNIFIED_PT_PRIMARY_HISTORY_SIDECAR_STRIDE)
     {
         common->Printf(
-            "PathTraceUnifiedPt: UPT-07 temporal requires compact current/previous 32-byte receivers plus 32-byte history sidecars\n");
+            "PathTraceUnifiedPt: UPT-07 temporal requires compact current/previous %u-byte receivers plus 32-byte history sidecars\n",
+            expectedReceiverStride);
         return false;
     }
     const nvrhi::BufferHandle lightBuffer = inputs.compactLights
@@ -6145,8 +6248,9 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
     if (m_reportedTemporalHistoryAvailable != (historyAvailable ? 1 : 0))
     {
         common->Printf(
-            "PathTraceUnifiedPt: temporal historyAvailable=%d currentPage=%u historyPage=%u pageGeneration=%016llx epoch=%llu serial(current/history)=%llu/%llu\n",
+            "PathTraceUnifiedPt: temporal historyAvailable=%d domain=%s currentPage=%u historyPage=%u pageGeneration=%016llx epoch=%llu serial(current/history)=%llu/%llu\n",
             historyAvailable ? 1 : 0,
+            inputs.reflectionReuseDomain ? "glass-reflection" : "primary",
             m_currentPageIndex,
             m_historyPageIndex,
             static_cast<unsigned long long>(currentMetadata.contentGeneration),
@@ -6168,23 +6272,29 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
     control.renderHeight = inputs.height;
     control.surfaceCount = static_cast<uint32_t>(surfaceCount64);
     control.historyAvailable = historyAvailable ? 1u : 0u;
-    control.emissiveRangeStart = inputs.frozenLightDiagnostic
+    const bool analyticOnly = inputs.frozenLightDiagnostic ||
+        inputs.reflectionReuseDomain;
+    control.emissiveRangeStart = analyticOnly
         ? 0u : lights.restirLightManagerEmissiveRangeOffset;
-    control.emissiveRangeCount = inputs.frozenLightDiagnostic
+    control.emissiveRangeCount = analyticOnly
         ? 0u : lights.restirLightManagerEmissiveRangeCount;
     control.analyticRangeStart = lights.restirLightManagerDoomAnalyticRangeOffset;
     control.analyticRangeCount = lights.restirLightManagerDoomAnalyticSampleableCount;
     control.currentLightCount = static_cast<uint32_t>(Max(
         0, lights.restirLightManagerCurrentPayloadCount));
     control.frameSampleIndex = inputs.frameSampleIndex;
-    control.maximumHistoryM = static_cast<uint32_t>(idMath::ClampInt(
-        1,
-        1024,
-        r_pathTracingUnifiedPtTemporalMaxHistoryM.GetInteger()));
-    control.maximumHistoryAge = static_cast<uint32_t>(idMath::ClampInt(
-        1,
-        static_cast<int>(UPT07_MAXIMUM_HISTORY_AGE),
-        r_pathTracingUnifiedPtTemporalMaxAge.GetInteger()));
+    control.maximumHistoryM = inputs.reflectionReuseDomain
+        ? 4u
+        : static_cast<uint32_t>(idMath::ClampInt(
+            1,
+            1024,
+            r_pathTracingUnifiedPtTemporalMaxHistoryM.GetInteger()));
+    control.maximumHistoryAge = inputs.reflectionReuseDomain
+        ? 4u
+        : static_cast<uint32_t>(idMath::ClampInt(
+            1,
+            static_cast<int>(UPT07_MAXIMUM_HISTORY_AGE),
+            r_pathTracingUnifiedPtTemporalMaxAge.GetInteger()));
     for (uint32_t axis = 0; axis < 3u; ++axis)
     {
         control.previousCameraOrigin[axis] = inputs.previousCameraOrigin[axis];
@@ -6195,8 +6305,9 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
     control.previousCameraValid = historyAvailable ? 1u : 0u;
     control.previousCameraTanX = inputs.previousCameraTanX;
     control.previousCameraTanY = inputs.previousCameraTanY;
-    control.previousCameraHistorySearchMode = static_cast<uint32_t>(
-        idMath::ClampInt(
+    control.previousCameraHistorySearchMode = inputs.reflectionReuseDomain
+        ? 0u
+        : static_cast<uint32_t>(idMath::ClampInt(
             0, 2, r_pathTracingUnifiedPtTemporalSearch.GetInteger()));
     control.previousCameraJitterPixels[0] =
         inputs.previousCameraJitterPixels[0];
@@ -6209,24 +6320,33 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
         | ((static_cast<uint32_t>(idMath::ClampInt(
                 1,
                 UPT04_NEE_RIS_MAX_EMISSIVE_CANDIDATE_COUNT,
-                r_pathTracingReservoirCandidateTrials.GetInteger()))
+                inputs.reflectionReuseDomain
+                    ? r_pathTracingReflectionSecondarySamples.GetInteger()
+                    : r_pathTracingReservoirCandidateTrials.GetInteger()))
                 << UPT04_EMISSIVE_TRIAL_COUNT_SHIFT)
             & UPT04_EMISSIVE_TRIAL_COUNT_MASK)
-        | (r_pathTracingUnifiedPtTemporalPreviousBest.GetBool()
+        | (!inputs.reflectionReuseDomain &&
+                r_pathTracingUnifiedPtTemporalPreviousBest.GetBool()
             ? UPT07_GEOMETRY_FLAG_PREVIOUS_BEST_SEED : 0u)
-        | (r_pathTracingUnifiedPtTemporalPairwise.GetBool()
+        | (!inputs.reflectionReuseDomain &&
+                r_pathTracingUnifiedPtTemporalPairwise.GetBool()
             ? UPT07_GEOMETRY_FLAG_PAIRWISE_MIS : 0u)
         | (duplicationAvailable
             ? UPT07_GEOMETRY_FLAG_DUPLICATION_MAP : 0u)
-        | (r_pathTracingUnifiedPtTemporalIndirect.GetBool()
+        | (!inputs.reflectionReuseDomain &&
+                r_pathTracingUnifiedPtTemporalIndirect.GetBool()
             ? UPT07_GEOMETRY_FLAG_INDIRECT_REPLAY : 0u)
-        | (r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
+        | (!inputs.reflectionReuseDomain &&
+                r_pathTracingUnifiedPtTemporalEarlyReconnect.GetBool()
             ? UPT07_GEOMETRY_FLAG_EARLY_RECONNECT : 0u)
-        | (r_pathTracingUnifiedPtTemporalReconnectDiagnostics.GetBool()
+        | (!inputs.reflectionReuseDomain &&
+                r_pathTracingUnifiedPtTemporalReconnectDiagnostics.GetBool()
             ? UPT07_GEOMETRY_FLAG_RECONNECT_DIAGNOSTICS : 0u)
-        | (r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool()
+        | (!inputs.reflectionReuseDomain &&
+                r_pathTracingUnifiedPtTemporalRouteDiagnostics.GetBool()
             ? UPT07_GEOMETRY_FLAG_ROUTE_DIAGNOSTICS : 0u)
-        | (r_pathTracingUnifiedPtTemporalPermutationSampling.GetBool()
+        | (!inputs.reflectionReuseDomain &&
+                r_pathTracingUnifiedPtTemporalPermutationSampling.GetBool()
             ? UPT07_GEOMETRY_FLAG_TEMPORAL_PERMUTATION : 0u)
         | (r_pathTracingUnifiedPtDirectTargetPdfParity.GetBool()
             ? UPT04_DIRECT_TARGET_PDF_PARITY : 0u)
@@ -6234,7 +6354,8 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             ? UPT04_ANALYTIC_PORTAL_DOMAIN : 0u)
         | (r_pathTracingReservoirTwoSidedEmissives.GetBool()
             ? UPT04_TWO_SIDED_EMISSIVES : 0u)
-        | (lights.unifiedPtEmissiveLookupExact
+        | (!inputs.reflectionReuseDomain &&
+                lights.unifiedPtEmissiveLookupExact
             ? UPT04_EMISSIVE_LOOKUP_EXACT : 0u)
         | ((inputs.materialPolicyFlags
                 & PATH_TRACE_UPT_MATERIAL_USE_SPECULAR_MAPS) != 0u
@@ -6246,7 +6367,7 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
                 & PATH_TRACE_UPT_MATERIAL_DECODE_TEXTURES) != 0u
             ? UPT04_MATERIAL_DECODE_TEXTURES : 0u);
     control.emissiveScale = Max(0.0f, inputs.emissiveScale);
-    control.previousToCurrentLightCount = inputs.frozenLightDiagnostic
+    control.previousToCurrentLightCount = analyticOnly
         ? control.currentLightCount
         : static_cast<uint32_t>(Max(
             0, lights.restirLightManagerPreviousToCurrentCount));
@@ -6259,14 +6380,14 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
         0, inputs.sceneInputs->materials.materialTableEntryCount));
     control.logicalTextureCount = static_cast<uint32_t>(Max(
         0, inputs.sceneInputs->materials.logicalTextureDescriptorCount));
-    const uint32_t distributionCount = inputs.frozenLightDiagnostic
+    const uint32_t distributionCount = analyticOnly
         ? 0u : static_cast<uint32_t>(Max(
             0, lights.emissiveDistributionCount));
     control.emissiveDistributionCountAndValid =
         (distributionCount & UPT04_CONTROL_METADATA_COUNT_MASK)
         | (lights.emissiveDistributionValid && distributionCount != 0u
             ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
-    const uint32_t lookupCapacity = inputs.frozenLightDiagnostic
+    const uint32_t lookupCapacity = analyticOnly
         ? 0u : static_cast<uint32_t>(Max(
             0, lights.unifiedPtEmissiveLookupCount));
     control.emissiveLookupCapacityAndValid =
@@ -6807,7 +6928,8 @@ bool PathTraceUnifiedPtState::EnsureSpatialReuseTextureResources(
 bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
     const PathTraceUnifiedPtDispatchInputs& inputs)
 {
-    const bool sharedSpatial = Upt30SharedSpatialEnabled(inputs);
+    const bool sharedSpatial = !inputs.reflectionReuseDomain &&
+        Upt30SharedSpatialEnabled(inputs);
     const bool storedSourceTarget = sharedSpatial
         && r_pathTracingUnifiedPtSpatialStoredSourceTarget.GetBool();
     const bool workgroupPairing = storedSourceTarget
@@ -6883,6 +7005,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         && m_spatialReuseTexturePairing == reuseTexturePairing
         && m_spatialShiftPrepass == shiftPrepass
         && m_spatialThreeVertexReplay == threeVertexReplay
+        && m_spatialReflectionReuseDomain == inputs.reflectionReuseDomain
         && m_spatialLambertDiagnostic == inputs.lambertDiagnostic)
     {
         return true;
@@ -6897,6 +7020,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         || m_spatialReuseTexturePairing != reuseTexturePairing
         || m_spatialShiftPrepass != shiftPrepass
         || m_spatialThreeVertexReplay != threeVertexReplay
+        || m_spatialReflectionReuseDomain != inputs.reflectionReuseDomain
         || m_spatialLambertDiagnostic != inputs.lambertDiagnostic)
     {
         ReleaseSpatial();
@@ -6910,6 +7034,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         m_spatialReuseTexturePairing = reuseTexturePairing;
         m_spatialShiftPrepass = shiftPrepass;
         m_spatialThreeVertexReplay = threeVertexReplay;
+        m_spatialReflectionReuseDomain = inputs.reflectionReuseDomain;
         m_spatialLambertDiagnostic = inputs.lambertDiagnostic;
     }
     if (m_spatialPipelineAttempted)
@@ -6967,7 +7092,9 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         return false;
     }
 
-    const char* path = disocclusionBoost
+    const char* path = inputs.reflectionReuseDomain
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_reflection_direct_rayquery.bin"
+        : disocclusionBoost
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_workgroup_pair_rescue_stored_target_light64_boost_classify.bin"
         : shiftPrepass
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt09/upt09_spatial_shared_reuse_texture_resample_light64.bin"
@@ -7179,16 +7306,20 @@ bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
     const bool sharedSpatial = m_spatialSharedReuse;
     const bool reuseTexturePairing = m_spatialReuseTexturePairing;
     const bool shiftPrepass = m_spatialShiftPrepass;
+    const uint32_t expectedReceiverStride = inputs.reflectionReuseDomain
+        ? PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE
+        : PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE;
     if (!inputs.compactPrimaryHistory ||
         !inputs.primarySurfaceCurrentBuffer ||
         !inputs.primaryHistorySidecarCurrentBuffer ||
         inputs.primarySurfaceCurrentBuffer->getDesc().structStride !=
-            PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE ||
+            expectedReceiverStride ||
         inputs.primaryHistorySidecarCurrentBuffer->getDesc().structStride !=
             PATH_TRACE_UNIFIED_PT_PRIMARY_HISTORY_SIDECAR_STRIDE)
     {
         common->Printf(
-            "PathTraceUnifiedPt: UPT-09 spatial requires a compact 32-byte current receiver plus 32-byte history sidecar\n");
+            "PathTraceUnifiedPt: UPT-09 spatial requires a compact %u-byte current receiver plus 32-byte history sidecar\n",
+            expectedReceiverStride);
         return false;
     }
     const nvrhi::BufferHandle lightBuffer = inputs.compactLights
@@ -7362,7 +7493,8 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
     {
         return false;
     }
-    const bool sharedSpatial = Upt30SharedSpatialEnabled(inputs);
+    const bool sharedSpatial = !inputs.reflectionReuseDomain &&
+        Upt30SharedSpatialEnabled(inputs);
     if (inputs.family != PathTraceUnifiedPtFamily::DirectOnly && !sharedSpatial)
     {
         common->Printf(
@@ -7459,8 +7591,10 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
     control.renderHeight = inputs.height;
     control.surfaceCount = static_cast<uint32_t>(surfaceCount64);
     control.frameSampleIndex = inputs.frameSampleIndex;
-    control.emissiveRangeStart = lights.restirLightManagerEmissiveRangeOffset;
-    control.emissiveRangeCount = lights.restirLightManagerEmissiveRangeCount;
+    control.emissiveRangeStart = inputs.reflectionReuseDomain
+        ? 0u : lights.restirLightManagerEmissiveRangeOffset;
+    control.emissiveRangeCount = inputs.reflectionReuseDomain
+        ? 0u : lights.restirLightManagerEmissiveRangeCount;
     control.analyticRangeStart = lights.restirLightManagerDoomAnalyticRangeOffset;
     control.analyticRangeCount = lights.restirLightManagerDoomAnalyticSampleableCount;
     control.currentLightCount = static_cast<uint32_t>(Max(
@@ -7481,7 +7615,9 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
         | ((static_cast<uint32_t>(idMath::ClampInt(
                 1,
                 UPT04_NEE_RIS_MAX_EMISSIVE_CANDIDATE_COUNT,
-                r_pathTracingReservoirCandidateTrials.GetInteger()))
+                inputs.reflectionReuseDomain
+                    ? r_pathTracingReflectionSecondarySamples.GetInteger()
+                    : r_pathTracingReservoirCandidateTrials.GetInteger()))
                 << UPT04_EMISSIVE_TRIAL_COUNT_SHIFT)
             & UPT04_EMISSIVE_TRIAL_COUNT_MASK)
         | (r_pathTracingUnifiedPtDirectTargetPdfParity.GetBool()
@@ -7868,6 +8004,7 @@ bool PathTraceUnifiedPtState::EnsureResolvePipeline(
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(3));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT05_PUSH_CONSTANT_BYTES));
     m_resolveBindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -7877,7 +8014,9 @@ bool PathTraceUnifiedPtState::EnsureResolvePipeline(
         return false;
     }
 
-    const char* path = inputs.primaryReceiverMode == 2u
+    const char* path = inputs.reflectionReuseDomain
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt05/upt05_resolve_reflection_compact.bin"
+        : inputs.primaryReceiverMode == 2u
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt05/upt05_resolve_compact32.bin"
         : (inputs.primaryReceiverMode == 1u
             ? "renderprogs2/spirv/builtin/pathtracing/slang_upt05/upt05_resolve_compact.bin"
@@ -7915,7 +8054,7 @@ bool PathTraceUnifiedPtState::EnsureResolvePipeline(
     }
     m_resolvePrimaryReceiverMode = inputs.primaryReceiverMode;
     common->Printf(
-        "PathTraceUnifiedPt: resolve compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 receiver=%s output=RGBA16_FLOAT rays=0 samples=0 createUs=%llu\n",
+        "PathTraceUnifiedPt: resolve compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 receiver=%s output=RGBA16_FLOAT rrSpecular=globalSpecularHdr rays=0 samples=0 createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -7936,6 +8075,8 @@ bool PathTraceUnifiedPtState::EnsureResolveBindingSet(
     desc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_resolveOutput));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         2, inputs.primarySurfaceBuffer));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        3, inputs.rrGuideSpecularAlbedo));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT05_PUSH_CONSTANT_BYTES));
     if (m_resolveBindingSets[pageIndex] &&
@@ -7975,7 +8116,8 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
         ? HistoryPageMetadata() : CurrentPageMetadata();
     const uint32_t resolvePageIndex = m_spatialExecutedThisFrame
         ? m_historyPageIndex : m_currentPageIndex;
-    if (!productionFullFrame || !resolvePage || m_pageWidth != inputs.width ||
+    if (!productionFullFrame || !resolvePage ||
+        !inputs.rrGuideSpecularAlbedo || m_pageWidth != inputs.width ||
         m_pageHeight != inputs.height || !resolveMetadata.fullyWritten ||
         resolveMetadata.width != inputs.width ||
         resolveMetadata.height != inputs.height ||
@@ -8024,6 +8166,10 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
             m_resolveOutput,
             nvrhi::AllSubresources,
             nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setTextureState(
+            inputs.rrGuideSpecularAlbedo,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::UnorderedAccess);
         inputs.commandList->commitBarriers();
 
         nvrhi::ComputeState state;
@@ -8048,6 +8194,8 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
             "UPT.R0 Resolve OutputBarrier",
             inputs.nsightMarkers);
         nvrhi::utils::TextureUavBarrier(inputs.commandList, m_resolveOutput);
+        nvrhi::utils::TextureUavBarrier(
+            inputs.commandList, inputs.rrGuideSpecularAlbedo);
         inputs.commandList->setTextureState(
             m_resolveOutput,
             nvrhi::AllSubresources,
@@ -8104,5 +8252,1219 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
         m_diagnosticProbeFrameSerial = probeMetadata.frameSerial;
     }
     m_resolveReady = true;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureGlassOpticalResources(
+    const PathTraceUnifiedPtGlassOpticalInputs& inputs)
+{
+    const PathTraceUnifiedPtDispatchInputs& dispatch = *inputs.dispatch;
+    const bool reflectionReuseRequested =
+        r_pathTracingUnifiedPtGlassReflectionReuse.GetBool();
+    const bool reflectionFullResolution =
+        r_pathTracingUnifiedPtGlassReflectionReuseResolution.GetInteger()
+            >= 75;
+    const uint32_t reflectionWidth = reflectionFullResolution
+        ? dispatch.width : (dispatch.width + 1u) / 2u;
+    const uint32_t reflectionHeight = reflectionFullResolution
+        ? dispatch.height : (dispatch.height + 1u) / 2u;
+    const uint32_t reflectionBufferWidth = reflectionReuseRequested
+        ? reflectionWidth : 1u;
+    const uint32_t reflectionBufferHeight = reflectionReuseRequested
+        ? reflectionHeight : 1u;
+    if (!reflectionReuseRequested && m_glassReflectionReuseState)
+    {
+        m_glassReflectionReuseState->Release();
+        m_glassReflectionReuseState.reset();
+        for (uint32_t page = 0u; page < 2u; ++page)
+        {
+            m_glassReflectionReceivers[page] = nullptr;
+            m_glassReflectionSidecars[page] = nullptr;
+        }
+        m_glassReflectionRrSpecular = nullptr;
+        m_glassReflectionWidth = 0u;
+        m_glassReflectionHeight = 0u;
+        m_glassReflectionHistoryValid = false;
+        m_glassReflectionReuseReady = false;
+        m_glassOpticalBindingSet = nullptr;
+        m_glassOpticalBindingSetDescValid = false;
+    }
+    const bool reflectionResourcesValid =
+        m_glassReflectionReceivers[0] && m_glassReflectionReceivers[1] &&
+        m_glassReflectionSidecars[0] && m_glassReflectionSidecars[1] &&
+        m_glassReflectionWidth == reflectionBufferWidth &&
+        m_glassReflectionHeight == reflectionBufferHeight &&
+        (!reflectionReuseRequested ||
+            (m_glassReflectionReuseState && m_glassReflectionRrSpecular));
+    if (m_glassOpticalTransmission && m_glassOpticalReflection &&
+        m_glassOpticalConstants && m_glassOpticalDiagnosticBuffer &&
+        m_glassOpticalDiagnosticReadback &&
+        m_glassOpticalWidth == dispatch.width &&
+        m_glassOpticalHeight == dispatch.height && reflectionResourcesValid)
+    {
+        return true;
+    }
+
+    nvrhi::TextureDesc textureDesc;
+    textureDesc.width = dispatch.width;
+    textureDesc.height = dispatch.height;
+    textureDesc.mipLevels = 1;
+    textureDesc.format = nvrhi::Format::RGBA16_FLOAT;
+    textureDesc.isUAV = true;
+    textureDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    textureDesc.keepInitialState = true;
+    textureDesc.debugName = "PathTraceUnifiedPtGlassTransmission";
+    const nvrhi::TextureHandle transmission =
+        dispatch.device->createTexture(textureDesc);
+    textureDesc.debugName = "PathTraceUnifiedPtGlassReflection";
+    const nvrhi::TextureHandle reflection =
+        dispatch.device->createTexture(textureDesc);
+
+    nvrhi::BufferDesc constantsDesc;
+    constantsDesc.byteSize = UPT46_GLASS_OPTICAL_CONSTANT_BYTES;
+    constantsDesc.structStride = UPT46_GLASS_OPTICAL_CONSTANT_BYTES;
+    constantsDesc.debugName = "PathTraceUnifiedPtGlassOpticalConstants";
+    // This is an uploaded structured SRV, not a native constant buffer.
+    // Give NVRHI an explicit persistent state so writeBuffer can transition
+    // it and the subsequent SRV binding never starts from Unknown.
+    constantsDesc.initialState = nvrhi::ResourceStates::Common;
+    constantsDesc.keepInitialState = true;
+    const nvrhi::BufferHandle constants =
+        dispatch.device->createBuffer(constantsDesc);
+
+    nvrhi::BufferDesc diagnosticDesc;
+    diagnosticDesc.byteSize = UPT46_GLASS_DIAGNOSTIC_BYTES;
+    diagnosticDesc.structStride = sizeof(uint32_t);
+    diagnosticDesc.canHaveUAVs = true;
+    diagnosticDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    diagnosticDesc.keepInitialState = true;
+    diagnosticDesc.debugName = "PathTraceUnifiedPtGlassDiagnostic";
+    const nvrhi::BufferHandle diagnostic =
+        dispatch.device->createBuffer(diagnosticDesc);
+
+    nvrhi::BufferDesc readbackDesc;
+    readbackDesc.byteSize = UPT46_GLASS_DIAGNOSTIC_BYTES;
+    readbackDesc.cpuAccess = nvrhi::CpuAccessMode::Read;
+    readbackDesc.initialState = nvrhi::ResourceStates::CopyDest;
+    readbackDesc.keepInitialState = true;
+    readbackDesc.debugName = "PathTraceUnifiedPtGlassDiagnosticReadback";
+    const nvrhi::BufferHandle diagnosticReadback =
+        dispatch.device->createBuffer(readbackDesc);
+
+    std::array<nvrhi::BufferHandle, 2> reflectionReceivers = {};
+    std::array<nvrhi::BufferHandle, 2> reflectionSidecars = {};
+    nvrhi::TextureHandle reflectionRrSpecular;
+    std::unique_ptr<PathTraceUnifiedPtState> reflectionReuseState;
+    {
+        const uint64_t reflectionCount =
+            uint64_t(reflectionBufferWidth) *
+            uint64_t(reflectionBufferHeight);
+        nvrhi::BufferDesc receiverDesc;
+        receiverDesc.byteSize = reflectionCount *
+            PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE;
+        receiverDesc.structStride =
+            PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER_STRIDE;
+        receiverDesc.canHaveUAVs = true;
+        receiverDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        receiverDesc.keepInitialState = true;
+        receiverDesc.debugName =
+            "PathTraceUnifiedPtGlassReflectionReceiver0";
+        reflectionReceivers[0] = dispatch.device->createBuffer(receiverDesc);
+        receiverDesc.debugName =
+            "PathTraceUnifiedPtGlassReflectionReceiver1";
+        reflectionReceivers[1] = dispatch.device->createBuffer(receiverDesc);
+
+        nvrhi::BufferDesc sidecarDesc = receiverDesc;
+        sidecarDesc.byteSize = reflectionCount *
+            PATH_TRACE_UNIFIED_PT_PRIMARY_HISTORY_SIDECAR_STRIDE;
+        sidecarDesc.structStride =
+            PATH_TRACE_UNIFIED_PT_PRIMARY_HISTORY_SIDECAR_STRIDE;
+        sidecarDesc.debugName =
+            "PathTraceUnifiedPtGlassReflectionSidecar0";
+        reflectionSidecars[0] = dispatch.device->createBuffer(sidecarDesc);
+        sidecarDesc.debugName =
+            "PathTraceUnifiedPtGlassReflectionSidecar1";
+        reflectionSidecars[1] = dispatch.device->createBuffer(sidecarDesc);
+    }
+    if (reflectionReuseRequested)
+    {
+        nvrhi::TextureDesc reflectionSpecularDesc = textureDesc;
+        reflectionSpecularDesc.width = reflectionWidth;
+        reflectionSpecularDesc.height = reflectionHeight;
+        reflectionSpecularDesc.debugName =
+            "PathTraceUnifiedPtGlassReflectionRrSpecular";
+        reflectionRrSpecular =
+            dispatch.device->createTexture(reflectionSpecularDesc);
+        reflectionReuseState = std::unique_ptr<PathTraceUnifiedPtState>(
+            new PathTraceUnifiedPtState());
+    }
+    if (!transmission || !reflection || !constants ||
+        !diagnostic || !diagnosticReadback ||
+        !reflectionReceivers[0] || !reflectionReceivers[1] ||
+        !reflectionSidecars[0] || !reflectionSidecars[1] ||
+        (reflectionReuseRequested &&
+            (!reflectionRrSpecular || !reflectionReuseState)))
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to allocate native glass optical resources %ux%u\n",
+            dispatch.width,
+            dispatch.height);
+        return false;
+    }
+    m_glassOpticalTransmission = transmission;
+    m_glassOpticalReflection = reflection;
+    m_glassOpticalConstants = constants;
+    m_glassOpticalDiagnosticBuffer = diagnostic;
+    m_glassOpticalDiagnosticReadback = diagnosticReadback;
+    m_glassOpticalDiagnosticReadbackPending = false;
+    m_glassOpticalDiagnosticReadbackDelayFrames = 0;
+    m_glassOpticalWidth = dispatch.width;
+    m_glassOpticalHeight = dispatch.height;
+    if (m_glassReflectionReuseState)
+        m_glassReflectionReuseState->Release();
+    m_glassReflectionReceivers = reflectionReceivers;
+    m_glassReflectionSidecars = reflectionSidecars;
+    m_glassReflectionRrSpecular = reflectionRrSpecular;
+    m_glassReflectionReuseState = std::move(reflectionReuseState);
+    m_glassReflectionReceiverCurrentIndex = 0u;
+    m_glassReflectionWidth = reflectionBufferWidth;
+    m_glassReflectionHeight = reflectionBufferHeight;
+    m_glassReflectionHistoryEpoch = dispatch.historyEpoch;
+    m_glassReflectionHistoryValid = false;
+    m_glassReflectionReuseReady = false;
+    m_glassOpticalBindingSet = nullptr;
+    m_glassOpticalBindingSetDescValid = false;
+    common->Printf(
+        "PathTraceUnifiedPt: allocated G1 optical outputs %ux%u format=RGBA16_FLOAT bytes=%llu reflectionReuse=%d reflectionResolution(requested/effective)=%d/%d receiver=%ux%u clear=never\n",
+        dispatch.width,
+        dispatch.height,
+        static_cast<unsigned long long>(
+            uint64_t(dispatch.width) * uint64_t(dispatch.height) * 16ull),
+        reflectionReuseRequested ? 1 : 0,
+        r_pathTracingUnifiedPtGlassReflectionReuseResolution.GetInteger(),
+        reflectionFullResolution ? 100 : 50,
+        m_glassReflectionWidth,
+        m_glassReflectionHeight);
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureGlassOpticalPipeline(
+    const PathTraceUnifiedPtGlassOpticalInputs& inputs)
+{
+    const PathTraceUnifiedPtDispatchInputs& dispatch = *inputs.dispatch;
+    if (m_glassOpticalPipeline &&
+        m_glassOpticalCompactLights == dispatch.compactLights)
+    {
+        return true;
+    }
+    if (m_glassOpticalPipelineAttempted &&
+        m_glassOpticalCompactLights == dispatch.compactLights)
+    {
+        return false;
+    }
+    m_glassOpticalBindingSet = nullptr;
+    m_glassOpticalBindingSetDescValid = false;
+    m_glassOpticalPipeline = nullptr;
+    m_glassOpticalShader = nullptr;
+    m_glassOpticalBindingLayout = nullptr;
+    m_glassOpticalPipelineAttempted = true;
+    m_glassOpticalCompactLights = dispatch.compactLights;
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(5));
+    for (uint32_t slot = 6u; slot <= 21u; ++slot)
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(33));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(34));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(35));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(37));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(38));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(39));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(41));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(42));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(43));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(44));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(45));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(46));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT04_PUSH_CONSTANT_BYTES));
+    m_glassOpticalBindingLayout =
+        dispatch.device->createBindingLayout(layoutDesc);
+    if (!m_glassOpticalBindingLayout)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create G1 optical binding layout\n");
+        return false;
+    }
+
+    const char* shaderPath = dispatch.compactLights
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt46/upt46_glass_optical_transport_compact64.bin"
+        : "renderprogs2/spirv/builtin/pathtracing/slang_upt46/upt46_glass_optical_transport_natural.bin";
+    void* shaderData = nullptr;
+    int shaderSize = 0;
+    ID_TIME_T shaderTimestamp = 0;
+    uint64_t shaderHash = 0;
+    if (!Upt04ReadShader(
+            shaderPath,
+            shaderData,
+            shaderSize,
+            shaderTimestamp,
+            shaderHash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtGlassOpticalTransport";
+    m_glassOpticalShader = dispatch.device->createShader(
+        shaderDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!m_glassOpticalShader)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create G1 optical shader\n");
+        return false;
+    }
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_glassOpticalShader;
+    pipelineDesc.bindingLayouts = {
+        m_glassOpticalBindingLayout,
+        dispatch.sceneInputs->materials.textureBindlessLayout };
+    const uint64_t pipelineStartUs = Sys_Microseconds();
+    m_glassOpticalPipeline =
+        dispatch.device->createComputePipeline(pipelineDesc);
+    const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
+    if (!m_glassOpticalPipeline)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create G1 optical pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: glass optical compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u rays=R1+Tmiss reflectionShade=deterministic-flat noReflectionNee=1 noReflectionEmission=1 ignoreGlassInReflection=1 canonicalTransmission=1 skyShellTransmission=1 emissiveTerminalTransmission=1 thinSheet=featureParams rrSpecularGuide=exactReflectionHdr+hitT distortionConsume=resolvedEndpoint forcedNonOpaque=1 constantBytes=%u createUs=%llu legacyPso=0\n",
+        shaderSize,
+        static_cast<unsigned long long>(shaderHash),
+        static_cast<long long>(shaderTimestamp),
+        dispatch.compactLights ? UPT04_COMPACT_LIGHT_STRIDE : 112u,
+        UPT46_GLASS_OPTICAL_CONSTANT_BYTES,
+        static_cast<unsigned long long>(pipelineUs));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureGlassOpticalBindingSet(
+    const PathTraceUnifiedPtGlassOpticalInputs& inputs)
+{
+    const PathTraceUnifiedPtDispatchInputs& dispatch = *inputs.dispatch;
+    const RtPathTraceSceneInputs& scene = *dispatch.sceneInputs;
+    const RtPathTraceSceneInputGeometry& geometry = scene.geometry;
+    const RtPathTraceSceneInputMaterials& materials = scene.materials;
+    const RtPathTraceSceneInputLights& lights = scene.lights;
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, geometry.tlas));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        1, inputs.opticalSurfaceBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        2, dispatch.compactLights
+            ? m_compactLightsBuffer
+            : lights.restirLightManagerCurrentPayloadBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        3, materials.materialTableBuffer));
+    desc.addItem(nvrhi::BindingSetItem::Sampler(5, materials.textureSampler));
+    // Match the reflected shader/layout order exactly. The shared replay
+    // helper appends slot 32 immediately after 21, while this specialization
+    // also owns slot 25; NVRHI validates binding-set items positionally.
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        6, lights.emissiveTriangleBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        7, geometry.staticVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        8, geometry.staticIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        9, geometry.staticTriangleClassBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        10, geometry.staticTriangleMaterialIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        11, geometry.dynamicVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        12, geometry.dynamicIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        13, geometry.dynamicTriangleClassBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        14, geometry.dynamicTriangleMaterialIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        15, geometry.rigidRouteVertexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        16, geometry.rigidRouteIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        17, geometry.rigidRouteInstanceBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        18, Upt04SkinnedVertexBuffer(scene)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        19, Upt04SkinnedIndexBuffer(scene)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        20, geometry.skinnedHitRouteRecordBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        21, geometry.skinnedHitRouteTriangleBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        25, lights.emissiveDistributionBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        32, lights.unifiedPtEmissiveGeometryBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        33, materials.materialFeatureBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        34, materials.materialFeatureParameterBuffer));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+        35,
+        inputs.skyEnvironment,
+        nvrhi::Format::UNKNOWN,
+        nvrhi::AllSubresources,
+        nvrhi::TextureDimension::TextureCube));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        37, m_glassOpticalTransmission));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        38, m_glassOpticalReflection));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        39, m_glassOpticalConstants));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        40, inputs.rrGuideSpecularAlbedo));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        41, inputs.rrGuideHitDistance));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        42, inputs.canonicalPrimaryReceiver32Buffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+        43, m_glassOpticalDiagnosticBuffer));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        44, inputs.rrGuideAlbedo));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+        45,
+        m_glassReflectionReceivers[
+            m_glassReflectionReceiverCurrentIndex]));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+        46,
+        m_glassReflectionSidecars[
+            m_glassReflectionReceiverCurrentIndex]));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT04_PUSH_CONSTANT_BYTES));
+    if (m_glassOpticalBindingSet && m_glassOpticalBindingSetDescValid &&
+        m_glassOpticalBindingSetDesc == desc)
+    {
+        return true;
+    }
+    m_glassOpticalBindingSet = dispatch.device->createBindingSet(
+        desc, m_glassOpticalBindingLayout);
+    if (!m_glassOpticalBindingSet)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create G1 optical binding set\n");
+        return false;
+    }
+    m_glassOpticalBindingSetDesc = desc;
+    m_glassOpticalBindingSetDescValid = true;
+    return true;
+}
+
+void PathTraceUnifiedPtState::DrainGlassOpticalDiagnosticReadback(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_glassOpticalDiagnosticReadbackPending ||
+        !m_glassOpticalDiagnosticReadback || !inputs.device)
+        return;
+    if (m_glassOpticalDiagnosticReadbackDelayFrames > 0)
+    {
+        --m_glassOpticalDiagnosticReadbackDelayFrames;
+        return;
+    }
+    const uint32_t* words = static_cast<const uint32_t*>(
+        inputs.device->mapBuffer(
+            m_glassOpticalDiagnosticReadback,
+            nvrhi::CpuAccessMode::Read));
+    if (!words)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: glass diagnostic readback map failed\n");
+        m_glassOpticalDiagnosticReadbackPending = false;
+        return;
+    }
+    auto wordAsFloat = [](uint32_t word)
+    {
+        float value = 0.0f;
+        memcpy(&value, &word, sizeof(value));
+        return value;
+    };
+    const uint32_t verdict = words[7];
+    common->Printf(
+        "PathTraceUnifiedPt: glass diagnostic magic=%08x stage=%u pixel=%u "
+        "interaction(material/flags/class)=%u/%08x/%08x resolvedClass=%08x "
+        "verdict(feature/object/portal/packedGlass/resolvedLookup/resolvedGlass/glass/mirror)="
+        "%u/%u/%u/%u/%u/%u/%u/%u canonical(valid/material/class)=%u/%u/%08x "
+        "weight=(%.6f %.6f %.6f) reflectedStatus=%u transmitted(status/material/flags)="
+        "%u/%u/%08x outputMode=%u position=(%.3f %.3f %.3f) depth=%.3f roughness=%.6f\n",
+        words[0], words[1], words[2], words[3], words[4], words[5], words[6],
+        (verdict >> 0u) & 1u, (verdict >> 1u) & 1u,
+        (verdict >> 2u) & 1u, (verdict >> 3u) & 1u,
+        (verdict >> 4u) & 1u, (verdict >> 5u) & 1u,
+        (verdict >> 6u) & 1u, (verdict >> 7u) & 1u,
+        words[8], words[9], words[10],
+        wordAsFloat(words[11]), wordAsFloat(words[12]),
+        wordAsFloat(words[13]), words[14], words[15], words[16], words[17],
+        words[18], wordAsFloat(words[19]), wordAsFloat(words[20]),
+        wordAsFloat(words[21]), wordAsFloat(words[22]), wordAsFloat(words[23]));
+    inputs.device->unmapBuffer(m_glassOpticalDiagnosticReadback);
+    m_glassOpticalDiagnosticReadbackPending = false;
+}
+
+bool PathTraceUnifiedPtState::ExecuteGlassOpticalTransport(
+    const PathTraceUnifiedPtGlassOpticalInputs& inputs)
+{
+    if (!inputs.dispatch || !inputs.dispatch->device ||
+        !inputs.dispatch->commandList || !inputs.dispatch->sceneInputs ||
+        !inputs.opticalSurfaceBuffer ||
+        !inputs.canonicalPrimaryReceiver32Buffer ||
+        !inputs.skyEnvironment ||
+        !inputs.rrGuideAlbedo || !inputs.rrGuideSpecularAlbedo ||
+        !inputs.rrGuideHitDistance ||
+        inputs.dispatch->compactGeometry ||
+        inputs.dispatch->compactMaterials)
+    {
+        return false;
+    }
+    const PathTraceUnifiedPtDispatchInputs& dispatch = *inputs.dispatch;
+    DrainGlassOpticalDiagnosticReadback(dispatch);
+    const RtPathTraceSceneInputs& scene = *dispatch.sceneInputs;
+    if (!scene.valid || !scene.geometry.tlas ||
+        !scene.materials.materialFeatureBuffer ||
+        !scene.materials.materialFeatureParameterBuffer ||
+        !Upt04ReplayGeometryBindingsValid(scene) ||
+        (dispatch.compactLights && !m_compactLightsBuffer) ||
+        dispatch.width == 0u || dispatch.height == 0u)
+    {
+        return false;
+    }
+    if (!EnsureGlassOpticalResources(inputs) ||
+        !EnsureGlassOpticalPipeline(inputs))
+    {
+        return false;
+    }
+
+    const bool reflectionReuseRequested =
+        r_pathTracingUnifiedPtGlassReflectionReuse.GetBool() &&
+        m_glassReflectionReuseState && m_glassReflectionWidth > 1u &&
+        m_glassReflectionHeight > 1u;
+    const bool reflectionFullResolution = reflectionReuseRequested &&
+        m_glassReflectionWidth == dispatch.width &&
+        m_glassReflectionHeight == dispatch.height;
+    if (m_glassReflectionHistoryEpoch != dispatch.historyEpoch)
+    {
+        m_glassReflectionReceiverCurrentIndex = 0u;
+        m_glassReflectionHistoryEpoch = dispatch.historyEpoch;
+        m_glassReflectionHistoryValid = false;
+        m_glassReflectionReuseReady = false;
+        m_glassOpticalBindingSet = nullptr;
+        m_glassOpticalBindingSetDescValid = false;
+    }
+    if (!EnsureGlassOpticalBindingSet(inputs))
+        return false;
+
+    const bool diagnosticRequested =
+        r_pathTracingUnifiedPtGlassPsrDiagnostics.GetBool() &&
+        !m_glassOpticalDiagnosticReadbackPending;
+
+    const uint32_t opticalFlags =
+        1u
+        | (diagnosticRequested ? 2u : 0u)
+        | (reflectionReuseRequested ? 4u : 0u)
+        | (reflectionFullResolution ? 8u : 0u);
+    const Upt46GlassOpticalControl opticalControl = {
+        dispatch.width,
+        dispatch.height,
+        static_cast<uint32_t>(uint64_t(dispatch.width) * dispatch.height),
+        opticalFlags,
+        { dispatch.primaryCameraOrigin[0],
+          dispatch.primaryCameraOrigin[1],
+          dispatch.primaryCameraOrigin[2] },
+        inputs.reflectionComposeBoost,
+        inputs.skyBrightness,
+        inputs.rayTMax,
+        static_cast<uint32_t>(Max(
+            0, scene.materials.materialFeatureRecordCount)),
+        static_cast<uint32_t>(Max(
+            0, scene.materials.materialFeatureParameterRecordCount))
+    };
+    const Upt04InitialControl initialControl = Upt04BuildControl(dispatch);
+
+    {
+        Upt04MarkerScope marker(
+            dispatch.commandList,
+            "UPT.G1 GlassOptical Bind+Barriers",
+            dispatch.nsightMarkers);
+        dispatch.commandList->setAccelStructState(
+            scene.geometry.tlas, nvrhi::ResourceStates::AccelStructRead);
+        dispatch.commandList->setBufferState(
+            inputs.opticalSurfaceBuffer, nvrhi::ResourceStates::ShaderResource);
+        Upt04SetReplayGeometrySrvStates(dispatch.commandList, scene);
+        dispatch.commandList->setBufferState(
+            dispatch.compactLights
+                ? m_compactLightsBuffer
+                : scene.lights.restirLightManagerCurrentPayloadBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        dispatch.commandList->setBufferState(
+            scene.materials.materialTableBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        dispatch.commandList->setBufferState(
+            scene.materials.materialFeatureBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        dispatch.commandList->setBufferState(
+            scene.materials.materialFeatureParameterBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        dispatch.commandList->setBufferState(
+            scene.lights.emissiveDistributionBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        dispatch.commandList->setTextureState(
+            inputs.skyEnvironment,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        dispatch.commandList->setTextureState(
+            m_glassOpticalTransmission,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::UnorderedAccess);
+        dispatch.commandList->setTextureState(
+            m_glassOpticalReflection,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::UnorderedAccess);
+        dispatch.commandList->setTextureState(
+            inputs.rrGuideAlbedo,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::UnorderedAccess);
+        dispatch.commandList->setTextureState(
+            inputs.rrGuideSpecularAlbedo,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::UnorderedAccess);
+        dispatch.commandList->setTextureState(
+            inputs.rrGuideHitDistance,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::UnorderedAccess);
+        dispatch.commandList->setBufferState(
+            inputs.canonicalPrimaryReceiver32Buffer,
+            nvrhi::ResourceStates::ShaderResource);
+        dispatch.commandList->setBufferState(
+            m_glassOpticalDiagnosticBuffer,
+            nvrhi::ResourceStates::UnorderedAccess);
+        dispatch.commandList->setBufferState(
+            m_glassReflectionReceivers[
+                m_glassReflectionReceiverCurrentIndex],
+            nvrhi::ResourceStates::UnorderedAccess);
+        dispatch.commandList->setBufferState(
+            m_glassReflectionSidecars[
+                m_glassReflectionReceiverCurrentIndex],
+            nvrhi::ResourceStates::UnorderedAccess);
+        if (diagnosticRequested)
+        {
+            dispatch.commandList->clearBufferUInt(
+                m_glassOpticalDiagnosticBuffer, 0u);
+            nvrhi::utils::BufferUavBarrier(
+                dispatch.commandList, m_glassOpticalDiagnosticBuffer);
+        }
+        dispatch.commandList->writeBuffer(
+            m_glassOpticalConstants,
+            &opticalControl,
+            sizeof(opticalControl));
+        dispatch.commandList->setBufferState(
+            m_glassOpticalConstants,
+            nvrhi::ResourceStates::ShaderResource);
+        dispatch.commandList->commitBarriers();
+        nvrhi::ComputeState state;
+        state.pipeline = m_glassOpticalPipeline;
+        state.bindings = {
+            m_glassOpticalBindingSet,
+            scene.materials.textureDescriptorTable };
+        dispatch.commandList->setComputeState(state);
+        dispatch.commandList->setPushConstants(
+            &initialControl, sizeof(initialControl));
+    }
+    {
+        Upt04MarkerScope marker(
+            dispatch.commandList,
+            "UPT.G1 GlassOptical Dispatch",
+            dispatch.nsightMarkers);
+        dispatch.commandList->dispatch(
+            (dispatch.width + 7u) / 8u,
+            (dispatch.height + 7u) / 8u,
+            1u);
+    }
+    nvrhi::utils::TextureUavBarrier(
+        dispatch.commandList, m_glassOpticalTransmission);
+    nvrhi::utils::TextureUavBarrier(
+        dispatch.commandList, m_glassOpticalReflection);
+    nvrhi::utils::TextureUavBarrier(
+        dispatch.commandList, inputs.rrGuideAlbedo);
+    nvrhi::utils::TextureUavBarrier(
+        dispatch.commandList, inputs.rrGuideSpecularAlbedo);
+    nvrhi::utils::TextureUavBarrier(
+        dispatch.commandList, inputs.rrGuideHitDistance);
+    if (reflectionReuseRequested)
+    {
+        nvrhi::utils::BufferUavBarrier(
+            dispatch.commandList,
+            m_glassReflectionReceivers[
+                m_glassReflectionReceiverCurrentIndex]);
+        nvrhi::utils::BufferUavBarrier(
+            dispatch.commandList,
+            m_glassReflectionSidecars[
+                m_glassReflectionReceiverCurrentIndex]);
+    }
+    if (diagnosticRequested)
+    {
+        nvrhi::utils::BufferUavBarrier(
+            dispatch.commandList, m_glassOpticalDiagnosticBuffer);
+        dispatch.commandList->setBufferState(
+            m_glassOpticalDiagnosticBuffer,
+            nvrhi::ResourceStates::CopySource);
+        dispatch.commandList->setBufferState(
+            m_glassOpticalDiagnosticReadback,
+            nvrhi::ResourceStates::CopyDest);
+        dispatch.commandList->commitBarriers();
+        dispatch.commandList->copyBuffer(
+            m_glassOpticalDiagnosticReadback,
+            0u,
+            m_glassOpticalDiagnosticBuffer,
+            0u,
+            UPT46_GLASS_DIAGNOSTIC_BYTES);
+        m_glassOpticalDiagnosticReadbackPending = true;
+        m_glassOpticalDiagnosticReadbackDelayFrames = 2;
+        r_pathTracingUnifiedPtGlassPsrDiagnostics.SetInteger(0);
+        common->Printf(
+            "PathTraceUnifiedPt: glass diagnostic armed at crosshair; "
+            "readback in two frames\n");
+    }
+
+    m_glassReflectionReuseReady = false;
+    if (reflectionReuseRequested)
+    {
+        const uint32_t currentIndex =
+            m_glassReflectionReceiverCurrentIndex;
+        const uint32_t previousIndex = currentIndex ^ 1u;
+        PathTraceUnifiedPtDispatchInputs reflectionDispatch = dispatch;
+        reflectionDispatch.width = m_glassReflectionWidth;
+        reflectionDispatch.height = m_glassReflectionHeight;
+        reflectionDispatch.primarySurfaceBuffer =
+            m_glassReflectionReceivers[currentIndex];
+        reflectionDispatch.primarySurfaceCurrentBuffer =
+            m_glassReflectionReceivers[currentIndex];
+        reflectionDispatch.primarySurfacePreviousBuffer =
+            m_glassReflectionReceivers[previousIndex];
+        reflectionDispatch.primaryHistorySidecarCurrentBuffer =
+            m_glassReflectionSidecars[currentIndex];
+        reflectionDispatch.primaryHistorySidecarPreviousBuffer =
+            m_glassReflectionSidecars[previousIndex];
+        reflectionDispatch.rrGuideSpecularAlbedo =
+            m_glassReflectionRrSpecular;
+        reflectionDispatch.primaryReceiverMode = 1u;
+        reflectionDispatch.compactPrimaryHistory = true;
+        reflectionDispatch.compactGeometry = false;
+        reflectionDispatch.compactLights = false;
+        reflectionDispatch.compactMaterials = false;
+        reflectionDispatch.splitInitial = false;
+        reflectionDispatch.threeVertexInitial = false;
+        reflectionDispatch.splitContinuation = false;
+        reflectionDispatch.lambertDiagnostic = false;
+        reflectionDispatch.frozenStaticDiagnostic = false;
+        reflectionDispatch.frozenLightDiagnostic = false;
+        reflectionDispatch.temporalBottleneckProbe = 0u;
+        reflectionDispatch.directProposalParity = false;
+        reflectionDispatch.lightTiles = false;
+        reflectionDispatch.temporal = true;
+        reflectionDispatch.duplication = false;
+        reflectionDispatch.spatial = true;
+        reflectionDispatch.reflectionReuseDomain = true;
+        // This child owns both reflected-receiver pages and both reservoir
+        // pages. Its history is invalidated by its own allocation/epoch
+        // contract; coupling it to the main primary-receiver history made an
+        // unrelated main-domain rejection turn glass T0 into fresh D0.
+        reflectionDispatch.primarySurfaceHistoryValid =
+            m_glassReflectionHistoryValid;
+        reflectionDispatch.family = PathTraceUnifiedPtFamily::DirectOnly;
+        reflectionDispatch.backend = PathTraceUnifiedPtBackend::RayQuery;
+        reflectionDispatch.diagnostics = false;
+        reflectionDispatch.proofStage = 9u;
+        reflectionDispatch.shaderProofMode = 6u;
+
+        const bool reflectionInitial =
+            m_glassReflectionReuseState->ExecuteInitial(reflectionDispatch);
+        const bool reflectionTemporal = reflectionInitial &&
+            m_glassReflectionReuseState->ExecuteTemporal(reflectionDispatch);
+        const bool reflectionSpatial = reflectionTemporal &&
+            m_glassReflectionReuseState->ExecuteSpatial(reflectionDispatch);
+        const bool reflectionResolved = reflectionSpatial &&
+            m_glassReflectionReuseState->ExecuteResolve(
+                reflectionDispatch, 0u);
+        if (reflectionResolved)
+        {
+            m_glassReflectionReuseState->CompleteFrame();
+            m_glassReflectionHistoryValid = true;
+            m_glassReflectionReuseReady = true;
+            m_glassReflectionReceiverCurrentIndex ^= 1u;
+            m_glassOpticalBindingSet = nullptr;
+            m_glassOpticalBindingSetDescValid = false;
+        }
+        else
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: glass reflection reuse child dispatch failed stages(D0/T0/S0/R0)=%u/%u/%u/%u; deterministic reflection retained\n",
+                reflectionInitial ? 1u : 0u,
+                reflectionTemporal ? 1u : 0u,
+                reflectionSpatial ? 1u : 0u,
+                reflectionResolved ? 1u : 0u);
+        }
+    }
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureGlassComposeResources(
+    const PathTraceUnifiedPtGlassComposeInputs& inputs)
+{
+    if (m_glassComposeRrAlbedo && m_glassComposeRrSpecularAlbedo &&
+        m_glassComposeRrNormalRoughness && m_glassComposeRrPosition &&
+        m_glassComposeRrDepth && m_glassComposeRrMotion &&
+        m_glassComposeWidth == inputs.width &&
+        m_glassComposeHeight == inputs.height)
+    {
+        return true;
+    }
+    if (!inputs.device || inputs.width == 0u || inputs.height == 0u)
+    {
+        return false;
+    }
+
+    nvrhi::TextureDesc desc;
+    desc.width = inputs.width;
+    desc.height = inputs.height;
+    desc.mipLevels = 1;
+    desc.arraySize = 1;
+    desc.dimension = nvrhi::TextureDimension::Texture2D;
+    desc.isUAV = true;
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+
+    desc.format = nvrhi::Format::RGBA16_FLOAT;
+    desc.debugName = "PathTraceUnifiedPtGlassRrAlbedo";
+    nvrhi::TextureHandle albedo = inputs.device->createTexture(desc);
+    desc.debugName = "PathTraceUnifiedPtGlassRrSpecularAlbedo";
+    nvrhi::TextureHandle specular = inputs.device->createTexture(desc);
+    desc.debugName = "PathTraceUnifiedPtGlassRrNormalRoughness";
+    nvrhi::TextureHandle normalRoughness = inputs.device->createTexture(desc);
+
+    desc.format = nvrhi::Format::RGBA32_FLOAT;
+    desc.debugName = "PathTraceUnifiedPtGlassRrPosition";
+    nvrhi::TextureHandle position = inputs.device->createTexture(desc);
+    desc.format = nvrhi::Format::R32_FLOAT;
+    desc.debugName = "PathTraceUnifiedPtGlassRrDepth";
+    nvrhi::TextureHandle depth = inputs.device->createTexture(desc);
+    desc.format = nvrhi::Format::RG16_FLOAT;
+    desc.debugName = "PathTraceUnifiedPtGlassRrMotion";
+    nvrhi::TextureHandle motion = inputs.device->createTexture(desc);
+
+    if (!albedo || !specular || !normalRoughness || !position || !depth ||
+        !motion)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to allocate distortion-consistent RR guides %ux%u\n",
+            inputs.width,
+            inputs.height);
+        return false;
+    }
+
+    m_glassComposeRrAlbedo = albedo;
+    m_glassComposeRrSpecularAlbedo = specular;
+    m_glassComposeRrNormalRoughness = normalRoughness;
+    m_glassComposeRrPosition = position;
+    m_glassComposeRrDepth = depth;
+    m_glassComposeRrMotion = motion;
+    m_glassComposeWidth = inputs.width;
+    m_glassComposeHeight = inputs.height;
+    m_glassComposeBindingSet = nullptr;
+    m_glassComposeBindingSetDescValid = false;
+    common->Printf(
+        "PathTraceUnifiedPt: allocated distortion-consistent RR guides %ux%u clear=never fields=albedo/specular/normal/depth/position/motion\n",
+        inputs.width,
+        inputs.height);
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureGlassComposePipeline(
+    const PathTraceUnifiedPtGlassComposeInputs& inputs)
+{
+    if (m_glassComposePipeline)
+    {
+        return true;
+    }
+    if (m_glassComposePipelineAttempted)
+    {
+        return false;
+    }
+    m_glassComposePipelineAttempted = true;
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(2));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(3));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(4));
+    for (uint32_t slot = 5u; slot <= 10u; ++slot)
+    {
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(slot));
+    }
+    for (uint32_t slot = 11u; slot <= 16u; ++slot)
+    {
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(slot));
+    }
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(17));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT45_GLASS_COMPOSE_PUSH_CONSTANT_BYTES));
+    m_glassComposeBindingLayout =
+        inputs.device->createBindingLayout(layoutDesc);
+    if (!m_glassComposeBindingLayout)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create native glass-compose binding layout\n");
+        return false;
+    }
+
+    const char* shaderPath =
+        "renderprogs2/spirv/builtin/pathtracing/slang_upt45/upt45_glass_compose.bin";
+    void* shaderData = nullptr;
+    int shaderSize = 0;
+    ID_TIME_T shaderTimestamp = 0;
+    uint64_t shaderHash = 0;
+    if (!Upt04ReadShader(
+            shaderPath,
+            shaderData,
+            shaderSize,
+            shaderTimestamp,
+            shaderHash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtGlassCompose";
+    m_glassComposeShader = inputs.device->createShader(
+        shaderDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!m_glassComposeShader)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create native glass-compose shader\n");
+        return false;
+    }
+
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_glassComposeShader;
+    pipelineDesc.bindingLayouts = { m_glassComposeBindingLayout };
+    const uint64_t pipelineStartUs = Sys_Microseconds();
+    m_glassComposePipeline =
+        inputs.device->createComputePipeline(pipelineDesc);
+    const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
+    if (!m_glassComposePipeline)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create native glass-compose pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: glass compose compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 bindings=18 reflectionReuse=optional-halfres guideDistortion=albedo+specular+normal+depth+position+motion pushBytes=%u createUs=%llu legacyPso=0\n",
+        shaderSize,
+        static_cast<unsigned long long>(shaderHash),
+        static_cast<long long>(shaderTimestamp),
+        UPT45_GLASS_COMPOSE_PUSH_CONSTANT_BYTES,
+        static_cast<unsigned long long>(pipelineUs));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureGlassComposeBindingSet(
+    const PathTraceUnifiedPtGlassComposeInputs& inputs)
+{
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(0, inputs.source));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(1, inputs.transmission));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(2, inputs.reflection));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(3, inputs.distortion));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(4, inputs.output));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(5, inputs.rrGuideAlbedo));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+        6, inputs.rrGuideSpecularAlbedo));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+        7, inputs.rrGuideNormalRoughness));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+        8, inputs.rrGuidePosition));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(9, inputs.rrGuideDepth));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(10, inputs.rrMotionVectors));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        11, m_glassComposeRrAlbedo));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        12, m_glassComposeRrSpecularAlbedo));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        13, m_glassComposeRrNormalRoughness));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        14, m_glassComposeRrPosition));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        15, m_glassComposeRrDepth));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
+        16, m_glassComposeRrMotion));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+        17, inputs.reflectionReuse ? inputs.reflectionReuse : inputs.reflection));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT45_GLASS_COMPOSE_PUSH_CONSTANT_BYTES));
+    if (m_glassComposeBindingSet && m_glassComposeBindingSetDescValid &&
+        m_glassComposeBindingSetDesc == desc)
+    {
+        return true;
+    }
+    m_glassComposeBindingSet = inputs.device->createBindingSet(
+        desc, m_glassComposeBindingLayout);
+    if (!m_glassComposeBindingSet)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to create native glass-compose binding set\n");
+        return false;
+    }
+    m_glassComposeBindingSetDesc = desc;
+    m_glassComposeBindingSetDescValid = true;
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecuteGlassCompose(
+    const PathTraceUnifiedPtGlassComposeInputs& inputs)
+{
+    if (!inputs.device || !inputs.commandList || !inputs.source ||
+        !inputs.transmission || !inputs.reflection || !inputs.distortion ||
+        !inputs.output || !inputs.rrGuideAlbedo ||
+        !inputs.rrGuideSpecularAlbedo || !inputs.rrGuideNormalRoughness ||
+        !inputs.rrGuidePosition || !inputs.rrGuideDepth ||
+        !inputs.rrMotionVectors || inputs.width == 0u || inputs.height == 0u ||
+        inputs.source == inputs.output)
+    {
+        return false;
+    }
+    if (!EnsureGlassComposeResources(inputs) ||
+        !EnsureGlassComposePipeline(inputs) ||
+        !EnsureGlassComposeBindingSet(inputs))
+    {
+        return false;
+    }
+
+    const Upt45GlassComposeControl control = {
+        inputs.width,
+        inputs.height,
+        inputs.distortionEnabled ? 1u : 0u,
+        0u,
+        inputs.reflectionBoost,
+        inputs.transmissionFloor,
+        2.0f,
+        12.0f
+    };
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.G2 Copy RR Guide Sources",
+            inputs.nsightMarkers);
+        inputs.commandList->setTextureState(
+            inputs.rrGuideAlbedo,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::CopySource);
+        inputs.commandList->setTextureState(
+            inputs.rrGuideSpecularAlbedo,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::CopySource);
+        inputs.commandList->setTextureState(
+            inputs.rrGuideNormalRoughness,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::CopySource);
+        inputs.commandList->setTextureState(
+            inputs.rrGuidePosition,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::CopySource);
+        inputs.commandList->setTextureState(
+            inputs.rrGuideDepth,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::CopySource);
+        inputs.commandList->setTextureState(
+            inputs.rrMotionVectors,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::CopySource);
+        for (nvrhi::ITexture* output : {
+                 m_glassComposeRrAlbedo.Get(),
+                 m_glassComposeRrSpecularAlbedo.Get(),
+                 m_glassComposeRrNormalRoughness.Get(),
+                 m_glassComposeRrPosition.Get(),
+                 m_glassComposeRrDepth.Get(),
+                 m_glassComposeRrMotion.Get() })
+        {
+            inputs.commandList->setTextureState(
+                output,
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::CopyDest);
+        }
+        inputs.commandList->commitBarriers();
+        inputs.commandList->copyTexture(
+            m_glassComposeRrAlbedo,
+            nvrhi::TextureSlice(),
+            inputs.rrGuideAlbedo,
+            nvrhi::TextureSlice());
+        inputs.commandList->copyTexture(
+            m_glassComposeRrSpecularAlbedo,
+            nvrhi::TextureSlice(),
+            inputs.rrGuideSpecularAlbedo,
+            nvrhi::TextureSlice());
+        inputs.commandList->copyTexture(
+            m_glassComposeRrNormalRoughness,
+            nvrhi::TextureSlice(),
+            inputs.rrGuideNormalRoughness,
+            nvrhi::TextureSlice());
+        inputs.commandList->copyTexture(
+            m_glassComposeRrPosition,
+            nvrhi::TextureSlice(),
+            inputs.rrGuidePosition,
+            nvrhi::TextureSlice());
+        inputs.commandList->copyTexture(
+            m_glassComposeRrDepth,
+            nvrhi::TextureSlice(),
+            inputs.rrGuideDepth,
+            nvrhi::TextureSlice());
+        inputs.commandList->copyTexture(
+            m_glassComposeRrMotion,
+            nvrhi::TextureSlice(),
+            inputs.rrMotionVectors,
+            nvrhi::TextureSlice());
+    }
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.G2 GlassCompose Bind+Barriers",
+            inputs.nsightMarkers);
+        inputs.commandList->setTextureState(
+            inputs.source,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setTextureState(
+            inputs.transmission,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setTextureState(
+            inputs.reflection,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        if (inputs.reflectionReuse)
+        {
+            inputs.commandList->setTextureState(
+                inputs.reflectionReuse,
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::ShaderResource);
+        }
+        inputs.commandList->setTextureState(
+            inputs.distortion,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setTextureState(
+            inputs.rrGuideAlbedo,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setTextureState(
+            inputs.rrGuideSpecularAlbedo,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setTextureState(
+            inputs.rrGuideNormalRoughness,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setTextureState(
+            inputs.rrGuidePosition,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setTextureState(
+            inputs.rrGuideDepth,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setTextureState(
+            inputs.rrMotionVectors,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+        for (nvrhi::ITexture* output : {
+                 m_glassComposeRrAlbedo.Get(),
+                 m_glassComposeRrSpecularAlbedo.Get(),
+                 m_glassComposeRrNormalRoughness.Get(),
+                 m_glassComposeRrPosition.Get(),
+                 m_glassComposeRrDepth.Get(),
+                 m_glassComposeRrMotion.Get() })
+        {
+            inputs.commandList->setTextureState(
+                output,
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::UnorderedAccess);
+        }
+        inputs.commandList->setTextureState(
+            inputs.output,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+
+        nvrhi::ComputeState state;
+        state.pipeline = m_glassComposePipeline;
+        state.bindings = { m_glassComposeBindingSet };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(&control, sizeof(control));
+    }
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.G2 GlassCompose Dispatch",
+            inputs.nsightMarkers);
+        inputs.commandList->dispatch(
+            (inputs.width + 7u) / 8u,
+            (inputs.height + 7u) / 8u,
+            1u);
+    }
+    nvrhi::utils::TextureUavBarrier(inputs.commandList, inputs.output);
+    for (nvrhi::ITexture* output : {
+             m_glassComposeRrAlbedo.Get(),
+             m_glassComposeRrSpecularAlbedo.Get(),
+             m_glassComposeRrNormalRoughness.Get(),
+             m_glassComposeRrPosition.Get(),
+             m_glassComposeRrDepth.Get(),
+             m_glassComposeRrMotion.Get() })
+    {
+        nvrhi::utils::TextureUavBarrier(inputs.commandList, output);
+        inputs.commandList->setTextureState(
+            output,
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+    }
+    inputs.commandList->setTextureState(
+        inputs.output,
+        nvrhi::AllSubresources,
+        nvrhi::ResourceStates::ShaderResource);
+    inputs.commandList->commitBarriers();
     return true;
 }

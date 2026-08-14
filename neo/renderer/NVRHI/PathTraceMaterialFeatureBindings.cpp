@@ -69,6 +69,12 @@ static const RtPathTraceMaterialFeatureBindingDesc kMaterialFeatureCanonicalBind
         90u,
         RtPathTraceMaterialFeatureBindingKind::TextureSrv,
         "reflection-sidecar"
+    },
+    {
+        RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_SIDECAR,
+        92u,
+        RtPathTraceMaterialFeatureBindingKind::TextureSrv,
+        "glass-distortion-sidecar"
     }
 };
 
@@ -220,6 +226,8 @@ nvrhi::TextureHandle PathTraceMaterialFeatureInputResourceTexture(
         return frameResources.transmissionTexture;
     case RT_MATERIAL_FEATURE_RESOURCE_REFLECTION_SIDECAR:
         return frameResources.reflectionSidecarTexture;
+    case RT_MATERIAL_FEATURE_RESOURCE_GLASS_DISTORTION_SIDECAR:
+        return frameResources.glassDistortionSidecarTexture;
     default:
         return nullptr;
     }

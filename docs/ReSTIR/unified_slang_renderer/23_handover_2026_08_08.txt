@@ -1,6 +1,47 @@
 Unified Slang ReSTIR PT Handover - 2026-08-08
 ================================================
 
+2026-08-14 UPT46 glass continuation follow-up:
+
+- Mirror inspection isolated the remaining failing `textures/glass/glass1`
+  panes to secondary optical traversal: the accepted panes were skipped, while
+  the failures committed and shaded an opaque grime layer.
+- UPT46 G1 now matches the accepted legacy transmission predicate for glass
+  modifier records (filter/additive/white-key decals plus portal/object glass).
+- The predicate uses UPT's narrow routed material/class lookup and is scoped
+  only to the bounded G1 reflection/transmission continuation. D0/T0/S0 and
+  general decal rendering are unchanged.
+- Follow-up runtime proof showed reflection traversal fixed but transmission
+  still absent. Lean P0 mode 2 now skips legacy transparent modifier records
+  only after checking for actual glass, allowing it to capture the underlying
+  pane. Mode-1 decal composition is unchanged.
+- That ordering change also failed to restore transmission. Stop speculative
+  glass edits: use `r_pathTracingUnifiedPtGlassPsrDiagnostics 1` once on a
+  working pane and once on a failing pane. It asynchronously prints the exact
+  P0/G1/canonical/output decision tuple and resets itself to zero.
+- Diagnostic proof showed both panes reach identical valid G1 stage-6 output;
+  the failing receiver was already unlit in R0. Shared UPT visibility now uses
+  legacy's broader non-occluding transparent-card predicate, while ordinary
+  continuation retains the narrower legacy always-transmitting predicate.
+- Runtime accepted glass light visibility. The subsequent legacy-shaped
+  analytic-RIS reflection trial was rejected: it remained noisy and confused
+  the cheap glass lane with the separate denoised opaque-mirror lane.
+- UPT46 glass reflection now traces one deterministic sharp ray, ignores glass
+  encountered by that ray, and returns a flat decoded material signal
+  `max(baseColor, specularF0)` under the RTXDI FullSample fixed ambient response
+  (or sky on miss). It performs no NEE, shadow ray, emissive/GI evaluation or
+  recursive glass PSR.
+- Runtime rejected unit-intensity flat albedo as too bright. Reflected diffuse
+  and F0 are now blended into the RR albedo/specular guides, while the exact
+  composed reflection remains in the specular guide with hit-T.
+- G2 now applies its exact color-distortion offset to a separate copied RR guide
+  set (albedo, specular, normal/roughness, depth, position and motion). This
+  avoids source/destination races and prevents RR from receiving undistorted
+  geometry guides for distorted color. The copies are bounded and never clear.
+- Stage-6 canonical transmission remains the already T0/S0-reused R0 source.
+  Fully denoised zero-roughness opaque reflection remains a separate future PSR
+  lane using reflected depth, normal and motion; do not grow G1 into that lane.
+
 Read this first
 ---------------
 
@@ -2860,3 +2901,263 @@ The initial private UPT glass pipeline cache failed runtime admission despite
 all resource/cvar gates passing. It was removed: UPT now reuses the immutable,
 proven clean-DI glass shader tables with UPT-owned bindings/constants. There is
 no additional pipeline cvar.
+2026-08-14 UPT glass follow-up:
+
+- Fixed a real receiver-ownership violation: optics-only reflection transport
+  no longer runs legacy reflection PSR selection or replaces compact32.
+- Late UPT compose now consumes the generated distortion sidecar (t92).
+- Reflected sky resolve is active on UPT and restores its temporary direction
+  carrier from compact32, preserving the behind-pane temporal/RR receiver.
+- Runtime validation still required for distortion strength, sky reflection,
+  emissive transmission and motion-stressed T0. No separate glass temporal
+  reservoir or pane-motion path was added.
+
+Correction after runtime startup crash:
+
+- Extending the sky-resolve b0 ABI to 32 bytes left a literal 16-byte host
+  allocation. NVRHI correctly rejected the oversized write. The ABI type now
+  lives in PathTracePrimaryPass.h, is statically asserted to 32 bytes, and the
+  allocation uses sizeof(type).
+- The clean-RTXDI HLSL feature pipelines are now explicitly temporary and are
+  not the accepted UPT architecture. UPT-46 (document 67) replaces them with
+  three UPT-owned Slang passes and then removes their UPT admission.
+
+UPT-46 native G2 checkpoint, 2026-08-14:
+
+- UPT late glass composition is now the native Slang compute artifact
+  `slang_upt45/upt45_glass_compose.bin`, with a five-resource layout and a
+  32-byte push ABI.
+- UPT no longer creates or dispatches the legacy clean-RTXDI glass composer.
+  Its temporary bridge admits only the transmission RT producer pending G1/G0.
+- Vulkan release build passes. Runtime proof should confirm the native compose
+  log, absence of the clean-room glass library load, no oversized write crash,
+  and unchanged transmission/reflection/distortion presentation.
+
+UPT-46 G1 architecture correction, 2026-08-14:
+
+- Runtime disproved the temporary assumption that attenuation plus simplified
+  sidecar lighting was sufficient. Reflection PSR had been disabled to protect
+  compact32, leaving only exact emission plus one analytic light; refracted
+  transmission returned before tracing and shading its receiver.
+- Real glass and zero-roughness surfaces require dedicated reflected and
+  transmitted/refracted optical rays. These must resolve lane-local canonical
+  UPT surfaces and reuse UPT D0 lighting, never replace the ordinary compact32
+  receiver or import the clean-RTXDI PSO/material-feature renderer.
+- Document 67 now requires compacted R/T lane work, shared UPT geometry,
+  material and light services, sky misses, and a strict two-ray optical ceiling.
+
+UPT-46 native G1 build checkpoint, 2026-08-14:
+
+- Added `slang_upt46/upt46_glass_optical_transport.slang`: one reflected plus
+  one transmitted/refracted RayQuery at most, with stacked supported panes
+  ignored and ordinary hits decoded/shaded by shared UPT services.
+- G2 now distinguishes attenuation, resolved refraction and exact-mirror
+  replacement instead of multiplying every sidecar payload into R0.
+- The reflected Vulkan ABI matches host bindings 0..39 and the 48-byte
+  structured control record; SPIR-V validation and the full release build pass.
+- Deployed EXE and only UPT45/46 Vulkan blobs. Runtime validation remains for
+  sky/emissive R/T, stacked panes, skinned surfaces, motion and descriptor
+  admission. Exact-mirror G0 publication remains the next narrow optical item.
+- First runtime launch caught positional binding order `21,32,25` against the
+  reflected/layout order `21,25,32`. The G1 binding set now emits geometry
+  slots explicitly in exact order. Corrected deployed EXE SHA-256 is
+  `040B0AEE47EBFC96C4AC6BE6E0F31D98108EE89096359E203AC2A6B4AE46B9F8`.
+- Second launch caught an Unknown initial state for the structured G1 control
+  SRV. It now starts in persistent Common and transitions to ShaderResource
+  after upload. Corrected EXE SHA-256 is
+  `822544211240A956CD952AE5F0FF8B9502927E92A86CA766DB75AC90D986302B`.
+- First optical images exposed two estimator/ownership mistakes. G1 was always
+  replacing canonical behind-pane R0 with a one-shot transmitted shade because
+  the inherited refraction strength defaults to 0.25; it now preserves R0 and
+  publishes attenuation only (`R1+T0`, `canonicalTransmission=1`). Reflection
+  was also using the inverse-square secondary NEE schedule, explaining its
+  roughly fourfold excess noise; it now uses the primary UPT candidate budget.
+  Retest transmission, reflected props and noise before adding a dedicated
+  reflected temporal reservoir or any visibility retries.
+- This correction builds and validates for Vulkan. Deployed hashes are EXE
+  `A5DA45BB098EF9A589F862E94A5FFEB9F6E968CEDDB142DE37C3467DE3885483`,
+  compact64 UPT46
+  `6B87AFCD32D8D7C1EDA66B5AAD0010F97DA852D071870315C0D4560FC1EEA761`,
+  and natural-112 UPT46
+  `26742F79A39AA5F7A2BC6E6489D635CB5F2C7EA2B953F58E13660F141FFF7BCC`.
+- Follow-up RR/transmission correction: G1 now exports reflected endpoint F0
+  plus actual hit distance to the existing RR specular guides while keeping
+  radiance in the composed RR color. Transmission uses compact32 validity to
+  distinguish ordinary behind-pane surfaces from unrepresentable environment
+  endpoints: surfaces preserve full R0 indirect/reuse; only the invalid/miss
+  case launches Tmiss and resolves sky. No new allocation or clear was added.
+  Expected log: `rays=R1+Tmiss canonicalTransmission=1
+  rrSpecularGuide=material+hitT`.
+- Vulkan build/validation pass. Deployed hashes: EXE
+  `CFC2510C1A4DDAF1168753E53B13833CC5BB6C6F3B18B2861A2CF5A1F76003BA`,
+  compact64 UPT46
+  `1253F6A3EFD8134E86FCA2569528E2694CB9B5FE2E3DEAF7DAB7F0D1D7D8AD94`,
+  natural-112 UPT46
+  `7E100173173A6E81AD5C2BCCAF244606AB100AC2BCD57AF3C84FD35676D26179`.
+
+- Native glass material/transport parity correction: G1 no longer consumes
+  the legacy transmission sidecar. Thin-sheet transmission/reflection comes
+  from the dense material-feature parameters; optical RayQuery forces
+  non-opaque candidate classification so glass cannot commit as a diffuse
+  blocker; RR specular classification uses interface response rather than
+  endpoint luminance/material; resolved Tmiss sky is protected from the
+  cosmetic source distortion overwrite. The shared secondary OpenPBR provider
+  also gained primary-parity classifier/full-metal/zero-roughness handling for
+  rigid, skinned and ordinary indirect hits. Expected log includes
+  `thinSheet=featureParams rrSpecularGuide=interface+hitT
+  forcedNonOpaque=1`. Runtime still owns visual acceptance.
+- Startup correction: t36 had been removed from UPT46 SPIR-V and its binding
+  set but remained in the NVRHI layout, producing a deterministic 34-versus-33
+  item rejection. The layout now matches the reflected shader/set. Corrected
+  deployed EXE SHA-256 is
+  `DC150F9CF62BCAD36212F951FC1111248BC0CEE6365EC0D47FA35BAC596B22FE`.
+- UPT46 runtime endpoint/RR correction: invalid compact32 transmission now
+  recognizes committed Doom sky-shell and emissive terminals instead of only
+  hardware misses. RR specular receives the same unsaturated HDR reflection
+  contribution added to beauty, including glass compose boost, rather than
+  interface F0. Native G2 consumes the bounded distortion sidecar regardless
+  of the legacy clean-DI diagnostic cvar. No ray, buffer or clear was added.
+  Expected log includes `skyShellTransmission=1`,
+  `emissiveTerminalTransmission=1`,
+  `rrSpecularGuide=reflectionColorHdr+hitT`, and `distortionConsume=1`.
+  Vulkan build/validation pass; deployed hashes are EXE
+  `9602B8D8BDBEF9835F9EE5DB2243FA620A3B5AE48DEB00349E8BB6F5559563B7`,
+  compact64 UPT46
+  `FBFA6042D0069E629686DA1AEAAFCA27B7683717B736AA1A6063B9FCB8FFF521`,
+  natural-112 UPT46
+  `1F2AE866EA54B8674EF424EA5198F1B4722036E408DBDB9709106104B81D8AF2`.
+
+- Runtime then disproved the endpoint-only fix. A window blocked lighting while
+  resident in the view TLAS and admitted it when it left, proving ordinary UPT
+  D0/T0/S0 queries still committed glass. Proven portal-window/object-glass
+  candidates are now skipped consistently in UPT04, UPT07, UPT09 and UPT46;
+  missing material identity remains fail-closed.
+- R0 now exports the exact HDR resolved color of global-specular combined
+  candidates to the RR specular guide. G1 overwrites glass pixels with the exact
+  reflection contribution used by beauty, rather than adding sparse optical F0
+  or preserving an unrelated behind-surface guide.
+- G2 now distorts resolved sky/emissive transmission by sampling the resolved
+  transmission image under alpha-2 ownership; ordinary canonical transmission
+  retains source-image distortion.
+- Full Vulkan release build passes and all 154 artifacts in the six affected
+  UPT SPIR-V directories pass `spirv-val`. Runtime acceptance remains the
+  window residency invariant, RR guide/beauty parity, sky/emissive/indirect
+  transmission, visible distortion and stacked panes. Do not commit this
+  checkpoint before that in-game proof.
+- Deployed exactly 32 rebuilt Vulkan UPT04/05/07/09/45/46 blobs plus the EXE;
+  source/deployment hashes match. Key hashes: EXE
+  `7CC8E1F4DBAD52F3F833005DBBE8C0DB5E898BE3DA854B8090B6DAD44C8A4070`,
+  UPT45
+  `C88B590806FF33FE6CAAE70496B7388EA9B829DD2401BDD2E6EB493C6CD7B3C2`,
+  UPT46 compact64
+  `0000F7EA7078B89EC251B6538BDD56026AC37E55922A13E9C97DA9FC6E48ED6E`,
+  and UPT46 natural
+  `32DCEF4706D223489F9A9EFD2198BCDF0F70F1818746F4CAEE0918AE9395BD40`.
+- Partial transmission was traced to two valid pane identities. P0 recognized
+  both legacy glass material flags and packed translucent subtypes, while
+  UPT04/07/09/46 recognized only the flags. A narrow metadata-only triangle
+  class resolver now admits exactly object-glass subtype 1 and portal-window
+  subtype 4 after the material-bit fast path. It fetches no vertices, leaves
+  all other translucency unchanged and remains fail-closed on missing identity.
+  G1 applies the same rule to the camera-visible packed primary-surface class.
+  The full Vulkan build and `spirv-val` pass for all 28 rebuilt UPT04/07/09/46
+  blobs; runtime acceptance is still required before commit.
+- The next failing pane exposed a narrower P0 divergence. UPT lean any-hit's
+  deterministic pass-through/capture branch consulted only the material-feature
+  record, whereas the legacy renderer accepts the exact union of feature,
+  packed glass subtype and portal/object fallback flags. The later stochastic
+  fallback could therefore let mode 1 reach the correct receiver while mode 2
+  failed to capture a front pane. P0 now uses the legacy-shaped union before
+  stochastic coverage. G1 additionally recovers the packed class from the
+  stored instance/primitive identity when the compact primary record carries
+  only a broad class. The Vulkan build regenerated both P0 libraries and both
+  UPT46 variants; runtime acceptance is still required for
+  `textures/glass/glass1`, stacked panes, distortion and view-TLAS-independent
+  light transport.
+
+- UPT47 glass-reflection reuse experiment: `68_upt47_glass_reflection_reuse_experiment.txt`
+  records the opt-in half-resolution analytic-DI child domain. G1 publishes a
+  compact48 reflected receiver plus pane-anchored sidecar per 2x2 block; a
+  private UPT state runs direct D0/T0/S0/R0, and G2 reconstructs it while
+  retaining deterministic UPT46 RGB on invalid pixels. Exact mirrors and the
+  main UPT histories are untouched. Full Vulkan release build and `spirv-val`
+  pass for all six affected runtime blobs; runtime visual/performance
+  acceptance remains pending. Test by toggling only
+  `r_pathTracingUnifiedPtGlassReflectionReuse 0/1` under the accepted glass
+  configuration. No DX12 shader was compiled and no checkpoint was committed.
+
+- UPT47 first runtime correction: the first interpretation incorrectly leaned
+  on DLSS-RR after reflection reuse instead of requiring the private T0/S0
+  domain to stabilize the estimate before compose. Independently, G1 had
+  polluted diffuse albedo with the reflected terminal while G2 could overwrite
+  reflected HDR specular after its distortion remap. Reflection reuse now
+  preserves behind-pane diffuse ownership and writes the exact final beauty
+  reflection into the RR specular guide after every guide-remap operation.
+  UPT45 plus both UPT46 Vulkan variants rebuild and pass `spirv-val`; runtime
+  denoising acceptance is pending.
+
+- UPT47 reflection-history correction: the child reflection pass must produce
+  its stabilized estimate before compose; DLSS-RR is not responsible for
+  denoising glass. The compact48 sidecar stored a pane reprojection anchor but
+  marked it usable only when the pane advertised object motion. Static panes
+  therefore projected the off-camera reflected hit and usually lost T0
+  history. UPT46 now always marks the pane anchor as previous position, while
+  retaining true previous pane positions for moving glass. The child history
+  is also independent of main primary-history validity, and G2 exposes the
+  child texture only if D0/T0/S0/R0 all return success; otherwise the log prints
+  `stages(D0/T0/S0/R0)` and deterministic reflection remains active. The Vulkan
+  release build and both UPT46 `spirv-val` checks pass. Deployment and runtime
+  convergence acceptance are pending because the game was still running.
+
+- UPT47 legacy black-noise parity: ordinary unbiased half-resolution reuse
+  remained visibly noisy because it preserved count-only black trials.  The
+  legacy reflection code instead conditions on positive candidates and
+  aggressively repairs empty pixels.  A private reflection-only specialization
+  now (1) divides D0 mass by positive proposals, (2) never streams zero or
+  occluded D0 work, (3) excludes count-only/shifted-zero records from T0, and
+  (4) searches the nearest eight spatial donors for a compatible positive
+  sample and visibility-tests the closest one. Successful stolen samples may
+  propagate;
+  invalid samples are never admitted merely for density. The main UPT DI/GI
+  estimator is unchanged. Full Vulkan release build and targeted D0/T0/S0
+  `spirv-val` pass. The EXE and exactly the three reflection-only D0/T0/S0
+  blobs were deployed; runtime acceptance is pending.
+
+- UPT47 reflection resolution control: the original child was hard-coded to
+  one receiver per 2x2 block. New cvar
+  `r_pathTracingUnifiedPtGlassReflectionReuseResolution` selects 50 or 100
+  percent per axis (threshold 75). G1 publication, private allocation and G2
+  reconstruction all use the same effective mode; changing it invalidates
+  only private glass-reflection history. Runtime logs requested/effective
+  resolution and child dimensions.
+
+- UPT47 legacy emissive audit: the old secondary reflection shader performs
+  one sharp reflected ray, adds exact terminal-hit emission, then samples only
+  Doom analytic lights through RIS. It does not perform emissive NEE. UPT47
+  already matches that ownership because G1 packs terminal emission into the
+  reflected receiver and reflection R0 adds receiver self-emission. Keep
+  emissive RIS excluded from this child to retain its zero-noise endpoint.
+
+- UPT47 motion floor and energy correction: legacy glass rebuilt eight
+  analytic RIS candidates each frame and had no reflection-reservoir temporal
+  pass. The UPT47 child had inherited the global one-candidate default, making
+  motion expose a much noisier D0 floor than rest. Reflection D0/T0/S0 now use
+  `r_pathTracingReflectionSecondarySamples` (default 8), while reflection T0
+  caps admitted history M and age at 4. Positive-only admission remains, but
+  D0 multiplies the conditional estimate by positiveCount/candidateCount so
+  rejected zeros do not add energy. Main UPT candidate/history settings remain
+  unchanged.
+
+- UPT47 literal legacy D0 correction: source comparison found the decisive
+  remaining mismatch. Legacy retains four positive RIS proposals and retries
+  alternatives when the selected proposal fails shade or visibility; UPT47
+  previously erased the pixel after its one selected visibility failure. The
+  private reflection D0 artifact now uses the configured 1..16 analytic trial
+  count, retains at most four positive proposals, tries the selected proposal
+  first, and publishes the first visible alternative. It also restores the
+  legacy positive-count denominator instead of cancelling that intentional
+  bias with positiveCount/candidateCount. Main UPT D0 is unchanged; the child
+  is bounded to four visibility rays. Vulkan release build and artifact
+  validation pass; deployed D0 SHA-256 is
+  `CF9CE9BAC4DBA1C3C0EDCC5F10B309CD7B9DCD499E7300A43BF47987C8ED5045`.
+  Runtime movement-quality and cost acceptance remain pending.

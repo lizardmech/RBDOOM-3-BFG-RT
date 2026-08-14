@@ -138,6 +138,89 @@ correctness fix for the blue-tint/reset contamination. It may remove a source of
 bad post-reload timing, but it does not by itself explain a stable 48/58-FPS
 plateau that can recur without a reset.
 
+### GI spatial marker contained temporal shape and final visibility
+
+The observed `CleanGI.2 SpatialReuse DispatchRays` cost of approximately 3.6
+ms is not directly comparable to the modified NVIDIA demo's approximately 0.6
+ms custom GI spatial pass. The demo pass reconstructs its primary surface,
+runs spatial reservoir resampling, and stores the output reservoir. Rbdoom's
+marker used `ReuseRayGen`, whose runtime `phase` branch contains both temporal
+and spatial implementations. Its spatial branch then also performs final GI
+shading, writes the combined indirect and separate diffuse/specular lobe
+textures, and applies the final-mix visibility policy.
+
+The default `r_pathTracingCleanRestirGiFinalMix 13` enables reservoir final
+visibility, so the nominal spatial marker also traces one visibility ray for
+each eligible valid pixel. The production reuse SPIR-V is 473,752 bytes with
+27,996 disassembly lines, 737 loads, 4,998 branches, and three static
+`TraceRay` sites. NVIDIA's complete two-permutation custom GI spatial blob is
+107,250 bytes; its individual permutation is smaller still.
+
+`r_pathTracingCleanRestirGiSplitSpatialFinal 1` supplies a workload-preserving
+Vulkan A/B for production view 0. With spatial visibility mode 0, it replaces
+the fused phase-1 entry with:
+
+- `CleanGI.2 SpatialReuseOnly DispatchRays`, which only reconstructs the
+  receiver, resamples the temporal reservoir page, and stores the spatial page;
+- `CleanGI.3 FinalShading DispatchRays`, which reloads the receiver and spatial
+  reservoir, performs the unchanged final mix/visibility, and writes the three
+  GI output textures.
+
+The spatial-only production blob validates for Vulkan 1.2 and contains zero
+static `TraceRay` sites. It is still large at 293,904 bytes, 17,050 disassembly
+lines, 647 loads, and 2,771 branches, versus the much smaller demo pass. The
+separate final-shading blob is 237,608 bytes with one `TraceRay` site. This A/B
+therefore answers two questions independently: how much of the old 3.6 ms was
+mislabelled final work, and how much overhead remains in rbdoom's still-large
+trace-free spatial entry.
+
+Runtime measured the trace-free spatial-only raygen at approximately 1.7 ms,
+while the same custom spatial contract in the NVIDIA demo is approximately 0.6
+ms. Similar rbdoom reuse passes cluster around 1.5--1.7 ms versus roughly 0.6
+ms in the demo, exposing a shared approximately 2.5--2.8-times per-pixel
+execution overhead after final shading and visibility have been removed.
+
+Direct Vulkan compilation makes the shared shader-shape difference concrete:
+
+| GI custom spatial module | Bytes | SPIR-V lines | Loads | Stores | Branches | `TraceRay` |
+|---|---:|---:|---:|---:|---:|---:|
+| NVIDIA compute | 49,316 | 2,330 | 24 | 3 | 175 | 0 |
+| NVIDIA raygen | 61,676 | 2,930 | 52 | 7 | 212 | 0 |
+| rbdoom raygen split | 293,904 | 17,050 | 647 | 61 | 2,771 | 0 |
+| rbdoom compute A/B | 103,160 | 5,853 | 33 | 5 | 1,009 | 0 |
+
+Function attribution explains most of the rbdoom RT-library size. Its actual
+`SpatialReuseOnlyRayGen` is 5,240 disassembly lines, but the supposedly
+trace-free pass library also exports a 6,395-line material `AnyHit` and a
+3,686-line `ShadowAnyHit`. NVIDIA's matching raygen is 1,301 lines and its
+any-hit is 262. Thus rbdoom's split raygen still inherits the renderer's full
+hit/material universe even when the entry contains no ray trace; its actual
+raygen body is also about four times the reference body.
+
+`r_pathTracingCleanRestirGiSpatialCompute 1`, used together with
+`r_pathTracingCleanRestirGiSplitSpatialFinal 1`, executes the identical
+trace-free spatial contract as a 16x8 compute dispatch. Its marker is
+`CleanGI.2 SpatialReuseOnly Dispatch`. Comparing it with the raygen marker
+separates RT pipeline/hit-group baggage from the remaining oversized rbdoom
+surface/callback contract. The compute module is still roughly twice the
+reference compute size and nearly six times the branch count, so reaching 0.6
+ms may require a compact reuse-only surface adapter even if compute recovers a
+large fraction immediately.
+
+Adding the two modules initially left the pipeline-warmup CVar at its old
+16-module default. The new entries shifted legacy reuse and seed to stages 17
+and 18, so warmup stopped before the GI pipeline could become usable. The
+complete-lane default and description are now 18; lower values remain bounded
+failure/progression diagnostics only.
+
+The same shader-shape failure is stronger in DI initial. Its production blob
+is 971,708 bytes with 56,709 disassembly lines, 1,609 loads, 10,795 branches,
+and nine static `TraceRay` sites. Dynamic producer, visibility, and diagnostic
+routes remain compiled into the one initial module. This is consistent with DI
+initial being the dominant DI event even when the live scene and candidate
+count are small; the next DI slice must produce a genuinely minimal typed-RLU
+initial entry rather than adding another runtime proof branch to this module.
+
 ### Per-frame Vulkan descriptor-pool churn
 
 A low-level lifetime mismatch exists between rbdoom and the NVIDIA sample.
@@ -937,3 +1020,214 @@ If mode 0 rises materially from the prior 38 FPS toward mode 4, oversized
 shadow payload liveness was part of the 6.32 ms boundary. If mode 0 remains
 near 38 FPS, revert the experiment and continue inside traversal/hit routing
 and the five-millisecond proposal/setup slice.
+
+### Cross-cutting compiler, resolution, and primary-surface audit
+
+The next audit deliberately moved below individual DI/GI features. Three
+shared mechanisms were checked against the modified NVIDIA sample.
+
+The compiler is not silently omitting optimization. The rbdoom Vulkan build
+uses DXC 1.9.0.5180, while the sample carries DXC 1.8.2505.32. Compiling the
+clean GI spatial compute shader with either the build's default flags or an
+explicit `-O3` produced byte-identical output for each compiler. The rbdoom
+compiler produced 103,160 bytes and 5,853 SPIR-V lines in both cases. The
+sample compiler produced 103,428 bytes and 5,891 lines in both cases. A
+missing optimization level and an unusually old compiler are therefore ruled
+out as a common multiplier.
+
+The launch configurations are not directly resolution-equivalent. The
+rbdoom prebuilt launch file explicitly selects 2560x1440, while the NVIDIA
+sample source defaults to 1920x1080 and its launch file does not override the
+size. Those pixel counts differ by 1.7778x. If the captured sample was actually
+running at its default, a 1.7 ms rbdoom dispatch normalizes to approximately
+0.956 ms at 1080p, leaving about 1.59x relative to the reported 0.6 ms sample
+dispatch rather than 2.83x. The sample's saved window placement suggests it
+may have been resized, however, so this remains an unconfirmed measurement
+condition until actual dispatch dimensions are read from both captures.
+
+The shared primary-surface history contract is a stronger structural
+difference. `PathTracePrimarySurfaceRecord` occupies 176 bytes per pixel. At
+2560x1440 one history buffer is 618.75 MiB and the current/previous pair is
+1,237.5 MiB. At 1920x1080 they are 348 MiB and 696 MiB respectively. The
+NVIDIA path reconstructs its surface from five compact G-buffer textures
+(depth, shading normal, geometric normal, diffuse, and specular/roughness),
+approximately 20 bytes per pixel before format qualifications. The rbdoom
+record is therefore about 8.8x larger and is an array-of-structures layout:
+adjacent lanes fetching the same member are 176 bytes apart. The sample's
+texture/structure-of-arrays arrangement keeps adjacent pixels' same-field
+loads adjacent. Clean DI and GI both consume this contract, making it a
+credible cross-pass bandwidth and cache multiplier.
+
+The clean production route also copied the entire current 176-byte record
+buffer into the previous buffer at the end of every eligible frame. At
+2560x1440 this is a 618.75 MiB GPU copy per frame, visible as the late
+`vkCmdCopy` in the simple-room capture. This copy sits outside the individual
+DI/GI reuse markers, so it cannot by itself explain a 1.7 ms spatial marker,
+but it consumes frame time and disturbs the same cache/bandwidth system those
+passes use.
+
+`r_pathTracingCleanRtxdiDiPrimarySurfaceHistorySwap` is a narrow proof for
+that copy. Mode 0 retains the original copy and labels it
+`CleanDI.4 PrimarySurfaceHistory Copy` when Nsight markers are enabled. Mode 1
+swaps the current and previous buffer handles after all current-frame clean
+DI/GI consumers have run. The next frame's producer writes the other buffer,
+and binding sets are created from the new handle orientation. Thus the same
+current/previous history is retained without deleting shader work or history
+validity. A small result would isolate the direct copy as secondary while
+leaving the 176-byte shared ABI/access topology as the next low-level target.
+
+Runtime measurement did not produce a small result: handle swapping improved
+frame rate by approximately 20 percent. The swap is consequently default-on,
+while mode 0 remains available as the legacy copy comparison. This validates
+the primary-surface history mechanism as a material cross-cutting bandwidth
+problem rather than a theoretical layout concern.
+
+### Intermittent InitSeed cost and empty default dispatch
+
+A capture of the unstable fast/slow frame-rate states isolated a tenfold swing
+inside `CleanGI.0c InitSeed DispatchRays`: approximately 1.3 ms in the slow
+state and 0.13 ms in the fast state. The dispatch dimensions and intended
+production workload were unchanged.
+
+The production defaults make the dispatch redundant:
+
+- specular producer mode 2 deliberately does not preload a separate specular
+  seed;
+- glossy second-ray seeding defaults off;
+- NEE-cache seeding defaults off;
+- the temporal pass builds and stores the ordinary diffuse initial reservoir
+  itself, and only reads a preloaded INIT reservoir when one of the optional
+  seed sources is active.
+
+SPIR-V inspection shows why treating this as a trivial clear is misleading.
+The production full-seed module is 2,231,944 bytes, expands to 131,566
+disassembly lines, exports seven ray-tracing entry points, and retains 20
+static `OpTraceRayKHR` sites. The no-spec seed is 321,348 bytes with one trace
+site. For comparison, the dedicated spatial-reuse module is 293,904 bytes with
+no trace sites, and final shading is 237,608 bytes with one trace site. Thus
+the default path was launching by far the largest split GI RT module solely to
+clear a transient reservoir page.
+
+The host now omits InitSeed when no optional seed source is active. Specular
+mode 1 retains the existing split no-spec plus specular trace/shade sequence.
+Glossy second-ray mode retains the full seed module. NEE-only seeding now uses
+the smaller no-spec module. No temporal, spatial, producer, or final-shading
+work is removed. If the broader frame-rate plateau still fluctuates after the
+empty dispatch disappears, the same capture comparison should identify which
+subsequent pass inherits the timing swing; the redundant seed dispatch can no
+longer hide or amplify it.
+
+The follow-up runtime did exactly that: total frame rate exhibited the same
+slow/fast behavior, while the extra time moved primarily into the first
+indirect dispatches. This rules out InitSeed's shader work as the cause of the
+plateau. It also changes how individual marker times must be interpreted: the
+slow state is a queue/GPU-wide condition whose delay is charged to whichever
+substantial dispatch encounters it, rather than a stable data-dependent path
+inside one named shader.
+
+### GPU operating-state correlation
+
+A two-minute `nvidia-smi dmon` trace was recorded across game startup and a
+fully loaded path-traced interval. Before the game became active, the RTX 4090
+briefly reached a 2565 MHz graphics clock. During the sustained rendering
+interval it reported:
+
+- 100 percent SM utilization;
+- 2235 MHz graphics clock for every loaded sample;
+- approximately 232--242 W against a 450 W limit;
+- approximately 57--59 C;
+- zero power-limit and thermal-limit violation flags;
+- 10501 MHz memory clock.
+
+2235 MHz is the RTX 4090 base graphics clock. Remaining exactly at base under
+100 percent SM load while far below power and temperature limits is not normal
+thermal or power throttling. It is consistent with an explicit stable/base
+clock policy. This also fits the qualitative evidence: arbitrary heavier CVar
+changes can temporarily improve frame rate, transitions take seconds, Nsight
+changes the behavior, and the extra GPU time migrates between dispatches.
+
+One attribution question remains before treating this as an engine defect.
+Nsight Graphics can deliberately lock clocks to base for reproducible captures.
+If the monitored run was launched through Nsight, the 2235 MHz trace is likely
+that profiling policy and the same clock setting must be verified for the
+reference sample. If it was a normal launch, the next controlled comparison is
+the modified NVIDIA sample versus rbdoom under `nvidia-smi dmon`, followed by
+an executable/profile-name A/B or a temporary fixed-clock test. A reference
+sample boosting above 2235 MHz while rbdoom remains at base would establish a
+driver/application clock-policy difference independently of shader code.
+
+The monitored run was launched through Nsight, and it contained both observed
+performance plateaus: it remained near 50 FPS, rose to approximately 58 FPS,
+and then stayed there for roughly 30 seconds before exit. The graphics clock
+was fixed at 2235 MHz throughout both plateaus. A graphics-clock transition is
+therefore ruled out as the cause of this particular 50-to-58-FPS change. The
+Nsight base-clock lock explains the absolute clock but cannot explain the
+within-capture timing transition.
+
+### Reused non-volatile constant buffers and dispatch binding order
+
+The next shared host-side audit found that the core clean DI and GI constants
+were ordinary non-volatile Vulkan constant buffers. NVRHI implements a write to
+such a buffer by transitioning it to `CopyDest`, immediately committing the
+barrier, and recording `vkCmdUpdateBuffer`. The next pipeline-state bind walks
+the binding set, transitions the same physical buffer back to
+`ConstantBuffer`, and commits another barrier. Clean GI rewrites its shared
+buffer several times in a frame; clean DI and its material-feature dispatches
+do the same. Reusing one physical allocation therefore inserts repeated
+transfer-to-shader dependencies into the serial ray-tracing command stream.
+
+This differs from NVRHI's normal render-pass constant path. A volatile constant
+buffer is a persistently mapped, versioned allocation. Each write selects a
+free version and copies through the CPU mapping; binding the descriptor set
+uses that version's dynamic offset. It does not record `vkCmdUpdateBuffer` or
+cycle the resource through `CopyDest`. Tonemap, TAA, SSAO, and mip generation
+already use this mechanism; the path-tracing constants did not.
+
+The audit also found several dispatch helpers binding ray-tracing state before
+writing the constants consumed by the dispatch. That ordering cannot select
+the newly written version when dynamic offsets are used, and on the old path it
+left the buffer in its post-write transfer state without a following binding
+transition. The focused proof changes the clean DI sentinel and clean GI main
+constant buffers to 64-version volatile buffers, changes every corresponding
+slot-2 layout entry to `VolatileConstantBuffer`, and makes affected DI feature,
+spatial, and guide-mosaic dispatches write before binding state. Shader code,
+dispatch dimensions, candidate counts, and ray workloads are unchanged.
+
+Runtime acceptance is whether this removes or reduces the 50/58-FPS plateau
+behavior and the migrating per-dispatch delay. A positive result justifies
+extending the same contract to the still non-volatile main smoke and auxiliary
+path-tracing constant buffers. A neutral result rejects these transfer/barrier
+cycles as the principal multiplier and moves the shared-resource audit to the
+large all-pass UAV binding sets and their resource-state tracking.
+
+Runtime rejected the combined volatile-buffer proof more strongly than a
+neutral result. The same scene could not rise above approximately 48 FPS,
+where the preceding executable had exhibited a 50-to-58-FPS transition. The
+volatile allocation and dynamic-offset layout changes were therefore removed.
+Write-before-bind ordering remains temporarily isolated as a second proof; it
+does not change buffer allocation or descriptor layout. If that build regains
+the prior fast state, the regression belongs to volatile versioning/dynamic
+binding. If it remains capped, the command-order change must also be reverted.
+
+## Successor UPT performance lane
+
+The clean Slang UPT renderer is now the active controlled successor experiment;
+its detailed contract and current handover live in
+`docs/ReSTIR/unified_slang_renderer/`. Results there should not be folded back
+into the legacy pass timings above as though the workloads were identical.
+
+The accepted direct-only shape retained the monolithic RayQuery D0. Attempts to
+split direct/indirect or continuation work serialized or duplicated traversal
+and were slower than the approximately 0.9 ms monolithic result. The accepted
+compact32 hot receiver plus cold history sidecar saved roughly 0.8 ms in the
+user's capture and preserved authored vertex smoothing. Direct proposal parity
+was also unexpectedly faster in the tested larger scene despite evaluating more
+analytic trials, which reinforces that nominal candidate count is not a useful
+standalone performance proxy.
+
+UPT temporal/spatial remain opt-in. Their accepted direct sub-policy uses
+duplication control, unique-neighbor spatial mode 0, direct proposal and target-
+PDF parity, and maximum history M/age 32. The next performance comparison is not
+another D0 split: it is the unified one-continuation path-tree route after the
+remaining UPT-only portal-dependent emissive acquisition loss is fixed. See
+`docs/ReSTIR/unified_slang_renderer/23_handover_2026_08_08.txt`.

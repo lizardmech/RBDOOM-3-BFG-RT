@@ -953,6 +953,28 @@ foreach(family direct indirect)
         ${static_compact32_raygen_outputs})
 endforeach()
 
+# UPT-47 glass-reflection child.  Keep the biased positive-only estimator in
+# its own artifact so the main direct/indirect reservoir contract remains the
+# accepted fixed-schedule estimator.
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_reflection_direct_rayquery
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=1
+        UPT47_REFLECTION_POSITIVE_ONLY=1
+    OUT_VAR reflection_direct_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_STATIC_SPECIALIZATION_OUTPUTS
+    ${reflection_direct_rayquery_outputs})
+
 set(UPT04_STATIC_VERIFY_STAMP "${UPT04_OUTPUT_DIR}/upt04_static_specializations_verified.txt")
 add_custom_command(
     OUTPUT "${UPT04_STATIC_VERIFY_STAMP}"
@@ -1224,6 +1246,7 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_diagnostics
     upt04_initial_direct_only_rayquery
     upt04_initial_direct_only_rayquery_compact
+    upt04_initial_reflection_direct_rayquery
     upt04_initial_direct_only_rayquery_compact32
     upt04_initial_direct_only_rayquery_compact32_geometry48
     upt04_initial_direct_only_rayquery_compact32_geometry48_light64
@@ -1258,7 +1281,8 @@ set(UPT04_PRODUCTION_RUNTIME_MODULES
     upt04_initial_split_direct_rayquery_compact32_light64
     upt04_initial_split_indirect_rayquery_compact32_light64
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex
-    upt04_initial_rayquery_compact32_lambert)
+    upt04_initial_rayquery_compact32_lambert
+    upt04_initial_reflection_direct_rayquery)
 set(UPT04_RUNTIME_OUTPUTS)
 set(UPT04_PRODUCTION_RUNTIME_OUTPUTS)
 foreach(runtime_module IN LISTS UPT04_RUNTIME_MODULES)

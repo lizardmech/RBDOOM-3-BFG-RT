@@ -11,6 +11,65 @@ public static const uint kUpt04AlphaClipFromDiffuseLuma = 0x00000040u;
 public static const uint kUpt04AlphaClipForceDebugAlbedo = 0x00000080u;
 public static const uint kUpt04AlphaClipFromDiffuseDarkKey = 0x00000100u;
 public static const uint kUpt04AlphaClipFromDiffuseMagentaKey = 0x00001000u;
+public static const uint kUpt04MaterialAdditiveDecal = 0x00000004u;
+public static const uint kUpt04MaterialFilterDecal = 0x00000010u;
+public static const uint kUpt04MaterialPortalWindowFallback = 0x00000200u;
+public static const uint kUpt04MaterialObjectGlassFallback = 0x00000400u;
+public static const uint kUpt04MaterialAdditiveDecalWhiteKey = 0x00000800u;
+
+// Clear glass is an optical interface, not an opaque blocker. The primary
+// producer already continues through these materials; every UPT visibility
+// and continuation RayQuery must make the same decision or an on-screen pane
+// suppresses lighting until it leaves the TLAS. Missing material identity
+// remains solid, preserving the accepted no-hole failure rule.
+public bool Upt04MaterialAlwaysTransmitsCandidate(Upt04HitFacts candidate)
+{
+    uint materialIndex;
+    if (!Upt04ResolveTriangleMaterialIndex(candidate, materialIndex)
+        || materialIndex >= gUpt04Control.materialCount)
+        return false;
+    const uint flags = Upt04LoadMaterialFlags(materialIndex);
+    const uint alwaysTransparentFlags =
+        kUpt04MaterialAdditiveDecal
+        | kUpt04MaterialFilterDecal
+        | kUpt04MaterialPortalWindowFallback
+        | kUpt04MaterialObjectGlassFallback
+        | kUpt04MaterialAdditiveDecalWhiteKey;
+    if ((flags & alwaysTransparentFlags) != 0u)
+        return true;
+    uint triangleClassAndFlags;
+    return Upt04ResolveTriangleClassAndFlags(
+            candidate, triangleClassAndFlags)
+        && Upt04TriangleClassIsTransmittingGlass(triangleClassAndFlags);
+}
+
+// Legacy light visibility deliberately admits a slightly broader transparent-
+// card set than continuation traversal. Luma/magenta-key cards are coverage
+// modifiers rather than solid blockers; treating them as opaque here makes a
+// staged grime layer suppress all illumination behind an otherwise valid pane.
+public bool Upt04MaterialDoesNotOccludeVisibilityCandidate(
+    Upt04HitFacts candidate)
+{
+    uint materialIndex;
+    if (!Upt04ResolveTriangleMaterialIndex(candidate, materialIndex)
+        || materialIndex >= gUpt04Control.materialCount)
+        return false;
+    const uint flags = Upt04LoadMaterialFlags(materialIndex);
+    const uint transparentCardFlags =
+        kUpt04MaterialAdditiveDecal
+        | kUpt04MaterialFilterDecal
+        | kUpt04AlphaClipFromDiffuseLuma
+        | kUpt04MaterialPortalWindowFallback
+        | kUpt04MaterialObjectGlassFallback
+        | kUpt04MaterialAdditiveDecalWhiteKey
+        | kUpt04AlphaClipFromDiffuseMagentaKey;
+    if ((flags & transparentCardFlags) != 0u)
+        return true;
+    uint triangleClassAndFlags;
+    return Upt04ResolveTriangleClassAndFlags(
+            candidate, triangleClassAndFlags)
+        && Upt04TriangleClassIsTransmittingGlass(triangleClassAndFlags);
+}
 
 public float3 Upt04AlphaClipYCoCgToRgb(float4 ycocg)
 {

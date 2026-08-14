@@ -21,6 +21,10 @@ import upt04_initial_light_selection;
 #define UPT04_LIGHT_TILES 0
 #endif
 
+#ifndef UPT47_REFLECTION_POSITIVE_ONLY
+#define UPT47_REFLECTION_POSITIVE_ONLY 0
+#endif
+
 #ifndef UPT_FROZEN_STATIC_SCENE
 #define UPT_FROZEN_STATIC_SCENE 0
 #endif
@@ -481,126 +485,21 @@ public Upt04DirectRisProposal Upt04EvaluatePreviousBestProposal<
     return proposal;
 }
 
-public Upt04InitialTraceWork Upt04PrepareDirectTrial<
-    TMaterialSet : IUpt04MaterialSet>(
+// Materialize one already-selected direct RIS proposal into the bounded
+// visibility work contract.  Keeping this separate from proposal selection is
+// required by the private reflection lane: legacy reflection retains a short
+// list of positive proposals and can retry another one when the selected
+// proposal is occluded, without rebuilding or renormalizing the RIS draw.
+public Upt04InitialTraceWork Upt04BuildDirectProposalTraceWork(
     Upt04InitialTraceWork work,
     Upt04PrimarySurfaceRecord surface,
-    uint2 pixel)
+    Upt04DirectRisProposal selected,
+    float finalizedMass,
+    uint directDiagnostics)
 {
-    const Upt04PreparedDirectMaterial preparedMaterial =
-        TMaterialSet.PreparePrimaryDirect(surface);
-#if UPT_FROZEN_FLAT_LIGHTS
-    const Upt04D0PreviousBestSource previousSource =
-        (Upt04D0PreviousBestSource)0;
-    uint directDiagnostics = 0u;
-    const Upt04DirectRisProposal previousBest =
-        (Upt04DirectRisProposal)0;
-#else
-    const Upt04D0PreviousBestSource previousSource =
-        Upt04D0LoadPreviousBestSource(surface);
-    uint directDiagnostics = previousSource.diagnostics;
-    const Upt04DirectRisProposal previousBest =
-        Upt04EvaluatePreviousBestProposal<TMaterialSet>(
-            previousSource, surface, preparedMaterial, directDiagnostics);
-#endif
-
-    Upt04DirectRisProposal freshSelected = (Upt04DirectRisProposal)0;
-    float weightSum = 0.0f;
-    const Upt04InitialLightSchedule schedule =
-        Upt04MakeInitialLightSchedule(Upt04InitialDirectLightRanges());
-    const uint candidateCount = schedule.candidateCount;
-    if (schedule.ranges.emissiveCount != 0u
-        && !Upt04EmissiveDistributionValid(
-            gUpt04Control.emissiveDistributionCountAndValid))
-        directDiagnostics |= kUpt04D0DiagWeightedCdfUnavailable;
-    [loop]
-    for (uint candidateOrdinal = 0u;
-         candidateOrdinal < candidateCount;
-         ++candidateOrdinal)
-    {
-        const Upt04DirectRisProposal proposal =
-            Upt04EvaluateDirectRisProposal<TMaterialSet>(
-                surface,
-                preparedMaterial,
-                schedule,
-                pixel,
-                candidateOrdinal);
-        if (proposal.valid == 0u)
-            continue;
-        if (previousBest.valid != 0u
-            && proposal.lightIndex == previousBest.lightIndex)
-        {
-            // The fixed fresh schedule still contains this defined trial, but
-            // it contributes zero rather than admitting the same stable light
-            // twice. The candidateCount denominator therefore remains exact.
-            directDiagnostics |=
-                kUpt04D0DiagPreviousDuplicateRejected;
-            continue;
-        }
-        const float candidateWeight = proposal.target
-            / proposal.sourceProposalPdf;
-        const float newWeightSum = weightSum + candidateWeight;
-        if (!Upt04FinitePositive(candidateWeight)
-            || !Upt04FinitePositive(newWeightSum))
-            continue;
-        const float selectionRandom = Upt04WhiteHash(
-            Upt04InitialRandomKeyAtVertex(
-                pixel,
-                candidateOrdinal,
-                kUpt04StreamInitialReservoirSelection,
-                kUpt04DimensionInitialReservoirSelection));
-        if (freshSelected.valid == 0u
-            || selectionRandom * newWeightSum < candidateWeight)
-            freshSelected = proposal;
-        weightSum = newWeightSum;
-    }
-    if (freshSelected.valid != 0u)
-        directDiagnostics |= freshSelected.lightType
-                == kUpt04LightEmissiveTriangle
-            ? kUpt04D0DiagFreshEmissiveSelected
-            : kUpt04D0DiagFreshAnalyticSelected;
-
-    // The RIS schedule drew candidateCount proposals, including candidates
-    // whose target evaluated to zero at this receiver. Those are defined zero
-    // trials and must remain in M. Dividing by positiveCount conditions the
-    // estimator on finding illumination: sparse real-map pixels become too
-    // bright, and changing the proposal schedule changes energy. Malformed
-    // candidates are still never admitted as selectable reservoir samples;
-    // they contribute exactly zero to this fixed trial schedule.
-    const float freshMass = freshSelected.valid != 0u && candidateCount != 0u
-        ? weightSum / float(candidateCount) : 0.0f;
-    const float previousBestMass = previousBest.valid != 0u
-        ? previousBest.target : 0.0f;
-    if (previousBest.valid != 0u)
-        directDiagnostics |= kUpt04D0DiagPreviousAdmitted;
-    const uint sourceCount = (freshSelected.valid != 0u ? 1u : 0u)
-        + (previousBest.valid != 0u ? 1u : 0u);
-    const float combinedMass = freshMass + previousBestMass;
-    if (sourceCount == 0u || !Upt04FinitePositive(combinedMass))
-    {
-        work.directDiagnostics = directDiagnostics;
-        return work;
-    }
-
-    Upt04DirectRisProposal selected = freshSelected;
-    if (previousBest.valid != 0u)
-    {
-        const float selectionRandom = Upt04WhiteHash(
-            Upt04InitialRandomKeyAtVertex(
-                pixel,
-                candidateCount,
-                kUpt04StreamInitialReservoirSelection,
-                kUpt04DimensionInitialReservoirSelection));
-        if (freshSelected.valid == 0u
-            || selectionRandom * combinedMass < previousBestMass)
-        {
-            selected = previousBest;
-            directDiagnostics |= kUpt04D0DiagPreviousSelected;
-        }
-    }
-    const float finalizedMass = combinedMass / float(sourceCount);
     const float effectiveProposalPdf = selected.target / finalizedMass;
-    if (!Upt04FinitePositive(effectiveProposalPdf))
+    if (selected.valid == 0u || !Upt04FinitePositive(finalizedMass)
+        || !Upt04FinitePositive(effectiveProposalPdf))
     {
         work.directDiagnostics = directDiagnostics;
         return work;
@@ -653,6 +552,144 @@ public Upt04InitialTraceWork Upt04PrepareDirectTrial<
     work.traceRequired = 1u;
     work.valid = 1u;
     return work;
+}
+
+public Upt04InitialTraceWork Upt04PrepareDirectTrial<
+    TMaterialSet : IUpt04MaterialSet>(
+    Upt04InitialTraceWork work,
+    Upt04PrimarySurfaceRecord surface,
+    uint2 pixel)
+{
+    const Upt04PreparedDirectMaterial preparedMaterial =
+        TMaterialSet.PreparePrimaryDirect(surface);
+#if UPT_FROZEN_FLAT_LIGHTS
+    const Upt04D0PreviousBestSource previousSource =
+        (Upt04D0PreviousBestSource)0;
+    uint directDiagnostics = 0u;
+    const Upt04DirectRisProposal previousBest =
+        (Upt04DirectRisProposal)0;
+#else
+    const Upt04D0PreviousBestSource previousSource =
+        Upt04D0LoadPreviousBestSource(surface);
+    uint directDiagnostics = previousSource.diagnostics;
+    const Upt04DirectRisProposal previousBest =
+        Upt04EvaluatePreviousBestProposal<TMaterialSet>(
+            previousSource, surface, preparedMaterial, directDiagnostics);
+#endif
+
+    Upt04DirectRisProposal freshSelected = (Upt04DirectRisProposal)0;
+    float weightSum = 0.0f;
+    const Upt04InitialLightSchedule schedule =
+        Upt04MakeInitialLightSchedule(Upt04InitialDirectLightRanges());
+    const uint candidateCount = schedule.candidateCount;
+    uint positiveCandidateCount = 0u;
+    if (schedule.ranges.emissiveCount != 0u
+        && !Upt04EmissiveDistributionValid(
+            gUpt04Control.emissiveDistributionCountAndValid))
+        directDiagnostics |= kUpt04D0DiagWeightedCdfUnavailable;
+    [loop]
+    for (uint candidateOrdinal = 0u;
+         candidateOrdinal < candidateCount;
+         ++candidateOrdinal)
+    {
+        const Upt04DirectRisProposal proposal =
+            Upt04EvaluateDirectRisProposal<TMaterialSet>(
+                surface,
+                preparedMaterial,
+                schedule,
+                pixel,
+                candidateOrdinal);
+        if (proposal.valid == 0u)
+            continue;
+        if (previousBest.valid != 0u
+            && proposal.lightIndex == previousBest.lightIndex)
+        {
+            // The fixed fresh schedule still contains this defined trial, but
+            // it contributes zero rather than admitting the same stable light
+            // twice. The candidateCount denominator therefore remains exact.
+            directDiagnostics |=
+                kUpt04D0DiagPreviousDuplicateRejected;
+            continue;
+        }
+        const float candidateWeight = proposal.target
+            / proposal.sourceProposalPdf;
+        const float newWeightSum = weightSum + candidateWeight;
+        if (!Upt04FinitePositive(candidateWeight)
+            || !Upt04FinitePositive(newWeightSum))
+            continue;
+        ++positiveCandidateCount;
+        const float selectionRandom = Upt04WhiteHash(
+            Upt04InitialRandomKeyAtVertex(
+                pixel,
+                candidateOrdinal,
+                kUpt04StreamInitialReservoirSelection,
+                kUpt04DimensionInitialReservoirSelection));
+        if (freshSelected.valid == 0u
+            || selectionRandom * newWeightSum < candidateWeight)
+            freshSelected = proposal;
+        weightSum = newWeightSum;
+    }
+    if (freshSelected.valid != 0u)
+        directDiagnostics |= freshSelected.lightType
+                == kUpt04LightEmissiveTriangle
+            ? kUpt04D0DiagFreshEmissiveSelected
+            : kUpt04D0DiagFreshAnalyticSelected;
+
+    // The RIS schedule drew candidateCount proposals, including candidates
+    // whose target evaluated to zero at this receiver. Those are defined zero
+    // trials and must remain in M. Dividing by positiveCount conditions the
+    // estimator on finding illumination: sparse real-map pixels become too
+    // bright, and changing the proposal schedule changes energy. Malformed
+    // candidates are still never admitted as selectable reservoir samples;
+    // they contribute exactly zero to this fixed trial schedule.
+#if UPT47_REFLECTION_POSITIVE_ONLY
+    // UPT-47 deliberately restores the legacy reflection estimator's biased
+    // black-noise admission rule, but explicitly compensates its conditional
+    // positive estimate by positiveCount / scheduledCount.  Algebraically
+    // this is the fixed-schedule denominator: energy remains tied to all
+    // trials while zero trials still never become black reservoirs that can
+    // accumulate confidence or be propagated by spatial rescue.
+    const float freshMass = freshSelected.valid != 0u
+            && positiveCandidateCount != 0u && candidateCount != 0u
+        ? (weightSum / float(positiveCandidateCount))
+            * (float(positiveCandidateCount) / float(candidateCount))
+        : 0.0f;
+#else
+    const float freshMass = freshSelected.valid != 0u && candidateCount != 0u
+        ? weightSum / float(candidateCount) : 0.0f;
+#endif
+    const float previousBestMass = previousBest.valid != 0u
+        ? previousBest.target : 0.0f;
+    if (previousBest.valid != 0u)
+        directDiagnostics |= kUpt04D0DiagPreviousAdmitted;
+    const uint sourceCount = (freshSelected.valid != 0u ? 1u : 0u)
+        + (previousBest.valid != 0u ? 1u : 0u);
+    const float combinedMass = freshMass + previousBestMass;
+    if (sourceCount == 0u || !Upt04FinitePositive(combinedMass))
+    {
+        work.directDiagnostics = directDiagnostics;
+        return work;
+    }
+
+    Upt04DirectRisProposal selected = freshSelected;
+    if (previousBest.valid != 0u)
+    {
+        const float selectionRandom = Upt04WhiteHash(
+            Upt04InitialRandomKeyAtVertex(
+                pixel,
+                candidateCount,
+                kUpt04StreamInitialReservoirSelection,
+                kUpt04DimensionInitialReservoirSelection));
+        if (freshSelected.valid == 0u
+            || selectionRandom * combinedMass < previousBestMass)
+        {
+            selected = previousBest;
+            directDiagnostics |= kUpt04D0DiagPreviousSelected;
+        }
+    }
+    const float finalizedMass = combinedMass / float(sourceCount);
+    return Upt04BuildDirectProposalTraceWork(
+        work, surface, selected, finalizedMass, directDiagnostics);
 }
 
 public Upt04VisibilityIgnore Upt04DirectVisibilityIgnore(

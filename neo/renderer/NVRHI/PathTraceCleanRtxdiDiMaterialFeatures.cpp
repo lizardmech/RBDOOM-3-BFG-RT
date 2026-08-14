@@ -333,12 +333,90 @@ bool EnsurePathTraceCleanRtxdiDiMaterialFeaturePassPipelines(
         registrations,
         sizeof(registrations) / sizeof(registrations[0]));
     const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineEnsureContext ensureContext = { &passes, &context };
-    return EnsurePathTraceMaterialFeatureRegistrationListPipelines(
+    const bool ready = EnsurePathTraceMaterialFeatureRegistrationListPipelines(
         registrations,
         Min(registrationCount, sizeof(registrations) / sizeof(registrations[0])),
         BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContextCallback,
         &ensureContext,
         "clean-room RTXDI DI");
+    if (!ready)
+    {
+        RtPathTraceCleanRtxdiDiMaterialFeatureState* featureState =
+            RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::FeatureState(passes);
+        common->Printf(
+            "PathTracePrimaryPass: material-feature pipeline failure summary registrations=%zu route/view=%u/%d runtime/layout/bindless/device/api=%u/%u/%u/%u/%u\n",
+            registrationCount,
+            RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::CleanRouteRequested(passes) ? 1u : 0u,
+            RtPathTraceCleanRtxdiDiMaterialFeaturePassesAccess::CleanView(passes),
+            context.smokeTestInitialized ? 1u : 0u,
+            context.cleanRtxdiDiBindingLayout ? 1u : 0u,
+            context.textureBindlessLayout ? 1u : 0u,
+            deviceManager && deviceManager->GetDevice() ? 1u : 0u,
+            deviceManager ? static_cast<uint32_t>(deviceManager->GetGraphicsAPI()) : 0xffffffffu);
+        for (size_t i = 0;
+             i < Min(registrationCount, sizeof(registrations) / sizeof(registrations[0]));
+             ++i)
+        {
+            const RtPathTraceMaterialFeaturePassRegistration& registration = registrations[i];
+            RtPathTraceMaterialFeatureShaderState* shaderState = featureState
+                ? RtPathTraceCleanRtxdiDiMaterialFeatureStateAccess::ShaderStateForRegistration(
+                    *featureState,
+                    registration)
+                : nullptr;
+            common->Printf(
+                "PathTracePrimaryPass: material-feature pipeline registration[%zu] feature='%s' enabled=%u shaderIndex=%u state/library/pipeline/table=%u/%u/%u/%u blob='%s'\n",
+                i,
+                registration.passDesc.featureId ? registration.passDesc.featureId : "unknown",
+                registration.passDesc.enabled ? 1u : 0u,
+                registration.shaderStateIndex,
+                shaderState ? 1u : 0u,
+                shaderState && shaderState->shaderLibrary ? 1u : 0u,
+                shaderState && shaderState->pipeline ? 1u : 0u,
+                shaderState && shaderState->shaderTable ? 1u : 0u,
+                registration.shaderDesc.shaderBlobPath
+                    ? registration.shaderDesc.shaderBlobPath
+                    : "none");
+        }
+    }
+    return ready;
+}
+
+bool EnsurePathTraceCleanRtxdiDiTransmissionPsrPipeline(
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePasses& passes,
+    const RtPathTraceCleanRtxdiDiPipelineContext& context)
+{
+    RtPathTraceMaterialFeaturePassRegistration registrations[
+        RT_PATH_TRACE_CLEAN_RTXDI_DI_MATERIAL_FEATURE_REGISTRATION_CAPACITY];
+    const size_t registrationCount = BuildPathTraceCleanRtxdiDiMaterialFeatureRegistrations(
+        passes,
+        registrations,
+        sizeof(registrations) / sizeof(registrations[0]));
+    const RtPathTraceCleanRtxdiDiMaterialFeaturePipelineEnsureContext
+        ensureContext = { &passes, &context };
+    for (size_t i = 0;
+         i < Min(registrationCount, sizeof(registrations) / sizeof(registrations[0]));
+         ++i)
+    {
+        const RtPathTraceMaterialFeaturePassRegistration& registration =
+            registrations[i];
+        if (!registration.passDesc.enabled ||
+            !registration.passDesc.featureId ||
+            idStr::Cmp(
+                registration.passDesc.featureId,
+                "clean-rtxdi-di-transmission") != 0)
+        {
+            continue;
+        }
+        return EnsurePathTraceMaterialFeatureRegistrationListPipelines(
+            &registration,
+            1u,
+            BuildPathTraceCleanRtxdiDiMaterialFeaturePipelineContextCallback,
+            &ensureContext,
+            "UPT temporary transmission producer only");
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: native glass compose has no admitted temporary transmission producer\n");
+    return false;
 }
 
 bool EnsurePathTraceCleanRtxdiDiMaterialFeatureLayoutPipelines(

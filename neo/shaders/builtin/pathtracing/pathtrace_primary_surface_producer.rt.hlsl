@@ -3722,17 +3722,51 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
     if (RestirPTSurfaceInfo.x >= 0.5 && lookupTriangleValid)
     {
         PathTraceMaterialFeatureRecord glassFeature;
-        if (TryLoadPathTraceMaterialFeatureRecord(
+        const bool featureGlass =
+            TryLoadPathTraceMaterialFeatureRecord(
                 hitMaterialIndex,
                 glassFeature) &&
             PathTraceMaterialFeatureSupportsGlassTransmission(
-                PathTraceMaterialFeatureFromRecord(glassFeature)))
+                PathTraceMaterialFeatureFromRecord(glassFeature));
+        const uint hitSurfaceClass =
+            hitTriangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
+        const uint hitTranslucentSubtype =
+            (hitTriangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >>
+                RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
+        const bool subtypeGlass =
+            hitSurfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+            (hitTranslucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW ||
+                (hitTranslucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS &&
+                    (hitMaterialFlags &
+                        RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK) != 0u));
+        const bool fallbackGlass =
+            (hitMaterialFlags &
+                (RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK |
+                    RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK)) != 0u;
+        if (featureGlass || subtypeGlass || fallbackGlass)
         {
             if (RestirPTSurfaceInfo.x >= 1.5)
             {
                 return;
             }
             payload.debugFlags |= RT_SMOKE_PAYLOAD_CLEAR_GLASS_CROSSED;
+            IgnoreHit();
+            return;
+        }
+
+        // The optical-capture trace must reach the pane underneath a staged
+        // grime/environment card. Legacy transmission treats these modifier
+        // records as always transparent; committing one here captures the
+        // decal as the front interaction and G1 quite correctly refuses to
+        // transport through it. Keep ordinary mode-1 decal composition
+        // unchanged and skip the modifier only in the dedicated mode-2 trace.
+        const uint opticalModifierFlags =
+            RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+            RT_SMOKE_MATERIAL_FILTER_DECAL |
+            RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY;
+        if (RestirPTSurfaceInfo.x >= 1.5 &&
+            (hitMaterialFlags & opticalModifierFlags) != 0u)
+        {
             IgnoreHit();
             return;
         }
