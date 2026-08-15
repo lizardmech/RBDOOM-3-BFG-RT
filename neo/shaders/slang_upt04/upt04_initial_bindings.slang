@@ -66,12 +66,33 @@ public [[vk::binding(28, 0)]] StructuredBuffer<Upt03PackedReservoir>
     gUpt04PreviousReservoirs;
 public [[vk::binding(29, 0)]] StructuredBuffer<uint>
     gUpt04PreviousToCurrentLights;
+public [[vk::binding(31, 0)]] TextureCube<float4> gUpt04SkyEnvironment;
 #if UPT04_LIGHT_TILES
 public [[vk::binding(30, 0)]] StructuredBuffer<Upt04LightTileEntry>
     gUpt04LightTiles;
 #endif
 public [[vk::binding(0, 1)]] Texture2D<float4> gUpt04MaterialTextures[];
 public [[vk::push_constant]] ConstantBuffer<Upt04InitialControl> gUpt04Control;
+
+public float Upt04SkySrgbToLinear(float encoded)
+{
+    return encoded <= 0.04045f
+        ? encoded / 12.92f
+        : pow((encoded + 0.055f) / 1.055f, 2.4f);
+}
+
+public float3 Upt04SampleSkyEnvironment(float3 direction)
+{
+    if ((gUpt04Control.availabilityFlags & kUpt04EnvironmentAvailable) == 0u
+        || !all(isfinite(direction)) || dot(direction, direction) <= 1.0e-12f)
+        return float3(1.0f);
+    const float3 encoded = gUpt04SkyEnvironment.SampleLevel(
+        gUpt04MaterialSampler, normalize(direction), 0.0f).rgb;
+    return float3(
+        Upt04SkySrgbToLinear(encoded.r),
+        Upt04SkySrgbToLinear(encoded.g),
+        Upt04SkySrgbToLinear(encoded.b)) * max(gUpt04Control.skyBrightness, 0.0f);
+}
 
 public Upt04PrimarySurfaceRecord Upt04LoadPrimarySurfaceRecord(uint index)
 {

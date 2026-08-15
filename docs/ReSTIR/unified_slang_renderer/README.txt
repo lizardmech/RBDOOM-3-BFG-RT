@@ -633,6 +633,13 @@ Packet index
         reuses direct D0/T0/S0 on private pages, reconstructs into G2 and keeps
         the accepted deterministic reflection as per-pixel rollback.
 
+    69_upt48_transmitted_sky_reuse.txt
+        Moves directional sky evaluation inside the D0/T0/S0 sample contract,
+        aligns transparent same-RayQuery continuation across all three passes,
+        and updates compact32 sky emission before initial sampling. This keeps
+        window transmission inside temporal/spatial reuse without consuming a
+        bounce, adding rays or clearing history buffers.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

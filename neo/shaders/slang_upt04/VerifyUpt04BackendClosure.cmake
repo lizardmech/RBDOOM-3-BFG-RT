@@ -72,12 +72,13 @@ foreach(kind rayquery raygen)
     endif()
     string(REGEX MATCHALL "\"binding\"[ \t]*:" descriptor_bindings "${${kind}_reflection}")
     list(LENGTH descriptor_bindings descriptor_binding_count)
-    if(NOT descriptor_binding_count EQUAL 29)
-        message(FATAL_ERROR "UPT-04 ${kind} must expose exactly 29 descriptor bindings")
+    if(NOT descriptor_binding_count EQUAL 30)
+        message(FATAL_ERROR "UPT-04 ${kind} must expose exactly 30 descriptor bindings")
     endif()
     if(NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*204" OR
-       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"previousCameraJitterPixels\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"vec2\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*208")
-        message(FATAL_ERROR "UPT-04 ${kind} push constants are not the 216-byte D0/indirect layout")
+       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"previousCameraJitterPixels\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"vec2\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*208" OR
+       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"skyBrightness\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*216")
+        message(FATAL_ERROR "UPT-04 ${kind} push constants are not the 220-byte D0/indirect layout")
     endif()
 endforeach()
 
@@ -132,4 +133,4 @@ if(NOT closest_hit_disassembly MATCHES "Upt04HitFacts = OpTypeStruct %uint %uint
 endif()
 
 file(WRITE "${UPT04_STAMP}"
-    "UPT-04 backend closure verified: production set0[0..22,25,26,28,29]+set1[0], diagnostic set0[0..23,25,26,28,29]+set1[0], live strides=4/16x2/20/36/64x2/112x3/144/176, route bindings 17+20 word-addressed, push=216, hit facts=32, bounded trace sites=3, RayQuery/raygen adapters isolated, compact binary16 storage uses no native Int16/Float16 capability\n")
+    "UPT-04 backend closure verified: production set0[0..22,25,26,28,29,31]+set1[0], diagnostic set0[0..23,25,26,28,29,31]+set1[0], live strides=4/16x2/20/36/64x2/112x3/144/176, route bindings 17+20 word-addressed, push=220, directionalSky=31, hit facts=32, bounded trace sites=3, RayQuery/raygen adapters isolated, compact binary16 storage uses no native Int16/Float16 capability\n")

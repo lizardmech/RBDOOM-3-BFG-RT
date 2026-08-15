@@ -3147,7 +3147,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 {
                     commandList->setBufferState(
                         m_frameResources.unifiedPtPrimaryReceiver32Buffer,
-                        nvrhi::ResourceStates::ShaderResource);
+                        nvrhi::ResourceStates::UnorderedAccess);
                     nvrhi::utils::TextureUavBarrier(
                         commandList,
                         m_frameResources.reflectionSidecarTexture);
@@ -3164,8 +3164,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         nvrhi::Format::UNKNOWN,
                         nvrhi::AllSubresources,
                         nvrhi::TextureDimension::TextureCube));
-                    skyBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-                        1,
+                    skyBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                        4,
                         m_frameResources.unifiedPtPrimaryReceiver32Buffer));
                     skyBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
                         0,
@@ -3218,6 +3218,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         nvrhi::utils::TextureUavBarrier(
                             commandList,
                             m_frameResources.rrGuidePositionTexture);
+                        nvrhi::utils::BufferUavBarrier(
+                            commandList,
+                            m_frameResources.unifiedPtPrimaryReceiver32Buffer);
                     }
                 }
             }
@@ -3260,6 +3263,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     : nullptr;
             unifiedPtInputs.rrGuideSpecularAlbedo =
                 m_frameResources.rrGuideSpecularAlbedoTexture;
+            unifiedPtInputs.skyEnvironment = m_smokeSkyEnvironmentCube;
             unifiedPtInputs.width = static_cast<uint32_t>(m_frameResources.width);
             unifiedPtInputs.height = static_cast<uint32_t>(m_frameResources.height);
             const int unifiedPtFixedSampleIndex =
@@ -3269,6 +3273,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 : m_frameResources.restirPTFrameIndex;
             unifiedPtInputs.emissiveScale = idMath::ClampFloat(
                 0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
+            unifiedPtInputs.skyBrightness = idMath::ClampFloat(
+                0.0f, 64.0f, r_pathTracingSkyCubeBrightness.GetFloat());
             unifiedPtInputs.materialPolicyFlags =
                 (r_pathTracingUseSpecularMaps.GetInteger() != 0
                     ? PATH_TRACE_UPT_MATERIAL_USE_SPECULAR_MAPS
@@ -3980,6 +3986,42 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     static_cast<uint32_t>(m_frameResources.width);
                 composeInputs.height =
                     static_cast<uint32_t>(m_frameResources.height);
+                composeInputs.frameSampleIndex = unifiedPtInputs.frameSampleIndex;
+                const uint32_t glassReflectionDeclusterRequested =
+                    static_cast<uint32_t>(idMath::ClampInt(
+                        0,
+                        2,
+                        r_pathTracingUnifiedPtGlassReflectionDecluster.GetInteger()));
+                const uint32_t glassReflectionDeclusterEffective =
+                    nativeGlassOpticalExecuted && composeInputs.reflectionReuse
+                        ? glassReflectionDeclusterRequested
+                        : 0u;
+                composeInputs.reflectionDeclusterMode =
+                    glassReflectionDeclusterEffective;
+                {
+                    static int reportedDeclusterRequested = -1;
+                    static int reportedDeclusterEffective = -1;
+                    if (reportedDeclusterRequested !=
+                            static_cast<int>(glassReflectionDeclusterRequested)
+                        || reportedDeclusterEffective !=
+                            static_cast<int>(glassReflectionDeclusterEffective))
+                    {
+                        common->Printf(
+                            "PathTraceUnifiedPt: glass reflection decluster requested/effective=%u/%u gate(nativeOptical/reuseTexture)=%u/%u pattern=%s fallback=UPT46 extraRays=0 neighborReads=0 buffers=0 clears=0 compensation=none\n",
+                            glassReflectionDeclusterRequested,
+                            glassReflectionDeclusterEffective,
+                            nativeGlassOpticalExecuted ? 1u : 0u,
+                            composeInputs.reflectionReuse ? 1u : 0u,
+                            glassReflectionDeclusterEffective == 1u
+                                ? "3x3-local-min"
+                                : (glassReflectionDeclusterEffective == 2u
+                                    ? "cardinal-local-min" : "off"));
+                        reportedDeclusterRequested =
+                            static_cast<int>(glassReflectionDeclusterRequested);
+                        reportedDeclusterEffective =
+                            static_cast<int>(glassReflectionDeclusterEffective);
+                    }
+                }
                 composeInputs.reflectionBoost = idMath::ClampFloat(
                     0.0f,
                     8.0f,
@@ -5590,8 +5632,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     nvrhi::Format::UNKNOWN,
                     nvrhi::AllSubresources,
                     nvrhi::TextureDimension::TextureCube));
-                skySurfaceResolveBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-                    1,
+                commandList->setBufferState(
+                    m_frameResources.unifiedPtPrimaryReceiver32Buffer,
+                    nvrhi::ResourceStates::UnorderedAccess);
+                skySurfaceResolveBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+                    4,
                     m_frameResources.unifiedPtPrimaryReceiver32Buffer));
                 skySurfaceResolveBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
                     0,
@@ -5639,6 +5684,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     nvrhi::utils::BufferUavBarrier(
                         commandList,
                         m_frameResources.primarySurfaceHistoryBuffers.current);
+                    nvrhi::utils::BufferUavBarrier(
+                        commandList,
+                        m_frameResources.unifiedPtPrimaryReceiver32Buffer);
                     nvrhi::utils::TextureUavBarrier(
                         commandList,
                         m_frameResources.rrGuideSpecularAlbedoTexture);

@@ -34,10 +34,11 @@ static constexpr uint32_t UPT04_LIGHT_TILE_PUSH_CONSTANT_BYTES = 48u;
 static constexpr uint32_t UPT04_COMPACT_MATERIAL_STRIDE = 48u;
 static constexpr uint32_t UPT04_COMPACT_MATERIAL_PUSH_CONSTANT_BYTES = 4u;
 static constexpr uint32_t UPT04_CONTINUATION_HIT_STRIDE = 32u;
-static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 216u;
+static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 220u;
 static constexpr uint32_t UPT04_FAMILY_LOCAL_LIGHT = 1u << 0u;
 static constexpr uint32_t UPT04_FAMILY_INDIRECT = 1u << 1u;
 static constexpr uint32_t UPT04_ROUTE_STATIC_BUCKETS = 1u << 1u;
+static constexpr uint32_t UPT04_ENVIRONMENT_AVAILABLE = 1u << 2u;
 static constexpr uint32_t UPT04_EMISSIVE_LOOKUP_EXACT = 1u << 3u;
 static constexpr uint32_t UPT04_MATERIAL_USE_SPECULAR_MAPS = 1u << 4u;
 static constexpr uint32_t UPT04_MATERIAL_LEGACY_SPECMAP_TO_PBR = 1u << 5u;
@@ -61,7 +62,10 @@ static constexpr uint32_t UPT04_SECONDARY_NEE_BOUNCE_INDEX = 2u;
 // NEE. T0/S0 can then consume the D0 region PDF without four repeated endpoint
 // probes. Page generations invalidate the older primary-emissive encoding
 // without clearing buffers.
-static constexpr uint32_t UPT04_ABI_VERSION = 14u;
+// Version 15 makes authored directional sky radiance part of the D0/T0/S0
+// sample contract.  Invalidate older pages whose sky terminals stored the
+// material stage's scalar/white emission instead of the environment sample.
+static constexpr uint32_t UPT04_ABI_VERSION = 15u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 107u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
@@ -82,7 +86,7 @@ static constexpr uint32_t UPT46_GLASS_OPTICAL_CONSTANT_BYTES = 48u;
 static constexpr uint32_t UPT46_GLASS_DIAGNOSTIC_WORDS = 24u;
 static constexpr uint32_t UPT46_GLASS_DIAGNOSTIC_BYTES =
     UPT46_GLASS_DIAGNOSTIC_WORDS * sizeof(uint32_t);
-static constexpr uint32_t UPT07_PUSH_CONSTANT_BYTES = 168u;
+static constexpr uint32_t UPT07_PUSH_CONSTANT_BYTES = 172u;
 static constexpr uint32_t UPT43_TEMPORAL_BOILING_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT07_MAXIMUM_HISTORY_AGE = 63u;
 static constexpr uint32_t UPT07_MAXIMUM_HISTORY_CONTRIBUTION_RATIO = 32u;
@@ -109,7 +113,7 @@ static constexpr uint32_t UPT07_WORK_BUDGET_VIOLATION_WORD =
 static constexpr uint32_t UPT07_WORK_BUDGET_WORDS_PER_PIXEL =
     UPT07_WORK_BUDGET_VIOLATION_WORD + 1u;
 static constexpr uint32_t UPT08_PUSH_CONSTANT_BYTES = 16u;
-static constexpr uint32_t UPT09_PUSH_CONSTANT_BYTES = 96u;
+static constexpr uint32_t UPT09_PUSH_CONSTANT_BYTES = 100u;
 static constexpr uint32_t UPT09_MAXIMUM_INPUT_M = 32u;
 static constexpr uint32_t UPT09_REGULAR_NEIGHBOR_COUNT = 3u;
 static constexpr uint32_t UPT09_RESCUE_NEIGHBOR_COUNT = 12u;
@@ -851,6 +855,7 @@ static uint64_t Upt06BuildContentGeneration(
     hash = Upt04HashValue(hash, dispatch.width);
     hash = Upt04HashValue(hash, dispatch.height);
     hash = Upt04HashValue(hash, dispatch.materialPolicyFlags);
+    hash = Upt04HashValue(hash, Upt04FloatBitPattern(dispatch.skyBrightness));
     return hash;
 }
 
@@ -901,6 +906,7 @@ struct Upt04InitialControl
     uint32_t reservedControl0;
     uint32_t reservedControl1;
     float previousCameraJitterPixels[2];
+    float skyBrightness;
 };
 static_assert(sizeof(Upt04InitialControl) == UPT04_PUSH_CONSTANT_BYTES,
     "UPT-04 host push constants must match Slang reflection");
@@ -922,7 +928,7 @@ struct Upt45GlassComposeControl
     uint32_t renderWidth;
     uint32_t renderHeight;
     uint32_t distortionEnabled;
-    uint32_t reserved0;
+    uint32_t sourceModeAndFrameIndex;
     float reflectionBoost;
     float transmissionFloor;
     float distortionScale;
@@ -983,6 +989,7 @@ struct Upt07TemporalDirectControl
     uint32_t emissiveDistributionCountAndValid;
     uint32_t emissiveLookupCapacityAndValid;
     float previousCameraJitterPixels[2];
+    float skyBrightness;
 };
 static_assert(sizeof(Upt07TemporalDirectControl) == UPT07_PUSH_CONSTANT_BYTES,
     "UPT-07 host push constants must match Slang reflection");
@@ -1032,6 +1039,7 @@ struct Upt09SpatialDirectControl
     uint32_t logicalTextureCount;
     uint32_t emissiveDistributionCountAndValid;
     uint32_t emissiveLookupCapacityAndValid;
+    float skyBrightness;
 };
 static_assert(sizeof(Upt09SpatialDirectControl) == UPT09_PUSH_CONSTANT_BYTES,
     "UPT-09 host push constants must match Slang reflection");
@@ -1210,7 +1218,8 @@ static bool Upt04InputsValid(const PathTraceUnifiedPtDispatchInputs& dispatch)
     return geometry.staticTriangleClassBuffer &&
         geometry.dynamicTriangleClassBuffer && materials.materialTableBuffer &&
         materials.textureBindlessLayout && materials.textureDescriptorTable &&
-        materials.textureSampler && lights.unifiedPtEmissiveLookupBuffer &&
+        materials.textureSampler && dispatch.skyEnvironment &&
+        lights.unifiedPtEmissiveLookupBuffer &&
         lights.unifiedPtEmissiveLookupExact;
 }
 
@@ -1246,6 +1255,7 @@ static void Upt04AddBindingLayoutItems(
     {
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(30));
     }
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(31));
     desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
 }
@@ -1427,6 +1437,12 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
             30, lightTiles));
     }
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+        31,
+        dispatch.skyEnvironment,
+        nvrhi::Format::UNKNOWN,
+        nvrhi::AllSubresources,
+        nvrhi::TextureDimension::TextureCube));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         32, lights.unifiedPtEmissiveGeometryBuffer));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
@@ -1528,6 +1544,10 @@ static void Upt04SetSrvStates(
     commandList->setBufferState(geometry.skinnedHitRouteTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.lights.unifiedPtEmissiveLookupBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.lights.unifiedPtEmissiveGeometryBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setTextureState(
+        dispatch.skyEnvironment,
+        nvrhi::AllSubresources,
+        nvrhi::ResourceStates::ShaderResource);
 }
 
 static void Upt04SetDirectSrvStates(
@@ -1589,6 +1609,7 @@ static Upt04InitialControl Upt04BuildControl(
                 lights.unifiedPtEmissiveLookupExact
             ? UPT04_EMISSIVE_LOOKUP_EXACT
             : 0u) |
+        (dispatch.skyEnvironment ? UPT04_ENVIRONMENT_AVAILABLE : 0u) |
         ((dispatch.materialPolicyFlags
                 & PATH_TRACE_UPT_MATERIAL_USE_SPECULAR_MAPS) != 0u
             ? UPT04_MATERIAL_USE_SPECULAR_MAPS
@@ -1712,6 +1733,7 @@ static Upt04InitialControl Upt04BuildControl(
         dispatch.previousCameraJitterPixels[0];
     control.previousCameraJitterPixels[1] =
         dispatch.previousCameraJitterPixels[1];
+    control.skyBrightness = Max(0.0f, dispatch.skyBrightness);
     return control;
 }
 
@@ -5001,6 +5023,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(34));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(35));
     }
+    if (indirect)
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(36));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT07_PUSH_CONSTANT_BYTES));
     m_temporalBindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -5051,6 +5075,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(33));
         replayLayoutDesc.addItem(
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(34));
+        replayLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::Texture_SRV(36));
         replayLayoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
             0, UPT07_PUSH_CONSTANT_BYTES));
         m_temporalReplayBindingLayout =
@@ -6003,7 +6029,8 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
         || (inputs.duplication && !m_duplicationScores[m_historyPageIndex])
         || !lights.restirLightManagerPreviousToCurrentBuffer
         || !Upt04ReplayGeometryBindingsValid(*inputs.sceneInputs)
-        || (indirect && !lights.unifiedPtEmissiveLookupBuffer)
+        || (indirect && (!lights.unifiedPtEmissiveLookupBuffer
+            || !inputs.skyEnvironment))
         || !materials.materialTableBuffer || !materials.textureSampler
         || !materials.textureBindlessLayout || !materials.textureDescriptorTable)
     {
@@ -6058,6 +6085,10 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
             35, m_temporalReplayDispatchArgs));
     }
+    if (indirect)
+        desc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+            36, inputs.skyEnvironment, nvrhi::Format::UNKNOWN,
+            nvrhi::AllSubresources, nvrhi::TextureDimension::TextureCube));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT07_PUSH_CONSTANT_BYTES));
     if (m_temporalBindingSets[pageIndex] &&
@@ -6115,6 +6146,9 @@ bool PathTraceUnifiedPtState::EnsureTemporalBindingSet(
             33, m_temporalReplayQueue));
         replayDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
             34, m_temporalReplayMeta));
+        replayDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+            36, inputs.skyEnvironment, nvrhi::Format::UNKNOWN,
+            nvrhi::AllSubresources, nvrhi::TextureDimension::TextureCube));
         replayDesc.addItem(nvrhi::BindingSetItem::PushConstants(
             0, UPT07_PUSH_CONSTANT_BYTES));
         m_temporalReplayBindingSets[pageIndex] =
@@ -6367,6 +6401,7 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
                 & PATH_TRACE_UPT_MATERIAL_DECODE_TEXTURES) != 0u
             ? UPT04_MATERIAL_DECODE_TEXTURES : 0u);
     control.emissiveScale = Max(0.0f, inputs.emissiveScale);
+    control.skyBrightness = Max(0.0f, inputs.skyBrightness);
     control.previousToCurrentLightCount = analyticOnly
         ? control.currentLightCount
         : static_cast<uint32_t>(Max(
@@ -6394,7 +6429,6 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
         (lookupCapacity & UPT04_CONTROL_METADATA_COUNT_MASK)
         | (lights.unifiedPtEmissiveLookupExact && lookupCapacity >= 2u
             ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
-
     const nvrhi::BufferHandle lightBuffer = inputs.compactLights
         ? m_compactLightsBuffer
         : lights.restirLightManagerCurrentPayloadBuffer;
@@ -6456,6 +6490,10 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
         inputs.commandList->setBufferState(
             inputs.sceneInputs->materials.materialTableBuffer,
             nvrhi::ResourceStates::ShaderResource);
+        if (m_temporalIndirect)
+            inputs.commandList->setTextureState(
+                inputs.skyEnvironment, nvrhi::AllSubresources,
+                nvrhi::ResourceStates::ShaderResource);
         if (m_temporalEarlyReconnect || m_temporalRouteDiagnostics)
             inputs.commandList->setBufferState(
                 m_temporalDiagnosticCounters,
@@ -7082,6 +7120,8 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         layoutDesc.addItem(
             nvrhi::BindingLayoutItem::StructuredBuffer_UAV(35));
     }
+    if (sharedSpatial)
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(36));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT09_PUSH_CONSTANT_BYTES));
     m_spatialBindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -7196,6 +7236,8 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(33));
         boostLayoutDesc.addItem(
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(34));
+        boostLayoutDesc.addItem(
+            nvrhi::BindingLayoutItem::Texture_SRV(36));
         boostLayoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
             0, UPT09_PUSH_CONSTANT_BYTES));
         m_spatialBoostBindingLayout =
@@ -7330,7 +7372,8 @@ bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
     const RtPathTraceSceneInputLights& lights = inputs.sceneInputs->lights;
     if (!lightBuffer || !CurrentPage() || !HistoryPage()
         || !Upt04ReplayGeometryBindingsValid(*inputs.sceneInputs)
-        || (sharedSpatial && !lights.unifiedPtEmissiveLookupBuffer)
+        || (sharedSpatial && (!lights.unifiedPtEmissiveLookupBuffer
+            || !inputs.skyEnvironment))
         || (reuseTexturePairing && !m_spatialReuseTextureBuffer)
         || (shiftPrepass && !m_spatialShiftBuffer)
         || !materials.materialTableBuffer || !materials.textureSampler
@@ -7372,6 +7415,10 @@ bool PathTraceUnifiedPtState::EnsureSpatialBindingSet(
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
             35, m_temporalReplayDispatchArgs));
     }
+    if (sharedSpatial)
+        desc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+            36, inputs.skyEnvironment, nvrhi::Format::UNKNOWN,
+            nvrhi::AllSubresources, nvrhi::TextureDimension::TextureCube));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT09_PUSH_CONSTANT_BYTES));
     if (m_spatialBindingSets[pageIndex] &&
@@ -7431,6 +7478,9 @@ bool PathTraceUnifiedPtState::EnsureSpatialBoostBindingSet(
         33, m_temporalReplayQueue));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         34, m_temporalReplayMeta));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+        36, inputs.skyEnvironment, nvrhi::Format::UNKNOWN,
+        nvrhi::AllSubresources, nvrhi::TextureDimension::TextureCube));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT09_PUSH_CONSTANT_BYTES));
     if (m_spatialBoostBindingSets[pageIndex]
@@ -7649,6 +7699,7 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
         (lookupCapacity & UPT04_CONTROL_METADATA_COUNT_MASK)
         | (lights.unifiedPtEmissiveLookupExact && lookupCapacity >= 2u
             ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
+    control.skyBrightness = Max(0.0f, inputs.skyBrightness);
 
     const nvrhi::BufferHandle lightBuffer = inputs.compactLights
         ? m_compactLightsBuffer
@@ -7703,6 +7754,10 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
         inputs.commandList->setBufferState(
             inputs.sceneInputs->materials.materialTableBuffer,
             nvrhi::ResourceStates::ShaderResource);
+        if (sharedSpatial)
+            inputs.commandList->setTextureState(
+                inputs.skyEnvironment, nvrhi::AllSubresources,
+                nvrhi::ResourceStates::ShaderResource);
         if (reuseTexturePairing)
             inputs.commandList->setBufferState(
                 m_spatialReuseTextureBuffer,
@@ -8556,7 +8611,7 @@ bool PathTraceUnifiedPtState::EnsureGlassOpticalPipeline(
         return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: glass optical compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u rays=R1+Tmiss reflectionShade=deterministic-flat noReflectionNee=1 noReflectionEmission=1 ignoreGlassInReflection=1 canonicalTransmission=1 skyShellTransmission=1 emissiveTerminalTransmission=1 thinSheet=featureParams rrSpecularGuide=exactReflectionHdr+hitT distortionConsume=resolvedEndpoint forcedNonOpaque=1 constantBytes=%u createUs=%llu legacyPso=0\n",
+        "PathTraceUnifiedPt: glass optical compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u rays=R1+Tmiss reflectionShade=deterministic-flat+exact-terminal-emission noReflectionNee=1 ignoreGlassInReflection=1 opaqueMirrorOwnership=main-UPT canonicalTransmission=1 skyShellTransmission=1 emissiveTerminalTransmission=1 thinSheet=featureParams rrSpecularGuide=exactReflectionHdr+hitT distortionConsume=resolvedEndpoint forcedNonOpaque=1 constantBytes=%u createUs=%llu legacyPso=0\n",
         shaderSize,
         static_cast<unsigned long long>(shaderHash),
         static_cast<long long>(shaderTimestamp),
@@ -9275,11 +9330,15 @@ bool PathTraceUnifiedPtState::ExecuteGlassCompose(
         return false;
     }
 
+    const uint32_t sourceModeAndFrameIndex =
+        (inputs.legacySidecarEncoding ? 1u : 0u) |
+        ((inputs.reflectionDeclusterMode & 3u) << 1u) |
+        ((inputs.frameSampleIndex & 0x1fffffffu) << 3u);
     const Upt45GlassComposeControl control = {
         inputs.width,
         inputs.height,
         inputs.distortionEnabled ? 1u : 0u,
-        inputs.legacySidecarEncoding ? 1u : 0u,
+        sourceModeAndFrameIndex,
         inputs.reflectionBoost,
         inputs.transmissionFloor,
         2.0f,

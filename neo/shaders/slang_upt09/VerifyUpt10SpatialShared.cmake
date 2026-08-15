@@ -24,37 +24,37 @@ file(READ "${UPT10_SHADER_SOURCE}" shader_source)
 
 string(REGEX MATCHALL "\"binding\"[ \t]*:" bindings "${reflection}")
 list(LENGTH bindings binding_count)
-if(NOT binding_count EQUAL 27)
+if(NOT binding_count EQUAL 28)
     message(FATAL_ERROR
-        "UPT-30 selected-pair spatial must expose 27 bindings including the endpoint sidecar")
+        "UPT-30 selected-pair spatial must expose 28 bindings including directional sky")
 endif()
 string(REGEX MATCHALL "\"binding\"[ \t]*:" stored_bindings
     "${stored_reflection}")
 list(LENGTH stored_bindings stored_binding_count)
-if(NOT stored_binding_count EQUAL 27)
+if(NOT stored_binding_count EQUAL 28)
     message(FATAL_ERROR
-        "UPT-31 stored-target spatial must preserve all 27 shared bindings")
+        "UPT-31 stored-target spatial must preserve all 28 shared bindings")
 endif()
 string(REGEX MATCHALL "\"binding\"[ \t]*:" workgroup_bindings
     "${workgroup_reflection}")
 list(LENGTH workgroup_bindings workgroup_binding_count)
-if(NOT workgroup_binding_count EQUAL 27)
+if(NOT workgroup_binding_count EQUAL 28)
     message(FATAL_ERROR
-        "UPT-32 workgroup-pair spatial must preserve all 27 shared bindings")
+        "UPT-32 workgroup-pair spatial must preserve all 28 shared bindings")
 endif()
 string(REGEX MATCHALL "\"binding\"[ \t]*:" rescue_bindings
     "${rescue_reflection}")
 list(LENGTH rescue_bindings rescue_binding_count)
-if(NOT rescue_binding_count EQUAL 27)
+if(NOT rescue_binding_count EQUAL 28)
     message(FATAL_ERROR
-        "UPT-33 rescue spatial must preserve all 27 shared bindings")
+        "UPT-33 rescue spatial must preserve all 28 shared bindings")
 endif()
 string(REGEX MATCHALL "\"binding\"[ \t]*:" multi_bindings
     "${multi_reflection}")
 list(LENGTH multi_bindings multi_binding_count)
-if(NOT multi_binding_count EQUAL 27)
+if(NOT multi_binding_count EQUAL 28)
     message(FATAL_ERROR
-        "UPT-34 multi-neighbor spatial must preserve all 27 shared bindings")
+        "UPT-34 multi-neighbor spatial must preserve all 28 shared bindings")
 endif()
 if(NOT reflection MATCHES
         "\"name\"[ \t]*:[ \t]*\"gUpt04StaticTriangleClasses\"[^}]*\"set\"[ \t]*:[ \t]*0[^}]*\"binding\"[ \t]*:[ \t]*9" OR
@@ -79,9 +79,9 @@ endif()
 if(NOT reflection MATCHES
         "\"name\"[ \t]*:[ \t]*\"emissiveDistributionCountAndValid\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*88" OR
    NOT reflection MATCHES
-        "\"name\"[ \t]*:[ \t]*\"emissiveLookupCapacityAndValid\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*92")
+        "\"name\"[ \t]*:[ \t]*\"skyBrightness\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*96")
     message(FATAL_ERROR
-        "UPT-30 selected-pair spatial lost its 96-byte replay control ABI")
+        "UPT-30 selected-pair spatial lost its 100-byte directional-sky replay control ABI")
 endif()
 
 string(REGEX MATCHALL "OpRayQueryInitializeKHR" ray_queries "${disassembly}")
@@ -278,4 +278,4 @@ foreach(base RANGE 0 62)
 endforeach()
 
 file(WRITE "${UPT10_STAMP}"
-    "UPT-30/31/32/33/34 paired spatial verified: bindings=27, triangleClasses=9/13 host+shader, leaderPairing=involution(extents1..17,phases0..3), workgroupPairing=three-distinct-xor-involutions(64 lanes), pushConstants=96, static RayQuery sites=6/workgroup${workgroup_ray_query_count}/rescue${rescue_ray_query_count}/multi${multi_ray_query_count}, multiBarriers=${multi_barrier_count}, TraceRay=0, explicitTextureSampleSites=${baseline_texture_sample_count}->${stored_texture_sample_count}\n")
+    "UPT-30/31/32/33/34 paired spatial verified: bindings=28, triangleClasses=9/13 host+shader, leaderPairing=involution(extents1..17,phases0..3), workgroupPairing=three-distinct-xor-involutions(64 lanes), pushConstants=100, directionalSky=36, static RayQuery sites=6/workgroup${workgroup_ray_query_count}/rescue${rescue_ray_query_count}/multi${multi_ray_query_count}, multiBarriers=${multi_barrier_count}, TraceRay=0, explicitTextureSampleSites=${baseline_texture_sample_count}->${stored_texture_sample_count}\n")

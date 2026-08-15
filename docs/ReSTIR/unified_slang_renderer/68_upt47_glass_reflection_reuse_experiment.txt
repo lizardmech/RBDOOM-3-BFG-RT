@@ -247,3 +247,159 @@ estimator remain unchanged. Full Vulkan release build and artifact validation
 pass. The deployed reflection D0 SHA-256 is
 `CF9CE9BAC4DBA1C3C0EDCC5F10B309CD7B9DCD499E7300A43BF47987C8ED5045`.
 Runtime movement-quality and performance acceptance are pending.
+
+Exact legacy producer isolation, 2026-08-15
+-------------------------------------------
+
+The literal estimator ports above did not change the live movement failure.
+They still executed inside UPT's private D0/T0/S0/R0 child and therefore could
+not prove whether the fault belonged to reflection sampling or to a later UPT
+consumer.
+
+`r_pathTracingUnifiedPtGlassLegacyOpticalDiagnostic 1` now exposes the actual
+legacy view-16 optical producer already dispatched for UPT's front-pane
+capture. In this mode:
+
+* the HLSL `pathtrace_reflection_secondary.hlsli` result is authoritative;
+* native Slang UPT46 optical transport is not dispatched;
+* the private UPT47 D0/T0/S0/R0 child is not consumed;
+* legacy transmission, reflection and distortion sidecars feed UPT45 directly;
+* UPT45 explicitly decodes the legacy transmission alpha contract (attenuation
+  in RGB, reflection energy in alpha 1..2) instead of confusing it with UPT46's
+  resolved-refraction markers; and
+* the main UPT P0/D0/T0/S0/R0 image and normal UPT presentation path remain in
+  place.
+
+Use the accepted UPT configuration, disable the private reflection child for a
+clear comparison, then toggle only:
+
+    r_pathTracingUnifiedPtGlassReflectionReuse 0
+    r_pathTracingUnifiedPtGlassLegacyOpticalDiagnostic 0
+    r_pathTracingUnifiedPtGlassLegacyOpticalDiagnostic 1
+
+The console must report `requested/effective=1/1`,
+`source=legacy-view16-sidecars`, `nativeUpt46=off` and `privateUpt47=off`.
+
+Interpretation is deliberately narrow:
+
+* if mode 1 restores the legacy motion behavior, the fault is in UPT46 or the
+  UPT47 reflection child;
+* if mode 1 still fails while clean-DI view 16 remains stable, the reflection
+  producer is exonerated and the remaining difference is UPT45 composition,
+  guide publication, DLSS-RR input, or later presentation; and
+* this is not a claim that the whole legacy renderer runs inside UPT. It is the
+  exact legacy optical producer routed through UPT so the producer/downstream
+  boundary can be tested without changing UPT DI/GI.
+
+The Vulkan release build passes, including `spirv-val` in the UPT45 build
+rule. Only the executable and rebuilt UPT45 Vulkan blob are required for this
+diagnostic. No DX12 shader is compiled.
+
+Legacy analytic-domain adapter correction, 2026-08-15
+-----------------------------------------------------
+
+The first runtime attempt was not a valid legacy-source comparison: it showed
+only direct terminal emissive hits, with analytic lighting and ordinary opaque
+reflected surfaces black. The legacy shader and `t27` analytic-light buffer
+were active, but the UPT adapter had left
+`doomAnalyticFullCurrentCount`, `doomAnalyticLightInfo` and the associated
+identity/previous/remap counts at zero. `PathTraceReflectionSecondaryShade`
+therefore added exact terminal emission and returned before analytic RIS.
+
+The UPT front-pane adapter now publishes the same full analytic count,
+intensity, feature flags, identity counts, previous count and remap count used
+by the real view-16 route. No shader or estimator changed. Re-run the same
+diagnostic toggle; a valid mode-1 image must now contain analytically lit
+opaque reflection hits as well as exact terminal emissive.
+
+The Vulkan release build passes. This correction changes only the executable;
+the previously deployed UPT45 blob remains current. Runtime movement-quality
+comparison is pending.
+
+Output-domain de-clustering experiment, 2026-08-15
+-------------------------------------------------
+
+The corrected exact-legacy source comparison isolated the visible difference:
+legacy output is sparse but its noise remains one pixel wide, while the UPT47
+child preserves more reflected detail but publishes spatially correlated
+clusters. DLSS-RR tolerates the former as a weaker reflection and turns the
+latter into enlarged structured artifacts under motion. Because the exact
+legacy source passes through the same UPT45 and later presentation path, this
+exonerates UPT45 transport composition as the origin of the clusters and makes
+the private UPT47 reflection result the correct intervention boundary.
+
+`r_pathTracingUnifiedPtGlassReflectionDecluster` adds an opt-in UPT45
+presentation experiment without changing UPT47's estimator or history:
+
+    0  consume every valid reused-reflection pixel (rollback/default)
+    1  consume only frame-scrambled 3x3 local minima
+    2  consume only frame-scrambled cardinal-neighbor local minima
+
+Mode 1 is the primary test. A pixel is admitted only when its integer hash is
+strictly lower than all eight touching neighbors, with screen index as a
+deterministic tie break. Therefore two admitted pixels cannot touch, including
+diagonally. Mode 2 is a denser A/B that excludes only side-adjacent admissions.
+The election uses integer arithmetic only: it performs no neighboring texture
+reads, traces no rays, allocates no buffers and adds no clears.
+
+Rejected reuse does not make a black or invalid pixel. UPT45 falls back to the
+existing deterministic UPT46 reflection at that pane pixel. Accepted reused
+detail is pane-weighted exactly once and the identical contribution is written
+to beauty and the DLSS-RR specular guide. This first test intentionally applies
+no inverse-density compensation: amplifying the surviving samples would restore
+mean energy at the cost of fireflies, defeating the diagnostic's purpose.
+
+Required A/B under camera motion:
+
+    r_pathTracingUnifiedPtGlassLegacyOpticalDiagnostic 0
+    r_pathTracingUnifiedPtGlassReflectionReuse 1
+    r_pathTracingUnifiedPtGlassReflectionDecluster 0
+    r_pathTracingUnifiedPtGlassReflectionDecluster 1
+
+The console must report `requested/effective=1/1`,
+`pattern=3x3-local-min`, `fallback=UPT46`, `extraRays=0`,
+`neighborReads=0`, `buffers=0`, `clears=0` and `compensation=none`.
+Acceptance is disappearance of multi-pixel/structured reflection noise under
+motion without black holes, transmission changes, pane-edge corruption or a
+beauty/specular-guide mismatch. Reflection weakening is expected and should be
+judged against the proven legacy sparse-output tolerance. Mode 2 is useful only
+if mode 1 is stable but unnecessarily weak.
+
+The Vulkan release build passes and includes SPIR-V validation. The change
+reuses the existing 32-byte UPT45 push-constant ABI by packing source mode,
+de-cluster mode and frame sample index into one uint. Only the executable and
+rebuilt UPT45 Vulkan blob require deployment. Runtime A/B is pending.
+
+De-cluster ownership correction, 2026-08-15
+-------------------------------------------
+
+Runtime mode 1 is substantially more compatible with DLSS-RR: legacy retains
+a small motion advantage, while UPT47 resolves more reflection detail after RR
+has time to accumulate. The important remaining loss was exact reflected
+emission. UPT47 R0 contains the reflected receiver's packed self-emission, so
+UPT45's local-minimum admission unintentionally thinned the dominant zero-noise
+emissive term along with stochastic analytic lighting.
+
+UPT46 now evaluates exact terminal emission during its single reflected hit and
+includes it in the deterministic fallback while passing the same evaluated
+value into the compact reflected receiver. Consequently:
+
+* an admitted pixel obtains self-emission from UPT47 R0 exactly once;
+* a rejected pixel obtains the same terminal emission from UPT46 exactly once;
+* only the reused analytic/detail remainder is effectively de-clustered; and
+* there is no emissive RIS, additional ray, duplicate texture evaluation or
+  inverse-density compensation.
+
+The same audit found that UPT46 had also admitted every non-glass surface with
+roughness at or below 0.011 as an `exactMirror`. That was not glass transport:
+it replaced the already resolved main-UPT opaque material with UPT46's flat
+one-ray mini shade. UPT46 now returns immediately for every non-transmitting
+surface. Opaque zero-roughness reflection, history and DLSS-RR guide ownership
+are restored entirely to the main UPT path. UPT45 retains its historical exact
+mirror decoder only as an inert compatibility path; native UPT46 no longer
+publishes that marker.
+
+The Vulkan release build and both UPT46 SPIR-V variants validate. Runtime checks
+must confirm full-power reflected emissive panels with de-cluster mode 1 and
+pre-glass behavior for opaque zero-roughness surfaces. Transmission and actual
+glass reflection behavior must remain unchanged.

@@ -1062,7 +1062,8 @@ public uint Upt07ReplayIndirectSample(
 
         failureReason = kUpt07RejectIndirectEndpoint;
         const Upt04MaterialEmissionEvaluation emission =
-            Upt07EvaluateHitEmission(endpointSurface);
+            Upt07EvaluateHitEmission(
+                endpointSurface, secondContinuation.direction);
         if (emission.valid == 0u)
             return 0u;
         float3 contribution = continuation.throughput
@@ -1124,7 +1125,7 @@ public uint Upt07ReplayIndirectSample(
     {
         failureReason = kUpt07RejectIndirectEndpoint;
         const Upt04MaterialEmissionEvaluation emission =
-            Upt07EvaluateHitEmission(hitSurface);
+            Upt07EvaluateHitEmission(hitSurface, continuation.direction);
         if (emission.valid == 0u)
             return 0u;
         float3 contribution = continuation.throughput * emission.radiance;

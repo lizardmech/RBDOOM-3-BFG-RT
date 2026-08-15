@@ -1530,7 +1530,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     skySurfaceResolveBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets();
     skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
     skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(0));
-    skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
+    skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(4));
     skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(0));
     skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
     skySurfaceResolveBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(2));

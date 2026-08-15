@@ -1767,6 +1767,12 @@ idCVar r_pathTracingUnifiedPtGlassReflectionReuseResolution(
     CVAR_RENDERER | CVAR_INTEGER,
     "Glass-reflection reuse resolution percent: values below 75 select the original 50% per-axis child; values 75 or greater select a full-resolution 100% child" );
 
+idCVar r_pathTracingUnifiedPtGlassReflectionDecluster(
+    "r_pathTracingUnifiedPtGlassReflectionDecluster",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT glass-reflection presentation de-clustering: 0 off; 1 admits reused detail only at frame-scrambled 3x3 local minima (no touching pixels); 2 uses denser cardinal-neighbor minima; rejected pixels retain deterministic UPT46 reflection" );
+
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
     "1",

@@ -3161,3 +3161,60 @@ UPT-46 native G1 build checkpoint, 2026-08-14:
   validation pass; deployed D0 SHA-256 is
   `CF9CE9BAC4DBA1C3C0EDCC5F10B309CD7B9DCD499E7300A43BF47987C8ED5045`.
   Runtime movement-quality and cost acceptance remain pending.
+
+- UPT47 exact legacy-producer isolation: the estimator-shaped ports had no
+  visible effect, so `r_pathTracingUnifiedPtGlassLegacyOpticalDiagnostic 1`
+  now bypasses native UPT46 and the private UPT47 child and routes the actual
+  legacy view-16 transmission/reflection/distortion sidecars into UPT45. UPT45
+  has an explicit legacy alpha decoder so legacy attenuation/energy cannot be
+  mistaken for native resolved-refraction markers. This keeps main UPT DI/GI
+  unchanged and isolates the producer from UPT composition/RR/presentation.
+  Test with reflection reuse 0 and toggle only the diagnostic; require the
+  `requested/effective=1/1 source=legacy-view16-sidecars nativeUpt46=off
+  privateUpt47=off` log. Vulkan release build and UPT45 `spirv-val` pass; EXE
+  and only the rebuilt UPT45 blob were deployed. Runtime A/B is pending.
+
+- UPT47 legacy-source adapter correction: the first mode-1 image contained
+  only exact terminal emissive because UPT bound the legacy analytic buffer
+  but published zero for the full analytic count and light-info constants.
+  The adapter now copies the full current/previous counts, intensity, flags,
+  identity counts and remap count used by view 16. The prior image was not a
+  valid producer A/B. Release build passes and the corrected EXE is deployed;
+  no additional shader blob changed.
+
+- UPT47 output-domain de-clustering: the corrected exact-legacy comparison
+  proved that sparse single-pixel noise survives UPT45/DLSS-RR while UPT47's
+  correlated clusters enlarge under motion. The new opt-in
+  `r_pathTracingUnifiedPtGlassReflectionDecluster` acts only in UPT45: mode 1
+  admits reused detail at frame-scrambled 3x3 local minima (no two admitted
+  pixels touch), while mode 2 compares cardinal neighbors for a denser A/B.
+  Rejected reuse falls back to deterministic UPT46 reflection; admitted beauty
+  and DLSS-RR specular-guide contributions are identical. The experiment adds
+  no rays, neighbor texture reads, buffers, clears or density compensation and
+  does not modify UPT47 reservoirs/history. Vulkan release build and SPIR-V
+  validation pass. Deploy EXE plus UPT45 blob; runtime motion A/B is pending.
+
+- UPT47 de-cluster ownership correction: runtime mode 1 is viable, but it was
+  thinning the dominant exact emissive reflection because receiver self-emission
+  lived only in UPT47 R0. UPT46 now evaluates terminal emission on its existing
+  sharp reflected hit, includes it in the deterministic fallback, and supplies
+  that same value to the packed reflection receiver. Accepted and rejected mask
+  pixels therefore retain exact emission once while only reused analytic/detail
+  is sparse. The audit also found UPT46 had taken ownership of non-glass
+  roughness<=0.011 surfaces; that mirror branch is removed. Opaque zero-roughness
+  materials again remain wholly owned by main UPT. No rays or emissive RIS were
+  added. Release build and both UPT46 Vulkan variants pass validation; runtime
+  emissive-power and opaque-mirror checks are pending.
+
+- UPT48 transmitted-sky reservoir correction: window transmission had three
+  mismatched owners. D0 continued through glass, T0/S0 retained older skip
+  predicates, and sky endpoints used the material stage's scalar-white
+  emission while the directional cube tint happened after compact receiver
+  publication. D0/T0/S0 now share the transparent/decal same-RayQuery skip
+  set, so transmission consumes no bounce. Primary compact32 sky emission is
+  corrected before D0, and indirect sky terminals sample the renderer-owned
+  cube inside D0/T0/S0 target evaluation. ABI version 15 rejects old white-sky
+  pages without a clear. No rays, candidates, pages or dispatches were added.
+  Vulkan release build and `spirv-val` pass for all 32 rebuilt blobs; EXE and
+  only rebuilt Vulkan artifacts are deployed. Runtime window-motion, sky-color
+  and sky-cube fallback acceptance remain pending.

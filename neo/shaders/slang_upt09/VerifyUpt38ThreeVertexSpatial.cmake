@@ -14,9 +14,9 @@ file(READ "${UPT38_REPLAY_SOURCE}" replay_source)
 
 string(REGEX MATCHALL "\"binding\"[ \t]*:" bindings "${reflection}")
 list(LENGTH bindings binding_count)
-if(NOT binding_count EQUAL 27)
+if(NOT binding_count EQUAL 28)
     message(FATAL_ERROR
-        "UPT-38 must preserve the accepted 27-binding shared spatial ABI")
+        "UPT-38 must preserve the accepted 28-binding shared spatial ABI")
 endif()
 if(NOT reflection MATCHES
         "\"name\"[ \t]*:[ \t]*\"gUpt04StaticTriangleClasses\"[^}]*\"binding\"[ \t]*:[ \t]*9" OR
@@ -25,9 +25,9 @@ if(NOT reflection MATCHES
    NOT reflection MATCHES
         "\"name\"[ \t]*:[ \t]*\"emissiveDistributionCountAndValid\"[^}]*\"offset\"[ \t]*:[ \t]*88" OR
    NOT reflection MATCHES
-        "\"name\"[ \t]*:[ \t]*\"emissiveLookupCapacityAndValid\"[^}]*\"offset\"[ \t]*:[ \t]*92")
+        "\"name\"[ \t]*:[ \t]*\"skyBrightness\"[^}]*\"offset\"[ \t]*:[ \t]*96")
     message(FATAL_ERROR
-        "UPT-38 lost triangle-class bindings 9/13 or the 96-byte replay control ABI")
+        "UPT-38 lost triangle-class bindings 9/13 or the 100-byte directional-sky replay control ABI")
 endif()
 
 string(REGEX MATCHALL "OpRayQueryInitializeKHR" ray_queries
@@ -85,4 +85,4 @@ endif()
 
 file(SIZE "${UPT38_DISASSEMBLY}" disassembly_bytes)
 file(WRITE "${UPT38_STAMP}"
-    "UPT-38 spatial verified: bindings=27 triangleClasses=9/13 push=96 RayQuery=${ray_query_count} barrier=${barrier_count} TraceRay=0 exactStoredQReplay=1 initialCutoffReplay=0 disassemblyBytes=${disassembly_bytes}\n")
+    "UPT-38 spatial verified: bindings=28 triangleClasses=9/13 push=100 directionalSky=36 RayQuery=${ray_query_count} barrier=${barrier_count} TraceRay=0 exactStoredQReplay=1 initialCutoffReplay=0 disassemblyBytes=${disassembly_bytes}\n")

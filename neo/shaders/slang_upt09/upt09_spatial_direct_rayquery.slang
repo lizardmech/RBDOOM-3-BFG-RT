@@ -128,7 +128,13 @@ public bool Upt09MaterialAlwaysTransmitsCandidate(Upt04HitFacts candidate)
         || materialIndex >= gUpt09Control.materialCount)
         return false;
     const uint flags = gUptDirectEmitterMaterials[materialIndex].flags;
-    if ((flags & (0x00000200u | 0x00000400u)) != 0u)
+    const uint alwaysTransparentFlags =
+        0x00000004u // additive decal
+        | 0x00000010u // filter decal
+        | 0x00000200u // portal-window fallback
+        | 0x00000400u // object-glass fallback
+        | 0x00000800u; // additive white-key card
+    if ((flags & alwaysTransparentFlags) != 0u)
         return true;
     uint triangleClassAndFlags;
     return Upt04ResolveTriangleClassAndFlags(

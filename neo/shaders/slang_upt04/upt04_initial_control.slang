@@ -43,7 +43,7 @@ public uint Upt04ConfiguredEmissiveTrialCount(uint availabilityFlags)
         16u);
 }
 
-// Fifty-four scalar words / 216 bytes. The first 128 bytes retain the
+// Fifty-five scalar words / 220 bytes. The first 128 bytes retain the
 // accepted current-frame D0 ABI. The final four words groups add the exact
 // previous-camera/remap metadata needed by the D0 previous-best lookup and the
 // current valid CDF count. Both count words reserve their high bit for the
@@ -109,6 +109,10 @@ public struct Upt04InitialControl
     // jitter. Reprojection adds the previous frame's offset to recover the
     // actual history-buffer pixel without changing the geometric projection.
     public float2 previousCameraJitterPixels;
+    // Directional sky terminal emission must be established in D0 so the
+    // ordinary temporal/spatial reservoir chain owns it. Keep this as a
+    // suffix to preserve every accepted field offset above.
+    public float skyBrightness;
 };
 
 public bool Upt04D0PreviousBestHistoryAvailable(

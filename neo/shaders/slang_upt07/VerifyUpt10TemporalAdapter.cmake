@@ -12,9 +12,9 @@ endif()
 
 string(REGEX MATCHALL "\"binding\"[ \t]*:" bindings "${reflection}")
 list(LENGTH bindings binding_count)
-if(NOT binding_count EQUAL 31)
+if(NOT binding_count EQUAL 32)
     message(FATAL_ERROR
-        "UPT-30 ${UPT10_LABEL} must preserve the accepted compact+duplication 31-binding layout")
+        "UPT-30 ${UPT10_LABEL} must preserve the compact+duplication 32-binding directional-sky layout")
 endif()
 if(NOT reflection MATCHES
         "\"name\"[ \t]*:[ \t]*\"gUpt04StaticTriangleClasses\"[^}]*\"set\"[ \t]*:[ \t]*0[^}]*\"binding\"[ \t]*:[ \t]*9" OR
@@ -40,4 +40,4 @@ if(NOT rayquery_count EQUAL 4 OR disassembly MATCHES "OpTraceRay")
 endif()
 
 file(WRITE "${UPT10_STAMP}"
-    "UPT-30 temporal ${UPT10_LABEL} verified: bindings=31, triangleClasses=9/13 host+shader, RayQuery sites=4, cachedX2SuffixReuse=1, TraceRay=0\n")
+    "UPT-30 temporal ${UPT10_LABEL} verified: bindings=32, directionalSky=36, triangleClasses=9/13 host+shader, RayQuery sites=4, cachedX2SuffixReuse=1, TraceRay=0\n")

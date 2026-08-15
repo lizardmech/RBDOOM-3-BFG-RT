@@ -58,10 +58,12 @@ struct PathTraceUnifiedPtDispatchInputs
     nvrhi::BufferHandle primaryHistorySidecarCurrentBuffer;
     nvrhi::BufferHandle primaryHistorySidecarPreviousBuffer;
     nvrhi::TextureHandle rrGuideSpecularAlbedo;
+    nvrhi::TextureHandle skyEnvironment;
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t frameSampleIndex = 0;
     float emissiveScale = 1.0f;
+    float skyBrightness = 1.0f;
     uint32_t materialPolicyFlags = 0;
     uint32_t proofStage = 1;
     uint32_t shaderProofMode = 1;
@@ -141,6 +143,8 @@ struct PathTraceUnifiedPtGlassComposeInputs
     nvrhi::TextureHandle rrMotionVectors;
     uint32_t width = 0;
     uint32_t height = 0;
+    uint32_t frameSampleIndex = 0;
+    uint32_t reflectionDeclusterMode = 0;
     float reflectionBoost = 1.0f;
     float transmissionFloor = 0.0f;
     bool legacySidecarEncoding = false;

@@ -309,7 +309,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     endpoint.sampleCoordinates = hit.barycentrics;
     endpoint.pathLength = 1u;
     endpoint.reconnectionVertexLength = 1u;
-    const Upt04MaterialEmissionEvaluation endpointEmission =
+    Upt04MaterialEmissionEvaluation endpointEmission =
         TMaterialSet.EvaluateEmissiveEndpoint(
             hitSurface.materialIndex,
             hitSurface.triangleClassAndFlags,
@@ -320,6 +320,11 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     {
         result.diagnostics |= kUpt04IndirectDiagEndpointEmissionFailure;
         return result;
+    }
+    if ((Upt04LoadMaterialFlags(hitSurface.materialIndex) & 0x00040000u) != 0u)
+    {
+        endpointEmission.radiance *=
+            Upt04SampleSkyEnvironment(work.ray.direction);
     }
     result.diagnostics |= any(endpointEmission.radiance > 0.0f)
         ? kUpt04IndirectDiagEndpointEmissionPositive

@@ -1,0 +1,93 @@
+69_upt48_transmitted_sky_reuse.txt
+=================================
+
+Status
+------
+
+Vulkan implementation, release build, SPIR-V validation and deployment are
+complete on 2026-08-15. Runtime image-quality acceptance is pending.
+
+Observed failure
+----------------
+
+Window transmission was transparent to the primary glass path, but the light
+arriving through the pane did not have one consistent UPT sample contract:
+
+* D0 skipped recognized transparent surfaces inside its existing RayQuery;
+* T0 and S0 used older transparent-material predicates, so some replay rays
+  could terminate on a pane/decal that D0 had ignored;
+* a continuation that reached a sky material evaluated the authored material
+  stage emission, which is normally scalar white, instead of the directional
+  renderer sky cube;
+* the primary sky resolver colored beauty after compact32 publication, so the
+  compact receiver consumed by D0/T0/S0 could retain white emission.
+
+The last two points meant the directional sky color was outside the reservoir.
+Temporal and spatial could only reuse a noisy white terminal sample; a late
+beauty tint could not repair its target or weight.
+
+Implemented contract
+--------------------
+
+1. Primary sky resolution now updates both the visible receiver and the
+   authoritative compact32 receiver emission before D0. The compact write is
+   an in-place UAV update; it adds no full-buffer copy or clear.
+
+2. D0, T0 and S0 share the same transparent continuation classes: translucent,
+   portal-window fallback, object-glass fallback, additive decal, filter decal
+   and additive-white-key. These surfaces are ignored within the current
+   RayQuery. Crossing them does not advance the UPT path length and does not
+   consume a continuation bounce.
+
+3. A continuation that terminates on a sky material samples the renderer-owned
+   sky TextureCube using the actual continuation direction. The cube value is
+   converted from sRGB and multiplied by `r_pathTracingSkyCubeBrightness`
+   before the candidate is stored or cross-evaluated.
+
+4. T0 and S0 replay sample that same directional terminal inside their normal
+   shift/target evaluation. The transmitted sky contribution therefore enters
+   D0 history and the accepted temporal/spatial estimator instead of escaping
+   into a post-reservoir optical composite.
+
+5. The D0 history ABI is version 15. Existing pages that stored scalar-white
+   sky terminals are rejected by page generation. No per-frame buffer clear is
+   added.
+
+Cost and bounds
+---------------
+
+No ray, candidate, dispatch or reservoir-page count was increased. Transparent
+continuation still uses the already-running RayQuery. One cube sample is issued
+only when an indirect endpoint resolves to a sky material. The direct-only
+specializations do not retain the cube descriptor. UPT04/07/09 control blocks
+are now 220/172/100 bytes and indirect-capable variants expose cube bindings
+31/36/36 respectively.
+
+Verification
+------------
+
+`cmake --build --preset win64-pt-dev-release` passed from `neo/`.
+`spirv-val --target-env vulkan1.2` passed for all 32 rebuilt Vulkan blobs. The
+EXE and only those rebuilt Vulkan blobs were deployed to the prebuilt tree. No
+DX12 shader compilation was invoked.
+
+Runtime acceptance
+------------------
+
+Use the accepted `upt` configuration and compare a large window while moving:
+
+    r_pathTracingSkyCubeEnvironment 1
+    r_pathTracingSkyCubeBrightness 1
+
+Require:
+
+* transmitted sky illumination participates in T0/S0 and no longer becomes a
+  separate high-frequency white field;
+* moving past a window does not reveal a different lighting estimator;
+* colored sky directions remain colored rather than pure white;
+* glass crossing does not shorten the configured indirect path;
+* opaque geometry, analytic lighting and non-sky emissive replay are unchanged.
+
+If the result remains white, use `r_pathTracingSkyCubeProbe 1` and inspect the
+existing sky-cube readiness/fallback log first. A one-pixel fallback cube is a
+resource-publication failure, not a reservoir or transmission failure.

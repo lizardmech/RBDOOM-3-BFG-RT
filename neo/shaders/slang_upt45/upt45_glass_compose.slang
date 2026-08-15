@@ -3,7 +3,7 @@ public struct Upt45GlassComposeControl
     public uint renderWidth;
     public uint renderHeight;
     public uint distortionEnabled;
-    public uint legacySidecarEncoding;
+    public uint sourceModeAndFrameIndex;
     public float reflectionBoost;
     public float transmissionFloor;
     public float distortionScale;
@@ -148,6 +148,62 @@ public float4 Upt45LoadReflectionReuseBilinear(uint2 fullResolutionPixel)
         fraction.y);
 }
 
+public uint Upt45DeclusterHash(uint2 pixel, uint frameIndex)
+{
+    uint value = pixel.x * 0x8da6b343u;
+    value ^= pixel.y * 0xd8163841u;
+    value ^= frameIndex * 0xcb1ab31fu;
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    value *= 0x846ca68bu;
+    value ^= value >> 16u;
+    return value;
+}
+
+public bool Upt45DeclusterLess(
+    uint centerHash,
+    uint centerIndex,
+    uint neighborHash,
+    uint neighborIndex)
+{
+    return centerHash < neighborHash ||
+        (centerHash == neighborHash && centerIndex < neighborIndex);
+}
+
+public bool Upt45AdmitReusedReflection(uint2 pixel, uint mode, uint frameIndex)
+{
+    if (mode == 0u)
+        return true;
+
+    const uint width = gUpt45Control.renderWidth;
+    const uint height = gUpt45Control.renderHeight;
+    const uint centerIndex = pixel.y * width + pixel.x;
+    const uint centerHash = Upt45DeclusterHash(pixel, frameIndex);
+    const int2 offsets[8] = {
+        int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1),
+        int2(-1, -1), int2(1, -1), int2(-1, 1), int2(1, 1)
+    };
+    const uint neighborCount = mode == 1u ? 8u : 4u;
+    [unroll]
+    for (uint neighborOrdinal = 0u; neighborOrdinal < 8u; ++neighborOrdinal)
+    {
+        if (neighborOrdinal >= neighborCount)
+            break;
+        const int2 neighborSigned = int2(pixel) + offsets[neighborOrdinal];
+        if (neighborSigned.x < 0 || neighborSigned.y < 0 ||
+            neighborSigned.x >= int(width) || neighborSigned.y >= int(height))
+            continue;
+        const uint2 neighbor = uint2(neighborSigned);
+        const uint neighborIndex = neighbor.y * width + neighbor.x;
+        const uint neighborHash = Upt45DeclusterHash(neighbor, frameIndex);
+        if (!Upt45DeclusterLess(
+                centerHash, centerIndex, neighborHash, neighborIndex))
+            return false;
+    }
+    return true;
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -178,7 +234,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // Keep the diagnostic source explicit so legacy energy can be compared
     // without accidentally decoding a bright legacy pane as UPT refraction.
     const bool legacySidecarEncoding =
-        gUpt45Control.legacySidecarEncoding != 0u;
+        (gUpt45Control.sourceModeAndFrameIndex & 1u) != 0u;
+    const uint reflectionDeclusterMode =
+        (gUpt45Control.sourceModeAndFrameIndex >> 1u) & 3u;
+    const uint frameSampleIndex =
+        gUpt45Control.sourceModeAndFrameIndex >> 3u;
     const bool resolvedRefraction = !legacySidecarEncoding &&
         transmission.a >= 1.5f && transmission.a < 2.5f;
     const bool exactMirror = !legacySidecarEncoding && transmission.a >= 2.5f;
@@ -247,7 +307,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         const float4 reusedReflection =
             Upt45LoadReflectionReuseBilinear(pixel);
         const bool reusedReflectionValid = reusedReflection.a > 0.5f
-            && all(isfinite(reusedReflection.rgb));
+            && all(isfinite(reusedReflection.rgb))
+            && Upt45AdmitReusedReflection(
+                pixel, reflectionDeclusterMode, frameSampleIndex);
         const float reflectionBoost =
             max(gUpt45Control.reflectionBoost, 0.0f);
         const float3 resolvedReflection = reusedReflectionValid
@@ -262,10 +324,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         // feeding only Fresnel-weighted radiance made ordinary 4--10% glass
         // reflections disappear from SpecularAlbedo while only extreme HDR
         // samples survived. Preserve the old exact contribution on a failed
-        // child resolve; a valid private R0 publishes its full reflected signal.
-        reflectionSpecularSignal = reusedReflectionValid
-            ? resolvedReflection * reflectionBoost
-            : reflectionContribution;
+        // child resolve. The normal mode publishes a valid private R0's full
+        // reflected signal. De-clustered presentation instead publishes the
+        // exact admitted beauty contribution so color and guide sparsity match.
+        reflectionSpecularSignal = reflectionDeclusterMode != 0u
+            ? reflectionContribution
+            : (reusedReflectionValid
+                ? resolvedReflection * reflectionBoost
+                : reflectionContribution);
         reflectionSpecularSignalValid = true;
     }
     else if (reflection.a >= 0.75f && reflection.a < 0.95f &&

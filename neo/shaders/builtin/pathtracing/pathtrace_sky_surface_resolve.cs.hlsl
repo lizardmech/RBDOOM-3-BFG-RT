@@ -35,8 +35,8 @@ struct PathTraceUnifiedPtPrimaryReceiver32
     uint4 geometry;
     uint4 material;
 };
-StructuredBuffer<PathTraceUnifiedPtPrimaryReceiver32>
-    PathTraceSkySurfaceUnifiedPtReceivers : register(t1);
+RWStructuredBuffer<PathTraceUnifiedPtPrimaryReceiver32>
+    PathTraceSkySurfaceUnifiedPtReceivers : register(u4);
 SamplerState PathTraceSkySurfaceResolveSampler : register(s0);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PathTraceSkySurfaceRecords : register(u0);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceSkySurfaceSpecularAlbedo : register(u1);
@@ -118,6 +118,31 @@ float3 PathTraceSkySurfaceSample(float3 direction)
         max(PathTraceSkySurfaceResolveBrightness, 0.0);
 }
 
+uint PathTraceSkySurfacePackSharedExponentEmission(float3 value)
+{
+    const float3 finiteValue = all(isfinite(value))
+        ? min(max(value, float3(0.0, 0.0, 0.0)), float3(65408.0, 65408.0, 65408.0))
+        : float3(0.0, 0.0, 0.0);
+    const float maximum = max(finiteValue.x, max(finiteValue.y, finiteValue.z));
+    if (maximum <= 0.0)
+    {
+        return 0u;
+    }
+
+    uint exponent = (uint)clamp((int)floor(log2(maximum)) + 16, 0, 31);
+    float scale = exp2(24.0 - float(exponent));
+    uint3 mantissa = uint3(round(finiteValue * scale));
+    if (max(mantissa.x, max(mantissa.y, mantissa.z)) > 511u && exponent < 31u)
+    {
+        ++exponent;
+        scale *= 0.5;
+        mantissa = uint3(round(finiteValue * scale));
+    }
+    mantissa = min(mantissa, uint3(511u, 511u, 511u));
+    return mantissa.x | (mantissa.y << 9u) | (mantissa.z << 18u) |
+        (exponent << 27u);
+}
+
 [numthreads(8, 8, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -153,6 +178,25 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             float3(0.0, 0.0, 0.0));
         record.emissiveAndHeight.rgb = radiance;
         PathTraceSkySurfaceRecords[recordIndex] = record;
+
+        // The wide history record is retained for legacy consumers, but UPT
+        // D0/T0/S0 read the compact32 receiver.  Publish the directional sky
+        // radiance into that authoritative pre-reuse record as well; otherwise
+        // UPT sees only the material's white stage color and the later glass
+        // compose has to replace a sample after temporal/spatial reuse.
+        if (PathTraceSkySurfaceResolveUseUnifiedPtCompactReceiver != 0u)
+        {
+            PathTraceUnifiedPtPrimaryReceiver32 compactReceiver =
+                PathTraceSkySurfaceUnifiedPtReceivers[recordIndex];
+            const uint compactHeader = compactReceiver.material.w >> 16u;
+            if ((compactHeader & 0x7fffu) == RT_UPT_PRIMARY_RECEIVER_VERSION &&
+                (compactHeader & RT_UPT_PRIMARY_RECEIVER_VALID) != 0u)
+            {
+                compactReceiver.material.z =
+                    PathTraceSkySurfacePackSharedExponentEmission(radiance);
+                PathTraceSkySurfaceUnifiedPtReceivers[recordIndex] = compactReceiver;
+            }
+        }
 
         const float peak = max(max(radiance.r, radiance.g), radiance.b);
         PathTraceSkySurfaceSpecularAlbedo[pixel] = float4(

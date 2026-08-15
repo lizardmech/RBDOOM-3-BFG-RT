@@ -11,9 +11,9 @@ file(READ "${UPT36_REPLAY_SOURCE}" replay_source)
 
 string(REGEX MATCHALL "\"binding\"[ \t]*:" bindings "${reflection}")
 list(LENGTH bindings binding_count)
-if(NOT binding_count EQUAL 31)
+if(NOT binding_count EQUAL 32)
     message(FATAL_ERROR
-        "UPT-36 must preserve the accepted compact+duplication 31-binding layout")
+        "UPT-36 must preserve the compact+duplication 32-binding directional-sky layout")
 endif()
 if(NOT reflection MATCHES
         "\"name\"[ \t]*:[ \t]*\"gUpt04StaticTriangleClasses\"[^}]*\"set\"[ \t]*:[ \t]*0[^}]*\"binding\"[ \t]*:[ \t]*9" OR
@@ -45,4 +45,4 @@ if(NOT host_source MATCHES
 endif()
 
 file(WRITE "${UPT36_STAMP}"
-    "UPT-36 temporal verified: bindings=31, triangleClasses=9/13, RayQuery sites=6, TraceRay=0, stored-q exact replay, throughput cutoff absent\n")
+    "UPT-36 temporal verified: bindings=32, directionalSky=36, triangleClasses=9/13, RayQuery sites=6, TraceRay=0, stored-q exact replay, throughput cutoff absent\n")

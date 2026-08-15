@@ -21,6 +21,9 @@ import upt07_emissive_material;
 #ifndef UPT09_SPATIAL_INDIRECT_REPLAY
 #define UPT09_SPATIAL_INDIRECT_REPLAY 0
 #endif
+#ifndef UPT07_INDIRECT_REPLAY
+#define UPT07_INDIRECT_REPLAY 0
+#endif
 #if UPT09_SPATIAL_INDIRECT_REPLAY
 import upt09_spatial_direct_bindings;
 #define gUpt07Control gUpt09Control
@@ -28,6 +31,10 @@ import upt09_spatial_direct_bindings;
 import upt07_temporal_direct_bindings;
 #endif
 import upt07_work_budget;
+
+#if UPT07_INDIRECT_REPLAY || UPT09_SPATIAL_INDIRECT_REPLAY
+public [[vk::binding(36, 0)]] TextureCube<float4> gUpt07SkyEnvironment;
+#endif
 
 #ifndef UPT07_THREE_VERTEX_REPLAY
 #define UPT07_THREE_VERTEX_REPLAY 0
@@ -46,6 +53,9 @@ public static const uint kUpt07TranslucentSubtypeMask = 0x0f000000u;
 public static const uint kUpt07TranslucentSubtypeGuiScreen = 5u;
 public static const uint kUpt07MaterialPortalWindowFallback = 0x00000200u;
 public static const uint kUpt07MaterialObjectGlassFallback = 0x00000400u;
+public static const uint kUpt07MaterialAdditiveDecal = 0x00000004u;
+public static const uint kUpt07MaterialFilterDecal = 0x00000010u;
+public static const uint kUpt07MaterialAdditiveDecalWhiteKey = 0x00000800u;
 
 public float3 Upt07MaterialYCoCgToRgb(float4 ycocg)
 {
@@ -112,8 +122,11 @@ public bool Upt07MaterialAlwaysTransmitsCandidate(
         return false;
     Upt07WorkAdd(work, kUpt07WorkMaterialRecordLoads);
     const uint flags = gUptDirectEmitterMaterials[materialIndex].flags;
-    if ((flags & (kUpt07MaterialPortalWindowFallback
-            | kUpt07MaterialObjectGlassFallback)) != 0u)
+    if ((flags & (kUpt07MaterialAdditiveDecal
+            | kUpt07MaterialFilterDecal
+            | kUpt07MaterialPortalWindowFallback
+            | kUpt07MaterialObjectGlassFallback
+            | kUpt07MaterialAdditiveDecalWhiteKey)) != 0u)
         return true;
     uint triangleClassAndFlags;
     Upt07WorkAdd(work, kUpt07WorkGeometryResolves);
@@ -360,10 +373,28 @@ public Upt04MaterialEvaluation Upt07EvaluateSecondaryDirect(
         incidentRadiance);
 }
 
-public Upt04MaterialEmissionEvaluation Upt07EvaluateHitEmission(
-    Upt04GeometryHitSurface surface)
+public float3 Upt07SampleSkyEnvironment(float3 direction)
 {
-    return UptDirectEvaluateEmissiveEndpoint(
+#if UPT07_INDIRECT_REPLAY || UPT09_SPATIAL_INDIRECT_REPLAY
+    if (!all(isfinite(direction)) || dot(direction, direction) <= 1.0e-12f)
+        return float3(1.0f);
+    const float3 encoded = gUpt07SkyEnvironment.SampleLevel(
+        gUptDirectEmitterSampler, normalize(direction), 0.0f).rgb;
+    return float3(
+        Upt07MaterialSrgbToLinear(encoded.r),
+        Upt07MaterialSrgbToLinear(encoded.g),
+        Upt07MaterialSrgbToLinear(encoded.b));
+#else
+    return float3(1.0f);
+#endif
+}
+
+public Upt04MaterialEmissionEvaluation Upt07EvaluateHitEmission(
+    Upt04GeometryHitSurface surface,
+    float3 continuationDirection)
+{
+    Upt04MaterialEmissionEvaluation result =
+        UptDirectEvaluateEmissiveEndpoint(
         surface.materialIndex,
         surface.triangleClassAndFlags,
         surface.texCoord,
@@ -372,4 +403,12 @@ public Upt04MaterialEmissionEvaluation Upt07EvaluateHitEmission(
         gUpt07Control.materialCount,
         gUpt07Control.logicalTextureCount,
         gUpt07Control.emissiveScale);
+    if (result.valid != 0u && surface.materialIndex < gUpt07Control.materialCount
+        && (gUptDirectEmitterMaterials[surface.materialIndex].flags
+            & 0x00040000u) != 0u)
+    {
+        result.radiance *= Upt07SampleSkyEnvironment(continuationDirection)
+            * max(gUpt07Control.skyBrightness, 0.0f);
+    }
+    return result;
 }

@@ -47,9 +47,10 @@ foreach(stride 4 16 36 64 112 144 176)
     endif()
 endforeach()
 if(NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*204" OR
-   NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"previousCameraJitterPixels\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"vec2\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*208")
-    message(FATAL_ERROR "UPT-04 geometry push constants are not the 216-byte D0/indirect layout")
+   NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"previousCameraJitterPixels\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"vec2\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*208" OR
+   NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"skyBrightness\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*216")
+    message(FATAL_ERROR "UPT-04 geometry push constants are not the 220-byte D0/indirect layout")
 endif()
 
 file(WRITE "${UPT04_STAMP}"
-    "UPT-04 geometry closure verified: trace-free, bindings=set0[1..21]+set1[0], strides=4/16/36/64/112/144/176, route bindings 17+20 word-addressed, push=216\n")
+    "UPT-04 geometry closure verified: trace-free, bindings=set0[1..21]+set1[0], strides=4/16/36/64/112/144/176, route bindings 17+20 word-addressed, push=220\n")

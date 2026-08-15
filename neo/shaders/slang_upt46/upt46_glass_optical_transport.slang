@@ -311,10 +311,12 @@ public float3 Upt46ShadeFlatReflectionHit(
     Upt04HitFacts hit,
     float3 incomingDirection,
     out float3 diffuseAlbedo,
-    out float3 specularF0)
+    out float3 specularF0,
+    out float3 terminalEmission)
 {
     diffuseAlbedo = float3(0.0f);
     specularF0 = float3(0.0f);
+    terminalEmission = float3(0.0f);
     if (hit.status == kUpt04HitMiss)
         return Upt46Sky(incomingDirection);
     const Upt04GeometryHitSurface surface = Upt04DecodeGeometryHit(hit);
@@ -327,12 +329,24 @@ public float3 Upt46ShadeFlatReflectionHit(
         return float3(0.0f);
     diffuseAlbedo = saturate(material.baseColor);
     specularF0 = saturate(material.specularF0);
+    const Upt04MaterialEmissionEvaluation emission =
+        Upt05OpenPbrMaterialSet.EvaluateEmissiveEndpoint(
+            surface.materialIndex,
+            surface.triangleClassAndFlags,
+            surface.texCoord,
+            float2(0.0f),
+            float2(0.0f));
+    terminalEmission = emission.valid != 0u
+        && all(isfinite(emission.radiance))
+        ? max(emission.radiance, float3(0.0f))
+        : float3(0.0f);
     // Raw texture albedo is a material parameter, not scene radiance. RTXDI
     // FullSample's deterministic glass reflection uses the same deliberately
     // small fixed ambient response so dark receivers do not glow in mirrors.
     const float3 flatAmbient = float3(0.05f, 0.045f, 0.03f);
     const float3 flatMaterial = max(diffuseAlbedo, specularF0) * flatAmbient;
-    return all(isfinite(flatMaterial)) ? flatMaterial : float3(0.0f);
+    const float3 reflected = terminalEmission + flatMaterial;
+    return all(isfinite(reflected)) ? reflected : terminalEmission;
 }
 
 public uint Upt46PackSharedExponentEmission(float3 value)
@@ -372,7 +386,8 @@ public void Upt46PublishReflectionReceiver(
     uint reflectionIndex,
     Upt04PrimarySurfaceRecord pane,
     Upt04HitFacts hit,
-    float3 reflectedDirection)
+    float3 reflectedDirection,
+    float3 terminalEmission)
 {
     Upt04PackedPrimarySurfaceRecord packed = (Upt04PackedPrimarySurfaceRecord)0;
     packed.positionAndHeader.w = kUpt04PackedPrimaryVersion;
@@ -387,15 +402,6 @@ public void Upt46PublishReflectionReceiver(
                 surface, -reflectedDirection);
         if (surface.valid != 0u && material.valid != 0u)
         {
-            const Upt04MaterialEmissionEvaluation emission =
-                Upt05OpenPbrMaterialSet.EvaluateEmissiveEndpoint(
-                    surface.materialIndex,
-                    surface.triangleClassAndFlags,
-                    surface.texCoord,
-                    float2(0.0f),
-                    float2(0.0f));
-            const float3 emitted = emission.valid != 0u
-                ? max(emission.radiance, float3(0.0f)) : float3(0.0f);
             packed.positionAndHeader = uint4(
                 asuint(surface.position),
                 kUpt04PackedPrimaryVersion | kUpt04PackedPrimaryValid);
@@ -410,7 +416,7 @@ public void Upt46PublishReflectionReceiver(
                 Upt04PackHalf2(material.baseColor.xy),
                 Upt04PackHalf2(float2(material.baseColor.z, material.specularF0.x)),
                 Upt04PackHalf2(material.specularF0.yz),
-                Upt46PackSharedExponentEmission(emitted));
+                Upt46PackSharedExponentEmission(terminalEmission));
 
             // The reflection receiver is not camera-visible, so its own world
             // position cannot drive ordinary screen-space reprojection. The
@@ -666,8 +672,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         || packedInteractionGlass || resolvedInteractionGlass;
     const float roughness = saturate(
         interaction.geometricNormalAndRoughness.w);
-    const bool mirror = !glass && roughness <= 0.011f
-        && any(interaction.specularF0AndReserved.xyz > 1.0e-4f);
     if (diagnosticPixel)
     {
         gUpt46GlassDiagnostic[1] = 2u;
@@ -682,8 +686,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             | (packedInteractionGlass ? 1u << 3u : 0u)
             | (resolvedInteractionClassValid ? 1u << 4u : 0u)
             | (resolvedInteractionGlass ? 1u << 5u : 0u)
-            | (glass ? 1u << 6u : 0u)
-            | (mirror ? 1u << 7u : 0u);
+            | (glass ? 1u << 6u : 0u);
         gUpt46GlassDiagnostic[19] = asuint(
             interaction.worldPositionAndViewDepth.x);
         gUpt46GlassDiagnostic[20] = asuint(
@@ -694,7 +697,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             interaction.worldPositionAndViewDepth.w);
         gUpt46GlassDiagnostic[23] = asuint(roughness);
     }
-    if (!glass && !mirror)
+    // UPT46 owns transmitting panes only. Opaque zero-roughness materials are
+    // already represented by the main UPT path and its normal RR guides; the
+    // former mirror admission replaced that result with a flat one-ray mini
+    // renderer and made opaque mirrors regress whenever glass optics ran.
+    if (!glass)
         return;
 
     const float3 shadingNormal = Upt46SafeNormalize(
@@ -725,36 +732,21 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     float3 reflectedDiffuseAlbedo;
     float3 reflectedSpecularF0;
+    float3 reflectedTerminalEmission;
     const float3 reflectedRadiance = Upt46ShadeFlatReflectionHit(
         reflectedHit,
         reflectedDirection,
         reflectedDiffuseAlbedo,
-        reflectedSpecularF0);
+        reflectedSpecularF0,
+        reflectedTerminalEmission);
     if (reflectionDomainPixel)
     {
         Upt46PublishReflectionReceiver(
-            reflectionIndex, interaction, reflectedHit, reflectedDirection);
-    }
-    if (mirror)
-    {
-        const float3 f0 = saturate(interaction.specularF0AndReserved.xyz);
-        const float3 fresnel = f0 + (1.0f - f0) * Upt46Pow5(1.0f - cosine);
-        const float3 reflectionContribution = max(
-            reflectedRadiance * fresnel, float3(0.0f));
-        Upt46PublishReflectionRrGuides(
-            pixel,
+            reflectionIndex,
+            interaction,
             reflectedHit,
-            reflectedDiffuseAlbedo,
-            reflectedSpecularF0,
-            reflectionContribution);
-        gUpt46ReflectionOutput[pixel] = float4(reflectionContribution, 1.0f);
-        gUpt46TransmissionOutput[pixel] = float4(0.0f, 0.0f, 0.0f, 3.0f);
-        if (diagnosticPixel)
-        {
-            gUpt46GlassDiagnostic[1] = 4u;
-            gUpt46GlassDiagnostic[18] = 3u;
-        }
-        return;
+            reflectedDirection,
+            reflectedTerminalEmission);
     }
 
     float3 transmissionWeight;
