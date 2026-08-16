@@ -7,6 +7,7 @@ import upt04_local_light_evaluation;
 import upt04_material_provider_contract;
 import upt04_geometry_contract;
 import upt04_emissive_replay;
+import upt04_resolved_emissive;
 
 #ifndef UPT_FROZEN_STATIC_SCENE
 #define UPT_FROZEN_STATIC_SCENE 0
@@ -14,6 +15,9 @@ import upt04_emissive_replay;
 
 #ifndef UPT_FROZEN_FLAT_LIGHTS
 #define UPT_FROZEN_FLAT_LIGHTS UPT_FROZEN_STATIC_SCENE
+#endif
+#ifndef UPT04_EMISSIVE_COMPACT_CLASSIFY
+#define UPT04_EMISSIVE_COMPACT_CLASSIFY 0
 #endif
 
 public static const uint kUpt04ReverseNeeLookupFailure = 1u;
@@ -174,6 +178,26 @@ public float Upt04ExactNeePdfForEmissiveHit<
 
     const Upt04UnifiedLightRecord light =
         Upt04LoadCurrentLightRecord(denseLightIndex);
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+    const Upt56ResolvedEmissiveRecord resolved =
+        Upt56LoadResolvedEmissive(denseLightIndex);
+    const float4 regionWeights = light.positionAndRadius;
+    if (!Upt56ResolvedRecordValid(resolved)
+        || !all(isfinite(regionWeights)) || any(regionWeights < 0.0f))
+        return 0.0f;
+    const float geometryPdf = Upt56ResolvedSolidAnglePdf(
+        resolved,
+        light,
+        receiverPosition,
+        hitBarycentrics,
+        (gUpt04Control.availabilityFlags
+            & kUpt04EmissiveReplayTwoSided) != 0u);
+    if (!Upt04FinitePositive(geometryPdf))
+        return 0.0f;
+    const uint region = Upt56RegionFromBarycentrics(hitBarycentrics);
+    const float solidAnglePdf = geometryPdf
+        * (4.0f * Upt56RegionSelectionPdf(regionWeights, region));
+#else
     const Upt04EmissiveGeometrySample replay =
         Upt04ReplayEmissiveTriangleBarycentrics(
             light,
@@ -193,6 +217,7 @@ public float Upt04ExactNeePdfForEmissiveHit<
     const float solidAnglePdf = replay.solidAnglePdf
         * (4.0f * Upt04EmissiveRegionSelectionPdf(
             regionWeights, region));
+#endif
     // Multi-sample balance heuristic density: selectionPdf is the normalized
     // per-draw typed mixture, so multiplying by the complete RIS trial count
     // yields sum_j n_j p_j for the heterogeneous NEE schedule.

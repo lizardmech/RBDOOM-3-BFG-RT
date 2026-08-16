@@ -49,6 +49,40 @@ public struct Upt04IndirectHitTrialResult
 #endif
 };
 
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+public float3 Upt56ClassifyHitRadiance(
+    uint instanceId,
+    uint primitiveId,
+    float2 barycentrics,
+    uint materialIndex,
+    float3 rayDirection)
+{
+    float3 radiance = float3(0.0f);
+    uint denseLightIndex = kUpt04InvalidLightIndex;
+    float identityPdf = 0.0f;
+    if (Upt04FindEmissiveDenseLight(
+            instanceId,
+            primitiveId,
+            denseLightIndex,
+            identityPdf))
+    {
+        radiance = Upt56LoadResolvedHitRadiance(
+            denseLightIndex, barycentrics);
+    }
+    if ((Upt04LoadMaterialFlags(materialIndex) & 0x00040000u) != 0u)
+    {
+        if (!any(radiance > 0.0f))
+        {
+            const Upt04SmokeMaterialRecord skyMaterial =
+                Upt04LoadMaterialRecord(materialIndex);
+            radiance = max(skyMaterial.emissiveColor.xyz, float3(0.0f));
+        }
+        radiance *= Upt04SampleSkyEnvironment(rayDirection);
+    }
+    return radiance;
+}
+#endif
+
 public static const uint kUpt04IndirectDiagContinuationMiss = 1u << 0u;
 public static const uint kUpt04IndirectDiagContinuationHit = 1u << 1u;
 public static const uint kUpt04IndirectDiagGeometryFailure = 1u << 2u;
@@ -331,31 +365,12 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     endpointEmission.valid = 1u;
 #elif UPT04_EMISSIVE_COMPACT_CLASSIFY
     endpointEmission.valid = 1u;
-    {
-        const uint materialFlags =
-            Upt04LoadMaterialFlags(hitSurface.materialIndex);
-        if ((materialFlags & kUpt04TriangleEmissiveStageOff) != 0u)
-        {
-            const Upt04SmokeMaterialRecord skyMaterial =
-                Upt04LoadMaterialRecord(hitSurface.materialIndex);
-            endpointEmission.radiance = max(skyMaterial.emissiveColor.xyz, float3(0.0f))
-                * Upt04SampleSkyEnvironment(work.ray.direction);
-        }
-        else
-        {
-            uint denseLightIndex = kUpt04InvalidLightIndex;
-            float identityPdf = 0.0f;
-            if (Upt04FindEmissiveDenseLight(
-                    hit.instanceId,
-                    hit.primitiveId,
-                    denseLightIndex,
-                    identityPdf))
-            {
-                endpointEmission.radiance = Upt56LoadResolvedHitRadiance(
-                    denseLightIndex, hit.barycentrics);
-            }
-        }
-    }
+    endpointEmission.radiance = Upt56ClassifyHitRadiance(
+        hit.instanceId,
+        hit.primitiveId,
+        hit.barycentrics,
+        hitSurface.materialIndex,
+        work.ray.direction);
 #else
     endpointEmission = TMaterialSet.EvaluateEmissiveEndpoint(
         hitSurface.materialIndex,
@@ -390,7 +405,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     }
     uint reverseStatus = 0u;
-#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY || UPT04_EMISSIVE_COMPACT_CLASSIFY
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
     const float endpointNeePdf = 0.0f;
 #else
     const float endpointNeePdf = any(endpointEmission.radiance > 0.0f)

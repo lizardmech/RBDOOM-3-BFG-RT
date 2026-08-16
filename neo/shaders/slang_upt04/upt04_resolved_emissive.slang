@@ -183,3 +183,41 @@ public float3 Upt56ResolvedRadianceAtBarycentrics(
             resolved, Upt56RegionFromBarycentrics(barycentrics)),
         float3(0.0f));
 }
+
+public float Upt56ResolvedSolidAnglePdf(
+    Upt56ResolvedEmissiveRecord resolved,
+    Upt04UnifiedLightRecord light,
+    float3 receiverPosition,
+    float2 barycentrics,
+    bool twoSided)
+{
+    if (!Upt56ResolvedRecordValid(resolved)
+        || !all(isfinite(receiverPosition))
+        || !all(isfinite(barycentrics)))
+        return 0.0f;
+    const float3 p0 = resolved.p0AndArea.xyz;
+    const float3 e1 = resolved.e1AndPad.xyz;
+    const float3 e2 = resolved.e2AndPad.xyz;
+    const float area = resolved.p0AndArea.w;
+    float3 normal = resolved.nAndFlags.xyz;
+    const float3 position = p0 + e1 * barycentrics.x + e2 * barycentrics.y;
+    const float3 toLight = position - receiverPosition;
+    const float distanceSquared = dot(toLight, toLight);
+    if (!isfinite(distanceSquared) || distanceSquared <= 1.0e-8f
+        || !Upt04FinitePositive(area))
+        return 0.0f;
+    const float distance = sqrt(distanceSquared);
+    const float3 direction = toLight / distance;
+    const float3 publishedNormal = light.normalAndArea.xyz;
+    if (dot(normal, publishedNormal) < 0.0f)
+        normal = -normal;
+    const float lightFacingRaw = dot(normal, -direction);
+    const float lightFacing = twoSided
+        ? abs(lightFacingRaw)
+        : saturate(lightFacingRaw);
+    if (lightFacing <= 0.0f)
+        return 0.0f;
+    const float solidAnglePdf = distanceSquared
+        / max(area * max(lightFacing, 1.0e-8f), 1.0e-8f);
+    return Upt04FinitePositive(solidAnglePdf) ? solidAnglePdf : 0.0f;
+}
