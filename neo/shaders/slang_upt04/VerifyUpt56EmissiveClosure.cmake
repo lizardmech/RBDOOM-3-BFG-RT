@@ -40,15 +40,5 @@ if(NOT classify_sample_count LESS production_sample_count)
         "UPT-56 classify image-sample count ${classify_sample_count} is not smaller than production ${production_sample_count}")
 endif()
 
-if(NOT classify_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*33" OR
-   NOT classify_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*34" OR
-   NOT classify_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*35")
-    message(FATAL_ERROR "UPT-56 classify reflection lacks queue bindings 33-35")
-endif()
-if(NOT consume_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*33" OR
-   NOT consume_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*34")
-    message(FATAL_ERROR "UPT-56 consume reflection lacks queue bindings 33-34")
-endif()
-
 file(WRITE "${UPT56_STAMP}"
-    "UPT-56 classify ops=${classify_op_count} samples=${classify_sample_count}; production ops=${production_op_count} samples=${production_sample_count}; consume workgroup=64x1\n")
+    "UPT-56 classify ops=${classify_op_count} samples=${classify_sample_count}; production ops=${production_op_count} samples=${production_sample_count}; consume workgroup=64x1 queue=disabled\n")

@@ -341,10 +341,6 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
             endpointEmission.radiance = max(skyMaterial.emissiveColor.xyz, float3(0.0f))
                 * Upt04SampleSkyEnvironment(work.ray.direction);
         }
-        else if ((materialFlags & kUpt04MaterialEmissiveLightCandidate) != 0u)
-        {
-            Upt56NoteEmissiveCompactKind(kUpt56KindHit2);
-        }
     }
 #else
     endpointEmission = TMaterialSet.EvaluateEmissiveEndpoint(
@@ -422,12 +418,6 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         : kUpt04SampleValidZero;
     endpoint.candidateReady = 1u;
     result.endpointCandidate = endpoint;
-#if UPT04_EMISSIVE_COMPACT_CLASSIFY
-    if ((Upt56EmissiveCompactRequested() & kUpt56KindHit2) != 0u)
-    {
-        result.endpointCandidate = (Upt04InitialTraceWork)0;
-    }
-#endif
 
     Upt04LocalLightRanges ranges;
     ranges.emissiveStart = gUpt04Control.emissiveRangeStart;

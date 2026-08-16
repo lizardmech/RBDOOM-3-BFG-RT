@@ -2665,7 +2665,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         if (inputs.splitInitial)
         {
             common->Printf(
-                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 threeVertex=%d x3Nee=%d staticAnalyticOnly=%d emissiveCompact=%d continuationRaysMax=%u visibilityRaysMax=%u totalRaysMax=%u rouletteQ=%.2f createUs=%llu\n",
+                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 threeVertex=%d x3Nee=%d staticAnalyticOnly=%d emissiveCompact=%d queuePolicy=none continuationRaysMax=%u visibilityRaysMax=%u totalRaysMax=%u rouletteQ=%.2f createUs=%llu\n",
                 splitIndirectSize,
                 static_cast<unsigned long long>(splitIndirectHash),
                 static_cast<long long>(splitIndirectTimestamp),
@@ -4940,27 +4940,6 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 "UPT.D0 Split Intermediate Reservoir Barrier",
                 inputs.nsightMarkers);
             nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
-            if (inputs.emissiveCompact)
-            {
-                const uint32_t compactArgs[3] = { 0u, 1u, 1u };
-                const uint32_t compactMeta[2] = {
-                    0u, m_emissiveCompactCapacity };
-                inputs.commandList->writeBuffer(
-                    m_emissiveCompactDispatchArgs,
-                    compactArgs, sizeof(compactArgs));
-                inputs.commandList->writeBuffer(
-                    m_emissiveCompactMeta,
-                    compactMeta, sizeof(compactMeta));
-                inputs.commandList->setBufferState(
-                    m_emissiveCompactQueue,
-                    nvrhi::ResourceStates::UnorderedAccess);
-                inputs.commandList->setBufferState(
-                    m_emissiveCompactMeta,
-                    nvrhi::ResourceStates::UnorderedAccess);
-                inputs.commandList->setBufferState(
-                    m_emissiveCompactDispatchArgs,
-                    nvrhi::ResourceStates::UnorderedAccess);
-            }
             inputs.commandList->commitBarriers();
             nvrhi::ComputeState state;
             state.pipeline = m_splitIndirectComputePipeline;
@@ -4986,58 +4965,6 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 oneGroup ? 1u : (inputs.width + 7u) / 8u,
                 oneGroup || oneGroupRow ? 1u : (inputs.height + 7u) / 8u,
                 1u);
-        }
-        if (inputs.emissiveCompact && m_emissiveCompactConsumePipeline)
-        {
-            nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
-            nvrhi::utils::BufferUavBarrier(
-                inputs.commandList, m_emissiveCompactQueue);
-            nvrhi::utils::BufferUavBarrier(
-                inputs.commandList, m_emissiveCompactMeta);
-            nvrhi::utils::BufferUavBarrier(
-                inputs.commandList, m_emissiveCompactDispatchArgs);
-            inputs.commandList->setBufferState(
-                m_emissiveCompactDispatchArgs,
-                nvrhi::ResourceStates::IndirectArgument);
-            inputs.commandList->commitBarriers();
-            Upt04MarkerScope consumeMarker(
-                inputs.commandList,
-                "UPT.D0c Emissive Compact Consume 64x1",
-                inputs.nsightMarkers);
-            nvrhi::ComputeState consumeState;
-            consumeState.pipeline = m_emissiveCompactConsumePipeline;
-            consumeState.bindings = { m_bindingSets[m_currentPageIndex] };
-            consumeState.bindings.push_back(
-                inputs.sceneInputs->materials.textureDescriptorTable);
-            consumeState.indirectParams = m_emissiveCompactDispatchArgs;
-            inputs.commandList->setComputeState(consumeState);
-            inputs.commandList->setPushConstants(&control, sizeof(control));
-            inputs.commandList->dispatchIndirect(0u);
-            if (r_pathTracingUnifiedPtEmissiveCompactDiagnostics.GetBool()
-                && m_emissiveCompactReadback
-                && !m_emissiveCompactReadbackPending)
-            {
-                inputs.commandList->setBufferState(
-                    m_emissiveCompactDispatchArgs,
-                    nvrhi::ResourceStates::CopySource);
-                inputs.commandList->setBufferState(
-                    m_emissiveCompactMeta,
-                    nvrhi::ResourceStates::CopySource);
-                inputs.commandList->setBufferState(
-                    m_emissiveCompactReadback,
-                    nvrhi::ResourceStates::CopyDest);
-                inputs.commandList->commitBarriers();
-                inputs.commandList->copyBuffer(
-                    m_emissiveCompactReadback, 0,
-                    m_emissiveCompactDispatchArgs, 0,
-                    3u * sizeof(uint32_t));
-                inputs.commandList->copyBuffer(
-                    m_emissiveCompactReadback, 3u * sizeof(uint32_t),
-                    m_emissiveCompactMeta, 0,
-                    2u * sizeof(uint32_t));
-                m_emissiveCompactReadbackPending = true;
-                m_emissiveCompactReadbackDelayFrames = 2;
-            }
         }
     }
 
