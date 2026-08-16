@@ -42,6 +42,18 @@ foreach(module IN LISTS entry_modules)
     endif()
 endforeach()
 
+# Split initial sampling is a dispatch decomposition, not a distinct
+# estimator.  Its direct artifact must retain the same runtime family-admission
+# gate as monolithic UPT-04; otherwise an indirect-only diagnostic still puts
+# direct winners in the reservoir and later T0/S0 reuse poisons the view.
+file(READ "${UPT05_SOURCE_DIR}/upt04_initial_direct_only_shared.slang"
+    split_direct_source)
+if(NOT split_direct_source MATCHES
+        "Upt04EnabledFamilyMask\\(gUpt04Control\\.enabledFamilyMask\\)[ \t\r\n]*&[ \t\r\n]*kUpt04FamilyLocalLight")
+    message(FATAL_ERROR
+        "UPT-04 split direct entry does not respect the runtime family mask")
+endif()
+
 file(READ "${UPT05_SOURCE_DIR}/upt04_material_provider_contract.slang" contract)
 if(NOT contract MATCHES "interface[ \t]+IUpt04MaterialSet")
     message(FATAL_ERROR "UPT-05 material provider interface is missing")

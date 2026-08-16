@@ -96,6 +96,7 @@ public float Upt04ExactNeePdfForEmissiveHit<
     uint primitiveIndex,
     float3 receiverPosition,
     float2 hitBarycentrics,
+    uint neeBounceIndex,
     out uint reverseStatus)
 {
     reverseStatus = kUpt04ReverseNeeLookupFailure;
@@ -132,14 +133,14 @@ public float Upt04ExactNeePdfForEmissiveHit<
                 kUpt04LightEmissiveTriangle,
                 proposalParity,
                 configuredEmissiveTrials),
-            kUpt04SecondaryNeeBounceIndex);
+            neeBounceIndex);
         const uint analyticTrials = Upt04InverseSquareNeeTrialCount(
             Upt04DirectRisDomainTrialCount(
                 ranges,
                 kUpt04LightDoomAnalytic,
                 proposalParity,
                 configuredEmissiveTrials),
-            kUpt04SecondaryNeeBounceIndex);
+            neeBounceIndex);
         const uint candidateCount = emissiveTrials + analyticTrials;
         selectionPdf = candidateCount != 0u
             ? conditionalIdentityPdf * float(emissiveTrials)
@@ -154,14 +155,14 @@ public float Upt04ExactNeePdfForEmissiveHit<
                 kUpt04LightEmissiveTriangle,
                 proposalParity,
                 configuredEmissiveTrials),
-            kUpt04SecondaryNeeBounceIndex);
+            neeBounceIndex);
         const uint analyticTrials = Upt04InverseSquareNeeTrialCount(
             Upt04DirectRisDomainTrialCount(
                 ranges,
                 kUpt04LightDoomAnalytic,
                 proposalParity,
                 configuredEmissiveTrials),
-            kUpt04SecondaryNeeBounceIndex);
+            neeBounceIndex);
         const uint candidateCount = emissiveTrials + analyticTrials;
         selectionPdf = ranges.emissiveCount != 0u && candidateCount != 0u
             ? float(emissiveTrials)
@@ -183,8 +184,10 @@ public float Upt04ExactNeePdfForEmissiveHit<
     if (replay.status == kUpt04SampleInvalid
         || !Upt04FinitePositive(replay.solidAnglePdf))
         return 0.0f;
-    const float4 regionWeights =
-        Upt04EmissiveRegionWeights<TMaterialSet>(replay);
+    float4 regionWeights;
+    if (!Upt04ResolveEmissiveRegionWeights<TMaterialSet>(
+            light, replay, regionWeights))
+        return 0.0f;
     const uint region = Upt04EmissiveRegionFromBarycentrics(
         replay.barycentrics);
     const float solidAnglePdf = replay.solidAnglePdf
@@ -200,14 +203,14 @@ public float Upt04ExactNeePdfForEmissiveHit<
                 kUpt04LightEmissiveTriangle,
                 proposalParity,
                 configuredEmissiveTrials),
-            kUpt04SecondaryNeeBounceIndex)
+            neeBounceIndex)
         + Upt04InverseSquareNeeTrialCount(
             Upt04DirectRisDomainTrialCount(
                 ranges,
                 kUpt04LightDoomAnalytic,
                 proposalParity,
                 configuredEmissiveTrials),
-            kUpt04SecondaryNeeBounceIndex);
+            neeBounceIndex);
     const float neePdf = float(candidateCount)
         * selectionPdf * solidAnglePdf;
     if (!Upt04FinitePositive(neePdf))

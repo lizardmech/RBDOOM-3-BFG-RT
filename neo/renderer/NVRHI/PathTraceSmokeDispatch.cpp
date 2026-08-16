@@ -1079,7 +1079,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         !unifiedPtRouteRequested &&
         cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 25;
     const int unifiedPtResolveView = idMath::ClampInt(
-        0, 9, r_pathTracingUnifiedPtResolveView.GetInteger());
+        0, 12, r_pathTracingUnifiedPtResolveView.GetInteger());
     const bool unifiedPtDlssRrRequested =
         unifiedPtRouteRequested &&
         !cleanRtxdiDiRouteRequested &&
@@ -3310,6 +3310,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtInputs.family = PathTraceUnifiedPtFamily::DirectOnly;
                 break;
             }
+            if (unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified)
+            {
+                if (unifiedPtResolveView == 10)
+                    unifiedPtInputs.diagnosticProposalFamilyMask = 1u << 1u;
+                else if (unifiedPtResolveView == 11)
+                    unifiedPtInputs.diagnosticProposalFamilyMask = 1u << 0u;
+            }
             unifiedPtInputs.nsightMarkers = nsightGpuMarkers;
             unifiedPtInputs.diagnostics =
                 r_pathTracingUnifiedPtDiagnostics.GetInteger() != 0;
@@ -3358,12 +3365,33 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtInputs.compactLights &&
                 unifiedPtInputs.compactGeometry &&
                 unifiedPtInputs.family != PathTraceUnifiedPtFamily::DirectOnly;
+            const int lambertDiagnosticMode = idMath::ClampInt(
+                0, 4,
+                r_pathTracingUnifiedPtLambertDiagnostic.GetInteger());
+            static int previousLambertDiagnosticMode = -1;
+            if (previousLambertDiagnosticMode >= 0 &&
+                previousLambertDiagnosticMode != lambertDiagnosticMode)
+            {
+                m_frameResources.InvalidatePrimarySurfaceHistory(
+                    RT_FRAME_RESET_PRIMARY_HISTORY);
+                common->Printf(
+                    "PathTraceUnifiedPt: Lambert isolation mode changed %d -> %d; primary history invalidated\n",
+                    previousLambertDiagnosticMode,
+                    lambertDiagnosticMode);
+            }
+            previousLambertDiagnosticMode = lambertDiagnosticMode;
+            const bool lambertShaderRequested =
+                lambertDiagnosticMode == 1 || lambertDiagnosticMode == 3;
+            const bool forceMonolithicDiagnostic =
+                lambertShaderRequested || lambertDiagnosticMode == 4;
             unifiedPtInputs.splitInitial =
                 splitInitialBaseEligible &&
+                !forceMonolithicDiagnostic &&
                 (!unifiedPtInputs.compactGeometry ||
                     unifiedPtInputs.compactLights);
             unifiedPtInputs.splitContinuation =
                 r_pathTracingUnifiedPtSplitContinuation.GetBool() &&
+                !forceMonolithicDiagnostic &&
                 !frozenAnyDiagnostic &&
                 !unifiedPtInputs.splitInitial &&
                 unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
@@ -3374,7 +3402,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 !unifiedPtInputs.diagnostics &&
                 unifiedPtInputs.shaderProofMode == 6u;
             unifiedPtInputs.lambertDiagnostic =
-                r_pathTracingUnifiedPtLambertDiagnostic.GetBool() &&
+                lambertShaderRequested &&
                 unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
                 unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified &&
                 unifiedPtInputs.primaryReceiverMode == 2u &&
@@ -3784,19 +3812,29 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 threeVertexMinimumPathThroughput * 1000000.0f);
             static int reportedThreeVertexContinueProbabilityKey = -1;
             static int reportedThreeVertexMinimumPathThroughputKey = -1;
+            static int reportedThreeVertexBottleneckProbe = -1;
+            const int threeVertexBottleneckProbe = idMath::ClampInt(
+                0, 15,
+                r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger());
             if (reportedThreeVertexRequest != threeVertexRequest
                 || reportedThreeVertexEffective != threeVertexEffective
                 || reportedThreeVertexContinueProbabilityKey
                     != threeVertexContinueProbabilityKey
                 || reportedThreeVertexMinimumPathThroughputKey
-                    != threeVertexMinimumPathThroughputKey)
+                    != threeVertexMinimumPathThroughputKey
+                || reportedThreeVertexBottleneckProbe
+                    != threeVertexBottleneckProbe)
             {
                 common->Printf(
-                    "PathTraceUnifiedPt: three-vertex initial requested/effective=%d/%d q=%.3f minimumPathThroughput=%.3f cutoff=initial-only-uncompensated-L2 gate(splitInitial/nativeGeometry/compactLights/noCompactMaterials/noTiles/temporalReplay/spatialReplay/openPbr/noFrozen/rayquery/unified/compact32/proof6)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
+                    "PathTraceUnifiedPt: three-vertex initial requested/effective=%d/%d q=%.3f minimumPathThroughput=%.3f bottleneckProbe(requested/effective)=%d/%d stages=1:none,2:+x3trace,3/4:combined-noVis/full,5/6:staticAnalyticOnly-noVis/full,7/8:emissive-noVis/full,9/10:constantMaterial-noVis/full,11:selection,12:+lightLoad,13:+localLightEval,14:finalizeOnly,15:oneSelection temporalOff=%u cutoff=initial-only-uncompensated-L2 gate(splitInitial/nativeGeometry/compactLights/noCompactMaterials/noTiles/temporalReplay/spatialReplay/openPbr/noFrozen/rayquery/unified/compact32/proof6)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
                     threeVertexRequest,
                     threeVertexEffective,
                     threeVertexContinueProbability,
                     threeVertexMinimumPathThroughput,
+                    threeVertexBottleneckProbe,
+                    unifiedPtInputs.threeVertexInitial
+                        ? threeVertexBottleneckProbe : 0,
+                    unifiedPtInputs.temporal ? 0u : 1u,
                     unifiedPtInputs.splitInitial ? 1u : 0u,
                     unifiedPtInputs.compactGeometry ? 0u : 1u,
                     unifiedPtInputs.compactLights ? 1u : 0u,
@@ -3817,6 +3855,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     threeVertexContinueProbabilityKey;
                 reportedThreeVertexMinimumPathThroughputKey =
                     threeVertexMinimumPathThroughputKey;
+                reportedThreeVertexBottleneckProbe =
+                    threeVertexBottleneckProbe;
             }
             unifiedPtInputs.historyEpoch = m_frameResources.historyEpoch;
             unifiedPtInputs.historyResetReasonFlags =
@@ -3987,6 +4027,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 composeInputs.height =
                     static_cast<uint32_t>(m_frameResources.height);
                 composeInputs.frameSampleIndex = unifiedPtInputs.frameSampleIndex;
+                composeInputs.resolveView =
+                    static_cast<uint32_t>(unifiedPtResolveView);
                 const uint32_t glassReflectionDeclusterRequested =
                     static_cast<uint32_t>(idMath::ClampInt(
                         0,

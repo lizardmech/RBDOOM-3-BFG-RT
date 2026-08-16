@@ -335,6 +335,21 @@ bool IsSmokeAdditiveDecalMaterial(const idMaterial* material)
         return false;
     }
 
+    // An opaque interaction surface may carry an ambient additive stage as its
+    // authored emissive layer (for example striplightxl1).  That does not make
+    // the surface a transparent additive card: its diffuse interaction still
+    // owns coverage and must terminate visibility/continuation rays.  Keep
+    // explicitly sorted or polygon-offset decals eligible because those really
+    // are receiver-modifying layers even when the declaration retained opaque
+    // coverage.
+    if (material->Coverage() == MC_OPAQUE &&
+        info.hasDiffuseStage &&
+        !info.sortIsDecal &&
+        !info.polygonOffsetDecal)
+    {
+        return false;
+    }
+
     return material->Coverage() == MC_TRANSLUCENT ||
         info.hasAmbientStage ||
         info.sortIsDecal ||

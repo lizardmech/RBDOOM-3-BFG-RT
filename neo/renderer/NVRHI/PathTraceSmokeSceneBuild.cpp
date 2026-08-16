@@ -8923,7 +8923,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool useMaterialUniverseTable = r_pathTracingMaterialUniverseTable.GetInteger() != 0;
     const char* materialTablePath = useMaterialUniverseTable ? "universe" : "legacy";
     const int materialTextureTableMinimum = cleanRtxdiDiMaterialValidationRoute ? RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP : 0;
-    std::vector<uint32_t> materialTableSupplementalIds;
+    // The frame material census is authoritative for every visible draw
+    // surface, including surfaces removed from the merged dynamic stream by
+    // rigid/skinned route cutovers.  Metadata hydration already used this
+    // complete list, but the GPU table was built only from submitted triangle
+    // streams plus a narrow skinned exception.  A multi-surface rigid model
+    // could therefore hydrate an emissive material yet omit its table entry,
+    // causing the route's missing-index fallback to alias an unrelated slot.
+    // Keep the exact dynamic triangle sequence first so its remap ABI remains
+    // unchanged, then supplement it with all visible material identities.
+    std::vector<uint32_t> materialTableSupplementalIds =
+        dynamicTriangleMaterialData;
+    materialTableSupplementalIds.insert(
+        materialTableSupplementalIds.end(),
+        materialStats.materialIds.begin(),
+        materialStats.materialIds.end());
     for (const RtSmokeSkinnedSurfaceRecord& record :
         currentSkinnedSurfaceRecords)
     {
@@ -8932,19 +8946,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             // Source-only skinned routes still need a material-table entry
             // after their legacy per-triangle material stream is removed.
-            if (materialTableSupplementalIds.empty())
-            {
-                materialTableSupplementalIds =
-                    dynamicTriangleMaterialData;
-            }
             materialTableSupplementalIds.push_back(
                 record.materialId);
         }
     }
     const std::vector<uint32_t>& materialTableDynamicIds =
-        materialTableSupplementalIds.empty()
-            ? dynamicTriangleMaterialData
-            : materialTableSupplementalIds;
+        materialTableSupplementalIds;
     {
         OPTICK_EVENT("PT Material Table Build");
         BeginSmokeMaterialUniverseFrame();
@@ -8956,11 +8963,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             BuildSmokeMaterialTableCached(materialTable, materialTableStaticIds, materialTableDynamicIds, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTextureTableMinimum, materialTableSignature, materialTableCacheHit);
         }
-        if (!materialTableSupplementalIds.empty())
+        if (materialTableSupplementalIds.size() !=
+            dynamicTriangleMaterialData.size())
         {
-            // The supplemental IDs populate the shared table but do not
-            // describe legacy dynamic triangles. Preserve the exact
-            // triangle-index ABI.
+            // Supplemental IDs populate the shared table but do not describe
+            // legacy dynamic triangles. Preserve the exact triangle-index
+            // ABI; the dynamic sequence occupies the unchanged prefix.
             materialTable.dynamicMaterialIndexes.resize(
                 dynamicTriangleMaterialData.size());
         }
@@ -9095,8 +9103,60 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             stableGpuMaterialTableMaterials,
             materialTable.materials,
             dynamicMaterialRecords);
-    const std::vector<PathTraceSmokeMaterial>& gpuMaterialTableMaterials =
+    const std::vector<PathTraceSmokeMaterial>& productionGpuMaterialTableMaterials =
         stableGpuMaterialTableCovered ? stableGpuMaterialTableMaterials : materialTable.materials;
+    const int lambertDiagnosticMode = idMath::ClampInt(
+        0, 4,
+        r_pathTracingUnifiedPtLambertDiagnostic.GetInteger());
+    const bool flatLambertMaterialTable =
+        lambertDiagnosticMode == 1 || lambertDiagnosticMode == 2;
+    std::vector<PathTraceSmokeMaterial> flatLambertGpuMaterialTableMaterials;
+    if (flatLambertMaterialTable)
+    {
+        // This is deliberately stronger than the Lambert shader specialization.
+        // Keep the material-table indexing contract intact, but remove every
+        // authored material-controlled operation so the remaining camera-angle
+        // cost belongs to geometry admission/traversal and fixed UPT ray work.
+        flatLambertGpuMaterialTableMaterials = productionGpuMaterialTableMaterials;
+        for (PathTraceSmokeMaterial& material : flatLambertGpuMaterialTableMaterials)
+        {
+            material.debugAlbedo[0] = 0.8f;
+            material.debugAlbedo[1] = 0.8f;
+            material.debugAlbedo[2] = 0.8f;
+            material.debugAlbedo[3] = 1.0f;
+            material.emissiveColor[0] = 0.0f;
+            material.emissiveColor[1] = 0.0f;
+            material.emissiveColor[2] = 0.0f;
+            material.emissiveColor[3] = 0.0f;
+            material.diffuseTextureIndex = UINT32_MAX;
+            material.alphaTextureIndex = UINT32_MAX;
+            material.normalTextureIndex = UINT32_MAX;
+            material.specularTextureIndex = UINT32_MAX;
+            material.emissiveTextureIndex = UINT32_MAX;
+            material.alphaCutoff = 0.0f;
+            material.flags = 0u;
+            material.padding0 = 0u;
+            material.padding1 = 0u;
+            material.padding2 = 0u;
+        }
+    }
+    const std::vector<PathTraceSmokeMaterial>& gpuMaterialTableMaterials =
+        flatLambertMaterialTable
+            ? flatLambertGpuMaterialTableMaterials
+            : productionGpuMaterialTableMaterials;
+    static int reportedLambertDiagnosticMode = -1;
+    if (reportedLambertDiagnosticMode != lambertDiagnosticMode)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: UPT Lambert isolation mode=%d shader=%s materialTable=%s records=%u geometry=preserved\n",
+            lambertDiagnosticMode,
+            (lambertDiagnosticMode == 1 || lambertDiagnosticMode == 3)
+                ? "constant-gray" : "production",
+            flatLambertMaterialTable
+                ? "flat-no-textures-emission-specular-alpha" : "authored",
+            static_cast<unsigned int>(gpuMaterialTableMaterials.size()));
+        reportedLambertDiagnosticMode = lambertDiagnosticMode;
+    }
     LogSmokeMaterialClassifierLiveSummary(materialTable, materialClassifierStats);
     RtSmokeTextureCoverageStats textureCoverageStats;
     const bool needTextureCoverageStats = enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0;
@@ -10596,6 +10656,51 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         FinalizeSmokeEmissiveTriangleSamplingFields(emissiveTriangles, emissiveInventoryStats);
         lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
     }
+    const uint32_t emissiveSurfaceSuppressMaterialId =
+        static_cast<uint32_t>(Max(0,
+            r_pathTracingEmissiveSurfaceSuppressMaterialId.GetInteger()));
+    if (emissiveSurfaceSuppressMaterialId != 0u)
+    {
+        int tableMatches = 0;
+        int tableEmissive = 0;
+        int tableCandidates = 0;
+        for (size_t materialIndex = 0;
+             materialIndex < materialTable.materialIds.size() &&
+                 materialIndex < materialTable.materials.size();
+             ++materialIndex)
+        {
+            if (materialTable.materialIds[materialIndex] !=
+                emissiveSurfaceSuppressMaterialId)
+            {
+                continue;
+            }
+            ++tableMatches;
+            const uint32_t flags =
+                materialTable.materials[materialIndex].flags;
+            tableEmissive +=
+                (flags & RT_SMOKE_MATERIAL_EMISSIVE) != 0u ? 1 : 0;
+            tableCandidates +=
+                (flags & RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE) != 0u
+                    ? 1
+                    : 0;
+        }
+        int inventoryMatches = 0;
+        for (const PathTraceSmokeEmissiveTriangle& record : emissiveTriangles)
+        {
+            inventoryMatches +=
+                record.materialId == emissiveSurfaceSuppressMaterialId
+                    ? 1
+                    : 0;
+        }
+        common->Printf(
+            "PathTracePrimaryPass: emissive surface suppression material=%u table(matches/emissive/candidate)=%d/%d/%d inventoryMatches=%d inventoryRecords=%zu geometry=preserved classification=ordinary\n",
+            emissiveSurfaceSuppressMaterialId,
+            tableMatches,
+            tableEmissive,
+            tableCandidates,
+            inventoryMatches,
+            emissiveTriangles.size());
+    }
     if (uptEmissiveGeometry.size() != emissiveTriangles.size())
     {
         common->Printf(
@@ -10666,10 +10771,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     if (r_pathTracingSmokeLog.GetInteger() != 0 && enableDoomAnalyticLightCandidates && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
     {
-        common->Printf("PathTracePrimaryPass: Doom analytic lights gpu=%d bytes=%d intensityScale=%.3f\n",
+        common->Printf("PathTracePrimaryPass: Doom analytic lights gpu=%d bytes=%d intensityScale=%.3f uptPreserveLegacyPower=%d uptRadiusIntensity=%d emitterRadius(upt/legacyScale/min/max)=%.3f/%.3f/%.3f/%.3f\n",
             static_cast<int>(doomAnalyticLights.size()),
             static_cast<int>(doomAnalyticLights.size() * sizeof(PathTraceDoomAnalyticLightCandidate)),
-            idMath::ClampFloat(0.0f, 16.0f, r_pathTracingAnalyticLightIntensityScale.GetFloat()));
+            idMath::ClampFloat(0.0f, 16.0f, r_pathTracingAnalyticLightIntensityScale.GetFloat()),
+            r_pathTracingUnifiedPtAnalyticPreserveLegacyPower.GetInteger() != 0 ? 1 : 0,
+            r_pathTracingUnifiedPtAnalyticDoomRadiusIntensity.GetInteger() != 0 ? 1 : 0,
+            idMath::ClampFloat(0.01f, 64.0f, r_pathTracingUnifiedPtAnalyticEmitterRadius.GetFloat()),
+            idMath::ClampFloat(0.0f, 1.0f, r_pathTracingAnalyticSphereLightRadiusScale.GetFloat()),
+            Max(0.0f, r_pathTracingAnalyticSphereLightRadiusMin.GetFloat()),
+            Max(
+                Max(0.0f, r_pathTracingAnalyticSphereLightRadiusMin.GetFloat()),
+                r_pathTracingAnalyticSphereLightRadiusMax.GetFloat()));
     }
     const int emissiveMs = Sys_Milliseconds() - emissiveStartMs;
     {
@@ -13132,7 +13245,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int skinnedShadowAccepted =
         static_cast<int>(
             skinnedHitRouteShadow.stats.accepted);
-    if (skinnedShadowAccepted !=
+    if (r_pathTracingSmokeLog.GetInteger() != 0 &&
+        skinnedShadowAccepted !=
             m_smokeSkinnedCaptureLastShadowAccepted &&
         m_smokeSkinnedCaptureShadowTransitionsLogged < 16)
     {
@@ -13201,19 +13315,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 if (oldest !=
                     m_smokeSkinnedCaptureRouteSets.end())
                 {
-                    common->Printf(
-                        "PathTracePrimaryPass: GEO08 capture route-set evicted frame=%llu signature=%llu pending/accepted=%zu/%zu age=%llu entries/limit=%zu/%zu action=cpu-fallback-on-return\n",
-                        static_cast<unsigned long long>(
-                            m_smokeGeometryFrameIndex),
-                        static_cast<unsigned long long>(
-                            oldest->signature),
-                        oldest->pendingBuild.records.size(),
-                        oldest->acceptedBuild.records.size(),
-                        static_cast<unsigned long long>(
-                            m_smokeGeometryFrameIndex -
-                            oldest->lastUsedFrame),
-                        m_smokeSkinnedCaptureRouteSets.size(),
-                        routeSetLimit);
+                    if (r_pathTracingSmokeLog.GetInteger() != 0)
+                    {
+                        common->Printf(
+                            "PathTracePrimaryPass: GEO08 capture route-set evicted frame=%llu signature=%llu pending/accepted=%zu/%zu age=%llu entries/limit=%zu/%zu action=cpu-fallback-on-return\n",
+                            static_cast<unsigned long long>(
+                                m_smokeGeometryFrameIndex),
+                            static_cast<unsigned long long>(
+                                oldest->signature),
+                            oldest->pendingBuild.records.size(),
+                            oldest->acceptedBuild.records.size(),
+                            static_cast<unsigned long long>(
+                                m_smokeGeometryFrameIndex -
+                                oldest->lastUsedFrame),
+                            m_smokeSkinnedCaptureRouteSets.size(),
+                            routeSetLimit);
+                    }
                     m_smokeSkinnedCaptureRouteSets.erase(
                         oldest);
                     ++m_smokeSkinnedCaptureRouteSetEvictions;
@@ -13925,7 +14042,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     PT_SKINNED_HIT_ROUTE_HAS_SOURCE_ONLY_PRIMITIVES) !=
                     0u;
             });
-    if (skinnedTlasPlan.result ==
+    if (r_pathTracingSmokeLog.GetInteger() != 0 &&
+        skinnedTlasPlan.result ==
             PtSkinnedTlasRouteResult::Accepted &&
         skinnedTlasValidatedDescriptorCount >
             skinnedTlasDescriptorCount)

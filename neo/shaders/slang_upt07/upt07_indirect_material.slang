@@ -5,6 +5,7 @@ import upt04_initial_control;
 import upt04_material_contract;
 import upt04_material_emission;
 import upt04_material_live_contract;
+import upt04_material_classifier;
 #ifndef UPT_DIAGNOSTIC_LAMBERT
 #define UPT_DIAGNOSTIC_LAMBERT 0
 #endif
@@ -270,6 +271,8 @@ public Upt04PreparedDirectMaterial Upt07PrepareSecondaryDirect(
             ? diffuse.xyz * surface.vertexColor.xyz : surface.vertexColor.xyz;
 
     float3 specularF0 = float3(0.0f);
+    float3 specularTexel = float3(0.0f);
+    bool hasSpecularTexel = false;
     float roughness = 1.0f;
     if ((gUpt07Control.geometryAvailabilityFlags
             & kUpt04MaterialUseSpecularMaps) != 0u
@@ -281,7 +284,8 @@ public Upt04PreparedDirectMaterial Upt07PrepareSecondaryDirect(
                 surface.texCoord,
                 sampledSpecular))
             return result;
-        const float3 specularTexel = saturate(sampledSpecular.xyz);
+        specularTexel = saturate(sampledSpecular.xyz);
+        hasSpecularTexel = true;
         specularF0 = specularTexel;
         if ((gUpt07Control.geometryAvailabilityFlags
                 & kUpt04MaterialLegacySpecmapToPbr) != 0u)
@@ -312,7 +316,17 @@ public Upt04PreparedDirectMaterial Upt07PrepareSecondaryDirect(
         }
     }
 
-    // T0 reuses the exact accepted D0 secondary material baseline.
+    // T0/S0 must reuse the exact accepted D0 secondary material baseline.
+    // Omitting the classifier here changes RMAO/metallic transport color after
+    // the initial frame and lets history reinterpret the stored path.
+    Upt04ApplyMaterialClassifier(
+        material,
+        baseColor,
+        specularTexel,
+        hasSpecularTexel,
+        specularF0,
+        roughness);
+
     result.normal = Upt05OpenPbrSafeNormalize(
         surface.shadingNormal,
         Upt05OpenPbrSafeNormalize(
@@ -402,7 +416,8 @@ public Upt04MaterialEmissionEvaluation Upt07EvaluateHitEmission(
         float2(0.0f),
         gUpt07Control.materialCount,
         gUpt07Control.logicalTextureCount,
-        gUpt07Control.emissiveScale);
+        gUpt07Control.emissiveScale,
+        gUpt07Control.emissiveTexelBlackFloor);
     if (result.valid != 0u && surface.materialIndex < gUpt07Control.materialCount
         && (gUptDirectEmitterMaterials[surface.materialIndex].flags
             & 0x00040000u) != 0u)

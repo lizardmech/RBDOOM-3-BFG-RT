@@ -4,6 +4,13 @@ import upt04_geometry_contract;
 import upt04_emissive_replay;
 import upt04_material_contract;
 import upt04_material_provider_contract;
+
+#ifndef UPT04_PACKED_LIGHT_RECORD
+#define UPT04_PACKED_LIGHT_RECORD 0
+#endif
+#ifndef UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+#define UPT04_STATIC_ANALYTIC_INDIRECT_ONLY 0
+#endif
 import upt04_random_white_hash;
 
 public float Upt04EmissiveImportance(float3 radiance)
@@ -37,6 +44,22 @@ public float4 Upt04EmissiveRegionWeights<
     return weights;
 }
 
+public bool Upt04ResolveEmissiveRegionWeights<
+    TMaterialSet : IUpt04MaterialSet>(
+    Upt04UnifiedLightRecord light,
+    Upt04EmissiveGeometrySample replay,
+    out float4 weights)
+{
+#if UPT04_PACKED_LIGHT_RECORD
+    weights = light.positionAndRadius;
+    return light.type == kUpt04LightEmissiveTriangle
+        && all(isfinite(weights)) && all(weights >= 0.0f);
+#else
+    weights = Upt04EmissiveRegionWeights<TMaterialSet>(replay);
+    return all(isfinite(weights)) && all(weights >= 0.0f);
+#endif
+}
+
 public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
     TMaterialSet : IUpt04MaterialSet>(
     Upt04LocalLightSelection selection,
@@ -50,8 +73,27 @@ public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
     if (!Upt04SelectionMatchesRecord(selection, light))
         return result;
 
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+    // Static footprint proof. Unlike a zero emissive range at runtime, this
+    // specialization must contain no triangle replay or material-texture
+    // emission closure at all.
+    if (selection.requiresTriangleReplay != 0u
+        || selection.type != kUpt04LightDoomAnalytic)
+        return result;
+    if (!Upt04AnalyticLightCurrentPortalEligible(light, policyFlags))
+        return result;
+    result.sample = Upt04SampleAnalyticSphere(
+        light,
+        receiverPosition,
+        selection.sampleCoordinates);
+#else
     if (selection.requiresTriangleReplay != 0u)
     {
+#if UPT04_PACKED_LIGHT_RECORD
+        const float4 regionWeights = light.positionAndRadius;
+        if (!all(isfinite(regionWeights)) || any(regionWeights < 0.0f))
+            return result;
+#else
         // First resolve supplies the triangle UV basis used by the bounded
         // four-region proposal.  Region choice is hashed separately so the
         // original two random components remain a uniform point inside the
@@ -66,6 +108,7 @@ public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
             return result;
         const float4 regionWeights =
             Upt04EmissiveRegionWeights<TMaterialSet>(preliminaryReplay);
+#endif
         uint regionSeed = Upt04HashWord(
             asuint(selection.sampleCoordinates.x)
             ^ Upt04HashWord(asuint(selection.sampleCoordinates.y))
@@ -123,6 +166,7 @@ public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
             receiverPosition,
             selection.sampleCoordinates);
     }
+#endif
     result.valid = result.sample.status != kUpt04SampleInvalid ? 1u : 0u;
     return result;
 }

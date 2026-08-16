@@ -30,6 +30,26 @@ foreach(kind compact_production compact_geometry_pack compact_light_pack)
     endif()
 endforeach()
 
+if(compact_light_pack_disassembly MATCHES
+        "OpRayQueryInitializeKHR|OpTraceRayKHR")
+    message(FATAL_ERROR
+        "UPT-54 compact light preparation must remain ray-free")
+endif()
+string(REGEX MATCHALL "OpImageSample" compact_light_pack_samples
+    "${compact_light_pack_disassembly}")
+list(LENGTH compact_light_pack_samples compact_light_pack_sample_count)
+if(NOT compact_light_pack_sample_count EQUAL 1)
+    message(FATAL_ERROR
+        "UPT-54 compact light preparation must expose one bounded image-sample site")
+endif()
+string(REGEX MATCHALL "OpLoopMerge" compact_light_pack_loops
+    "${compact_light_pack_disassembly}")
+list(LENGTH compact_light_pack_loops compact_light_pack_loop_count)
+if(NOT compact_light_pack_loop_count EQUAL 1)
+    message(FATAL_ERROR
+        "UPT-54 compact light preparation must expose one bounded four-region loop")
+endif()
+
 foreach(kind rayquery raygen)
     foreach(stride 4 16 20 36 64 112 144 176)
         string(REGEX MATCHALL "\"array_stride\"[ \t]*:[ \t]*${stride}" stride_matches "${${kind}_reflection}")
@@ -37,7 +57,9 @@ foreach(kind rayquery raygen)
         if(stride EQUAL 112)
             set(expected_count 3)
         elseif(stride EQUAL 64)
-            set(expected_count 2)
+            # Read/write and read-only compact reservoirs plus the exact
+            # 64-byte emissive-geometry replay record.
+            set(expected_count 3)
         elseif(stride EQUAL 16)
             # The manager CDF and the shared uint4 route-word type are the two
             # live 16-byte declarations. Bindings 17 and 20 share that type.
@@ -62,6 +84,9 @@ foreach(kind rayquery raygen)
             message(FATAL_ERROR "UPT-04 ${kind} reflection lacks D0 previous-best binding ${binding}")
         endif()
     endforeach()
+    if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*32")
+        message(FATAL_ERROR "UPT-04 ${kind} reflection lacks emissive-geometry replay binding 32")
+    endif()
     foreach(binding RANGE 0 22)
         if(NOT ${kind}_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*${binding}")
             message(FATAL_ERROR "UPT-04 ${kind} reflection lacks set 0 binding ${binding}")
@@ -77,8 +102,9 @@ foreach(kind rayquery raygen)
     endif()
     if(NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*204" OR
        NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"previousCameraJitterPixels\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"vec2\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*208" OR
-       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"skyBrightness\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*216")
-        message(FATAL_ERROR "UPT-04 ${kind} push constants are not the 220-byte D0/indirect layout")
+       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"skyBrightness\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*216" OR
+       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"emissiveTexelBlackFloor\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*220")
+        message(FATAL_ERROR "UPT-04 ${kind} push constants are not the 224-byte D0/indirect layout")
     endif()
 endforeach()
 
@@ -98,14 +124,17 @@ foreach(binding 26 28 29)
         message(FATAL_ERROR "UPT-04 diagnostic reflection lacks D0 previous-best binding ${binding}")
     endif()
 endforeach()
+if(NOT diagnostic_reflection MATCHES "\"set\"[ \t]*:[ \t]*0,[ \t\r\n]*\"binding\"[ \t]*:[ \t]*32")
+    message(FATAL_ERROR "UPT-04 diagnostic reflection lacks emissive-geometry replay binding 32")
+endif()
 string(REGEX MATCHALL "\"binding\"[ \t]*:" diagnostic_bindings "${diagnostic_reflection}")
 list(LENGTH diagnostic_bindings diagnostic_binding_count)
-if(NOT diagnostic_binding_count EQUAL 30)
-    message(FATAL_ERROR "UPT-04 diagnostic entry must expose exactly 30 descriptor bindings")
+if(NOT diagnostic_binding_count EQUAL 31)
+    message(FATAL_ERROR "UPT-04 diagnostic entry must expose exactly 31 descriptor bindings")
 endif()
 string(REGEX MATCHALL "OpRayQueryInitializeKHR" diagnostic_rayquery_instructions "${diagnostic_disassembly}")
 list(LENGTH diagnostic_rayquery_instructions diagnostic_rayquery_instruction_count)
-if(NOT diagnostic_rayquery_instruction_count EQUAL 3 OR diagnostic_disassembly MATCHES "OpTraceRayKHR")
+if(NOT diagnostic_rayquery_instruction_count EQUAL 5 OR diagnostic_disassembly MATCHES "OpTraceRayKHR")
     message(FATAL_ERROR "UPT-04 diagnostic closure must retain exactly three bounded trace sites")
 endif()
 
@@ -133,4 +162,4 @@ if(NOT closest_hit_disassembly MATCHES "Upt04HitFacts = OpTypeStruct %uint %uint
 endif()
 
 file(WRITE "${UPT04_STAMP}"
-    "UPT-04 backend closure verified: production set0[0..22,25,26,28,29,31]+set1[0], diagnostic set0[0..23,25,26,28,29,31]+set1[0], live strides=4/16x2/20/36/64x2/112x3/144/176, route bindings 17+20 word-addressed, push=220, directionalSky=31, hit facts=32, bounded trace sites=3, RayQuery/raygen adapters isolated, compact binary16 storage uses no native Int16/Float16 capability\n")
+    "UPT-04 backend closure verified: production set0[0..22,25,26,28,29,31,32]+set1[0], diagnostic set0[0..23,25,26,28,29,31,32]+set1[0], live strides=4/16x2/20/36/64x3/112x3/144/176, route bindings 17+20 word-addressed, push=224, directionalSky=31, emissiveGeometry=32, hit facts=32, bounded production trace sites=3, bounded diagnostic trace sites=5, RayQuery/raygen adapters isolated, compact binary16 storage uses no native Int16/Float16 capability, UPT-54 preparation ray-free with one bounded image-sample loop\n")

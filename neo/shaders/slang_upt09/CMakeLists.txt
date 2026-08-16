@@ -29,6 +29,7 @@ set(UPT09_DIRECT_MODULES
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_emissive_replay.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_material_contract.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_material_live_contract.slang"
+    "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_material_classifier.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_material_emission.slang"
       "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_material_primary_live.slang"
       "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_primary_surface_live_contract.slang"

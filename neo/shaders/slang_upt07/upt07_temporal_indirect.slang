@@ -91,6 +91,16 @@ public bool Upt07ThreeVertexEndpointStructureValid(Upt03Candidate candidate)
         && abs(candidate.proposalPdf
                 - candidate.accumulatedRouletteProbability) <= 0.002f;
 }
+
+public bool Upt07ThreeVertexNeeStructureValid(Upt03Candidate candidate)
+{
+    return (candidate.eventKind == 1u || candidate.eventKind == 2u)
+        && candidate.pathLength == 3u
+        && candidate.reconnectionVertexLength == 1u
+        && isfinite(candidate.accumulatedRouletteProbability)
+        && candidate.accumulatedRouletteProbability > 0.0f
+        && candidate.accumulatedRouletteProbability <= 1.0f;
+}
 #endif
 
 public static const uint kUpt07IndirectReplayFlag = 1u << 25u;
@@ -200,7 +210,8 @@ public struct Upt07IndirectMaterialSet : IUpt04MaterialSet
             uvGradient1,
             gUpt07Control.materialCount,
             gUpt07Control.logicalTextureCount,
-            gUpt07Control.emissiveScale);
+            gUpt07Control.emissiveScale,
+            gUpt07Control.emissiveTexelBlackFloor);
     }
 
     static Upt04MaterialEvaluation EvaluateSecondaryDirect(
@@ -238,7 +249,9 @@ public bool Upt07IndirectHistoryEligible(Upt07DecodedReservoir reservoir)
 #if UPT07_THREE_VERTEX_REPLAY
     const bool threeVertexEndpoint =
         Upt07ThreeVertexEndpointStructureValid(candidate);
-    return endpoint || secondaryNee || threeVertexEndpoint;
+    const bool threeVertexNee =
+        Upt07ThreeVertexNeeStructureValid(candidate);
+    return endpoint || secondaryNee || threeVertexEndpoint || threeVertexNee;
 #else
     return endpoint || secondaryNee;
 #endif
@@ -405,6 +418,7 @@ public float Upt07ExactNeePdfForEmissiveHit(
     uint primitiveIndex,
     float3 receiverPosition,
     float2 hitBarycentrics,
+    uint neeBounceIndex,
     uint proposalParity,
     inout Upt07WorkCounters work)
 {
@@ -428,11 +442,11 @@ public float Upt07ExactNeePdfForEmissiveHit(
     const uint emissiveTrials = Upt04InverseSquareNeeTrialCount(
         Upt04DirectRisDomainTrialCount(
             ranges, kUpt04LightEmissiveTriangle, parity, configured),
-        kUpt04SecondaryNeeBounceIndex);
+        neeBounceIndex);
     const uint analyticTrials = Upt04InverseSquareNeeTrialCount(
         Upt04DirectRisDomainTrialCount(
             ranges, kUpt04LightDoomAnalytic, parity, configured),
-        kUpt04SecondaryNeeBounceIndex);
+        neeBounceIndex);
     const uint candidateCount = emissiveTrials + analyticTrials;
     float selectionPdf = 0.0f;
     if (parity != 0u && Upt04EmissiveDistributionValid(
@@ -463,7 +477,8 @@ public float Upt07ExactNeePdfForEmissiveHit(
         replay,
         gUpt07Control.materialCount,
         gUpt07Control.logicalTextureCount,
-        gUpt07Control.emissiveScale);
+        gUpt07Control.emissiveScale,
+        gUpt07Control.emissiveTexelBlackFloor);
     const uint region = Upt04EmissiveRegionFromBarycentrics(
         replay.barycentrics);
     const float solidAnglePdf = replay.solidAnglePdf
@@ -545,14 +560,16 @@ public uint Upt07ResolveStoredSecondaryLight(
             ? 1u : 0u;
     const uint configured = Upt04ConfiguredEmissiveTrialCount(
         gUpt07Control.geometryAvailabilityFlags);
+    const uint neeBounceIndex = source.pathLength == 3u
+        ? 3u : kUpt04SecondaryNeeBounceIndex;
     const uint emissiveTrials = Upt04InverseSquareNeeTrialCount(
         Upt04DirectRisDomainTrialCount(
             ranges, kUpt04LightEmissiveTriangle, parity, configured),
-        kUpt04SecondaryNeeBounceIndex);
+        neeBounceIndex);
     const uint analyticTrials = Upt04InverseSquareNeeTrialCount(
         Upt04DirectRisDomainTrialCount(
             ranges, kUpt04LightDoomAnalytic, parity, configured),
-        kUpt04SecondaryNeeBounceIndex);
+        neeBounceIndex);
     const uint candidateCount = emissiveTrials + analyticTrials;
     if (candidateCount == 0u)
         return 0u;
@@ -622,7 +639,8 @@ public uint Upt07ReplayStoredSecondaryLight(
                 replay,
                 gUpt07Control.materialCount,
                 gUpt07Control.logicalTextureCount,
-                gUpt07Control.emissiveScale);
+                gUpt07Control.emissiveScale,
+                gUpt07Control.emissiveTexelBlackFloor);
             const uint region = Upt04EmissiveRegionFromBarycentrics(
                 replay.barycentrics);
             replayPdfScale = 4.0f * Upt04EmissiveRegionSelectionPdf(
@@ -636,9 +654,10 @@ public uint Upt07ReplayStoredSecondaryLight(
                 replay.emissionTexCoord,
                 float2(0.0f),
                 float2(0.0f),
-                gUpt07Control.materialCount,
-                gUpt07Control.logicalTextureCount,
-                gUpt07Control.emissiveScale);
+            gUpt07Control.materialCount,
+            gUpt07Control.logicalTextureCount,
+            gUpt07Control.emissiveScale,
+            gUpt07Control.emissiveTexelBlackFloor);
         if (emission.valid == 0u)
             return 0u;
         sample.status = replay.status == kUpt04SampleValidPositive
@@ -805,16 +824,18 @@ public uint Upt07ReplayIndirectSample(
 #if UPT07_THREE_VERTEX_REPLAY
     const bool threeVertexEndpoint =
         Upt07ThreeVertexEndpointStructureValid(source);
-    if (!endpoint && !secondaryNee && !threeVertexEndpoint)
+    const bool threeVertexNee = Upt07ThreeVertexNeeStructureValid(source);
+    if (!endpoint && !secondaryNee && !threeVertexEndpoint && !threeVertexNee)
         return 0u;
 #else
+    const bool threeVertexNee = false;
     if (!endpoint && !secondaryNee)
         return 0u;
 #endif
     uint storedDenseIndex = kUpt04InvalidLightIndex;
     uint storedLightType = kUpt04LightInvalid;
     float storedSelectionPdf = 0.0f;
-    if (secondaryNee && Upt07ResolveStoredSecondaryLight(
+    if ((secondaryNee || threeVertexNee) && Upt07ResolveStoredSecondaryLight(
             source,
             sourceIsHistory,
             storedDenseIndex,
@@ -1075,6 +1096,7 @@ public uint Upt07ReplayIndirectSample(
                 secondHit.primitiveId,
                 hitSurface.position,
                 secondHit.barycentrics,
+                3u,
                 (source.flags & kUpt04CandidateFlagDirectProposalParity) != 0u
                     ? 1u : 0u,
                 work)
@@ -1119,6 +1141,147 @@ public uint Upt07ReplayIndirectSample(
         failureReason = 0u;
         return 1u;
     }
+
+
+    if (threeVertexNee)
+    {
+        failureReason = kUpt07RejectIndirectContinuation;
+        const float q = clamp(
+            source.accumulatedRouletteProbability, 0.0f, 1.0f);
+        const float rouletteRandom = Upt04WhiteHash(
+            Upt04PersistedReplayRandomKey(
+                source.replayKey,
+                source.replayIndex,
+                1u,
+                0u,
+                kUpt04StreamIndirectRouletteSurvival,
+                kUpt04DimensionIndirectRouletteSurvival));
+        if (!Upt04FinitePositive(q) || rouletteRandom >= q)
+            return 0u;
+
+        const Upt04PreparedDirectMaterial preparedSecondary =
+            Upt07PrepareSecondaryDirect(hitSurface, -continuation.direction);
+        if (preparedSecondary.valid == 0u)
+            return 0u;
+        const Upt04PathEvent secondContinuation =
+            Upt07SampleSecondaryContinuation(
+                preparedSecondary,
+                Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+                    source.replayKey,
+                    source.replayIndex,
+                    1u,
+                    0u,
+                    kUpt04StreamMaterialLobeSelection,
+                    kUpt04DimensionMaterialLobeSelection)),
+                float2(
+                    Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+                        source.replayKey,
+                        source.replayIndex,
+                        1u,
+                        0u,
+                        kUpt04StreamIndirectContinuationU,
+                        kUpt04DimensionIndirectContinuationU)),
+                    Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+                        source.replayKey,
+                        source.replayIndex,
+                        1u,
+                        0u,
+                        kUpt04StreamIndirectContinuationV,
+                        kUpt04DimensionIndirectContinuationV))));
+        if (secondContinuation.valid == 0u
+            || !Upt04FinitePositive(secondContinuation.pdf)
+            || !all(isfinite(secondContinuation.throughput)))
+            return 0u;
+
+        Upt04TraceRequest secondRay;
+        if (!Upt04BuildContinuationRequest(
+                hitSurface.position,
+                hitSurface.geometricNormal,
+                hitSurface.shadingNormal,
+                secondContinuation.direction,
+                secondRay))
+            return 0u;
+        failureReason = kUpt07RejectIndirectGeometry;
+        const Upt04HitFacts secondHit = Upt07TraceIndirect(
+            secondRay, 0u, Upt04NoVisibilityIgnore(), work);
+        if (secondHit.status != kUpt04HitTriangle
+            || secondHit.instanceId == 0xffffffffu)
+            return 0u;
+        Upt07WorkAdd(work, kUpt07WorkGeometryResolves);
+        const Upt04GeometryHitSurface endpointSurface =
+            Upt04DecodeGeometryHit(secondHit);
+        if (endpointSurface.valid == 0u)
+            return 0u;
+
+        failureReason = kUpt07RejectIndirectInnerRis;
+        Upt07WorkAdd(work, kUpt07WorkLightRecordLoads);
+        const Upt04UnifiedLightRecord storedLight =
+            Upt07LoadLight(storedDenseIndex);
+        Upt04LocalLightSample selectedSample;
+        if (Upt07ReplayStoredSecondaryLight(
+                source,
+                storedLightType,
+                storedLight,
+                endpointSurface.position,
+                selectedSample) == 0u
+            || selectedSample.status != kUpt04SampleValidPositive)
+            return 0u;
+        Upt07WorkAdd(work, kUpt07WorkMaterialRecordLoads);
+        const Upt04MaterialEvaluation selectedMaterial =
+            Upt07EvaluateSecondaryDirect(
+                endpointSurface,
+                -secondContinuation.direction,
+                selectedSample.direction,
+                selectedSample.radiance);
+        const float sourcePdf = storedSelectionPdf
+            * selectedSample.solidAnglePdf;
+        const float pathPdf = continuation.pdf
+            * secondContinuation.pdf * q * sourcePdf;
+        const float3 pathThroughput = continuation.throughput
+            * (secondContinuation.throughput / q);
+        const float3 contribution = pathThroughput
+            * selectedMaterial.weightedContribution;
+        const float target = max(contribution.x,
+            max(contribution.y, contribution.z));
+        if (selectedMaterial.valid == 0u
+            || !Upt04FinitePositive(sourcePdf)
+            || !Upt04FinitePositive(pathPdf)
+            || !all(isfinite(contribution))
+            || !Upt04FinitePositive(target))
+            return 0u;
+
+        failureReason = kUpt07RejectIndirectVisibility;
+        if (!Upt04BuildPrimaryVisibilityRequest(
+                endpointSurface.position,
+                endpointSurface.geometricNormal,
+                endpointSurface.shadingNormal,
+                selectedSample.direction,
+                selectedSample.distance,
+                pendingVisibility.request))
+            return 0u;
+        if (storedLightType == kUpt04LightEmissiveTriangle)
+            pendingVisibility.ignore = Upt04MakeVisibilityIgnore(
+                storedLight.instanceId, storedLight.primitiveIndex);
+        pendingVisibility.valid = 1u;
+        shifted.eventKind = storedLightType == kUpt04LightEmissiveTriangle
+            ? 2u : 1u;
+        shifted.lobeMask = continuation.lobeMask
+            | secondContinuation.lobeMask | selectedMaterial.lobeMask;
+        shifted.identity0 = storedDenseIndex + 1u;
+        shifted.identity1 = Upt04StableLightIdentityFingerprint(storedLight);
+        shifted.sampleCoord0 = source.sampleCoord0;
+        shifted.sampleCoord1 = source.sampleCoord1;
+        shifted.pathLength = 3u;
+        shifted.reconnectionVertexLength = 1u;
+        shifted.pathPdf = pathPdf;
+        shifted.accumulatedRouletteProbability = q;
+        shifted.contributionR = contribution.x;
+        shifted.contributionG = contribution.y;
+        shifted.contributionB = contribution.z;
+        shifted.target = target;
+        failureReason = 0u;
+        return 1u;
+    }
 #endif
 
     if (endpoint)
@@ -1135,6 +1298,7 @@ public uint Upt07ReplayIndirectSample(
                 hit.primitiveId,
                 receiver.worldPositionAndViewDepth.xyz,
                 hit.barycentrics,
+                kUpt04SecondaryNeeBounceIndex,
                 (source.flags & kUpt04CandidateFlagDirectProposalParity) != 0u
                     ? 1u : 0u,
                 work)

@@ -1,0 +1,98 @@
+UPT-55 - static emissive-closure excision proof
+================================================
+
+Purpose
+-------
+
+UPT-54 reduced repeated emissive proposal work and the three-vertex SPIR-V
+size, but changed the dominant No-Instructions DAS region by less than one
+percent. The earlier UPT-53 compact experiment also proved invalid as a split:
+it placed a second inline lane behind a runtime branch in the same entry point,
+doubled the module, raised live-register pressure and did not issue a second
+dispatch.
+
+The next decision must not be based on another runtime predicate. UPT-55 is a
+causal footprint proof: probes 5 and 6 select a separate Vulkan artifact built
+with `UPT04_STATIC_ANALYTIC_INDIRECT_ONLY=1`.
+
+Static contract
+---------------
+
+The diagnostic artifact preserves:
+
+    native 112-byte geometry;
+    compact32 receiver/reservoir state;
+    compact64 analytic light records;
+    x1->x2 and x2->x3 continuation tracing;
+    OpenPBR continuation and direct analytic evaluation;
+    analytic NEE visibility and reservoir streaming;
+    the existing four-RayQuery compiled ceiling.
+
+It preprocesses out, rather than branches around:
+
+    x2 endpoint emissive material evaluation;
+    x2 reverse emissive NEE-PDF lookup;
+    x3 endpoint emissive material evaluation;
+    x3 reverse emissive NEE-PDF lookup;
+    emissive triangle selection/replay in indirect NEE;
+    bindless emission-texture evaluation reached by those paths.
+
+This deliberately changes the image and is not an estimator candidate. It is
+valid only as a fixture-facing performance A/B with temporal disabled.
+
+Build proof
+-----------
+
+The 2026-08-17 Vulkan release build passed. The production and static artifacts
+are separate `.bin` files and therefore separate Vulkan PSOs:
+
+    production three-vertex       686,412 bytes, 42,898 SPIR-V instructions
+    static analytic-only          578,608 bytes, 36,300 SPIR-V instructions
+
+Both remain one inlined Slang entry point with four RayQuery sites. The static
+artifact removes 6,598 SPIR-V instructions (15.4 percent) and reduces image
+sample sites from 20 to 14. The runtime pipeline line must report
+`staticAnalyticOnly=1`; otherwise the A/B is invalid.
+
+Test
+----
+
+Use the accepted split-initial/compact64/three-vertex configuration with
+temporal and spatial disabled. Compare the same camera twice:
+
+    r_pathTracingUnifiedPtThreeVertexBottleneckProbe 4
+        production combined NEE and visibility
+
+    r_pathTracingUnifiedPtThreeVertexBottleneckProbe 6
+        analytic-only full visibility, static closure-excision PSO
+
+Probe 5 is the same static artifact with final x3 NEE visibility forced known.
+Do not compare probe 5 with probe 4 when attributing visibility cost.
+
+Decision gate
+-------------
+
+If the fixture-specific cliff survives probe 6, resident emissive/material
+closure is not the primary cause and no emissive dispatch split is justified.
+
+If the cliff collapses materially, the final implementation must use a real
+queue/buffer handoff and a second `vkCmdDispatch`. It must not copy UPT-53's
+runtime-branch shape. A prospective split must keep hot continuation/analytic
+work in the screen-ordered pass, compact only lanes requiring exact emissive
+endpoint/replay work, merge through the existing reservoir convention, and
+show lower registers-per-thread for the hot PSO in Nsight Launch Statistics.
+
+Runtime result
+--------------
+
+The fixture A/B was completed with the intended production prerequisites and
+the runtime pipeline line confirmed `staticAnalyticOnly=1`. Probe 6 produced no
+material visual or performance improvement over production probe 4. The
+fixture-specific slowdown therefore survives after 6,598 SPIR-V instructions
+and all targeted x2/x3 emissive closure paths are compiled out.
+
+UPT-55 is rejected as a causal explanation and is retained only as a diagnostic
+checkpoint. Resident emissive endpoint/material closure, by itself, does not
+explain the measured cliff, and this result does not admit a real emissive
+queue/second-dispatch implementation. A new approach must begin from the
+remaining hot-path evidence rather than extending UPT-54 or UPT-55.

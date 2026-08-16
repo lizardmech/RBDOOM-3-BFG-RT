@@ -254,7 +254,8 @@ public uint Upt09EvaluateDirectSample(
                 float2(0.0f),
                 gUpt09Control.materialCount,
                 gUpt09Control.logicalTextureCount,
-                gUpt09Control.emissiveScale);
+                gUpt09Control.emissiveScale,
+                gUpt09Control.emissiveTexelBlackFloor);
         if (emission.valid == 0u)
             return 0u;
         // Preserve valid black mask texels. Otherwise temporal/spatial feedback
@@ -2558,6 +2559,25 @@ void main(
     return;
 #else
 #if UPT32_WORKGROUP_RECIPROCAL_PAIRING
+    // Keep proof mode 1 authoritative for the production shared/workgroup
+    // specialization.  This check used to live only in the scalar fallback
+    // below, so the exact configuration it was meant to diagnose silently
+    // ignored it.  Every launched pixel owns one coalesced page copy here;
+    // no pair leader election, replay, visibility, or normalization runs.
+    const uint2 proofPixel = dispatchThreadId.xy;
+    if (gUpt09Control.proofMode == 1u)
+    {
+        if (proofPixel.x >= gUpt09Control.renderWidth
+            || proofPixel.y >= gUpt09Control.renderHeight)
+            return;
+        const uint proofIndex = proofPixel.y * gUpt09Control.renderWidth
+            + proofPixel.x;
+        if (proofIndex >= gUpt09Control.surfaceCount)
+            return;
+        gUpt09OutputReservoirs[proofIndex] =
+            gUpt09InputReservoirs[proofIndex];
+        return;
+    }
 #if UPT34_MULTI_NEIGHBOR_SPATIAL
     Upt34ExecuteWorkgroupMultiNeighbor(
         dispatchThreadId, groupThreadId, groupId);

@@ -22,7 +22,7 @@ static constexpr uint32_t UPT04_RESERVOIR_STRIDE = 64u;
 static constexpr uint32_t UPT04_COMPACT_VERTEX_STRIDE = 48u;
 static constexpr uint32_t UPT04_COMPACT_GEOMETRY_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT04_COMPACT_LIGHT_STRIDE = 64u;
-static constexpr uint32_t UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES = 4u;
+static constexpr uint32_t UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES = 32u;
 static constexpr uint32_t UPT04_LIGHT_TILE_COUNT = 128u;
 static constexpr uint32_t UPT04_LIGHT_TILE_DOMAIN_SIZE = 1024u;
 static constexpr uint32_t UPT04_LIGHT_TILE_DOMAIN_COUNT = 2u;
@@ -34,7 +34,7 @@ static constexpr uint32_t UPT04_LIGHT_TILE_PUSH_CONSTANT_BYTES = 48u;
 static constexpr uint32_t UPT04_COMPACT_MATERIAL_STRIDE = 48u;
 static constexpr uint32_t UPT04_COMPACT_MATERIAL_PUSH_CONSTANT_BYTES = 4u;
 static constexpr uint32_t UPT04_CONTINUATION_HIT_STRIDE = 32u;
-static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 220u;
+static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 224u;
 static constexpr uint32_t UPT04_FAMILY_LOCAL_LIGHT = 1u << 0u;
 static constexpr uint32_t UPT04_FAMILY_INDIRECT = 1u << 1u;
 static constexpr uint32_t UPT04_ROUTE_STATIC_BUCKETS = 1u << 1u;
@@ -65,8 +65,8 @@ static constexpr uint32_t UPT04_SECONDARY_NEE_BOUNCE_INDEX = 2u;
 // Version 15 makes authored directional sky radiance part of the D0/T0/S0
 // sample contract.  Invalidate older pages whose sky terminals stored the
 // material stage's scalar/white emission instead of the environment sample.
-static constexpr uint32_t UPT04_ABI_VERSION = 15u;
-static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 107u;
+static constexpr uint32_t UPT04_ABI_VERSION = 16u;
+static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_COUNT = 115u;
 static constexpr uint32_t UPT04_DIAGNOSTIC_COUNTER_BYTES =
     UPT04_DIAGNOSTIC_COUNTER_COUNT * sizeof(uint32_t);
 static constexpr uint32_t UPT04_DIAGNOSTIC_RESERVOIR_PROBE_WORD_COUNT = 16u;
@@ -86,7 +86,7 @@ static constexpr uint32_t UPT46_GLASS_OPTICAL_CONSTANT_BYTES = 48u;
 static constexpr uint32_t UPT46_GLASS_DIAGNOSTIC_WORDS = 24u;
 static constexpr uint32_t UPT46_GLASS_DIAGNOSTIC_BYTES =
     UPT46_GLASS_DIAGNOSTIC_WORDS * sizeof(uint32_t);
-static constexpr uint32_t UPT07_PUSH_CONSTANT_BYTES = 172u;
+static constexpr uint32_t UPT07_PUSH_CONSTANT_BYTES = 176u;
 static constexpr uint32_t UPT43_TEMPORAL_BOILING_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT07_MAXIMUM_HISTORY_AGE = 63u;
 static constexpr uint32_t UPT07_MAXIMUM_HISTORY_CONTRIBUTION_RATIO = 32u;
@@ -113,7 +113,7 @@ static constexpr uint32_t UPT07_WORK_BUDGET_VIOLATION_WORD =
 static constexpr uint32_t UPT07_WORK_BUDGET_WORDS_PER_PIXEL =
     UPT07_WORK_BUDGET_VIOLATION_WORD + 1u;
 static constexpr uint32_t UPT08_PUSH_CONSTANT_BYTES = 16u;
-static constexpr uint32_t UPT09_PUSH_CONSTANT_BYTES = 100u;
+static constexpr uint32_t UPT09_PUSH_CONSTANT_BYTES = 104u;
 static constexpr uint32_t UPT09_MAXIMUM_INPUT_M = 32u;
 static constexpr uint32_t UPT09_REGULAR_NEIGHBOR_COUNT = 3u;
 static constexpr uint32_t UPT09_RESCUE_NEIGHBOR_COUNT = 12u;
@@ -430,6 +430,15 @@ static uint32_t Upt04FamilyMask(PathTraceUnifiedPtFamily family)
     }
 }
 
+static uint32_t Upt04ProposalFamilyMask(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    const uint32_t familyMask = Upt04FamilyMask(inputs.family);
+    const uint32_t diagnosticMask = inputs.diagnosticProposalFamilyMask &
+        (UPT04_FAMILY_LOCAL_LIGHT | UPT04_FAMILY_INDIRECT);
+    return diagnosticMask != 0u ? familyMask & diagnosticMask : familyMask;
+}
+
 static uint32_t Upt04StableLightIdentityFingerprint(
     const PathTraceUnifiedLightRecord& light)
 {
@@ -481,7 +490,9 @@ static const char* Upt04InitialShaderPath(
                 : (compactMaterials
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_material48.bin"
                 : (compactLights
-                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64.bin"
+                ? (compactGeometry
+                    ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64.bin"
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_light64.bin")
                 : (compactGeometry
                 ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48.bin"
                 : (primaryReceiverMode == 2u
@@ -560,11 +571,14 @@ static const char* Upt04SplitIndirectShaderPath(
     bool compactLights,
     bool compactMaterials,
     bool lightTiles,
-    bool threeVertexInitial)
+    bool threeVertexInitial,
+    bool staticAnalyticOnly)
 {
     if (threeVertexInitial)
     {
-        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex.bin";
+        return staticAnalyticOnly
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_analytic_only.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex.bin";
     }
     if (lightTiles)
     {
@@ -601,7 +615,9 @@ static const char* Upt04LambertInitialShaderPath(
     if (compactMaterials)
         return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_material48_lambert.bin";
     if (compactLights)
-        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_lambert.bin";
+        return compactGeometry
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_light64_lambert.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_light64_lambert.bin";
     if (compactGeometry)
         return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_geometry48_lambert.bin";
     return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_rayquery_compact32_lambert.bin";
@@ -846,6 +862,11 @@ static uint64_t Upt06BuildContentGeneration(
         ? Upt04FloatBitPattern(Upt04ThreeVertexContinueProbability()) : 0u);
     hash = Upt04HashValue(hash, dispatch.threeVertexInitial
         ? Upt04FloatBitPattern(Upt04ThreeVertexMinimumPathThroughput()) : 0u);
+    hash = Upt04HashValue(hash, dispatch.threeVertexInitial
+        ? static_cast<uint32_t>(idMath::ClampInt(
+            0, 15,
+            r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger()))
+        : 0u);
     hash = Upt04HashValue(hash,
         r_pathTracingUnifiedPtD0PreviousBest.GetBool() ? 1u : 0u);
     hash = Upt04HashValue(hash,
@@ -856,6 +877,9 @@ static uint64_t Upt06BuildContentGeneration(
     hash = Upt04HashValue(hash, dispatch.height);
     hash = Upt04HashValue(hash, dispatch.materialPolicyFlags);
     hash = Upt04HashValue(hash, Upt04FloatBitPattern(dispatch.skyBrightness));
+    hash = Upt04HashValue(hash, Upt04FloatBitPattern(idMath::ClampFloat(
+        0.0f, 1.0f,
+        r_pathTracingUnifiedPtEmissiveTexelBlackFloor.GetFloat())));
     return hash;
 }
 
@@ -907,6 +931,7 @@ struct Upt04InitialControl
     uint32_t reservedControl1;
     float previousCameraJitterPixels[2];
     float skyBrightness;
+    float emissiveTexelBlackFloor;
 };
 static_assert(sizeof(Upt04InitialControl) == UPT04_PUSH_CONSTANT_BYTES,
     "UPT-04 host push constants must match Slang reflection");
@@ -990,6 +1015,7 @@ struct Upt07TemporalDirectControl
     uint32_t emissiveLookupCapacityAndValid;
     float previousCameraJitterPixels[2];
     float skyBrightness;
+    float emissiveTexelBlackFloor;
 };
 static_assert(sizeof(Upt07TemporalDirectControl) == UPT07_PUSH_CONSTANT_BYTES,
     "UPT-07 host push constants must match Slang reflection");
@@ -1040,6 +1066,7 @@ struct Upt09SpatialDirectControl
     uint32_t emissiveDistributionCountAndValid;
     uint32_t emissiveLookupCapacityAndValid;
     float skyBrightness;
+    float emissiveTexelBlackFloor;
 };
 static_assert(sizeof(Upt09SpatialDirectControl) == UPT09_PUSH_CONSTANT_BYTES,
     "UPT-09 host push constants must match Slang reflection");
@@ -1059,6 +1086,13 @@ static_assert(
 struct Upt04CompactLightPackControl
 {
     uint32_t lightCount;
+    uint32_t materialCount;
+    uint32_t logicalTextureCount;
+    uint32_t reserved0;
+    float emissiveScale;
+    float emissiveTexelBlackFloor;
+    uint32_t reserved1;
+    uint32_t reserved2;
 };
 static_assert(
     sizeof(Upt04CompactLightPackControl) == UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES,
@@ -1591,7 +1625,7 @@ static Upt04InitialControl Upt04BuildControl(
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
     const RtPathTraceSceneInputMaterials& materials = inputs.materials;
     const RtPathTraceSceneInputLights& lights = inputs.lights;
-    const uint32_t enabledFamilyMask = Upt04FamilyMask(dispatch.family);
+    const uint32_t enabledFamilyMask = Upt04ProposalFamilyMask(dispatch);
     const uint32_t specializationIdentity =
         static_cast<uint32_t>(dispatch.family) |
         (static_cast<uint32_t>(dispatch.backend) << 8u);
@@ -1657,7 +1691,9 @@ static Upt04InitialControl Upt04BuildControl(
     control.emissiveRangeCount = analyticOnly
         ? 0u : lights.restirLightManagerEmissiveRangeCount;
     control.analyticRangeStart = lights.restirLightManagerDoomAnalyticRangeOffset;
-    control.analyticRangeCount = lights.restirLightManagerDoomAnalyticSampleableCount;
+    control.analyticRangeCount = r_pathTracingAnalyticLightCandidates.GetBool()
+        ? lights.restirLightManagerDoomAnalyticSampleableCount
+        : 0u;
     control.availabilityFlags = availabilityFlags;
     control.logicalTextureCount = static_cast<uint32_t>(Max(0, materials.logicalTextureDescriptorCount));
     control.primaryCameraOriginY = dispatch.primaryCameraOrigin[1];
@@ -1691,6 +1727,9 @@ static Upt04InitialControl Upt04BuildControl(
     control.skinnedCurrentVertexCount = dispatch.frozenStaticDiagnostic
         ? 0u : static_cast<uint32_t>(Max(0, geometry.skinnedGpuComputeVertexCount));
     control.emissiveScale = Max(0.0f, dispatch.emissiveScale);
+    control.emissiveTexelBlackFloor = idMath::ClampFloat(
+        0.0f, 1.0f,
+        r_pathTracingUnifiedPtEmissiveTexelBlackFloor.GetFloat());
     for (uint32_t axis = 0u; axis < 3u; ++axis)
     {
         control.previousCameraOrigin[axis] = dispatch.previousCameraOrigin[axis];
@@ -1722,13 +1761,29 @@ static Upt04InitialControl Upt04BuildControl(
         (emissiveLookupCapacity & UPT04_CONTROL_METADATA_COUNT_MASK)
         | (lights.unifiedPtEmissiveLookupExact && emissiveLookupCapacity >= 2u
             ? UPT04_CONTROL_METADATA_VALID_BIT : 0u);
+    control.indirectPolicyFlags = dispatch.threeVertexInitial
+        ? static_cast<uint32_t>(idMath::ClampInt(
+            0, 15,
+            r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger()))
+        : 0u;
     // Preserve the accepted 208-byte prefix: UPT-37 transports two binary32
     // values through the previously reserved uint words. The RR reprojection
     // jitter is appended after that prefix.
+    // The one-shot diagnostic deliberately uses the natural-layout,
+    // monolithic D0 adapter, so its production specialization gates cannot
+    // report threeVertexInitial=true.  The diagnostic module nevertheless
+    // contains the bounded x3 path and must inherit the requested controls in
+    // order to measure production versus reservoir admission.
+    const bool diagnosticThreeVertex = dispatch.diagnostics
+        && r_pathTracingUnifiedPtThreeVertexInitial.GetBool();
+    const bool publishThreeVertexControls =
+        dispatch.threeVertexInitial || diagnosticThreeVertex;
     control.reservedControl0 = Upt04FloatBitPattern(
-        Upt04ThreeVertexContinueProbability());
+        publishThreeVertexControls
+            ? Upt04ThreeVertexContinueProbability() : 0.0f);
     control.reservedControl1 = Upt04FloatBitPattern(
-        Upt04ThreeVertexMinimumPathThroughput());
+        publishThreeVertexControls
+            ? Upt04ThreeVertexMinimumPathThroughput() : 0.0f);
     control.previousCameraJitterPixels[0] =
         dispatch.previousCameraJitterPixels[0];
     control.previousCameraJitterPixels[1] =
@@ -2458,7 +2513,10 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                         inputs.compactLights,
                         inputs.compactMaterials,
                         inputs.lightTiles,
-                        inputs.threeVertexInitial),
+                        inputs.threeVertexInitial,
+                        inputs.threeVertexInitial
+                            && (r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger() == 5
+                                || r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger() == 6)),
                     splitIndirectData,
                     splitIndirectSize,
                     splitIndirectTimestamp,
@@ -2521,12 +2579,19 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         if (inputs.splitInitial)
         {
             common->Printf(
-                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 threeVertex=%d continuationRaysMax=%u rouletteQ=%.2f createUs=%llu\n",
+                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 threeVertex=%d x3Nee=%d staticAnalyticOnly=%d continuationRaysMax=%u visibilityRaysMax=%u totalRaysMax=%u rouletteQ=%.2f createUs=%llu\n",
                 splitIndirectSize,
                 static_cast<unsigned long long>(splitIndirectHash),
                 static_cast<long long>(splitIndirectTimestamp),
                 inputs.threeVertexInitial ? 1 : 0,
+                inputs.threeVertexInitial ? 1 : 0,
+                inputs.threeVertexInitial
+                    && (r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger() == 5
+                        || r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger() == 6)
+                    ? 1 : 0,
                 inputs.threeVertexInitial ? 2u : 1u,
+                inputs.threeVertexInitial ? 3u : 2u,
+                inputs.threeVertexInitial ? 5u : 3u,
                 inputs.threeVertexInitial
                     ? Upt04ThreeVertexContinueProbability() : 1.0f,
                 static_cast<unsigned long long>(splitIndirectPipelineUs));
@@ -3176,6 +3241,10 @@ bool PathTraceUnifiedPtState::EnsureCompactLightPipeline(
         .setUnorderedAccessViewOffset(0);
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(5));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES));
     m_compactLightBindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -3212,7 +3281,10 @@ bool PathTraceUnifiedPtState::EnsureCompactLightPipeline(
     }
     nvrhi::ComputePipelineDesc pipelineDesc;
     pipelineDesc.CS = m_compactLightShader;
-    pipelineDesc.bindingLayouts = { m_compactLightBindingLayout };
+    pipelineDesc.bindingLayouts = {
+        m_compactLightBindingLayout,
+        inputs.sceneInputs->materials.textureBindlessLayout
+    };
     const uint64_t pipelineStartUs = Sys_Microseconds();
     m_compactLightPipeline = inputs.device->createComputePipeline(pipelineDesc);
     const uint64_t pipelineUs = Sys_Microseconds() - pipelineStartUs;
@@ -3222,7 +3294,7 @@ bool PathTraceUnifiedPtState::EnsureCompactLightPipeline(
         return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: compact light pack compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=128x1 stride=64 createUs=%llu\n",
+        "PathTraceUnifiedPt: compact light pack compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=128x1 stride=64 emissiveProposalPrepared=1 probesPerEmissive=4 rays=0 createUs=%llu\n",
         shaderSize,
         static_cast<unsigned long long>(shaderHash),
         static_cast<long long>(shaderTimestamp),
@@ -3242,6 +3314,14 @@ bool PathTraceUnifiedPtState::EnsureCompactLightBindingSet(
         0, inputs.sceneInputs->lights.restirLightManagerCurrentPayloadBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
         1, m_compactLightsBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        2, inputs.sceneInputs->lights.emissiveTriangleBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        3, inputs.sceneInputs->lights.unifiedPtEmissiveGeometryBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        4, inputs.sceneInputs->materials.materialTableBuffer));
+    desc.addItem(nvrhi::BindingSetItem::Sampler(
+        5, inputs.sceneInputs->materials.textureSampler));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES));
     if (m_compactLightBindingSet && m_compactLightBindingSetDescValid &&
@@ -3270,7 +3350,16 @@ bool PathTraceUnifiedPtState::ExecuteCompactLightPack(
     }
     const uint32_t lightCount = static_cast<uint32_t>(Max(
         0, inputs.sceneInputs->lights.restirLightManagerCurrentPayloadCount));
-    const Upt04CompactLightPackControl control = { lightCount };
+    Upt04CompactLightPackControl control = {};
+    control.lightCount = lightCount;
+    control.materialCount = static_cast<uint32_t>(Max(
+        0, inputs.sceneInputs->materials.materialTableEntryCount));
+    control.logicalTextureCount = static_cast<uint32_t>(Max(
+        0, inputs.sceneInputs->materials.logicalTextureDescriptorCount));
+    control.emissiveScale = Max(0.0f, inputs.emissiveScale);
+    control.emissiveTexelBlackFloor = idMath::ClampFloat(
+        0.0f, 1.0f,
+        r_pathTracingUnifiedPtEmissiveTexelBlackFloor.GetFloat());
     {
         Upt04MarkerScope marker(
             inputs.commandList,
@@ -3280,11 +3369,23 @@ bool PathTraceUnifiedPtState::ExecuteCompactLightPack(
             inputs.sceneInputs->lights.restirLightManagerCurrentPayloadBuffer,
             nvrhi::ResourceStates::ShaderResource);
         inputs.commandList->setBufferState(
+            inputs.sceneInputs->lights.emissiveTriangleBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            inputs.sceneInputs->lights.unifiedPtEmissiveGeometryBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            inputs.sceneInputs->materials.materialTableBuffer,
+            nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
             m_compactLightsBuffer, nvrhi::ResourceStates::UnorderedAccess);
         inputs.commandList->commitBarriers();
         nvrhi::ComputeState state;
         state.pipeline = m_compactLightPipeline;
-        state.bindings = { m_compactLightBindingSet };
+        state.bindings = {
+            m_compactLightBindingSet,
+            inputs.sceneInputs->materials.textureDescriptorTable
+        };
         inputs.commandList->setComputeState(state);
         inputs.commandList->setPushConstants(&control, sizeof(control));
     }
@@ -3489,7 +3590,9 @@ bool PathTraceUnifiedPtState::ExecuteLightTilePresample(
     const uint32_t emissiveRangeCount =
         lights.restirLightManagerEmissiveRangeCount;
     const uint32_t analyticRangeCount =
-        lights.restirLightManagerDoomAnalyticSampleableCount;
+        r_pathTracingAnalyticLightCandidates.GetBool()
+            ? lights.restirLightManagerDoomAnalyticSampleableCount
+            : 0u;
     const uint32_t configuredEmissiveTrials = static_cast<uint32_t>(
         idMath::ClampInt(1, UPT04_NEE_RIS_MAX_EMISSIVE_CANDIDATE_COUNT,
             r_pathTracingReservoirCandidateTrials.GetInteger()));
@@ -4062,6 +4165,10 @@ void PathTraceUnifiedPtState::DrainDiagnosticReadback(
         counters[94], counters[95], counters[96], counters[97], counters[98],
         counters[99], counters[100], counters[101], counters[102],
         counters[103], counters[104], counters[105], counters[106]);
+    common->Printf(
+        "PathTraceUnifiedPt: diagnostic x3 produced(continuationPrepared/continuationHit/endpointPositive/neePrepared/neeVisible)=%u/%u/%u/%u/%u selected(endpoint/nee/any)=%u/%u/%u\n",
+        counters[107], counters[108], counters[109], counters[110],
+        counters[111], counters[112], counters[113], counters[114]);
 
     const uint32_t* probe = counters + UPT04_DIAGNOSTIC_COUNTER_COUNT;
     const uint32_t eventKind = (probe[0] >> 4u) & 0x7u;
@@ -4393,7 +4500,7 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         Upt04UsesDirectOnlyProductionLayout(inputs);
     const bool productionFullFrame = inputs.proofStage >= 9u &&
         Upt04PipelineVariant(inputs) == 0u;
-    const uint32_t enabledFamilyMask = Upt04FamilyMask(inputs.family);
+    const uint32_t enabledFamilyMask = Upt04ProposalFamilyMask(inputs);
     const uint32_t specializationIdentity =
         static_cast<uint32_t>(inputs.family) |
         (static_cast<uint32_t>(inputs.backend) << 8u);
@@ -5306,14 +5413,15 @@ bool PathTraceUnifiedPtState::EnsureTemporalPipeline(
         }
     }
     common->Printf(
-        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u threeVertexReplay=%u family=%s sharedReuseAdapter(requested/effective)=%u/%u commonGrisMerge(requested/effective)=%u/%u replayCompaction=%u replayBlobBytes=%d replayHash=%016llx boilingFilter=%u boilingBlobBytes=%d boilingHash=%016llx shading=%s bottleneckProbe=%u createUs=%llu\n",
+        "PathTraceUnifiedPt: temporal compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 lightStride=%u historyTaps=9 duplication=%u directVisibilityRaysMax=1 indirectReplay=%u indirectReplayRaysMax=%u threeVertexReplay=%u x3NeeReplay=%u family=%s sharedReuseAdapter(requested/effective)=%u/%u commonGrisMerge(requested/effective)=%u/%u replayCompaction=%u replayBlobBytes=%d replayHash=%016llx boilingFilter=%u boilingBlobBytes=%d boilingHash=%016llx shading=%s bottleneckProbe=%u createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
         inputs.compactLights ? UPT04_COMPACT_LIGHT_STRIDE : 112u,
         inputs.duplication ? 1u : 0u,
         indirect ? 1u : 0u,
-        indirect ? (threeVertexReplay ? 6u : 4u) : 0u,
+        indirect ? (threeVertexReplay ? 8u : 4u) : 0u,
+        threeVertexReplay ? 1u : 0u,
         threeVertexReplay ? 1u : 0u,
         indirect ? (earlyReconnect ? "unified-reconnect"
             : (routeDiagnostics ? "unified-route-diagnostics" : "unified"))
@@ -6313,7 +6421,9 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
     control.emissiveRangeCount = analyticOnly
         ? 0u : lights.restirLightManagerEmissiveRangeCount;
     control.analyticRangeStart = lights.restirLightManagerDoomAnalyticRangeOffset;
-    control.analyticRangeCount = lights.restirLightManagerDoomAnalyticSampleableCount;
+    control.analyticRangeCount = r_pathTracingAnalyticLightCandidates.GetBool()
+        ? lights.restirLightManagerDoomAnalyticSampleableCount
+        : 0u;
     control.currentLightCount = static_cast<uint32_t>(Max(
         0, lights.restirLightManagerCurrentPayloadCount));
     control.frameSampleIndex = inputs.frameSampleIndex;
@@ -6402,6 +6512,9 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             ? UPT04_MATERIAL_DECODE_TEXTURES : 0u);
     control.emissiveScale = Max(0.0f, inputs.emissiveScale);
     control.skyBrightness = Max(0.0f, inputs.skyBrightness);
+    control.emissiveTexelBlackFloor = idMath::ClampFloat(
+        0.0f, 1.0f,
+        r_pathTracingUnifiedPtEmissiveTexelBlackFloor.GetFloat());
     control.previousToCurrentLightCount = analyticOnly
         ? control.currentLightCount
         : static_cast<uint32_t>(Max(
@@ -7303,7 +7416,7 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
             return false;
     }
     common->Printf(
-        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=%s lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=%u sharedSpatial=%u storedSourceTarget=%u workgroupPairing=%u reuseTexturePairing=%u reuseTextureSize=%u shiftPrepass=%u shiftBlobBytes=%d shiftHash=%016llx shiftRecordBytes=%u emptyRescue=%u multiNeighbor=%u disocclusionBoost=%u boostBlobBytes=%d boostHash=%016llx threeVertexReplay=%u neighbors=%u pairedPixels=%u continuationRaysMaxPerMapping=%u mappingRaysMaxPerPair=%u shading=%s createUs=%llu\n",
+        "PathTraceUnifiedPt: spatial compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=%s lightStride=%u attempts=%u/%u radius=%.1f visibilityRaysMax=%u sharedSpatial=%u storedSourceTarget=%u workgroupPairing=%u reuseTexturePairing=%u reuseTextureSize=%u shiftPrepass=%u shiftBlobBytes=%d shiftHash=%016llx shiftRecordBytes=%u emptyRescue=%u multiNeighbor=%u disocclusionBoost=%u boostBlobBytes=%d boostHash=%016llx threeVertexReplay=%u x3NeeReplay=%u neighbors=%u pairedPixels=%u continuationRaysMaxPerMapping=%u mappingRaysMaxPerPair=%u shading=%s createUs=%llu\n",
         size,
         static_cast<unsigned long long>(hash),
         static_cast<long long>(timestamp),
@@ -7332,11 +7445,12 @@ bool PathTraceUnifiedPtState::EnsureSpatialPipeline(
         boostSize,
         static_cast<unsigned long long>(boostHash),
         threeVertexReplay ? 1u : 0u,
+        threeVertexReplay ? 1u : 0u,
         multiNeighbor ? UPT09_REGULAR_NEIGHBOR_COUNT
             : (sharedSpatial ? 1u : UPT09_REGULAR_NEIGHBOR_COUNT),
         sharedSpatial ? 2u : 1u,
         threeVertexReplay ? 2u : (sharedSpatial ? 1u : 0u),
-        sharedSpatial ? (threeVertexReplay ? 4u : 2u) : 0u,
+        sharedSpatial ? (threeVertexReplay ? 6u : 2u) : 0u,
         inputs.lambertDiagnostic ? "lambert-diagnostic" : "openpbr",
         static_cast<unsigned long long>(pipelineUs));
     return true;
@@ -7646,7 +7760,9 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
     control.emissiveRangeCount = inputs.reflectionReuseDomain
         ? 0u : lights.restirLightManagerEmissiveRangeCount;
     control.analyticRangeStart = lights.restirLightManagerDoomAnalyticRangeOffset;
-    control.analyticRangeCount = lights.restirLightManagerDoomAnalyticSampleableCount;
+    control.analyticRangeCount = r_pathTracingAnalyticLightCandidates.GetBool()
+        ? lights.restirLightManagerDoomAnalyticSampleableCount
+        : 0u;
     control.currentLightCount = static_cast<uint32_t>(Max(
         0, lights.restirLightManagerCurrentPayloadCount));
     control.maximumInputM = UPT09_MAXIMUM_INPUT_M;
@@ -7678,6 +7794,9 @@ bool PathTraceUnifiedPtState::ExecuteSpatial(
             ? UPT04_TWO_SIDED_EMISSIVES : 0u)
         | (sharedSpatial ? UPT07_GEOMETRY_FLAG_INDIRECT_REPLAY : 0u);
     control.emissiveScale = Max(0.0f, inputs.emissiveScale);
+    control.emissiveTexelBlackFloor = idMath::ClampFloat(
+        0.0f, 1.0f,
+        r_pathTracingUnifiedPtEmissiveTexelBlackFloor.GetFloat());
     control.proofMode = static_cast<uint32_t>(idMath::ClampInt(
         0, 6, r_pathTracingUnifiedPtSpatialProofMode.GetInteger()));
     for (uint32_t axis = 0; axis < 3u; ++axis)
@@ -9053,6 +9172,7 @@ bool PathTraceUnifiedPtState::ExecuteGlassOpticalTransport(
         reflectionDispatch.primarySurfaceHistoryValid =
             m_glassReflectionHistoryValid;
         reflectionDispatch.family = PathTraceUnifiedPtFamily::DirectOnly;
+        reflectionDispatch.diagnosticProposalFamilyMask = 0u;
         reflectionDispatch.backend = PathTraceUnifiedPtBackend::RayQuery;
         reflectionDispatch.diagnostics = false;
         reflectionDispatch.proofStage = 9u;
@@ -9333,7 +9453,8 @@ bool PathTraceUnifiedPtState::ExecuteGlassCompose(
     const uint32_t sourceModeAndFrameIndex =
         (inputs.legacySidecarEncoding ? 1u : 0u) |
         ((inputs.reflectionDeclusterMode & 3u) << 1u) |
-        ((inputs.frameSampleIndex & 0x1fffffffu) << 3u);
+        ((inputs.frameSampleIndex & 0x01ffffffu) << 3u) |
+        ((inputs.resolveView & 0x0fu) << 28u);
     const Upt45GlassComposeControl control = {
         inputs.width,
         inputs.height,

@@ -1,0 +1,140 @@
+UPT-53 - compact three-vertex initial continuation
+==================================================
+
+Status
+------
+
+Design admitted from runtime bottleneck probes on 2026-08-17. Implementation
+and Vulkan runtime validation remain pending.
+
+Verified failure
+----------------
+
+The optional x3 path was compiled into the full-screen split-indirect D0
+kernel. Runtime probes established the following cumulative costs while
+temporal and spatial were disabled:
+
+    probe 1  exact x1/x2 path; returns before all x3 work
+             already loses GPU time versus the non-x3 shader
+
+    probe 2  adds x2-to-x3 trace and endpoint evaluation
+             adds further cost
+
+    probe 11 x3 replay selection and synthetic RIS/finalization only
+             approximately 20 FPS below probe 2
+
+    probe 12 adds the compact light-record load
+             no meaningful additional loss
+
+    probe 13 adds local-light geometric evaluation
+             approximately another 15 FPS lost
+
+    production receiver weighting and visibility
+             approximately another 5 FPS lost, with visibility independently
+             measurable
+
+Analytic-only and emissive-only proposal probes were both slow. Replacing the
+x3 prepared material with a constant Lambert material did not recover the
+loss. The compact light-record load also had no measurable incremental cost.
+
+The decisive result is probe 1: no x3 ray, proposal, material, light or
+visibility work executes, yet the x3-capable shader is slower. Nsight also
+shows reduced L2 and RT-core utilization when the problematic view is active.
+The reachable x3 closure therefore degrades the full-screen kernel before its
+runtime branch is taken. Later x3 stages multiply that loss through divergent
+work and local-light evaluation.
+
+This is the same scheduling class as S43.4 temporal replay compaction. A
+runtime branch is not a specialization boundary.
+
+Required architecture
+---------------------
+
+D0 becomes two indirect entry shapes:
+
+    D0i classifier/common, full screen
+        run the accepted x1/x2 indirect estimator;
+        compile without importing the x3 continuation/NEE closure;
+        publish the accepted x1/x2 reservoir;
+        append the pixel index when its x2 state can attempt x3;
+        overflow keeps the x1/x2 result.
+
+    D0x compact exact x3 consumer, 64x1 indirect dispatch
+        reload the authoritative primary/intermediate inputs;
+        recompute the accepted indirect state for queued pixels;
+        execute the existing exact x3 continuation, endpoint and NEE code;
+        overwrite that pixel's D0 reservoir with the exact combined result.
+
+The first implementation deliberately queues one uint pixel index and
+recomputes authoritative state, matching S43.4. It does not introduce a second
+serialized Upt04InitialTraceWork ABI. This repeats x1/x2 work only for queued
+pixels and provides a correctness-first measurement. A later optimization may
+replace recomputation with a compact x2-hit record only if queue density and
+timings prove the extra storage contract worthwhile.
+
+Queue contract
+--------------
+
+The queue capacity is one uint per screen pixel and is never cleared. Only the
+following 20 bytes are reset each frame:
+
+    uint groupCountX;
+    uint groupCountY;
+    uint groupCountZ;
+    uint publishedCount;
+    uint capacity;
+
+Append uses one atomic reservation. The GPU publishes
+ceil(min(publishedCount, capacity) / 64) groups. Overflow, an invalid queued
+index, or any replay rejection leaves the classifier's x1/x2 reservoir intact.
+There is no CPU readback dependency and no per-frame full-buffer clear.
+
+Correctness constraints
+-----------------------
+
+The compact consumer must preserve exactly:
+
+* the accepted compact32 receiver and compact64 light paths;
+* split-direct intermediate reservoir ownership;
+* proposal parity and the inverse-square x3 NEE schedule;
+* reservoir source-PDF, weight and duplicate conventions;
+* x3 endpoint emission, MIS and visibility rules;
+* the existing five-ray three-vertex ceiling;
+* temporal/spatial input ABI and page publication;
+* no invalid candidate admission on queue overflow or replay failure.
+
+The full-screen classifier must not import upt04_initial_multibounce. Static
+verification must prove that the x3 continuation and x3 NEE symbols are absent
+from its SPIR-V closure. Merely defining a runtime probe that returns early is
+the rejected architecture.
+
+Diagnostics and acceptance
+--------------------------
+
+Report:
+
+    published / bounded / capacity;
+    actual / expected indirect group count;
+    overflow;
+    queue fraction;
+    classifier and compact blob sizes/hashes;
+    combined D0 timing covering classifier, barriers and compact consumer.
+
+Acceptance requires:
+
+1. Probe-1-style static x3 overhead disappears from the full-screen kernel.
+2. D0 output matches the current monolithic three-vertex oracle at fixed RNG.
+3. Temporal and spatial disabled retain correct x3 direct/emissive transport.
+4. Zero queued pixels launch zero compact groups.
+5. Queue overflow safely retains the accepted x1/x2 result.
+6. The troublesome fixture-facing view no longer collapses L2/RT utilization
+   merely because x3 support is enabled.
+7. No new full-buffer clear or unbounded ray/work path is introduced.
+
+Separate finding
+----------------
+
+Spatial reuse currently incurs measurable GPU cost with temporal disabled but
+shows no obvious image benefit in that configuration. It must remain disabled
+during UPT-53 A/B and is a separate S0 execution/correctness audit; it is not a
+reason to retain x3 in the full-screen D0 kernel.

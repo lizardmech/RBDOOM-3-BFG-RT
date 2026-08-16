@@ -21,7 +21,8 @@ public Upt04MaterialEmissionEvaluation UptDirectEvaluateEmissiveEndpoint(
     float2 uvGradient1,
     uint materialCount,
     uint logicalTextureCount,
-    float emissiveScale)
+    float emissiveScale,
+    float emissiveTexelBlackFloor)
 {
     Upt04MaterialEmissionEvaluation invalid =
         (Upt04MaterialEmissionEvaluation)0;
@@ -53,14 +54,16 @@ public Upt04MaterialEmissionEvaluation UptDirectEvaluateEmissiveEndpoint(
         triangleClassAndFlags,
         emissiveTexel,
         emissiveTexelValid,
-        emissiveScale);
+        emissiveScale,
+        emissiveTexelBlackFloor);
 }
 
 public float4 UptDirectEmissiveRegionWeights(
     Upt04EmissiveGeometrySample replay,
     uint materialCount,
     uint logicalTextureCount,
-    float emissiveScale)
+    float emissiveScale,
+    float emissiveTexelBlackFloor)
 {
     float4 weights = float4(0.0f);
     [unroll]
@@ -77,7 +80,8 @@ public float4 UptDirectEmissiveRegionWeights(
                 replay.emissionUvGradient1 * 0.5f,
                 materialCount,
                 logicalTextureCount,
-                emissiveScale);
+                emissiveScale,
+                emissiveTexelBlackFloor);
         const float importance = dot(
             max(probe.radiance, float3(0.0f)),
             float3(0.2126f, 0.7152f, 0.0722f));

@@ -124,3 +124,47 @@ Re-evaluate the practical impact with the intended denoiser/Ray Reconstruction
 pipeline. Reopen indirect-temporal firefly work only if that test exposes a
 specific T0 estimator, replay, visibility or material-evaluation defect. UPT-38
 is otherwise runtime accepted.
+
+UPT-50 correction: x3 NEE spatial mapping, 2026-08-15
+-------------------------------------------------------
+
+Shared S0 now admits the same `eventKind=1/2,pathLength=3,
+reconnectionVertexLength=1` topology as corrected T0. Each mapping replays the
+two persisted continuation segments, reconnects the stored light at x3 and
+traces x3-to-light visibility only for the selected mapping. The stored source
+target, reciprocal GRIS weights, winner publication and invalid-sample
+rejection remain unchanged.
+
+The corrected specialization contains seven static RayQuery sites, one group
+barrier and no TraceRay site. A single mapping is bounded to two continuation
+queries plus one winner visibility query; a reciprocal two-pixel pair is
+bounded to six mapping queries. Runtime diagnostics report
+`x3NeeReplay=1`, `continuationRaysMaxPerMapping=2` and
+`mappingRaysMaxPerPair=6`. No NEE cache or new persistent resource participates.
+
+Secondary material color parity correction, 2026-08-16
+-------------------------------------------------------
+
+Shared S0 consumes the temporal indirect material provider, so it inherited
+the same missing classifier application described in document 51. The shared
+provider now applies the identical D0 classifier before evaluating or sampling
+the mapped secondary receiver. All rebuilt shared-spatial variants passed the
+Vulkan preset. The topology, reciprocal weights, ray ceilings and persistent
+ABI are unchanged.
+
+Shared proof-control correction, 2026-08-16
+-------------------------------------------
+
+`r_pathTracingUnifiedPtSpatialProofMode 1` previously reached only the scalar
+fallback below the workgroup branch.  Production `uptb5` returned through
+`Upt32ExecuteWorkgroupReciprocalPair` first, so requested proof mode 1 silently
+continued to perform shared spatial reuse.  The control now performs one exact
+input-page to output-page copy per screen pixel before workgroup pairing.  It
+retains the S0 dispatch, alternate output page and host page flip while issuing
+no pair mapping, replay, visibility or normalization work.
+
+Use this corrected control with resolve view 10.  If the colored x3 signal is
+unchanged, it belongs to the D0/T0 path and S0 only changes its density.  If it
+collapses to the `uptb3` result, the difference is owned by S0 estimator work.
+The reflection child uses the same proof control, so reflected-object color can
+be localized without conflating it with main-family three-vertex transport.

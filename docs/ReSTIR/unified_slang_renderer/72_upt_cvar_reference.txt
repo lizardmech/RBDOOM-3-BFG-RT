@@ -1,0 +1,269 @@
+UPT CVar Reference
+==================
+Extracted: 2026-08-16
+Source of truth: neo/renderer/NVRHI/PathTraceCVars.cpp
+Section: lines 1380-1792, 69 declarations (verified: all r_pathTracingUnifiedPt* definitions live in this one file)
+Section boundary: starts at r_pathTracingUnifiedPtEnable (L1380), ends at r_pathTracingUnifiedPtGlassReflectionDecluster (L1788);
+the next cvar after the section is r_pathTracingCleanRtxdiDiEnable (L1794).
+The whole section is gated behind r_pathTracingUnifiedPtEnable, which defaults to 0.
+
+Format: name = default (type), followed by the source description verbatim.
+Line numbers refer to the idCVar declaration in PathTraceCVars.cpp.
+
+------------------------------------------------------------------
+1. ROUTE / MASTER SWITCH (1)
+------------------------------------------------------------------
+
+r_pathTracingUnifiedPtEnable = 0 (bool)  [L1380]
+    Clean unified Slang ReSTIR PT route request; overrides legacy Clean-DI/GI execution; UPT-06 owns two private 64-byte reservoir pages while no-reuse D0/R0 still use page 0 only; UPT-05 presentation is separately admitted by r_pathTracingUnifiedPtResolve
+
+------------------------------------------------------------------
+2. PRIMARY PAYLOAD / D0 A-B (16)
+------------------------------------------------------------------
+
+r_pathTracingUnifiedPtLeanPrimary = 1 (bool)  [L1386]
+    UPT-only primary payload A/B: 0 uses the existing 336-byte shared P0 payload; 1 uses a Vulkan-only 172-byte payload with decal/liquid candidate bins omitted; receiver ABI is selected independently by r_pathTracingUnifiedPtCompactReceiver
+
+r_pathTracingUnifiedPtCompactReceiver = 2 (int)  [L1392]
+    UPT-only P0-to-D0 receiver A/B for production shader proofs 1..6: 0 legacy 176-byte history record; 1 UPT-owned 48-byte current-frame receiver without reuse; 2 production 32-byte distance/direction receiver with a separate 32-byte cold temporal/spatial history sidecar
+
+r_pathTracingUnifiedPtCompactGeometry = 0 (bool)  [L1398]
+    UPT D0 geometry replay A/B for Vulkan RayQuery production with compact receiver 2: 0 binds the scene's 112-byte vertices; 1 GPU-packs four UPT-only 48-byte sidecars before D0 and binds those at the existing vertex slots
+
+r_pathTracingUnifiedPtCompactLights = 0 (bool)  [L1404]
+    UPT current-light A/B: 0 binds the manager's 112-byte records; 1 GPU-packs a UPT-only 64-byte current-light sidecar while preserving all replay identities; supported with compact geometry or split initial plus native geometry
+
+r_pathTracingUnifiedPtCompactMaterials = 0 (bool)  [L1410]
+    UPT D0 material A/B after compact lights: 0 binds the 112-byte material table; 1 GPU-packs a lossless-for-D0 48-byte sidecar; direct-only family suppresses the pack because it does not read secondary material records
+
+r_pathTracingUnifiedPtSplitInitial = 0 (bool)  [L1416]
+    UPT unified D0 A/B: 0 runs the three-query RayQuery megakernel; 1 splits direct and indirect work into two 8x8 dispatches using one exact intermediate/final 64-byte reservoir page; supports native geometry with native or compact64 lights, or paired compact geometry+light
+
+r_pathTracingUnifiedPtThreeVertexInitial = 0 (bool)  [L1422]
+    UPT-35/36 three-vertex transport: add one roulette-gated x2-to-x3 continuation and endpoint proposal to split-initial native-geometry compact64-light mode with exact temporal replay; spatial must be disabled
+
+r_pathTracingUnifiedPtThreeVertexContinueProbability = 0.8 (float)  [L1428]
+    UPT-37 x2-to-x3 Russian-roulette continuation probability, clamped to [0,1]; lower values reduce rays without bias but increase variance
+
+r_pathTracingUnifiedPtThreeVertexMinimumPathThroughput = 0.0 (float)  [L1434]
+    UPT-37 initial-only uncompensated x2 throughput L2 cutoff before roulette/ray emission, clamped to [0,1]; biased like RTXDI FullSample minimumPathThroughput and deliberately excluded from temporal replay
+
+r_pathTracingUnifiedPtLightTiles = 0 (bool)  [L1440]
+    UPT split native-light D0 A/B: presample exact-PDF emissive and ordinal-stratified analytic light identities into coherent 8x8 screen-tile domains before D0; requires proposal parity and adds no visibility candidates
+
+r_pathTracingUnifiedPtSplitContinuation = 0 (bool)  [L1446]
+    UPT unified D0 A/B: trace the deterministic primary continuation into one 32-byte hit-facts sidecar, then run direct plus secondary shading with one final reservoir write; mutually exclusive with the rejected direct/indirect split
+
+r_pathTracingUnifiedPtLambertDiagnostic = 0 (bool)  [L1452]
+    Vulkan UPT profiling specialization: replace OpenPBR receiver and secondary-hit shading with constant-gray untextured Lambert eval/sample/PDF while preserving emissive endpoint textures and alpha-clip traversal; supported by unified RayQuery compact32 D0 and indirect temporal without reconnect/route diagnostics
+
+r_pathTracingUnifiedPtFrozenScene = 0 (int)  [L1458]
+    Vulkan UPT isolated-scene factorial: 0 normal, 1 capture production then switch to 2, 2 frozen production geometry/full lights, 3 static geometry/analytic-only lights, 4 production geometry/analytic-only lights, 5 static geometry/full light machinery; modes 2-5 replay with no scene/universe uploads or BLAS/TLAS work
+
+r_pathTracingUnifiedPtRemoveAlphaClipSurfaces = 0 (bool)  [L1464]
+    Vulkan UPT geometry diagnostic: omit every authored alpha-test/perforated surface from static, dynamic, rigid, and skinned ray-tracing geometry; changing this forces a one-time geometry cache rebuild and intentionally creates holes
+
+r_pathTracingUnifiedPtDirectProposalParity = 1 (bool)  [L1470]
+    UPT D0 direct proposal: 1 uses one uniform emissive trial plus up to 32 range-stratified analytic trials while retaining one selected visibility ray; 0 selects the fixed 8-trial split fallback
+
+r_pathTracingUnifiedPtD0PreviousBest = 1 (bool)  [L1476]
+    UPT D0 legacy-shaped previous-best emissive reseed: reproject one prior receiver, remap the stable light identity, replay at the current receiver, exclude duplicate fresh proposals, and retain one winner-only visibility ray
+
+------------------------------------------------------------------
+3. TEMPORAL (20)
+------------------------------------------------------------------
+
+r_pathTracingUnifiedPtTemporal = 0 (bool)  [L1482]
+    UPT-07 bounded temporal reuse over two fully written 64-byte reservoir pages; direct mode retains one winner-only visibility RayQuery and opt-in indirect replay has its separately verified four-ray ceiling; default off
+
+r_pathTracingUnifiedPtTemporalSearch = 2 (int)  [L1488]
+    UPT-07 reprojection A/B: 0 exact floor single tap, 1 sub-pixel-dithered single tap, 2 dither plus up to eight randomized radius-4 compatible-surface probes (default); reservoir contents never steer the search
+
+r_pathTracingUnifiedPtTemporalPermutationSampling = 0 (bool)  [L1494]
+    UPT-43.7 NVIDIA PT temporal permutation A/B: apply the frame-uniform shifted 4x4 XOR permutation only to the first reprojected history tap; preserves all fallback probes, replay and visibility work; default off like RTXDI PT
+
+r_pathTracingUnifiedPtTemporalMaxHistoryM = 32 (int)  [L1500]
+    UPT-07 maximum effective M admitted from the previous reservoir; clamps to 1..1024, default 32
+
+r_pathTracingUnifiedPtTemporalMaxAge = 32 (int)  [L1506]
+    UPT-07 maximum selected-history age; clamps to 1..63, default 32 after temporal+spatial correlation acceptance; 63 remains the packed saturation/no-expiry stress value
+
+r_pathTracingUnifiedPtTemporalPreviousBest = 0 (bool)  [L1512]
+    UPT-07 previous-best current-domain seed A/B with single-admission duplicate exclusion and winner-only current visibility; default off pending runtime validation
+
+r_pathTracingUnifiedPtTemporalPairwise = 0 (bool)  [L1518]
+    UPT-07 estimator A/B: 1 replaces the cross-frame global basic-correction denominator with two-domain pairwise MIS using fresh targets at both receivers; 0 retains the existing temporal merge
+
+r_pathTracingUnifiedPtTemporalIndirect = 0 (bool)  [L1524]
+    UPT-07 bounded one-continuation temporal replay: reconstructs global endpoints and force-reconnects stored secondary-NEE light vertices without rerunning light selection; rejects any identity, replay, target, or visibility mismatch; default off during temporal-only validation
+
+r_pathTracingUnifiedPtSharedReuseAdapter = 0 (bool)  [L1530]
+    UPT-30 temporal mechanical-parity A/B: route direct and global cross-receiver shifts through one source-target/target-target/Jacobian result contract; currently effective only for unified indirect compact64-light duplication production shading
+
+r_pathTracingUnifiedPtCommonGrisMerge = 0 (bool)  [L1536]
+    UPT-30 temporal estimator A/B: merge direct and global proposals through one target-scaled GRIS core with source-UCW conversion, pairwise MIS, and one forward shift Jacobian; requires the shared reuse adapter and temporal pairwise mode
+
+r_pathTracingUnifiedPtTemporalReplayCompaction = 0 (bool)  [L1542]
+    UPT-43.4 bounded temporal replay compaction: keep direct and cached-x2 shifts in the full-screen classifier and execute exact continuation replay only for a compact GPU-authored pixel queue; requires the accepted unified common-GRIS configuration
+
+r_pathTracingUnifiedPtTemporalReplayCompactionDiagnostics = 0 (bool)  [L1548]
+    UPT-43.4 one-frame-delayed compact replay count, capacity and indirect-group diagnostics; no synchronous GPU readback
+
+r_pathTracingUnifiedPtTemporalBoilingFilter = 0 (bool)  [L1554]
+    UPT-43.6 biased post-temporal boiling filter: after compact replay is finalized, empty reservoirs whose target-scaled UCW exceeds the nonzero 8x8 group average by the strength-derived threshold; requires accepted replay compaction
+
+r_pathTracingUnifiedPtTemporalBoilingFilterStrength = 0.2 (float)  [L1560]
+    UPT-43.6 boiling-filter strength in (0,1]; 0.2 gives a 41x nonzero-group-average rejection threshold; this is deliberately biased
+
+r_pathTracingUnifiedPtTemporalEarlyReconnect = 0 (bool)  [L1566]
+    UPT-17 static secondary-vertex hybrid shift A/B: apply the paper footprint gate, reconnect the current receiver directly to stored x2, and use exact random replay for unsupported paths; pairwise MIS remains on replay
+
+r_pathTracingUnifiedPtTemporalReconnectDiagnostics = 0 (bool)  [L1572]
+    UPT-17 one-frame-delayed aggregate counters for static locator, footprint, reconnect visibility, Jacobian, replay fallback, and admission stages
+
+r_pathTracingUnifiedPtTemporalRouteDiagnostics = 0 (bool)  [L1578]
+    UPT temporal workload diagnostic specialization: one-frame-delayed counters for current/history event mix, indirect replay attempts, BASIC selection, merge winner, age, and failure route; valid with early reconnect disabled
+
+r_pathTracingUnifiedPtTemporalBottleneckProbe = 0 (int)  [L1584]
+    Vulkan UPT T0 production-OpenPBR bottleneck ladder for compact64+duplication: 0 production; 1..5 original ladder; reciprocal subprobes 6 bookkeeping, 7 current target, 8 direct cross target, 10 reciprocal request, 11 committed hit, 9 decoded hit, then 3 full evaluation; 12 captures per-pixel executed-work counters and checks declared ray/remap/hash/light-load budgets
+
+r_pathTracingUnifiedPtTemporalGpuTiming = 0 (bool)  [L1590]
+    Vulkan UPT T0 dispatch-only timestamp batch: after 16 valid-history warm-up frames, collect 64 samples and print median/mean/min/p90/max; automatically rearms when the effective bottleneck probe mode changes
+
+r_pathTracingUnifiedPtDuplication = 1 (bool)  [L1596]
+    UPT-08 correlation control: publish a 31-bit random-sample identity, count matching copies in a 17x17 neighborhood, and adapt the next temporal M cap from default to 1; allocates no resources and dispatches no work when disabled
+
+------------------------------------------------------------------
+4. SPATIAL (13)
+------------------------------------------------------------------
+
+r_pathTracingUnifiedPtSpatial = 0 (bool)  [L1602]
+    UPT-09 bounded direct spatial rescue: reads the completed D0/T0 page and fully writes the other existing 64-byte page; 3 regular or 12 empty-center attempts, 30-pixel radius, at most one visibility RayQuery; default off
+
+r_pathTracingUnifiedPtSharedSpatial = 0 (bool)  [L1608]
+    UPT-30 combined spatial A/B: one selected center and one selected neighbor use the shared direct/global shift and GRIS pairwise core; requires the accepted unified temporal configuration and remains default off
+
+r_pathTracingUnifiedPtSpatialStoredSourceTarget = 0 (bool)  [L1614]
+    UPT-31 shared-S0 direct-event A/B: trust the reservoir's canonical source-receiver target instead of replaying the selected emitter a second time at its source; requires shared spatial and selects a separate Vulkan shader artifact
+
+r_pathTracingUnifiedPtSpatialWorkgroupPairing = 0 (bool)  [L1620]
+    UPT-32 shared-S0 feature A/B: every lane shifts once into group-shared storage, synchronizes, and publishes its own side of a randomized self-inverse 8x8 pair; requires shared spatial plus stored source target and adds no full-resolution buffer
+
+r_pathTracingUnifiedPtSpatialEmptyRescue = 0 (bool)  [L1626]
+    UPT-33 shared-S0 feature A/B: let an explicitly rescue-marked empty center borrow its reciprocal partner once; the result is stamped non-donating and requires workgroup pairing
+
+r_pathTracingUnifiedPtSpatialMultiNeighbor = 0 (bool)  [L1632]
+    UPT-34 shared-S0 feature A/B: simultaneously resample the canonical path plus three distinct reciprocal workgroup neighbors with k-technique pairwise MIS; requires accepted UPT-33 rescue configuration
+
+r_pathTracingUnifiedPtSpatialDisocclusionBoost = 0 (bool)  [L1638]
+    UPT-43.8 sparse RTXDI PT disocclusion A/B: queue only rcLength-2 reservoirs with effective M below 8, then run bounded simultaneous-GRIS extra neighbors; requires S43.4 and accepted UPT-33; default off
+
+r_pathTracingUnifiedPtSpatialDisocclusionBoostSamples = 8 (int)  [L1644]
+    UPT-43.8 compact disocclusion neighbor count, clamped 1..8; RTXDI PT default is 8
+
+r_pathTracingUnifiedPtSpatialDisocclusionBoostDiagnostics = 0 (bool)  [L1650]
+    UPT-43.8 one-shot delayed queue/indirect-dispatch bounds proof; no per-frame queue clear
+
+r_pathTracingUnifiedPtSpatialReuseTexture = 0 (bool)  [L1656]
+    UPT-42 rejected-cost diagnostic: replace the accepted 8x8 UPT-33 schedule with the sigma-16 254-pixel self-inverting reuse texture; quality is improved but measured spatial cost was about 11 ms, so this remains opt-in
+
+r_pathTracingUnifiedPtSpatialShiftPrepass = 0 (bool)  [L1662]
+    UPT-43.5 paper-shaped spatial A/B: split Gaussian reciprocal mapping into a full-screen shift prepass and a lean resampling/publication pass using one fully overwritten 16-byte scalar record per pixel; requires the accepted unified common-GRIS spatial configuration and reuse texture
+
+r_pathTracingUnifiedPtSpatialGpuTiming = 0 (bool)  [L1668]
+    Vulkan UPT S0 dispatch-only timestamp batch: after 16 valid-spatial warm-up frames, collect 64 samples and print median/mean/min/p90/max plus shared/stored-target/workgroup-pair/proof/pairing-phase state; toggle off/on to rearm an unchanged mode
+
+r_pathTracingUnifiedPtSpatialProofMode = 0 (int)  [L1674]
+    UPT-09 spatial estimator: 0 production unique-neighbor basic correction with non-recursive rescue, 1 exact reservoir pass-through, 2 reproduce old recursive with-replacement rescue, 3 non-recursive unique neighbors with standard 1/M normalization, 4 strict selected-center/selected-neighbor legacy admission, 5 mode 0 with every source-side target freshly replayed at its actual source surface, 6 selected-center pairwise MIS with fresh cross-domain targets and no empty-center rescue; clamps to 0..6
+
+------------------------------------------------------------------
+5. LIGHTING / PDF PARITY (5)
+------------------------------------------------------------------
+
+r_pathTracingUnifiedPtDirectTargetPdfParity = 1 (bool)  [L1680]
+    Use the RTXDI direct-light reservoir measure: luminance(BRDF*Li*cos)/solidAnglePdf with technique MIS in the scalar RIS weight. 0 restores the original UPT max-channel target with MIS embedded in the stored sample
+
+r_pathTracingUnifiedPtAnalyticPortalDomain = 1 (bool)  [L1686]
+    UPT analytic-light domain A/B: 1 admits only lights selected by the current Doom portal region while retaining the global stable light universe for identity/remap; 0 samples the full global analytic range
+
+r_pathTracingUnifiedPtAnalyticEmitterRadius = 4.0 (float)  [L1692]
+    UPT Doom analytic-light emitter sphere radius in world units; independent of Doom's authored influence radius
+
+r_pathTracingUnifiedPtAnalyticPreserveLegacyPower = 1 (bool)  [L1698]
+    Preserve the integrated power of the legacy radius-derived analytic proxy when UPT uses a fixed emitter radius; keeps source geometry fixed while moving the old sphere-area factor into radiance
+
+r_pathTracingUnifiedPtAnalyticDoomRadiusIntensity = 0 (bool)  [L1704]
+    Optional UPT analytic-light calibration: multiply radiance by max(lightRadius.xyz) / 300; Doom radius remains an influence-volume contract and this nonphysical intensity heuristic is disabled by default
+
+------------------------------------------------------------------
+6. BACKEND / PIPELINE ADMISSION (6)
+------------------------------------------------------------------
+
+r_pathTracingUnifiedPtBackend = 0 (int)  [L1710]
+    UPT-04 static backend: 0 RayQuery compute (default), 1 ray-generation; changing it releases the old pipeline and creates only the selected replacement
+
+r_pathTracingUnifiedPtFamily = 1 (int)  [L1716]
+    UPT-04 static family specialization: 0 unified direct+indirect, 1 direct-only (default bring-up), 2 indirect-only; only one pipeline exists at a time
+
+r_pathTracingUnifiedPtProofStage = 1 (int)  [L1722]
+    UPT live admission ladder after the full-frame GPU watchdog: 1 input closure only (safe default), 2 two-page allocation, 3 selected pipeline creation, 4 descriptor creation, 5 barriers+page-0 allocation clear, 6 state+push binding, 7 one 8x8 group, 8 one full-width 8-pixel row, 9 full-frame dispatch
+
+r_pathTracingUnifiedPtShaderProof = 1 (int)  [L1728]
+    UPT-04 RayQuery execution ladder: 1 UAV write, 2 primary read, 3 proposal/material without tracing, 4 fixed valid RayQuery with status only, 5 proposed visibility RayQuery with status only, 6 full committed-hit metadata and reservoir completion, 7 compact one-invocation live-TLAS Slang probe, 8 byte-equivalent DXC-to-SPIR-V probe, 9 production reservoir/push shader ABI through the full host layout, 10 pure b0/b4 fixed query with status only, 11 same pure query with complete set 0 but bindless set 1 omitted, 12 only production TLAS b0 plus uint UAV b4, 13 mode 12 plus the 208-byte production push range, 14 full-frame one-ray traversal isolation using only TLAS, receiver position/normal, and one uint output
+
+r_pathTracingUnifiedPtDiagnostics = 0 (bool)  [L1734]
+    One-shot UPT-04 RayQuery diagnostic specialization; clears and reads back the fixed 115-counter direct/indirect/material/continuation-route/x3-production tuple plus crosshair D0/C0 probes and a 128-bit order-independent reservoir signature, then returns to the selected production specialization
+
+r_pathTracingUnifiedPtFixedSampleIndex = -1 (int)  [L1740]
+    UPT fixed RNG sample index for repeatability tests: -1 uses the live frame index, values >= 0 hold the UPT random streams at that sample without freezing unrelated renderer state
+
+------------------------------------------------------------------
+7. RESOLVE / PRESENTATION (2)
+------------------------------------------------------------------
+
+r_pathTracingUnifiedPtResolve = 0 (bool)  [L1746]
+    Admit the UPT-05 trace-free RGBA16F resolve and present its output; requires production shaderProof 1..6 and full-frame proofStage 9
+
+r_pathTracingUnifiedPtResolveView = 0 (int)  [L1752]
+    UPT-05 resolve view: 0 estimator, 1 direct/global classification, 2 diffuse/specular classification, 3 selected contribution, 4 normalization, 5 temporal state/rejection (selected blue-to-green; yellow no compatible history; red history empty; magenta unsupported event; cyan shift invalid; white shifted zero; green merge math), 6 emissive-triangle cast estimate only, 7 Doom-analytic estimate only, 8 emissive-triangle cast plus primary self-emission, 9 primary self-emission only, 10 family-0 indirect-only proposal admission plus primary self-emission after production T0/S0 with PSR coverage/distortion, 11 family-0 local/direct-only proposal admission plus primary self-emission after production T0/S0, 12 late PSR optical sidecars only; views 10/11 use distinct history generations and views 10..12 disable DLSS RR presentation
+
+------------------------------------------------------------------
+8. GLASS OPTICS (6)
+------------------------------------------------------------------
+
+r_pathTracingUnifiedPtGlassPsr = 0 (bool)  [L1758]
+    UPT-45 opt-in clear-window PSR: feature-supported panes pass through canonical lean P0 so compact32 remains authoritative, while a deterministic front-pane capture restores the legacy transmission/reflection sidecars and optional r_pathTracingCleanRtxdiDiGlassDistortion compose; Vulkan compact32 route only
+
+r_pathTracingUnifiedPtGlassPsrDiagnostics = 0 (bool)  [L1764]
+    One-shot UPT glass crosshair diagnostic: reads back the captured P0 interaction, glass classification, canonical receiver, optical endpoints, transmission weight and G1 output mode, then resets to 0
+
+r_pathTracingUnifiedPtGlassLegacyOpticalDiagnostic = 0 (bool)  [L1770]
+    UPT glass source isolation: 0 uses native Slang UPT46 plus optional UPT47 reuse; 1 bypasses both and composes the exact legacy view-16 transmission/reflection/distortion sidecars already produced by the front-pane pass
+
+r_pathTracingUnifiedPtGlassReflectionReuse = 0 (bool)  [L1776]
+    Experimental isolated half-resolution glass-reflection DI domain: one reflected receiver per 2x2 block, private direct-only D0/T0/S0 pages and resolve, with the deterministic UPT-46 reflection retained as rollback
+
+r_pathTracingUnifiedPtGlassReflectionReuseResolution = 50 (int)  [L1782]
+    Glass-reflection reuse resolution percent: values below 75 select the original 50% per-axis child; values 75 or greater select a full-resolution 100% child
+
+r_pathTracingUnifiedPtGlassReflectionDecluster = 0 (int)  [L1788]
+    UPT glass-reflection presentation de-clustering: 0 off; 1 admits reused detail only at frame-scrambled 3x3 local minima (no touching pixels); 2 uses denser cardinal-neighbor minima; rejected pixels retain deterministic UPT46 reflection
+
+------------------------------------------------------------------
+SUMMARY
+------------------------------------------------------------------
+Total: 69 cvars (1 + 16 + 20 + 13 + 5 + 6 + 2 + 6)
+
+Default-ON (nonzero) at bring-up, when r_pathTracingUnifiedPtEnable 1:
+    LeanPrimary=1, CompactReceiver=2, DirectProposalParity=1, D0PreviousBest=1,
+    TemporalSearch=2, TemporalMaxHistoryM=32, TemporalMaxAge=32, Duplication=1,
+    SpatialDisocclusionBoostSamples=8, DirectTargetPdfParity=1,
+    AnalyticPortalDomain=1, AnalyticEmitterRadius=4.0, AnalyticPreserveLegacyPower=1,
+    Family=1 (direct-only), ProofStage=1, ShaderProof=1,
+    GlassReflectionReuseResolution=50
+Everything else defaults to 0 (off) or -1 (live sample index).
+
+Cross-references: per-feature UPT docs 01-71 in this folder (UPT-04 admission,
+UPT-05 resolve, UPT-06 history, UPT-07 temporal, UPT-08 duplication, UPT-09 spatial,
+UPT-17 reconnect, UPT-30..34 shared spatial, UPT-35..37 three-vertex, UPT-42..43.x,
+UPT-45..47 glass). Config presets: base/upt*.cfg.

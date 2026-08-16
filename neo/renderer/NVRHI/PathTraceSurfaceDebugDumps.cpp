@@ -6,6 +6,7 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceMaterialClassifier.h"
 #include "PathTraceSceneCapture.h"
+#include "PathTraceTextureRegistry.h"
 
 void ProcessSmokeCrosshairMaterialDump(const viewDef_t* viewDef)
 {
@@ -40,9 +41,30 @@ void ProcessSmokeCrosshairMaterialDump(const viewDef_t* viewDef)
 
     const idMaterial* material = drawSurf->material;
     const uint32_t materialId = SmokeMaterialId(material);
-    common->Printf("PathTracePrimaryPass: crosshair material dump surface=%d triangle=%d point=(%.2f %.2f %.2f) material='%s' id=%u sort=%.2f coverage=%d surfaceFlags=0x%08x cull=%d deform=%d stages=%d registers=%d verts=%d indexes=%d\n",
+    idBounds worldBounds;
+    worldBounds.Clear();
+    if (drawSurf->space)
+    {
+        for (int corner = 0; corner < 8; ++corner)
+        {
+            const idVec3 localPoint(
+                tri->bounds[(corner >> 0) & 1].x,
+                tri->bounds[(corner >> 1) & 1].y,
+                tri->bounds[(corner >> 2) & 1].z);
+            idVec3 worldPoint;
+            R_LocalPointToGlobal(drawSurf->space->modelMatrix, localPoint, worldPoint);
+            worldBounds.AddPoint(worldPoint);
+        }
+    }
+    const idVec3 localSize = tri->bounds[1] - tri->bounds[0];
+    const idVec3 worldSize = worldBounds.IsCleared()
+        ? vec3_zero : worldBounds[1] - worldBounds[0];
+    const int entityIndex = drawSurf->space && drawSurf->space->entityDef
+        ? drawSurf->space->entityDef->index : -1;
+    common->Printf("PathTracePrimaryPass: crosshair material dump surface=%d triangle=%d entity=%d point=(%.2f %.2f %.2f) material='%s' id=%u sort=%.2f coverage=%d surfaceFlags=0x%08x cull=%d deform=%d stages=%d registers=%d verts=%d indexes=%d boundsLocal=(%.2f %.2f %.2f) boundsWorld=(%.2f %.2f %.2f)\n",
         surfaceIndex,
         triangleIndex,
+        entityIndex,
         hitPoint.x,
         hitPoint.y,
         hitPoint.z,
@@ -56,7 +78,147 @@ void ProcessSmokeCrosshairMaterialDump(const viewDef_t* viewDef)
         material->GetNumStages(),
         material->GetNumRegisters(),
         tri->numVerts,
-        tri->numIndexes);
+        tri->numIndexes,
+        localSize.x,
+        localSize.y,
+        localSize.z,
+        worldSize.x,
+        worldSize.y,
+        worldSize.z);
+
+    // The center ray identifies one draw surface, not necessarily the surface
+    // that contributes emission for a multi-surface rigid model.  Enumerate
+    // every unique material carried by the same entity so a sibling lens,
+    // decal, or trim surface cannot hide behind the struck material ID.
+    if (entityIndex >= 0)
+    {
+        uint32_t entityMaterialIds[32] = {};
+        int entityMaterialCount = 0;
+        int entitySurfaceCount = 0;
+        for (int entitySurfaceIndex = 0;
+             entitySurfaceIndex < viewDef->numDrawSurfs;
+             ++entitySurfaceIndex)
+        {
+            const drawSurf_t* entitySurface =
+                viewDef->drawSurfs[entitySurfaceIndex];
+            const int candidateEntityIndex =
+                entitySurface && entitySurface->space &&
+                    entitySurface->space->entityDef
+                    ? entitySurface->space->entityDef->index
+                    : -1;
+            if (!entitySurface || !entitySurface->material ||
+                candidateEntityIndex != entityIndex)
+            {
+                continue;
+            }
+
+            ++entitySurfaceCount;
+            const uint32_t candidateMaterialId =
+                SmokeMaterialId(entitySurface->material);
+            bool duplicateMaterial = false;
+            for (int knownIndex = 0;
+                 knownIndex < entityMaterialCount;
+                 ++knownIndex)
+            {
+                if (entityMaterialIds[knownIndex] == candidateMaterialId)
+                {
+                    duplicateMaterial = true;
+                    break;
+                }
+            }
+            if (duplicateMaterial || entityMaterialCount >= 32)
+            {
+                continue;
+            }
+            entityMaterialIds[entityMaterialCount++] =
+                candidateMaterialId;
+
+            const RtMaterialRecord* candidateRecord =
+                FindPathTraceMaterialRecord(candidateMaterialId);
+            const RtSmokeMaterialTextureInfo* candidateTextureInfo =
+                FindSmokeMaterialTextureInfo(candidateMaterialId);
+            common->Printf(
+                "PathTracePrimaryPass: crosshair entity material entity=%d surface=%d ordinal=%d id=%u name='%s' classifier(valid/emissiveIntent/emissiveImage)=%d/%d/%d emissiveImage='%s' rtMetadata(found/diffuse/emissive)=%d/'%s'/'%s' suppress(proposal/surface)=%d/%d\n",
+                entityIndex,
+                entitySurfaceIndex,
+                entityMaterialCount - 1,
+                candidateMaterialId,
+                entitySurface->material->GetName(),
+                candidateRecord && candidateRecord->valid ? 1 : 0,
+                candidateRecord && candidateRecord->valid &&
+                        candidateRecord->emissiveIntent
+                    ? 1
+                    : 0,
+                candidateRecord && candidateRecord->valid &&
+                        candidateRecord->hasEmissiveImage
+                    ? 1
+                    : 0,
+                candidateRecord && candidateRecord->valid
+                    ? candidateRecord->emissiveImageName.c_str()
+                    : "",
+                candidateTextureInfo ? 1 : 0,
+                candidateTextureInfo
+                    ? candidateTextureInfo->diffuseImageName.c_str()
+                    : "",
+                candidateTextureInfo
+                    ? candidateTextureInfo->emissiveImageName.c_str()
+                    : "",
+                candidateMaterialId == static_cast<uint32_t>(Max(
+                    0,
+                    r_pathTracingEmissiveProposalSuppressMaterialId.GetInteger()))
+                    ? 1
+                    : 0,
+                candidateMaterialId == static_cast<uint32_t>(Max(
+                    0,
+                    r_pathTracingEmissiveSurfaceSuppressMaterialId.GetInteger()))
+                    ? 1
+                    : 0);
+        }
+        common->Printf(
+            "PathTracePrimaryPass: crosshair entity material summary entity=%d surfaces=%d unique=%d capped=%d\n",
+            entityIndex,
+            entitySurfaceCount,
+            entityMaterialCount,
+            entityMaterialCount >= 32 ? 1 : 0);
+    }
+
+    const RtSmokeMaterialTextureInfo* textureInfo =
+        FindSmokeMaterialTextureInfo(materialId);
+    if (textureInfo)
+    {
+        common->Printf("PathTracePrimaryPass: crosshair material RT metadata id=%u hardwareOpaque=%d coverage=%d alphaTest=%d alphaImage=%d/'%s' alphaHandle/safe=%d/%d alphaCutoff=%.3f alphaModes(luma/dark/magenta)=%d/%d/%d modifiers(add/filter/detail/liquid/glass)=0x%02x proposalSuppressed=%d surfaceSuppressed=%d diffuse='%s' normal='%s' alphaReason='%s'\n",
+            materialId,
+            textureInfo->hardwareOpaqueGeometry ? 1 : 0,
+            static_cast<int>(textureInfo->coverage),
+            textureInfo->hasAlphaTest ? 1 : 0,
+            textureInfo->hasAlphaImage ? 1 : 0,
+            textureInfo->alphaImageName.c_str(),
+            textureInfo->hasAlphaTextureHandle ? 1 : 0,
+            textureInfo->hasSafeAlphaTexture ? 1 : 0,
+            textureInfo->alphaCutoff,
+            textureInfo->alphaFromDiffuseLuma ? 1 : 0,
+            textureInfo->alphaFromDiffuseDarkKey ? 1 : 0,
+            textureInfo->alphaFromDiffuseMagentaKey ? 1 : 0,
+            (textureInfo->additiveDecal ? 0x01 : 0) |
+                (textureInfo->filterDecal ? 0x02 : 0) |
+                (textureInfo->detailDecal ? 0x04 : 0) |
+                (textureInfo->liquidFilmCandidate ? 0x08 : 0) |
+                (textureInfo->portalWindowFallback ? 0x10 : 0) |
+                (textureInfo->objectGlassFallback ? 0x20 : 0),
+            materialId == static_cast<uint32_t>(Max(0,
+                r_pathTracingEmissiveProposalSuppressMaterialId.GetInteger()))
+                ? 1 : 0,
+            materialId == static_cast<uint32_t>(Max(0,
+                r_pathTracingEmissiveSurfaceSuppressMaterialId.GetInteger()))
+                ? 1 : 0,
+            textureInfo->diffuseImageName.c_str(),
+            textureInfo->normalImageName.c_str(),
+            textureInfo->alphaReason.c_str());
+    }
+    else
+    {
+        common->Printf("PathTracePrimaryPass: crosshair material RT metadata id=%u found=0\n", materialId);
+    }
 
     const RtMaterialRecord* record = FindPathTraceMaterialRecord(materialId);
     if (!record || !record->valid)

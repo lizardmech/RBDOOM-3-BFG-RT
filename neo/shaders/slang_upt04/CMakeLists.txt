@@ -38,6 +38,7 @@ set(UPT04_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_tile_contract.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_control.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_live_contract.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_classifier.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_alpha_clip.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_emission.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_provider_contract.slang"
@@ -162,6 +163,25 @@ path_tracing_declare_slang_spirv_module(
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS ${compact32_rayquery_outputs})
 
+# Native 112-byte geometry with the compact 64-byte light sidecar.  This is a
+# distinct ABI from geometry48_light64: the vertex bindings remain the scene's
+# native SmokeVertex records while only the current-light buffer is packed.
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_rayquery_compact32_light64
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1
+    OUT_VAR compact32_light64_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${compact32_light64_rayquery_outputs})
+
 # Production family-0 parity specialization for the currently profiled
 # compact32 / 112-byte light path.  The generic artifact remains the parity-0
 # route and the fallback for every other packing/continuation permutation.
@@ -249,6 +269,11 @@ path_tracing_declare_slang_spirv_module(
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_compact_light_pack.slang"
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_binary16.slang"
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_light_contract.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_contract.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_hit_contract.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_contract.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_live_contract.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_emission.slang"
     OUT_VAR compact_light_pack_outputs)
 list(APPEND UPT04_BACKEND_OUTPUTS ${compact_light_pack_outputs})
 
@@ -377,6 +402,27 @@ path_tracing_declare_slang_spirv_module(
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS
     ${split_indirect_light64_three_vertex_rayquery_outputs})
+
+# Static closure-excision proof for probes 5/6. This is intentionally a
+# separate artifact: setting emissiveCount=0 in the production shader leaves
+# the emissive replay/material closure resident and cannot test footprint.
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_analytic_only
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_STATIC_ANALYTIC_INDIRECT_ONLY=1
+    OUT_VAR split_indirect_light64_three_vertex_analytic_only_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_three_vertex_analytic_only_rayquery_outputs})
 
 path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_split_direct_rayquery_compact32_light_tiles
@@ -581,6 +627,9 @@ endfunction()
 
 upt04_declare_lambert_variant(upt04_initial_rayquery_compact32_lambert
     upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2)
+upt04_declare_lambert_variant(upt04_initial_rayquery_compact32_light64_lambert
+    upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2
+    UPT04_PACKED_LIGHT_RECORD=1)
 upt04_declare_lambert_variant(
     upt04_initial_rayquery_compact32_frozen_static_lambert
     upt04_initial_rayquery.slang UPT04_PACKED_PRIMARY_RECEIVER=2
@@ -644,7 +693,9 @@ path_tracing_declare_slang_spirv_module(
         "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
     DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_diagnostics.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_multibounce.slang"
     OUT_VAR diagnostic_outputs
+    DEFINES UPT04_MULTI_BOUNCE_INITIAL=1
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS ${diagnostic_outputs})
 
@@ -1209,6 +1260,7 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_rayquery
     upt04_initial_rayquery_compact
     upt04_initial_rayquery_compact32
+    upt04_initial_rayquery_compact32_light64
     upt04_initial_rayquery_compact32_unified_parity1
     upt04_initial_rayquery_compact32_geometry48
     upt04_compact_geometry_pack
@@ -1221,6 +1273,7 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_split_direct_rayquery_compact32_light64
     upt04_initial_split_indirect_rayquery_compact32_light64
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex
+    upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_analytic_only
     upt04_initial_split_direct_rayquery_compact32_light_tiles
     upt04_initial_split_indirect_rayquery_compact32_light_tiles
     upt04_initial_split_direct_rayquery_compact32_geometry48_light64
@@ -1230,6 +1283,7 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_rayquery_compact32_geometry48_light64_continuation32
     upt04_initial_rayquery_compact32_geometry48_light64_material48_continuation32
     upt04_initial_rayquery_compact32_lambert
+    upt04_initial_rayquery_compact32_light64_lambert
     upt04_initial_rayquery_compact32_frozen_static
     upt04_initial_rayquery_compact32_frozen_static_lambert
     upt04_initial_rayquery_compact32_frozen_lights
@@ -1276,12 +1330,15 @@ set(UPT04_RUNTIME_MODULES
 # the Lambert diagnostic, and the optional bounded third vertex.
 set(UPT04_PRODUCTION_RUNTIME_MODULES
     upt04_initial_rayquery_compact32
+    upt04_initial_rayquery_compact32_light64
     upt04_initial_rayquery_compact32_unified_parity1
     upt04_compact_light_pack
     upt04_initial_split_direct_rayquery_compact32_light64
     upt04_initial_split_indirect_rayquery_compact32_light64
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex
+    upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_analytic_only
     upt04_initial_rayquery_compact32_lambert
+    upt04_initial_rayquery_compact32_light64_lambert
     upt04_initial_reflection_direct_rayquery)
 set(UPT04_RUNTIME_OUTPUTS)
 set(UPT04_PRODUCTION_RUNTIME_OUTPUTS)

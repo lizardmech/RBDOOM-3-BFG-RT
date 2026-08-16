@@ -332,7 +332,8 @@ public uint Upt07EvaluateDirectSample(
                 float2(0.0f),
                 gUpt07Control.materialCount,
                 gUpt07Control.logicalTextureCount,
-                gUpt07Control.emissiveScale);
+                gUpt07Control.emissiveScale,
+                gUpt07Control.emissiveTexelBlackFloor);
         if (emission.valid == 0u)
             return 0u;
         // Preserve valid black mask texels. The manager record describes the

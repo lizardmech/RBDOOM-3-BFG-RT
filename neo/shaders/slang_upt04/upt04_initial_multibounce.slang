@@ -2,9 +2,13 @@ import upt04_geometry_contract;
 import upt04_geometry_decode;
 import upt04_hit_contract;
 import upt04_initial_bindings;
+import upt04_initial_control;
 import upt04_initial_indirect;
+import upt04_initial_light_selection;
 import upt04_initial_work_contract;
 import upt04_light_contract;
+import upt04_local_light_evaluation;
+import upt04_local_light_proposal;
 import upt04_material_contract;
 import upt04_material_provider_contract;
 import upt04_path_event_contract;
@@ -15,11 +19,24 @@ import upt04_transport_initial_bounded;
 import upt04_emissive_lookup;
 import upt05_material_openpbr;
 
+#ifndef UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+#define UPT04_STATIC_ANALYTIC_INDIRECT_ONLY 0
+#endif
+
 public struct Upt04SecondContinuationResult
 {
     public Upt04InitialTraceWork work;
     public float localDirectionalPdf;
 };
+
+public struct Upt04SecondHitTrialResult
+{
+    public Upt04InitialTraceWork endpointCandidate;
+    public Upt04InitialTraceWork neeWork;
+    public Upt04GeometryHitSurface endpointSurface;
+};
+
+public static const uint kUpt04ThirdNeeBounceIndex = 3u;
 
 public Upt04PathEvent Upt04SampleThreeVertexPreparedContinuation(
     Upt04PreparedDirectMaterial prepared,
@@ -66,8 +83,21 @@ public bool Upt04RayBudgetWithinThreeVertexCeiling(
 {
     return state.valid != 0u
         && state.budget.continuationRays <= 2u
-        && state.budget.visibilityRays <= 2u
-        && state.budget.continuationRays + state.budget.visibilityRays <= 4u;
+        && state.budget.visibilityRays <= 3u
+        && state.budget.continuationRays + state.budget.visibilityRays <= 5u;
+}
+
+public bool Upt04AdmitThirdVertexNeeVisibility(
+    inout Upt04BoundedTransportState state)
+{
+    if (state.valid == 0u
+        || state.stage != kUpt04TransportIndirectContinuation
+        || state.budget.continuationRays != 2u
+        || state.budget.visibilityRays > 2u)
+        return false;
+    state.budget.visibilityRays += 1u;
+    state.stage = kUpt04TransportIndirectNeeVisibility;
+    return true;
 }
 
 public Upt04SecondContinuationResult Upt04PrepareSecondContinuation<
@@ -210,26 +240,36 @@ public Upt04InitialTraceWork Upt04EvaluateSecondEndpoint<
     const Upt04GeometryHitSurface hitSurface = Upt04DecodeGeometryHit(hit);
     if (hitSurface.valid == 0u)
         return Upt04InvalidateInitialWork(endpoint);
-    const Upt04MaterialEmissionEvaluation emission =
-        TMaterialSet.EvaluateEmissiveEndpoint(
-            hitSurface.materialIndex,
-            hitSurface.triangleClassAndFlags,
-            hitSurface.texCoord,
-            float2(0.0f),
-            float2(0.0f));
+    Upt04MaterialEmissionEvaluation emission =
+        (Upt04MaterialEmissionEvaluation)0;
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+    emission.valid = 1u;
+#else
+    emission = TMaterialSet.EvaluateEmissiveEndpoint(
+        hitSurface.materialIndex,
+        hitSurface.triangleClassAndFlags,
+        hitSurface.texCoord,
+        float2(0.0f),
+        float2(0.0f));
+#endif
     if (emission.valid == 0u)
         return Upt04InvalidateInitialWork(endpoint);
 
     float3 contribution = endpoint.pathThroughput * emission.radiance;
     uint reverseStatus = 0u;
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+    const float neePdf = 0.0f;
+#else
     const float neePdf = any(emission.radiance > 0.0f)
         ? Upt04ExactNeePdfForEmissiveHit<TMaterialSet>(
             hit.instanceId,
             hit.primitiveId,
             secondarySurface.position,
             hit.barycentrics,
+            kUpt04ThirdNeeBounceIndex,
             reverseStatus)
         : 0.0f;
+#endif
     contribution *= Upt04BalanceHeuristic(
         continuation.localDirectionalPdf, neePdf);
     const float rawTarget = max(contribution.x,
@@ -249,4 +289,259 @@ public Upt04InitialTraceWork Upt04EvaluateSecondEndpoint<
         ? kUpt04SampleValidPositive : kUpt04SampleValidZero;
     endpoint.candidateReady = 1u;
     return endpoint;
+}
+
+public Upt04InitialTraceWork Upt04PrepareThirdVertexNee<
+    TMaterialSet : IUpt04MaterialSet>(
+    Upt04SecondContinuationResult continuation,
+    Upt04GeometryHitSurface endpointSurface,
+    uint2 pixel)
+{
+    Upt04InitialTraceWork invalid = continuation.work;
+    invalid.traceRequired = 0u;
+    invalid.candidateReady = 0u;
+    if (invalid.valid == 0u || endpointSurface.valid == 0u)
+        return Upt04InvalidateInitialWork(invalid);
+
+    Upt04LocalLightRanges ranges;
+    ranges.emissiveStart = gUpt04Control.emissiveRangeStart;
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+    ranges.emissiveCount = 0u;
+#else
+    ranges.emissiveCount = gUpt04Control.emissiveRangeCount;
+#endif
+    ranges.analyticStart = gUpt04Control.analyticRangeStart;
+    ranges.analyticCount = gUpt04Control.analyticRangeCount;
+    const uint threeVertexProbe = Upt04ThreeVertexBottleneckProbe(
+        gUpt04Control.indirectPolicyFlags);
+    if (threeVertexProbe == 5u || threeVertexProbe == 6u)
+        ranges.emissiveCount = 0u;
+    else if (threeVertexProbe == 7u || threeVertexProbe == 8u)
+        ranges.analyticCount = 0u;
+    if (!Upt04LocalLightRangesStructurallyValid(
+            ranges, gUpt04Control.currentLightCount)
+        || Upt04LocalLightRangeCount(ranges) == 0u)
+        return Upt04InvalidateInitialWork(invalid);
+
+    Upt04PreparedDirectMaterial preparedMaterial;
+    if (threeVertexProbe >= 9u && threeVertexProbe <= 15u)
+    {
+        preparedMaterial = (Upt04PreparedDirectMaterial)0;
+        preparedMaterial.normal = normalize(
+            dot(endpointSurface.shadingNormal, endpointSurface.shadingNormal)
+                    > 1.0e-8f
+                ? endpointSurface.shadingNormal
+                : endpointSurface.geometricNormal);
+        preparedMaterial.viewDirection = normalize(
+            -continuation.work.ray.direction);
+        preparedMaterial.baseColor = float3(0.5f);
+        preparedMaterial.roughness = 1.0f;
+        preparedMaterial.specularF0 = float3(0.0f);
+        preparedMaterial.valid = all(isfinite(preparedMaterial.normal))
+                && all(isfinite(preparedMaterial.viewDirection))
+            ? 1u : 0u;
+    }
+    else
+    {
+        preparedMaterial = TMaterialSet.PrepareSecondaryDirect(
+            endpointSurface, -continuation.work.ray.direction);
+    }
+    if (preparedMaterial.valid == 0u)
+        return Upt04InvalidateInitialWork(invalid);
+
+    const Upt04InitialLightSchedule schedule =
+        Upt04MakeBounceLightSchedule(ranges, kUpt04ThirdNeeBounceIndex);
+    const uint candidateCount = threeVertexProbe == 14u
+            || threeVertexProbe == 15u
+        ? 1u : schedule.candidateCount;
+    Upt04SecondaryNeeProposal selected = (Upt04SecondaryNeeProposal)0;
+    float weightSum = 0.0f;
+    if (threeVertexProbe == 14u)
+    {
+        const bool useEmissive = ranges.emissiveCount != 0u;
+        selected.valid = 1u;
+        selected.lightIndex = useEmissive
+            ? ranges.emissiveStart : ranges.analyticStart;
+        selected.lightType = useEmissive
+            ? kUpt04LightEmissiveTriangle : kUpt04LightDoomAnalytic;
+        selected.sampleCoordinates = float2(0.5f);
+        selected.rawContribution = float3(1.0f);
+        selected.suffixRadiance = float3(1.0f);
+        selected.target = 1.0f;
+        selected.sourcePdf = 1.0f;
+        selected.emissiveReplayPdfScale = 1.0f;
+        selected.sampleDirection = preparedMaterial.normal;
+        selected.sampleDistance = 1.0f;
+        weightSum = 1.0f;
+    }
+    [loop]
+    for (uint candidateOrdinal = 0u;
+         threeVertexProbe != 14u && candidateOrdinal < candidateCount;
+         ++candidateOrdinal)
+    {
+        Upt04SecondaryNeeProposal proposal = (Upt04SecondaryNeeProposal)0;
+        if ((threeVertexProbe >= 11u && threeVertexProbe <= 13u)
+            || threeVertexProbe == 15u)
+        {
+            const Upt04LocalLightSelection selection =
+                Upt04SelectInitialLightFromReplay(
+                    schedule,
+                    pixel,
+                    continuation.work.replayKey,
+                    continuation.work.replayIndex,
+                    2u,
+                    candidateOrdinal);
+            if (selection.valid != 0u
+                && selection.denseIndex < gUpt04Control.currentLightCount)
+            {
+                proposal.valid = 1u;
+                proposal.lightIndex = selection.denseIndex;
+                proposal.lightType = selection.type;
+                proposal.sampleCoordinates = selection.sampleCoordinates;
+                proposal.sourcePdf = max(selection.selectionPdf, 1.0e-6f);
+                proposal.target = 1.0f
+                    + float(selection.denseIndex & 7u) * (1.0f / 16.0f);
+                proposal.rawContribution = float3(proposal.target);
+                proposal.suffixRadiance = proposal.rawContribution;
+                proposal.emissiveReplayPdfScale = 1.0f;
+                proposal.sampleDirection = preparedMaterial.normal;
+                proposal.sampleDistance = 1.0f;
+
+                if (threeVertexProbe == 12u || threeVertexProbe == 13u)
+                {
+                    const Upt04UnifiedLightRecord light =
+                        Upt04LoadCurrentLightEvaluationRecord(
+                            selection.denseIndex, selection.type);
+                    const float recordWitness = 1.0f
+                        + frac(abs(light.positionAndRadius.x)) * 0.25f;
+                    proposal.target *= recordWitness;
+                    proposal.rawContribution = float3(proposal.target);
+                    proposal.suffixRadiance = proposal.rawContribution;
+
+                    if (threeVertexProbe == 13u)
+                    {
+                        const Upt04EvaluatedLocalLight evaluated =
+                            Upt04EvaluateSelectedLocalLight<TMaterialSet>(
+                                selection,
+                                light,
+                                endpointSurface.position,
+                                gUpt04Control.availabilityFlags,
+                                gUpt04Control.emissiveScale);
+                        if (evaluated.valid == 0u
+                            || evaluated.sample.status
+                                != kUpt04SampleValidPositive)
+                        {
+                            proposal = (Upt04SecondaryNeeProposal)0;
+                        }
+                        else
+                        {
+                            proposal.sampleCoordinates =
+                                evaluated.storedSampleCoordinates;
+                            proposal.sourcePdf = selection.selectionPdf
+                                * evaluated.sample.solidAnglePdf;
+                            proposal.target = max(
+                                max(evaluated.sample.radiance.x,
+                                    evaluated.sample.radiance.y),
+                                evaluated.sample.radiance.z);
+                            proposal.rawContribution = float3(proposal.target);
+                            proposal.suffixRadiance = proposal.rawContribution;
+                            proposal.emissiveReplayPdfScale =
+                                selection.type == kUpt04LightEmissiveTriangle
+                                ? asfloat(evaluated.sample.reserved) : 1.0f;
+                            proposal.sampleDirection =
+                                evaluated.sample.direction;
+                            proposal.sampleDistance =
+                                evaluated.sample.distance;
+                            proposal.valid = Upt04FinitePositive(
+                                    proposal.sourcePdf)
+                                && Upt04FinitePositive(proposal.target)
+                                && Upt04FinitePositive(
+                                    proposal.emissiveReplayPdfScale)
+                                ? 1u : 0u;
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            proposal = Upt04EvaluateSecondaryNeeProposal<TMaterialSet>(
+                continuation.work,
+                endpointSurface,
+                preparedMaterial,
+                schedule,
+                pixel,
+                2u,
+                candidateOrdinal);
+        }
+        if (proposal.valid == 0u)
+            continue;
+        const float candidateWeight = proposal.target / proposal.sourcePdf;
+        const float newWeightSum = weightSum + candidateWeight;
+        if (!Upt04FinitePositive(candidateWeight)
+            || !Upt04FinitePositive(newWeightSum))
+            continue;
+        const float selectionRandom = Upt04WhiteHash(
+            Upt04PersistedReplayRandomKey(
+                continuation.work.replayKey,
+                continuation.work.replayIndex,
+                2u,
+                candidateOrdinal,
+                kUpt04StreamInitialReservoirSelection,
+                kUpt04DimensionInitialReservoirSelection));
+        if (selected.valid == 0u
+            || selectionRandom * newWeightSum < candidateWeight)
+            selected = proposal;
+        weightSum = newWeightSum;
+    }
+    if (selected.valid == 0u || candidateCount == 0u)
+        return Upt04InvalidateInitialWork(invalid);
+
+    const float finalizedMass = weightSum / float(candidateCount);
+    const float effectiveProposalPdf = selected.target / finalizedMass;
+    if (!Upt04FinitePositive(finalizedMass)
+        || !Upt04FinitePositive(effectiveProposalPdf))
+        return Upt04InvalidateInitialWork(invalid);
+
+    Upt04InitialTraceWork nee = continuation.work;
+    nee.eventKind = selected.lightType == kUpt04LightEmissiveTriangle
+        ? 2u : 1u;
+    nee.lightIndex = selected.lightIndex;
+    nee.lightType = selected.lightType;
+    nee.identity0 = selected.lightIndex + 1u;
+    if (nee.identity0 == 0u
+        || selected.lightIndex >= gUpt04Control.currentLightCount)
+        return Upt04InvalidateInitialWork(invalid);
+    const Upt04UnifiedLightRecord selectedLight =
+        Upt04LoadCurrentLightIdentityRecord(selected.lightIndex);
+    nee.identity1 = Upt04StableLightIdentityFingerprint(selectedLight);
+    nee.sampleCoordinates = selected.sampleCoordinates;
+    nee.pathLength = 3u;
+    // No stable x3 geometry remap exists. T0/S0 replay both persisted
+    // continuation draws and reconnect the stored light at the replayed x3.
+    nee.reconnectionVertexLength = 1u;
+    nee.proposalPdf = effectiveProposalPdf;
+    nee.pathPdf = continuation.work.pathPdf * selected.sourcePdf;
+    nee.partialJacobian = selected.emissiveReplayPdfScale;
+    nee.lobeMask = continuation.work.lobeMask | selected.lobeMask;
+    nee.contribution = selected.rawContribution;
+    nee.target = selected.target;
+    nee.candidateStatus = kUpt04SampleValidPositive;
+    if (!Upt04FinitePositive(nee.pathPdf)
+        || !all(isfinite(nee.contribution))
+        || !Upt04FinitePositive(nee.target)
+        || !Upt04AdmitThirdVertexNeeVisibility(nee.transport)
+        || !Upt04RayBudgetWithinThreeVertexCeiling(nee.transport)
+        || !Upt04BuildPrimaryVisibilityRequest(
+            endpointSurface.position,
+            endpointSurface.geometricNormal,
+            endpointSurface.shadingNormal,
+            selected.sampleDirection,
+            selected.sampleDistance,
+            nee.ray))
+        return Upt04InvalidateInitialWork(invalid);
+    nee.traceRequired = 1u;
+    nee.candidateReady = 0u;
+    nee.valid = 1u;
+    return nee;
 }

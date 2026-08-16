@@ -15,7 +15,8 @@ public Upt04MaterialEmissionEvaluation Upt04FinalizeEmissiveEndpoint(
     uint triangleClassAndFlags,
     float3 emissiveTexel,
     uint emissiveTexelValid,
-    float emissiveScale)
+    float emissiveScale,
+    float emissiveTexelBlackFloor)
 {
     Upt04MaterialEmissionEvaluation result =
         (Upt04MaterialEmissionEvaluation)0;
@@ -31,7 +32,11 @@ public Upt04MaterialEmissionEvaluation Upt04FinalizeEmissiveEndpoint(
     {
         if (emissiveTexelValid == 0u)
             return result;
-        radiance *= saturate(emissiveTexel);
+        const float3 sampledEmission = saturate(emissiveTexel);
+        const float largestComponent = max(
+            sampledEmission.x, max(sampledEmission.y, sampledEmission.z));
+        radiance *= largestComponent > max(emissiveTexelBlackFloor, 0.0f)
+            ? sampledEmission : float3(0.0f);
     }
     radiance *= 1.75f * max(emissiveScale, 0.0f);
     if (!all(isfinite(radiance)))

@@ -23,6 +23,9 @@ import upt04_initial_light_selection;
 #ifndef UPT04_MULTI_BOUNCE_INITIAL
 #define UPT04_MULTI_BOUNCE_INITIAL 0
 #endif
+#ifndef UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+#define UPT04_STATIC_ANALYTIC_INDIRECT_ONLY 0
+#endif
 
 public struct Upt04IndirectHitTrialResult
 {
@@ -83,6 +86,7 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
     Upt04PreparedDirectMaterial preparedMaterial,
     Upt04InitialLightSchedule schedule,
     uint2 pixel,
+    uint pathVertex,
     uint candidateOrdinal)
 {
     Upt04SecondaryNeeProposal proposal = (Upt04SecondaryNeeProposal)0;
@@ -92,7 +96,7 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
             pixel,
             work.replayKey,
             work.replayIndex,
-            1u,
+            pathVertex,
             candidateOrdinal);
     if (selection.valid == 0u
         || selection.denseIndex >= gUpt04Control.currentLightCount)
@@ -310,12 +314,17 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     endpoint.pathLength = 1u;
     endpoint.reconnectionVertexLength = 1u;
     Upt04MaterialEmissionEvaluation endpointEmission =
-        TMaterialSet.EvaluateEmissiveEndpoint(
-            hitSurface.materialIndex,
-            hitSurface.triangleClassAndFlags,
-            hitSurface.texCoord,
-            float2(0.0f),
-            float2(0.0f));
+        (Upt04MaterialEmissionEvaluation)0;
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+    endpointEmission.valid = 1u;
+#else
+    endpointEmission = TMaterialSet.EvaluateEmissiveEndpoint(
+        hitSurface.materialIndex,
+        hitSurface.triangleClassAndFlags,
+        hitSurface.texCoord,
+        float2(0.0f),
+        float2(0.0f));
+#endif
     if (endpointEmission.valid == 0u)
     {
         result.diagnostics |= kUpt04IndirectDiagEndpointEmissionFailure;
@@ -340,14 +349,19 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     }
     uint reverseStatus = 0u;
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+    const float endpointNeePdf = 0.0f;
+#else
     const float endpointNeePdf = any(endpointEmission.radiance > 0.0f)
         ? Upt04ExactNeePdfForEmissiveHit<TMaterialSet>(
             hit.instanceId,
             hit.primitiveId,
             primaryReceiver.worldPositionAndViewDepth.xyz,
             hit.barycentrics,
+            kUpt04SecondaryNeeBounceIndex,
             reverseStatus)
         : 0.0f;
+#endif
     if (reverseStatus != 0u)
     {
         result.diagnostics |= reverseStatus == kUpt04ReverseNeeLookupFailure
@@ -380,7 +394,11 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
 
     Upt04LocalLightRanges ranges;
     ranges.emissiveStart = gUpt04Control.emissiveRangeStart;
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+    ranges.emissiveCount = 0u;
+#else
     ranges.emissiveCount = gUpt04Control.emissiveRangeCount;
+#endif
     ranges.analyticStart = gUpt04Control.analyticRangeStart;
     ranges.analyticCount = gUpt04Control.analyticRangeCount;
     if (!Upt04LocalLightRangesStructurallyValid(
@@ -417,6 +435,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
                 preparedMaterial,
                 schedule,
                 pixel,
+                1u,
                 candidateOrdinal);
         deepestStage = max(deepestStage, proposal.stage);
         if (proposal.valid == 0u)

@@ -89,8 +89,9 @@ foreach(kind DIRECT_RQ DIRECT_RG INDIRECT_RQ INDIRECT_RG)
     endif()
     if(NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*204" OR
        NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"previousCameraJitterPixels\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"vec2\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*208" OR
-       NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"skyBrightness\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*216")
-        message(FATAL_ERROR "UPT-04 ${kind} push constants are not 220 bytes")
+       NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"skyBrightness\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*216" OR
+       NOT reflection MATCHES "\"name\"[ \t]*:[ \t]*\"emissiveTexelBlackFloor\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*220")
+        message(FATAL_ERROR "UPT-04 ${kind} push constants are not 224 bytes")
     endif()
     if(kind MATCHES "_RQ$")
         if(NOT reflection MATCHES "\"workgroup_size\"[ \t\r\n]*:[ \t\r\n]*\\[[ \t\r\n]*8[ \t]*,[ \t\r\n]*8")

@@ -1,0 +1,116 @@
+UPT-52 - Doom analytic emitter/radiance contract correction
+============================================================
+
+Problem
+-------
+
+The UPT analytic-light publisher conflated two unrelated Doom contracts:
+
+    lightRadius / scalar `light`
+        influence-volume extent; default scalar fallback is 300
+
+    analytic sphere radius
+        synthetic emitter geometry used by solid-angle sampling
+
+BuildAnalyticDoomLightRecords derived the emitter sphere from the influence
+radius:
+
+    sphereRadius = clamp(doomRadius * 0.08, 4, 64)
+
+Large-volume Doom lights therefore became visibly larger synthetic emitters
+even though the authored radius says nothing about source geometry.  The same
+audit found r_pathTracingAnalyticLightIntensityScale was dead: it was printed
+by PathTraceSmokeSceneBuild but never multiplied into the uploaded radiance.
+
+Correction
+----------
+
+UPT now uses an explicit fixed emitter radius:
+
+    r_pathTracingUnifiedPtAnalyticEmitterRadius 4.0
+
+The legacy analytic routes retain r_pathTracingAnalyticSphereLightRadiusScale
+and its 4..64 clamp.  This keeps the UPT correction from silently rewriting the
+older renderer's analytic-light appearance.
+
+Runtime comparison then exposed the missing companion term: changing a typical
+legacy 24..64-unit proxy sphere to a fixed 4-unit sphere also reduces its
+subtended solid angle, and therefore integrated irradiance, by approximately
+36..256 times.  This accounts for the observed order-of-magnitude mismatch
+where UPT intensity 20 looked comparable to roughly 0.1 in the legacy route.
+The reservoir target/source-PDF convention was audited and already divides by
+the directional solid-angle PDF exactly once; the gap was emitter area, not a
+second PDF error or the positive-only reflection admission experiment.
+
+UPT therefore enables:
+
+    r_pathTracingUnifiedPtAnalyticPreserveLegacyPower 1
+
+It reconstructs the old clamped proxy radius, computes
+
+    (legacyProxyRadius / fixedEmitterRadius)^2
+
+and moves that compatibility factor into published radiance.  The sampled
+emitter remains fixed, so Doom's influence radius no longer changes source
+geometry or shadow softness.  Setting the CVar to 0 exposes the uncorrected
+fixed-radiance physical-emitter interpretation for A/B testing.
+
+r_pathTracingAnalyticLightIntensityScale now multiplies RGB during UPT-enabled
+analytic candidate publication.  The stored intensity/luminance lane is
+recomputed from the scaled RGB, so natural and compact unified-light records,
+proposal weights, target evaluation and temporal/spatial replay all observe the
+same radiance. Legacy HLSL and particle paths retain raw candidate radiance
+because they already apply this CVar in shader constants; this avoids double
+scaling those consumers.
+
+An optional UPT-only heuristic is provided:
+
+    r_pathTracingUnifiedPtAnalyticDoomRadiusIntensity 0|1
+
+When enabled, published analytic radiance is additionally multiplied by:
+
+    max(lightRadius.xyz) / 300
+
+The 300-unit divisor is Doom's default scalar-radius fallback.  This is an
+explicit biased calibration experiment, not a claim that Doom radius is
+physical intensity.  It is off by default.
+
+Diagnostics
+-----------
+
+r_pathTracingSmokeLog now prints the effective intensity scale, legacy-power
+preservation gate, optional radius-intensity gate, UPT fixed emitter radius and
+the retained legacy radius scale/min/max.  This distinguishes a stale
+executable or rejected CVar from an estimator result.
+
+Validation
+----------
+
+The Vulkan PT-dev Release preset builds successfully.  This is a CPU light
+publication change, so no SPIR-V artifact changed.  The rebuilt executable was
+deployed to the prepared game directory.  Runtime size/intensity A/B remains:
+
+    r_pathTracingAnalyticLightIntensityScale 1
+    r_pathTracingUnifiedPtAnalyticPreserveLegacyPower 1
+    r_pathTracingUnifiedPtAnalyticDoomRadiusIntensity 0
+
+then compare:
+
+    r_pathTracingUnifiedPtAnalyticPreserveLegacyPower 0
+
+The emitter silhouette/soft-shadow size must remain fixed across that toggle;
+only radiance may change.  The same intensity value should now be in the same
+order of magnitude across UPT and the clean legacy analytic estimator.  The
+separate DoomRadiusIntensity toggle remains an optional authored-hierarchy
+experiment and should stay off during this parity comparison.
+
+Runtime result, 2026-08-16
+--------------------------
+
+Accepted.  Enabling legacy-power preservation produced a large, immediately
+visible improvement.  Before the correction UPT was effectively starved of
+Doom analytic illumination and noisy emissive samples were carrying most of
+the visible lighting.  Restoring the displaced sphere-area term brought the
+analytic contribution back without restoring radius-derived emitter geometry.
+This verifies the missing integrated-solid-angle diagnosis; it was not mainly
+caused by the positive-only/never-admit-zero reflection experiment.

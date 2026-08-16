@@ -224,6 +224,16 @@ public float3 Upt05ResolveView(
         return eventKind == 2u ? estimate : float3(0.0f);
     if (gUpt05Control.view == 9u)
         return float3(0.0f);
+    if (gUpt05Control.view == 10u)
+        return (flags & kUpt05CandidateFlagGlobal) != 0u
+            ? estimate
+            : float3(0.0f);
+    if (gUpt05Control.view == 11u)
+        return (flags & kUpt05CandidateFlagGlobal) == 0u
+            ? estimate
+            : float3(0.0f);
+    if (gUpt05Control.view == 12u)
+        return float3(0.0f);
     return estimate;
 }
 
@@ -325,7 +335,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // view 9 is the complementary primary-emission-only reference.
     if (gUpt05Control.view == 0u ||
         gUpt05Control.view == 8u ||
-        gUpt05Control.view == 9u)
+        gUpt05Control.view == 9u ||
+        gUpt05Control.view == 10u ||
+        gUpt05Control.view == 11u)
         color += Upt05LoadPrimaryEmission(surfaceIndex);
 #if UPT05_REFLECTION_REUSE_DOMAIN
     const float outputAlpha = Upt04PrimarySurfaceRecordValid(

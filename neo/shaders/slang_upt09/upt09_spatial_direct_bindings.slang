@@ -52,6 +52,7 @@ public struct Upt09SpatialDirectControl
     public uint emissiveDistributionCountAndValid;
     public uint emissiveLookupCapacityAndValid;
     public float skyBrightness;
+    public float emissiveTexelBlackFloor;
 };
 
 public [[vk::binding(0, 0)]] RaytracingAccelerationStructure gUpt09Scene;

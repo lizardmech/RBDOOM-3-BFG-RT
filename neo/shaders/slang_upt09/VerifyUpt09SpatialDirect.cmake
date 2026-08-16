@@ -33,7 +33,8 @@ foreach(kind full compact)
         message(FATAL_ERROR "UPT-09 ${kind} direct spatial workgroup is not 8x8")
     endif()
     if(NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"neighborRadius\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*48" OR
-       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"emissiveScale\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*56")
+       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"emissiveScale\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*56" OR
+       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"emissiveTexelBlackFloor\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*100")
         message(FATAL_ERROR "UPT-09 ${kind} direct spatial push constants lost the established 64-byte prefix")
     endif()
     string(REGEX MATCHALL "OpRayQueryInitializeKHR" ray_queries "${${kind}_disassembly}")

@@ -640,6 +640,61 @@ Packet index
         window transmission inside temporal/spatial reuse without consuming a
         bounce, adding rays or clearing history buffers.
 
+    70_upt49_production_component_views.txt
+        Replaces misleading family-1/2 image isolation with resolve views that
+        retain unified family-0 D0/T0/S0. It separates reused global/indirect,
+        local/direct plus self-emission, and unclassified late PSR optics.
+
+    71_upt52_analytic_light_calibration.txt
+        Separates Doom influence radius from UPT emitter geometry, activates
+        the previously dead analytic intensity scale and adds an opt-in,
+        normalized Doom-radius radiance heuristic without changing legacy
+        emitter sizing.
+
+    73_upt53_three_vertex_initial_compaction.txt
+        Removes the optional x3 continuation/NEE closure from the full-screen
+        D0 indirect shader. A bounded uint pixel queue drives a 64x1 compact
+        exact-x3 consumer, following the S43.4 architecture after probe 1
+        proved that the reachable monolithic x3 closure costs GPU time even
+        when no x3 work executes.
+
+    74_upt54_emissive_proposal_preparation.txt
+        Records the fixture-facing No-Instructions cliff and moves the four
+        fixed emissive region probes into the existing one-thread-per-light
+        compact64 preparation pass. Exact selected-endpoint emission, proposal
+        PDFs, stable identity and fail-closed fallback remain in D0. Runtime
+        rejected the change as a standalone optimization and establishes the
+        need for a compile-time closure-excision proof before dispatch work.
+
+    75_upt55_static_emissive_closure_excision.txt
+        Replaces the invalid runtime-branch footprint test with a separate
+        analytic-only Vulkan PSO. Probes 5/6 compile exact emissive endpoint,
+        reverse-PDF, replay and material-texture closures out before SPIR-V so
+        the fixture A/B can decide whether a real compact dispatch is warranted.
+        Runtime rejected the hypothesis: the static PSO was active but did not
+        materially improve the fixture, so it does not admit dispatch work.
+
+    76_upt56_emissive_closure_removal_plan.txt
+        Replaces the UPT-53/54 one-variable sequence with a single target: D0
+        must not bind emissive geometry, replay, materials or textures for the
+        emissive NEE path. Corrects the capture decomposition (56 percent of
+        the fixture regression is instruction fetch on unrelated code; the wall
+        baseline is already 30.8 percent), adopts the Remix pre-resolved sample
+        shape per emissive triangle rather than FullSample's centroid radiance,
+        and makes structural reflection the acceptance criterion instead of
+        frame time. Tracks the chronic megakernel footprint separately.
+
+    UPT-50 correction (documents 50, 51 and 53)
+        Completes the optional three-vertex base estimator with the x3 NEE
+        term present in NVIDIA FullSample, then replays its stored light
+        identity exactly in T0/S0. This is deliberately independent of the
+        deferred NEE-cache lane.
+
+    UPT-51 material-color parity correction (documents 51 and 53)
+        Moves secondary material classification into one shared Slang module.
+        D0, T0 and S0 now interpret RMAO/metallic/fallback overrides identically
+        instead of changing bounce color when a sample enters reuse.
+
     13_upt04_corrections_and_paper_reference.txt
         Correction of the initial sampler to the paper's path-tree formulation,
         plus a self-contained transcription of the ReSTIR PT Enhanced math

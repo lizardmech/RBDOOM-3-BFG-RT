@@ -61,6 +61,7 @@ public struct Upt07TemporalDirectControl
     public uint emissiveLookupCapacityAndValid;
     public float2 previousCameraJitterPixels;
     public float skyBrightness;
+    public float emissiveTexelBlackFloor;
 };
 
 public [[vk::binding(0, 0)]] RaytracingAccelerationStructure gUpt07Scene;

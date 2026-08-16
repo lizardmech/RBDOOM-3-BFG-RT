@@ -98,6 +98,8 @@ uint64 ComputeSmokeMaterialTableSignatureFromIdSet(uint64 materialIdSetSignature
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingAdditiveDecalKey.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingAllowGuiTextures.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingEmissiveFallbackWithoutTexture.GetInteger() != 0 ? 1 : 0));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(Max(0, r_pathTracingEmissiveProposalSuppressMaterialId.GetInteger())));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(Max(0, r_pathTracingEmissiveSurfaceSuppressMaterialId.GetInteger())));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureProbeIndex.GetInteger() + 0x80000000u));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureProbeReset.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, latchedTextureProbeMaterialId);
@@ -303,6 +305,28 @@ bool SmokeMaterialHasRuntimeConditionalNoOpAlphaStage(const idMaterial* material
 PathTraceSmokeMaterial BuildSmokeMaterialTableMaterial(uint32_t materialId, const RtSmokeMaterialTextureInfo& info, const RtSmokePersistentMaterialRecord& record)
 {
     PathTraceSmokeMaterial material = record.material;
+    const uint32_t surfaceSuppressMaterialId =
+        static_cast<uint32_t>(Max(0,
+            r_pathTracingEmissiveSurfaceSuppressMaterialId.GetInteger()));
+    if (surfaceSuppressMaterialId != 0u &&
+        materialId == surfaceSuppressMaterialId)
+    {
+        // Strong diagnostic isolation. Preserve the exact geometry and all
+        // non-emissive material inputs, but prevent this surface from entering
+        // either endpoint-emission or emissive proposal/replay control paths.
+        material.flags &= ~(RT_SMOKE_MATERIAL_EMISSIVE |
+            RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE);
+        material.emissiveColor[0] = 0.0f;
+        material.emissiveColor[1] = 0.0f;
+        material.emissiveColor[2] = 0.0f;
+    }
+    else if (materialId == static_cast<uint32_t>(Max(0, r_pathTracingEmissiveProposalSuppressMaterialId.GetInteger())))
+    {
+        // Diagnostic isolation only. Keep visible emission and identical
+        // geometry/visibility, but prevent this material from activating the
+        // emissive light proposal and replay domains.
+        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE;
+    }
     const idMaterial* materialDecl = nullptr;
     if (SmokeMaterialTextureInfoHasMaterialMetadata(info))
     {

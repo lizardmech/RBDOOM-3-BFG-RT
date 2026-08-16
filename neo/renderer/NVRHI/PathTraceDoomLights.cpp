@@ -32,6 +32,81 @@ float FinitePositiveOrZero(float value)
     return std::isfinite(value) && value > 0.0f ? value : 0.0f;
 }
 
+float DoomAnalyticRadianceScale(float doomRadius)
+{
+    const bool unifiedPtPublication =
+        r_pathTracingUnifiedPtEnable.GetInteger() != 0;
+    // Legacy HLSL and particle paths already consume the intensity CVar in
+    // their shader constants. UPT reads radiance straight from the unified
+    // payload, so only UPT needs the scale baked into candidate publication.
+    float scale = unifiedPtPublication
+        ? idMath::ClampFloat(
+            0.0f,
+            16.0f,
+            r_pathTracingAnalyticLightIntensityScale.GetFloat())
+        : 1.0f;
+    if (unifiedPtPublication &&
+        r_pathTracingUnifiedPtAnalyticPreserveLegacyPower.GetInteger() != 0)
+    {
+        // UPT deliberately decouples the sampled emitter geometry from Doom's
+        // influence radius.  Changing the proxy sphere from the legacy
+        // clamp(doomRadius * radiusScale, min, max) to a fixed radius otherwise
+        // changes its subtended solid angle, and therefore its integrated
+        // irradiance, by approximately radius^2.  Transfer that old area term
+        // into radiance so source size/softness stays fixed without making the
+        // accepted legacy light energy collapse.  This is exact in the
+        // far-field area measure used to calibrate the old proxy and remains a
+        // bounded compatibility convention near the light.
+        const float legacyRadiusScale = idMath::ClampFloat(
+            0.0f,
+            1.0f,
+            r_pathTracingAnalyticSphereLightRadiusScale.GetFloat());
+        const float legacyRadiusMin = Max(
+            0.0f,
+            r_pathTracingAnalyticSphereLightRadiusMin.GetFloat());
+        const float legacyRadiusMax = Max(
+            legacyRadiusMin,
+            r_pathTracingAnalyticSphereLightRadiusMax.GetFloat());
+        const float legacyProxyRadius = idMath::ClampFloat(
+            legacyRadiusMin,
+            legacyRadiusMax,
+            FinitePositiveOrZero(doomRadius) * legacyRadiusScale);
+        const float fixedEmitterRadius = idMath::ClampFloat(
+            0.01f,
+            64.0f,
+            r_pathTracingUnifiedPtAnalyticEmitterRadius.GetFloat());
+        const float radiusRatio = legacyProxyRadius / fixedEmitterRadius;
+        scale *= radiusRatio * radiusRatio;
+    }
+    if (unifiedPtPublication &&
+        r_pathTracingUnifiedPtAnalyticDoomRadiusIntensity.GetInteger() != 0)
+    {
+        // Doom's scalar `light` value and lightRadius are influence-volume
+        // extents, not physical emitter size or luminous power.  A normalized
+        // radius multiplier is nevertheless useful for matching the authored
+        // visual hierarchy of Doom lights, so keep it an explicit biased A/B.
+        // 300 is Doom's default scalar-radius fallback and therefore leaves a
+        // default-sized light unchanged.
+        const float finiteRadius = FinitePositiveOrZero(doomRadius);
+        scale *= idMath::ClampFloat(0.0f, 16.0f, finiteRadius / 300.0f);
+    }
+    return scale;
+}
+
+void PackDoomAnalyticRadiance(
+    const idVec4& color,
+    float doomRadius,
+    float (&packedColor)[4])
+{
+    const float scale = DoomAnalyticRadianceScale(doomRadius);
+    packedColor[0] = Max(color.x, 0.0f) * scale;
+    packedColor[1] = Max(color.y, 0.0f) * scale;
+    packedColor[2] = Max(color.z, 0.0f) * scale;
+    packedColor[3] = Max(
+        packedColor[0],
+        Max(packedColor[1], packedColor[2]));
+}
+
 enum DoomAnalyticLightUniverseTemporalState : uint32_t
 {
     DOOM_LIGHT_UNIVERSE_STATE_ACTIVE = 0x00000001u,
@@ -1055,6 +1130,11 @@ std::vector<DoomLightRecord> BuildAnalyticDoomLightRecords(
     const float radiusScale = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingAnalyticSphereLightRadiusScale.GetFloat());
     const float radiusMin = Max(0.0f, r_pathTracingAnalyticSphereLightRadiusMin.GetFloat());
     const float radiusMax = Max(radiusMin, r_pathTracingAnalyticSphereLightRadiusMax.GetFloat());
+    const bool unifiedPtFixedEmitter = r_pathTracingUnifiedPtEnable.GetInteger() != 0;
+    const float unifiedPtEmitterRadius = idMath::ClampFloat(
+        0.01f,
+        64.0f,
+        r_pathTracingUnifiedPtAnalyticEmitterRadius.GetFloat());
     for (DoomLightRecord record : records)
     {
         const bool areaEligible = includeOutOfSelectedArea || record.selectedArea;
@@ -1064,7 +1144,9 @@ std::vector<DoomLightRecord> BuildAnalyticDoomLightRecords(
         {
             continue;
         }
-        record.sphereRadius = idMath::ClampFloat(radiusMin, radiusMax, record.radiusMax * radiusScale);
+        record.sphereRadius = unifiedPtFixedEmitter
+            ? unifiedPtEmitterRadius
+            : idMath::ClampFloat(radiusMin, radiusMax, record.radiusMax * radiusScale);
         candidates.push_back(record);
     }
 
@@ -1650,10 +1732,10 @@ PathTraceDoomAnalyticLightCandidate MakeDoomAnalyticLightCandidateFromUniverseEn
     gpuLight.originAndRadius[1] = entry.origin.y;
     gpuLight.originAndRadius[2] = entry.origin.z;
     gpuLight.originAndRadius[3] = sphereRadius;
-    gpuLight.colorAndIntensity[0] = Max(entry.color.x, 0.0f);
-    gpuLight.colorAndIntensity[1] = Max(entry.color.y, 0.0f);
-    gpuLight.colorAndIntensity[2] = Max(entry.color.z, 0.0f);
-    gpuLight.colorAndIntensity[3] = Max(entry.color.w, 0.0f);
+    PackDoomAnalyticRadiance(
+        entry.color,
+        doomRadius,
+        gpuLight.colorAndIntensity);
     gpuLight.doomRadiusAndArea[0] = doomRadius;
     gpuLight.doomRadiusAndArea[1] = 12.56637061f * sphereRadius * sphereRadius;
     gpuLight.doomRadiusAndArea[2] = static_cast<float>(entry.portalDepth);
@@ -1899,10 +1981,10 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
             gpuLight.originAndRadius[1] = light.origin.y;
             gpuLight.originAndRadius[2] = light.origin.z;
             gpuLight.originAndRadius[3] = sphereRadius;
-            gpuLight.colorAndIntensity[0] = Max(light.color.x, 0.0f);
-            gpuLight.colorAndIntensity[1] = Max(light.color.y, 0.0f);
-            gpuLight.colorAndIntensity[2] = Max(light.color.z, 0.0f);
-            gpuLight.colorAndIntensity[3] = Max(light.color.w, 0.0f);
+            PackDoomAnalyticRadiance(
+                light.color,
+                doomRadius,
+                gpuLight.colorAndIntensity);
             gpuLight.doomRadiusAndArea[0] = doomRadius;
             gpuLight.doomRadiusAndArea[1] = 12.56637061f * sphereRadius * sphereRadius;
             gpuLight.doomRadiusAndArea[2] = static_cast<float>(light.portalDepth);

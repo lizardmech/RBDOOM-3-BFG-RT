@@ -125,3 +125,47 @@ the `uptf2` common-GRIS artifact remains 828976 bytes, SHA-256
 UPT-37 subsequently made q runtime-configurable. T0 consumes q from the stored
 sample rather than the live cvar, and never applies the initial-only biased
 minimum-throughput cutoff. See document 52.
+
+UPT-50 correction: x3 NEE replay, 2026-08-15
+------------------------------------------------
+
+UPT-50 adds the missing light-ending three-vertex topology:
+
+    eventKind                         1 analytic or 2 emissive
+    pathLength                       3
+    reconnectionVertexLength         1
+    accumulatedRouletteProbability  persisted q
+
+T0 resolves/remaps the stored light identity exactly as for x2 NEE, but uses
+the inverse-square bounce-index-3 selection PDF. It replays x1->x2, validates
+the persisted roulette decision, replays x2->x3, decodes x3, replays the stored
+analytic sample or emissive triangle coordinates at x3, evaluates the current
+receiver target and defers x3-to-light visibility until the mapped proposal
+wins. Missing, stale, incompatible, zero-target or invisible samples fail
+closed. It never reruns the x3 inner-RIS loop or searches for another light.
+
+The three-vertex temporal specialization now has eight static RayQuery sites
+and no TraceRay site. Runtime diagnostics report `x3NeeReplay=1` and
+`indirectReplayRaysMax=8`. No binding, buffer, reservoir field, dispatch or
+full-buffer clear is added. The one-continuation temporal artifact remains the
+rollback path and contains none of the new topology.
+
+Secondary material color parity correction, 2026-08-16
+-------------------------------------------------------
+
+Runtime inspection suggested that bounce transport was becoming white. The
+OpenPBR continuation sampler itself was not white: both D0 and replay compute
+the RGB `BRDF * cos / directionalPdf` throughput. The audit did find a real
+pass-boundary color defect immediately downstream. D0 applied the material
+classifier to secondary-hit base color, F0 and roughness, while T0's copied
+secondary preparation omitted it despite claiming exact D0 parity. RMAO,
+metallic, full-metal, zero-roughness and classified fallback surfaces could
+therefore change BSDF and transport color as soon as history replayed them.
+
+The classifier now lives in `upt04_material_classifier.slang` and both D0 and
+T0 call that one implementation. The UPT-36 verifier rejects a temporal source
+that does not import and apply it. This adds no ray, descriptor, buffer,
+reservoir field, dispatch, clear or candidate. The full Vulkan preset and the
+updated UPT-36 structural gate pass. Runtime chroma/density acceptance remains
+pending; do not add an artistic bounce tint unless this estimator-parity fix is
+shown insufficient by a controlled image A/B.

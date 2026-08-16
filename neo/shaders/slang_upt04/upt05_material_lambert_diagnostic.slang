@@ -150,5 +150,6 @@ public Upt04MaterialEmissionEvaluation Upt05LambertEvaluateEmissiveEndpoint(
     }
     return Upt04FinalizeEmissiveEndpoint(
         material, triangleClassAndFlags, emissiveTexel, emissiveTexelValid,
-        gUpt04Control.emissiveScale);
+        gUpt04Control.emissiveScale,
+        gUpt04Control.emissiveTexelBlackFloor);
 }

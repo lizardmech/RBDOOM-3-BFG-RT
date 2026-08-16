@@ -1,0 +1,229 @@
+UPT-54 - prepared emissive proposal weights
+============================================
+
+Status
+------
+
+Design admitted from corrected Nsight shader-source captures on 2026-08-17.
+Implementation and Vulkan build/static validation are complete. Runtime A/B
+rejected this as a standalone performance optimization: the path was active,
+but neither the game timing nor the dominant Nsight stall region moved.
+
+Measured failure
+----------------
+
+The corrected captures compare the same split-indirect shader and the same
+SPIR-V hash (`d8704605ba2b1d22`) in two views:
+
+    E:\prog\nsightUPTwall2.csv
+        ordinary wall view
+
+    E:\prog\nsightUPTbrokenobject.csv
+        small hanging fixture visible
+
+The fixture view does not issue more traversal work.  RayQuery dependency
+samples fall from 409,571 to 368,095, approximately 10.1 percent.  Instead it
+activates a large cold emissive-material closure in the x3 NEE path:
+
+    total sampled instructions          +63 percent
+    No Instructions stall samples       73,249 -> 168,813, +130.5 percent
+    instructions cold in wall capture   66,665 samples in fixture capture
+
+The activated sequence is the emissive CDF selection, compact-light decode,
+emissive geometry replay, material-record load, bindless emission-texture
+sampling and the associated finite/rejection branch tree.  The shader is one
+large SPIR-V function.  Therefore a runtime predicate does not keep that
+closure out of the resident instruction footprint, and the few lanes that
+select an emissive candidate hold otherwise completed lanes at the divergent
+material/texture path.  L2 and RT-core utilization fall even though the scene
+contains almost no geometry.
+
+The existing four-region emissive proposal is the largest avoidable repeated
+part.  For every selected emissive proposal it currently performs:
+
+    1 preliminary triangle replay to recover the UV basis;
+    4 material endpoint evaluations at fixed region probes;
+    1 region choice;
+    1 exact triangle replay at the selected barycentrics;
+    1 exact material endpoint evaluation.
+
+That is five material evaluations and two geometry replays for one selected
+emissive candidate.  `emissiveScale 0` cannot remove the cost because the
+proposal probes and texture reads occur before the final scale is applied.
+The apparent object-specific cliff is consequently a warp-path activation
+failure, not triangle count, BVH traversal count or visible emitted power.
+
+Reference audit
+---------------
+
+NVIDIA RTXDI FullSample prepares emissive material state outside the
+screen-sized PT kernel.  `PrepareLights.hlsl` runs per light, evaluates the
+emissive texture at a representative point and stores compact light state.
+The PT hot loop samples that prepared record and traces visibility only for
+the selected candidate.  It does not reconstruct the material five times per
+pixel.
+
+RTX Remix goes further for textured emissive triangles.  A persistent
+world-space NEE-cache update pass prepares sixteen resolved light samples per
+cell.  The indirect integrator consumes a packed resolved sample in O(1)
+without replaying triangle material state.  That cache is deliberately
+approximate and is not suitable as UPT's sole complete light universe, but it
+confirms the same ownership rule: expensive emissive material work belongs in
+bounded light/cache preparation, not in every screen lane.
+
+Admitted first slice
+--------------------
+
+The accepted compact-light preparation already dispatches one thread per
+dense current light and produces the 64-byte `Upt04CompactLightRecord`.  UPT-54
+extends that preparation, without widening the record:
+
+* analytic records retain `positionAndRadius` unchanged;
+* emissive records use that otherwise-dead replay field for four nonnegative
+  regional proposal weights;
+* a negative four-vector marks preparation failure;
+* identity, type, source index, area, source PDF and stable fingerprint remain
+  unchanged;
+* D0 reads prepared weights only for a compact emissive record whose replay
+  identity validates;
+* an invalid prepared value rejects the compact candidate fail-closed;
+* the exact selected-barycentric endpoint evaluation remains in D0.
+
+The prepared value changes only the conditional equal-area subtriangle
+proposal.  The selected region probability is still multiplied into the
+solid-angle PDF, and the exact endpoint radiance still decides whether the
+sample is positive, valid zero or invalid.  No triangle-average radiance may
+replace that endpoint; doing so would recreate ghost emitters on large
+triangles with small emissive masks.
+
+This first slice deliberately does not add the Remix NEE cache.  A later cache
+may be introduced as an explicitly mixed proposal provider with the complete
+global universe as fallback, after the base estimator is stable.
+
+Work and storage budget
+-----------------------
+
+Preparation is bounded to one invocation per current dense light and four
+fixed material probes per emissive light.  It reuses the existing compact64
+buffer and adds:
+
+    no screen-sized allocation;
+    no new persistent reservoir word;
+    no per-frame full-buffer clear;
+    no ray;
+    no candidate;
+    no temporal or spatial work.
+
+The D0 hot path removes four regional material probes and the preliminary
+replay from every prepared selected emissive candidate.  It retains one exact
+geometry replay and one exact endpoint material evaluation.
+
+Diagnostics
+-----------
+
+The natural 112-byte rollback specialization retains the old four-probe path.
+It is deliberately not present as a runtime branch in compact64: retaining it
+there would preserve the cold material closure in the hot shader and defeat
+the measured purpose of this change.
+
+The runtime log must identify the prepared compact-light artifact and report
+that proposal preparation is active.  Static verification must prove:
+
+* the compact stride remains 64 bytes;
+* exactly four bounded preparation probes exist;
+* the exact endpoint evaluation remains in D0;
+* compact64 rejects invalid preparation and contains no four-probe closure;
+* the natural-light rollback specialization retains the old probe path;
+* no new RayQuery exists in preparation;
+* no D0 source-PDF, reservoir or visibility convention changed.
+
+Runtime A/B should capture the ordinary wall and fixture views with temporal
+and spatial disabled first, then repeat with the accepted T0/S0 configuration.
+The key counters are D0 indirect time, No Instructions, active warps, L2/RT
+utilization and prepared/fallback emissive selections.
+
+Acceptance
+----------
+
+1. The fixture-facing x3 cliff is materially reduced without hiding geometry
+   or suppressing an emissive identity.
+2. Door panels and small masked emitters retain their current brightness,
+   colour and stable acquisition.
+3. No large triangle becomes a ghost emitter and no white/corrupt replay is
+   admitted.
+4. Compact32 receivers, compact64 lights, proposal parity and duplication
+   remain the accepted paths.
+5. Exact source PDF, four-region conditional PDF, reservoir weight and
+   visibility conventions remain byte-for-byte compatible with reuse.
+6. An invalid or stale prepared record is rejected; it is never admitted
+   merely to increase density.
+7. Temporal and spatial do not reintroduce light poisoning or runaway energy.
+8. The Vulkan build produces only the expected rebuilt SPIR-V and the runtime
+   log proves which path executed.
+
+Implemented and verified slice
+------------------------------
+
+The compact-light pass now binds the current emissive replay, canonical
+emissive geometry, authored material table and bindless texture table. It
+prepares the four regional weights once per current emissive light. The host
+push contract is 32 bytes and the compact light ABI remains 64 bytes.
+
+The accepted compact D0 specializations consume only those prepared weights.
+An invalid weight vector is rejected. The natural 112-byte rollback still
+executes the original regional probes, and every specialization retains the
+exact selected-barycentric material endpoint evaluation.
+
+`cmake --build --preset win64-pt-dev-release` passed on 2026-08-17. The
+backend verifier proves the preparation artifact contains one bounded
+image-sample loop and no `OpRayQueryInitializeKHR` or `OpTraceRayKHR`.
+Reflection confirms set 0 bindings 0 through 5, bindless set 1 binding 0,
+128x1 workgroups and the exact 32-byte push layout.
+
+Against the previously deployed artifacts, the rebuilt Vulkan binaries are:
+
+    artifact                                      old bytes   new bytes
+    split direct compact32/light64                  214,628     199,620
+    split indirect compact32/light64                347,512     332,236
+    split indirect compact32/light64 three-vertex   726,408     686,412
+
+SPIR-V instruction counts fall by 959 in split direct, 960 in split indirect
+and 2,522 in three-vertex indirect. Ray-start counts remain 1, 2 and 4
+respectively. The preparation artifact grows from 8,688 to 21,532 bytes, but
+it dispatches once per current light rather than once per screen pixel.
+
+Runtime acceptance must now compare the fixture and wall views. The compact
+light startup line must include:
+
+    stride=64 emissiveProposalPrepared=1 probesPerEmissive=4 rays=0
+
+Runtime rejection and revised conclusion
+----------------------------------------
+
+The fixture/wall A/B was run with the intended production prerequisites. The
+runtime log proved that the new artifacts were loaded:
+
+    compact light pack stride=64 emissiveProposalPrepared=1
+        probesPerEmissive=4 rays=0
+    split indirect compact32/light64 hash=8e996adee0e565da
+    three-vertex compact32/light64 hash=4b5d1d8d20e051ab
+
+There was no visible or timing change. A corrected follow-up Nsight capture,
+`E:\prog\nsightUPTbrokenobject2.csv`, changed the dominant No-Instructions
+DAS region by less than one percent. The substantial SPIR-V size reduction
+therefore did not reduce the scene-dependent cliff.
+
+This falsifies the narrow hypothesis that repeated four-region proposal probes
+were the primary cause. One exact emissive endpoint/material evaluation is
+enough to make the same divergent closure reachable, and other exact calls
+remain resident at continuation endpoints and x3 NEE. Runtime range checks or
+zero emissive counts cannot prove instruction-footprint removal because the
+compiler must still emit those paths in the same shader image.
+
+UPT-54 may remain as bounded light preparation while the structural split is
+developed, but it is not accepted as a performance result and must not be
+claimed as one. The next diagnostic must use a separate compile-time shader
+specialization that contains no emissive endpoint evaluation, reverse-emissive
+PDF lookup, emissive triangle replay, or emissive material-texture path. Only
+that A/B can prove whether resident emissive/material closure is the cause
+before a queue/dispatch split is commissioned.

@@ -955,7 +955,7 @@ idCVar r_pathTracingAnalyticSphereLightRadiusScale(
     "r_pathTracingAnalyticSphereLightRadiusScale",
     "0.08",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Analytic sphere-light radius as a fraction of Doom point-light radius" );
+    "Legacy analytic sphere-light radius as a fraction of Doom point-light radius; UPT replaces this proxy with its explicit fixed emitter radius" );
 
 idCVar r_pathTracingAnalyticSphereLightRadiusMin(
     "r_pathTracingAnalyticSphereLightRadiusMin",
@@ -1166,6 +1166,18 @@ idCVar r_pathTracingToyEmissiveScale(
     "4.0",
     CVAR_RENDERER | CVAR_FLOAT,
     "Scale emissive material contribution in mode 18 toy path tracing and ReSTIR PT emissive preview intensity" );
+
+idCVar r_pathTracingEmissiveProposalSuppressMaterialId(
+    "r_pathTracingEmissiveProposalSuppressMaterialId",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic material id removed only from emissive NEE/RIS proposals; visible self-emission and geometry are preserved, 0 disables" );
+
+idCVar r_pathTracingEmissiveSurfaceSuppressMaterialId(
+    "r_pathTracingEmissiveSurfaceSuppressMaterialId",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic material id stripped of both emissive surface and light-candidate classification while preserving geometry, 0 disables" );
 
 idCVar r_pathTracingToyLightTraceCap(
     "r_pathTracingToyLightTraceCap",
@@ -1437,6 +1449,12 @@ idCVar r_pathTracingUnifiedPtThreeVertexMinimumPathThroughput(
     CVAR_RENDERER | CVAR_FLOAT,
     "UPT-37 initial-only uncompensated x2 throughput L2 cutoff before roulette/ray emission, clamped to [0,1]; biased like RTXDI FullSample minimumPathThroughput and deliberately excluded from temporal replay" );
 
+idCVar r_pathTracingUnifiedPtThreeVertexBottleneckProbe(
+    "r_pathTracingUnifiedPtThreeVertexBottleneckProbe",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "UPT D0 x3 bottleneck isolation (temporal should be off): 0 production; 1 no x3; 2 add x3 trace/endpoint; 3/4 combined NEE no-vis/full; 5/6 static analytic-only PSO with emissive closure compiled out, no-vis/full; 7/8 emissive-only no-vis/full; 9/10 combined NEE with constant x3 material no-vis/full; 11 selection only; 12 selection plus light load; 13 selection plus local-light evaluation; 14 synthetic finalization only; 15 one selected proposal" );
+
 idCVar r_pathTracingUnifiedPtLightTiles(
     "r_pathTracingUnifiedPtLightTiles",
     "0",
@@ -1452,8 +1470,8 @@ idCVar r_pathTracingUnifiedPtSplitContinuation(
 idCVar r_pathTracingUnifiedPtLambertDiagnostic(
     "r_pathTracingUnifiedPtLambertDiagnostic",
     "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Vulkan UPT profiling specialization: replace OpenPBR receiver and secondary-hit shading with constant-gray untextured Lambert eval/sample/PDF while preserving emissive endpoint textures and alpha-clip traversal; supported by unified RayQuery compact32 D0 and indirect temporal without reconnect/route diagnostics" );
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Vulkan UPT geometry-versus-material isolation: 0 production; 1 monolithic constant-gray Lambert plus flat GPU material table; 2 production split shading plus flat secondary-hit material table; 3 monolithic Lambert plus authored material table; 4 monolithic production OpenPBR plus authored material table; geometry/TLAS admission remains unchanged" );
 
 idCVar r_pathTracingUnifiedPtFrozenScene(
     "r_pathTracingUnifiedPtFrozenScene",
@@ -1683,11 +1701,35 @@ idCVar r_pathTracingUnifiedPtDirectTargetPdfParity(
     CVAR_RENDERER | CVAR_BOOL,
     "Use the RTXDI direct-light reservoir measure: luminance(BRDF*Li*cos)/solidAnglePdf with technique MIS in the scalar RIS weight. 0 restores the original UPT max-channel target with MIS embedded in the stored sample" );
 
+idCVar r_pathTracingUnifiedPtEmissiveTexelBlackFloor(
+    "r_pathTracingUnifiedPtEmissiveTexelBlackFloor",
+    "0.01",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Treat sampled emissive texels whose largest RGB component is at or below this texture-space value as exact black in UPT D0/T0/S0; suppresses compression residue from becoming costly terminal emissive paths" );
+
 idCVar r_pathTracingUnifiedPtAnalyticPortalDomain(
     "r_pathTracingUnifiedPtAnalyticPortalDomain",
     "1",
     CVAR_RENDERER | CVAR_BOOL,
     "UPT analytic-light domain A/B: 1 admits only lights selected by the current Doom portal region while retaining the global stable light universe for identity/remap; 0 samples the full global analytic range" );
+
+idCVar r_pathTracingUnifiedPtAnalyticEmitterRadius(
+    "r_pathTracingUnifiedPtAnalyticEmitterRadius",
+    "4.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "UPT Doom analytic-light emitter sphere radius in world units; independent of Doom's authored influence radius" );
+
+idCVar r_pathTracingUnifiedPtAnalyticPreserveLegacyPower(
+    "r_pathTracingUnifiedPtAnalyticPreserveLegacyPower",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Preserve the integrated power of the legacy radius-derived analytic proxy when UPT uses a fixed emitter radius; keeps source geometry fixed while moving the old sphere-area factor into radiance" );
+
+idCVar r_pathTracingUnifiedPtAnalyticDoomRadiusIntensity(
+    "r_pathTracingUnifiedPtAnalyticDoomRadiusIntensity",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Optional UPT analytic-light calibration: multiply radiance by max(lightRadius.xyz) / 300; Doom radius remains an influence-volume contract and this nonphysical intensity heuristic is disabled by default" );
 
 idCVar r_pathTracingUnifiedPtBackend(
     "r_pathTracingUnifiedPtBackend",
@@ -1717,7 +1759,7 @@ idCVar r_pathTracingUnifiedPtDiagnostics(
     "r_pathTracingUnifiedPtDiagnostics",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "One-shot UPT-04 RayQuery diagnostic specialization; clears and reads back the fixed 107-counter direct/indirect/material/continuation-route tuple plus crosshair D0/C0 probes and a 128-bit order-independent reservoir signature, then returns to the selected production specialization" );
+    "One-shot UPT-04 RayQuery diagnostic specialization; clears and reads back the fixed 115-counter direct/indirect/material/continuation-route/x3-production tuple plus crosshair D0/C0 probes and a 128-bit order-independent reservoir signature, then returns to the selected production specialization" );
 
 idCVar r_pathTracingUnifiedPtFixedSampleIndex(
     "r_pathTracingUnifiedPtFixedSampleIndex",
@@ -1735,7 +1777,7 @@ idCVar r_pathTracingUnifiedPtResolveView(
     "r_pathTracingUnifiedPtResolveView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "UPT-05 resolve view: 0 estimator, 1 direct/global classification, 2 diffuse/specular classification, 3 selected contribution, 4 normalization, 5 temporal state/rejection (selected blue-to-green; yellow no compatible history; red history empty; magenta unsupported event; cyan shift invalid; white shifted zero; green merge math), 6 emissive-triangle cast estimate only, 7 Doom-analytic estimate only, 8 emissive-triangle cast plus primary self-emission, 9 primary self-emission only" );
+    "UPT-05 resolve view: 0 estimator, 1 direct/global classification, 2 diffuse/specular classification, 3 selected contribution, 4 normalization, 5 temporal state/rejection (selected blue-to-green; yellow no compatible history; red history empty; magenta unsupported event; cyan shift invalid; white shifted zero; green merge math), 6 emissive-triangle cast estimate only, 7 Doom-analytic estimate only, 8 emissive-triangle cast plus primary self-emission, 9 primary self-emission only, 10 family-0 indirect-only proposal admission plus primary self-emission after production T0/S0 with PSR coverage/distortion, 11 family-0 local/direct-only proposal admission plus primary self-emission after production T0/S0, 12 late PSR optical sidecars only; views 10/11 use distinct history generations and views 10..12 disable DLSS RR presentation" );
 
 idCVar r_pathTracingUnifiedPtGlassPsr(
     "r_pathTracingUnifiedPtGlassPsr",
@@ -2783,6 +2825,18 @@ idCVar r_pathTracingSkipCallbackEntities(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Skip custom-shader deferred callback render entities in RT smoke capture to avoid item/pickup lifetime hazards" );
+
+idCVar r_pathTracingGeometrySuppressEntityIndex(
+    "r_pathTracingGeometrySuppressEntityIndex",
+    "-1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic render-entity index excluded from PT geometry capture/TLAS while raster rendering remains unchanged; -1 disables" );
+
+idCVar r_pathTracingGeometrySuppressMaterialId(
+    "r_pathTracingGeometrySuppressMaterialId",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic material id whose surfaces are excluded from PT geometry capture and rigid residency while raster rendering remains unchanged; 0 disables" );
 
 idCVar r_pathTracingAnchorRaycast(
     "r_pathTracingAnchorRaycast",

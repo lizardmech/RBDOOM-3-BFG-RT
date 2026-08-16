@@ -1,4 +1,5 @@
 import upt04_initial_bindings;
+import upt04_initial_control;
 import upt04_initial_direct;
 import upt04_initial_reservoir_stream;
 import upt04_initial_work_contract;
@@ -20,6 +21,14 @@ public Upt04InitialTraceWork Upt04PrepareStaticInitialFamilyTraceWork<
         return work;
     work.surfaceIndex = surfaceIndex;
     if (familyKind != kUpt04InitialFamilyDirect)
+        return work;
+    // Split D0 is still the unified estimator: the direct and indirect
+    // artifacts are only a scheduling split.  Respect the runtime family mask
+    // before doing any direct proposal work so diagnostic component views (and
+    // any future unified-family admission policy) cannot leave a hidden direct
+    // winner in the shared reservoir for T0/S0 to propagate.
+    if ((Upt04EnabledFamilyMask(gUpt04Control.enabledFamilyMask)
+            & kUpt04FamilyLocalLight) == 0u)
         return work;
     const Upt04PrimarySurfaceRecord surface =
         Upt04LoadPrimarySurfaceRecord(surfaceIndex);

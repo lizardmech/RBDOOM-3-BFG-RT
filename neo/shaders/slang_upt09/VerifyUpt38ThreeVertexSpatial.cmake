@@ -25,9 +25,11 @@ if(NOT reflection MATCHES
    NOT reflection MATCHES
         "\"name\"[ \t]*:[ \t]*\"emissiveDistributionCountAndValid\"[^}]*\"offset\"[ \t]*:[ \t]*88" OR
    NOT reflection MATCHES
-        "\"name\"[ \t]*:[ \t]*\"skyBrightness\"[^}]*\"offset\"[ \t]*:[ \t]*96")
+        "\"name\"[ \t]*:[ \t]*\"skyBrightness\"[^}]*\"offset\"[ \t]*:[ \t]*96" OR
+   NOT reflection MATCHES
+        "\"name\"[ \t]*:[ \t]*\"emissiveTexelBlackFloor\"[^}]*\"offset\"[ \t]*:[ \t]*100")
     message(FATAL_ERROR
-        "UPT-38 lost triangle-class bindings 9/13 or the 100-byte directional-sky replay control ABI")
+        "UPT-38 lost triangle-class bindings 9/13 or the 104-byte emissive-floor replay control ABI")
 endif()
 
 string(REGEX MATCHALL "OpRayQueryInitializeKHR" ray_queries
@@ -35,17 +37,19 @@ string(REGEX MATCHALL "OpRayQueryInitializeKHR" ray_queries
 list(LENGTH ray_queries ray_query_count)
 string(REGEX MATCHALL "OpControlBarrier" barriers "${disassembly}")
 list(LENGTH barriers barrier_count)
-if(NOT ray_query_count EQUAL 6
+if(NOT ray_query_count EQUAL 7
         OR NOT barrier_count EQUAL 1
         OR disassembly MATCHES "OpTraceRay")
     message(FATAL_ERROR
-        "UPT-38 must retain exactly six static RayQuery sites, one barrier and no TraceRay")
+        "UPT-38 must retain exactly seven static RayQuery sites, one barrier and no TraceRay")
 endif()
 
 foreach(required_spatial_pattern
         "return Upt07IndirectHistoryEligible(decoded)"
         "shiftedValid = Upt07ReplayIndirectSample("
         "result.sourceTarget = source.target"
+        "if (gUpt09Control.proofMode == 1u)"
+        "gUpt09OutputReservoirs[proofIndex] ="
         "GroupMemoryBarrierWithGroupSync()"
         "Upt09PublishSharedEmptyCenterRescue")
     string(FIND "${spatial_source}" "${required_spatial_pattern}" offset)
@@ -60,6 +64,8 @@ foreach(required_replay_pattern
         "const float q = clamp(source.proposalPdf"
         "const Upt04PathEvent secondContinuation"
         "const Upt04HitFacts secondHit = Upt07TraceIndirect("
+        "public bool Upt07ThreeVertexNeeStructureValid"
+        "shifted.pathLength = 3u"
         "shifted.pathLength = 2u"
         "shifted.reconnectionVertexLength = 1u")
     string(FIND "${replay_source}" "${required_replay_pattern}" offset)
@@ -85,4 +91,4 @@ endif()
 
 file(SIZE "${UPT38_DISASSEMBLY}" disassembly_bytes)
 file(WRITE "${UPT38_STAMP}"
-    "UPT-38 spatial verified: bindings=28 triangleClasses=9/13 push=100 directionalSky=36 RayQuery=${ray_query_count} barrier=${barrier_count} TraceRay=0 exactStoredQReplay=1 initialCutoffReplay=0 disassemblyBytes=${disassembly_bytes}\n")
+    "UPT-38 spatial verified: bindings=28 triangleClasses=9/13 push=104 directionalSky=36 RayQuery=${ray_query_count} barrier=${barrier_count} TraceRay=0 exactStoredQReplay=1 initialCutoffReplay=0 disassemblyBytes=${disassembly_bytes}\n")

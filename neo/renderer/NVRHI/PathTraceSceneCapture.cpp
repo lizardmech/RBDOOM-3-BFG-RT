@@ -376,6 +376,19 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
     const idRenderEntityLocal* entityDef = space->entityDef;
     const bool worldSpace = viewDef && space == &viewDef->worldSpace;
     const bool entityLive = SmokeRenderWorldContainsEntity(viewDef, entityDef);
+    if (!worldSpace && entityDef &&
+        entityDef->index == r_pathTracingGeometrySuppressEntityIndex.GetInteger())
+    {
+        return false;
+    }
+    const uint32_t suppressedMaterialId = static_cast<uint32_t>(Max(
+        0,
+        r_pathTracingGeometrySuppressMaterialId.GetInteger()));
+    if (suppressedMaterialId != 0u &&
+        SmokeMaterialId(drawSurf->material) == suppressedMaterialId)
+    {
+        return false;
+    }
     if (!guiDrawSurface && !worldSpace && !entityLive)
     {
         if (skipStats)

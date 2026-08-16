@@ -49,17 +49,25 @@ public Upt04InitialLightSchedule Upt04MakeInitialLightSchedule(
     return schedule;
 }
 
-public Upt04InitialLightSchedule Upt04MakeSecondaryLightSchedule(
-    Upt04LocalLightRanges ranges)
+public Upt04InitialLightSchedule Upt04MakeBounceLightSchedule(
+    Upt04LocalLightRanges ranges,
+    uint bounceIndex)
 {
     Upt04InitialLightSchedule schedule = Upt04MakeInitialLightSchedule(ranges);
     schedule.emissiveTrials = Upt04InverseSquareNeeTrialCount(
-        schedule.emissiveTrials, kUpt04SecondaryNeeBounceIndex);
+        schedule.emissiveTrials, bounceIndex);
     schedule.analyticTrials = Upt04InverseSquareNeeTrialCount(
-        schedule.analyticTrials, kUpt04SecondaryNeeBounceIndex);
+        schedule.analyticTrials, bounceIndex);
     schedule.candidateCount = schedule.emissiveTrials
         + schedule.analyticTrials;
     return schedule;
+}
+
+public Upt04InitialLightSchedule Upt04MakeSecondaryLightSchedule(
+    Upt04LocalLightRanges ranges)
+{
+    return Upt04MakeBounceLightSchedule(
+        ranges, kUpt04SecondaryNeeBounceIndex);
 }
 
 public float Upt04InitialLightScheduleIdentityPdf(

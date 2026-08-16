@@ -57,6 +57,7 @@ set(UPT07_DIRECT_MODULES
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_binary16.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_hit_contract.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_initial_work_contract.slang"
+    "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_material_classifier.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_light_contract.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_local_light_proposal.slang"
     "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_local_light_evaluation_direct.slang"
@@ -457,10 +458,13 @@ add_custom_command(
         -DUPT36_STAMP=${UPT36_TEMPORAL_VERIFY_STAMP}
         -DUPT36_HOST_SOURCE=${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp
         -DUPT36_REPLAY_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang
+        -DUPT36_MATERIAL_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/upt07_indirect_material.slang
         -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt36ThreeVertexTemporal.cmake"
     DEPENDS ${temporal_unified_common_gris_three_vertex_outputs}
         "${CMAKE_CURRENT_LIST_DIR}/../../renderer/NVRHI/PathTraceUnifiedPt.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/upt07_temporal_indirect.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt07_indirect_material.slang"
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt04/upt04_material_classifier.slang"
         "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt36ThreeVertexTemporal.cmake"
     COMMENT "UPT-36 verifying bounded three-vertex temporal replay"
     VERBATIM)

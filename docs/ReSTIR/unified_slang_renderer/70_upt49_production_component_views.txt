@@ -1,0 +1,99 @@
+70_upt49_production_component_views.txt
+======================================
+
+Status
+------
+
+The first resolve-mask implementation was rejected at runtime on 2026-08-15:
+it was much noisier than family 2, too dark and omitted primary emissive detail.
+The corrected family-0 proposal-admission implementation exposed a second
+split-D0 bug at runtime: the production direct artifact ignored the runtime
+family mask. The split admission correction has passed release build, Vulkan
+validation and deployment; runtime re-test is pending.
+
+Problem
+-------
+
+`r_pathTracingUnifiedPtFamily 1` and `2` are specialization/performance
+closures. They are not production-image component views. In particular, the
+accepted shared spatial path and temporal replay compaction require unified
+family 0, while glass PSR is composed after UPT-05 resolve. A family-2 image
+therefore changed the proposal/reuse topology and omitted late optical
+transport; it could not identify the source of noise in the production image.
+
+Implemented diagnostic contract
+-------------------------------
+
+UPT now exposes three views while the renderer remains in family 0:
+
+    10  indirect-only D0 admission, production T0/S0, primary self-emission
+    11  local/direct-only D0 admission, production T0/S0, self-emission
+    12  late UPT-46/47 PSR optical sidecars only
+
+The rejected first cut masked the selected sample after the unified reservoir
+had already chosen between direct and indirect. A single-sample reservoir cannot
+be decomposed that way without making every pixel won by the other class zero;
+the resulting component is unbiased only in expectation but needlessly sparse
+and high variance. It also omitted primary self-emission from view 10.
+
+The corrected views restrict the D0 enabled-family mask while leaving the host
+and shader family set to unified. The accepted replay-compacted temporal and
+shared spatial gates therefore remain active. The family mask participates in
+the existing content-generation hash, so switching views rejects incompatible
+history without a buffer clear. Primary self-emission is present in both
+transport views for parity with the old family-isolation images.
+
+The parity-1 D0 specialization now intersects its compile-time family mask with
+the runtime mask. Normal view 0 still supplies the full mask, so production work
+and estimator behavior are unchanged.
+
+The production preset also enables split initial sampling. Its direct-only
+artifact originally called `Upt04PrepareDirectTrial` without the monolithic
+path's `Upt04DirectFamilyAvailable` gate. View 10 therefore still generated a
+direct winner, then hid that winner at resolve. T0 mixed those hidden direct
+winners across frames, making the indirect view darker, and S0 propagated the
+already-poisoned result. The split direct entry now checks the runtime local-
+light family bit before proposal selection. This is a scheduling-contract fix;
+normal view 0 keeps the bit enabled and is unchanged.
+
+UPT-45 receives the resolve-view number in unused high bits of its existing
+32-byte control block. In views 10/11 it preserves pane coverage and bounded
+screen-space distortion but excludes native resolved refraction and reflection,
+because those late radiance values have no direct/global reservoir tag. Native
+modes 2/3 store replacement radiance rather than transmittance, so that value is
+also forbidden as a multiplier in component views. View 12 starts from a black
+UPT-05 source and retains the complete optical replacement, making the omitted
+domain visible rather than silently assigning it to indirect.
+
+Interpretation
+--------------
+
+Use the normal production preset and change only the view:
+
+    exec upt
+    r_pathTracingUnifiedPtFamily 0
+    r_pathTracingUnifiedPtResolveView 10
+    r_pathTracingUnifiedPtResolveView 11
+    r_pathTracingUnifiedPtResolveView 12
+    r_pathTracingUnifiedPtResolveView 0
+
+If noise appears in view 10 it is carried by indirect transport after the same
+production reuse topology. If it
+appears only in view 12 it belongs to late glass reflection/refraction and never
+entered main T0/S0. View 11 identifies analytic/direct or primary-emission
+noise. The images are diagnostic domains, not an additive reconstruction
+at native resolved-refraction pixels, because a late optical replacement cannot
+be truthfully split without tagging it at its producer.
+
+DLSS RR remains intentionally disabled for nonzero resolve views. This exposes
+the raw renderer contribution rather than the reconstruction result.
+
+Verification
+------------
+
+`cmake --build --preset win64-pt-dev-release` passed from `neo/`. Vulkan 1.2
+`spirv-val` passed for the rebuilt family-0 parity UPT-04 blob, all four runtime
+UPT-05 resolve blobs, and the later corrected split-direct compact32/light64
+blob. The EXE was already hash-identical to the deployed build; only the newly
+changed split-direct Vulkan blob was deployed for this correction. No DX12
+shader was compiled.

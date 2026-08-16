@@ -69,6 +69,9 @@ struct PathTraceUnifiedPtDispatchInputs
     uint32_t shaderProofMode = 1;
     PathTraceUnifiedPtBackend backend = PathTraceUnifiedPtBackend::RayQuery;
     PathTraceUnifiedPtFamily family = PathTraceUnifiedPtFamily::DirectOnly;
+    // Diagnostic proposal restriction while retaining the family-0 pipeline
+    // and reuse topology. Zero selects the normal mask implied by family.
+    uint32_t diagnosticProposalFamilyMask = 0;
     bool nsightMarkers = false;
     bool diagnostics = false;
     uint32_t primaryReceiverMode = 0;
@@ -144,6 +147,7 @@ struct PathTraceUnifiedPtGlassComposeInputs
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t frameSampleIndex = 0;
+    uint32_t resolveView = 0;
     uint32_t reflectionDeclusterMode = 0;
     float reflectionBoost = 1.0f;
     float transmissionFloor = 0.0f;

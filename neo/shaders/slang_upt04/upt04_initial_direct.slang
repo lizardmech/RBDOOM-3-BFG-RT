@@ -345,8 +345,13 @@ public Upt04DirectRisProposal Upt04EvaluatePreviousBestProposal<
             diagnostics |= kUpt04D0DiagPreviousReplayFailure;
             return proposal;
         }
-        const float4 regionWeights =
-            Upt04EmissiveRegionWeights<TMaterialSet>(replay);
+        float4 regionWeights;
+        if (!Upt04ResolveEmissiveRegionWeights<TMaterialSet>(
+                light, replay, regionWeights))
+        {
+            diagnostics |= kUpt04D0DiagPreviousReplayFailure;
+            return proposal;
+        }
         const uint region = Upt04EmissiveRegionFromBarycentrics(
             replay.barycentrics);
         const Upt04MaterialEmissionEvaluation emission =

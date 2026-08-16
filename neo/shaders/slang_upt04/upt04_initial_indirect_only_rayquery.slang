@@ -1,6 +1,9 @@
 import upt04_backend_rayquery;
 import upt04_hit_contract;
+import upt04_geometry_contract;
+import upt04_geometry_decode;
 import upt04_initial_bindings;
+import upt04_initial_control;
 import upt04_initial_shared;
 import upt04_initial_work_contract;
 import upt03_reservoir_contract;
@@ -83,6 +86,18 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #endif
 
 #if UPT04_MULTI_BOUNCE_INITIAL
+    const uint threeVertexProbe = Upt04ThreeVertexBottleneckProbe(
+        gUpt04Control.indirectPolicyFlags);
+    // Probe 1 retains the exact production x1/x2 path in this same x3-capable
+    // shader but stops before any x2-to-x3 work. Modes 2-4 are cumulative so
+    // their dispatch-time deltas locate continuation, proposal, and visibility
+    // cost without comparing different PSOs.
+    if (threeVertexProbe == 1u)
+    {
+        Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+        return;
+    }
+
     // The x2 NEE visibility and x2->x3 continuation are sibling techniques.
     // Carry the visibility count into the second-continuation copy so its
     // bounded state accounts for all rays actually emitted by this pixel.
@@ -111,6 +126,58 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         3u);
 #else
         2u);
+#endif
+
+    if (threeVertexProbe == 2u)
+    {
+        Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+        return;
+    }
+
+    Upt04InitialTraceWork thirdNee = (Upt04InitialTraceWork)0;
+    if (hit.status == kUpt04HitTriangle)
+    {
+        const Upt04GeometryHitSurface thirdSurface =
+            Upt04DecodeGeometryHit(hit);
+        thirdNee = Upt04PrepareThirdVertexNee<Upt05OpenPbrMaterialSet>(
+            secondContinuation, thirdSurface, pixel);
+    }
+    hit = Upt04MissFacts(thirdNee.ray.tMax);
+    const bool forceKnownVisible = threeVertexProbe == 3u
+        || threeVertexProbe == 5u
+        || threeVertexProbe == 7u
+        || threeVertexProbe == 9u
+        || threeVertexProbe == 11u
+        || threeVertexProbe == 12u
+        || threeVertexProbe == 13u
+        || threeVertexProbe == 14u
+        || threeVertexProbe == 15u;
+    if (forceKnownVisible
+        && thirdNee.valid != 0u
+        && thirdNee.traceRequired != 0u)
+    {
+        // Retain the selected x3 NEE candidate so the compiler cannot erase
+        // proposal work, but deliberately replace only its final visibility
+        // query with a known-visible result for this diagnostic mode.
+        thirdNee.traceRequired = 0u;
+        thirdNee.candidateReady = 1u;
+        thirdNee.candidateFlags |= kUpt04CandidateFlagVisibilityKnown
+            | kUpt04CandidateFlagVisibilityPassed;
+    }
+    else if (thirdNee.valid != 0u && thirdNee.traceRequired != 0u)
+        hit = Upt04TraceIndirectVisibilityRayQuery(
+            thirdNee.ray,
+            Upt04IndirectNeeVisibilityIgnore(thirdNee));
+    if (!forceKnownVisible)
+        thirdNee = Upt04CompleteIndirectNeeVisibility(thirdNee, hit);
+    Upt04StreamInitialTraceWork(
+        reservoir,
+        thirdNee,
+        pixel,
+#if UPT04_SPLIT_INITIAL_INDIRECT
+        4u);
+#else
+        3u);
 #endif
 #endif
     Upt04WriteInitialReservoir(surfaceIndex, reservoir);

@@ -7504,6 +7504,11 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
     m_rigidResidencyStats.selectedAreas = CountRigidResidencySelectedAreas(selectedAreas);
 
     const std::vector<RtPathTraceInstanceObservation>& visibleInstances = instanceUniverse.FrameInstances();
+    const int suppressedEntityIndex =
+        r_pathTracingGeometrySuppressEntityIndex.GetInteger();
+    const uint32_t suppressedMaterialId = static_cast<uint32_t>(Max(
+        0,
+        r_pathTracingGeometrySuppressMaterialId.GetInteger()));
     for (const RtPathTraceInstanceObservation& instance : visibleInstances)
     {
         const RtPathTraceResidencyClass residencyClass = RtPathTraceResidencyClassForSourceFlags(instance.sourceFlags);
@@ -7554,6 +7559,12 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         }
 
         const RtPathTraceRigidRouteInstanceObservation routeInstance = MakeRigidRouteInstanceObservation(instance);
+        if (routeInstance.entityIndex == suppressedEntityIndex ||
+            (suppressedMaterialId != 0u &&
+                routeInstance.materialOverrideId == suppressedMaterialId))
+        {
+            continue;
+        }
         if (!RigidResidentObservationMatchesCurrentModel(routeInstance))
         {
             ++m_rigidResidencyStats.visibleRigidStaleModel;
@@ -7581,6 +7592,12 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         }
 
         const RtPathTraceRigidRouteInstanceObservation& instance = residentRecord.observation;
+        if (instance.entityIndex == suppressedEntityIndex ||
+            (suppressedMaterialId != 0u &&
+                instance.materialOverrideId == suppressedMaterialId))
+        {
+            continue;
+        }
         const bool retainedFromCache = !residentRecord.seenThisFrame;
         const bool entityFeedOwned =
             r_pathTracingEntityFeed.GetInteger() != 0 &&
@@ -7740,6 +7757,12 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 ++m_rigidResidencyAreaWalkRejectedEntitiesThisFrame;
                 continue;
             }
+            if (entity->index ==
+                r_pathTracingGeometrySuppressEntityIndex.GetInteger())
+            {
+                ++m_rigidResidencyAreaWalkRejectedEntitiesThisFrame;
+                continue;
+            }
             if (!RigidResidencyCanTrackEntity(viewDef, entity))
             {
                 ++m_rigidResidencyAreaWalkRejectedEntitiesThisFrame;
@@ -7763,6 +7786,15 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
 
                 const uint32_t baseMaterialId = SmokeMaterialId(material);
                 const uint32_t materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surfaceIndex, material, baseMaterialId);
+                if (static_cast<uint32_t>(Max(
+                        0,
+                        r_pathTracingGeometrySuppressMaterialId.GetInteger())) ==
+                        materialId &&
+                    materialId != 0u)
+                {
+                    ++m_rigidResidencyAreaWalkRejectedSurfacesThisFrame;
+                    continue;
+                }
                 const uint32_t rigidSurfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
                 const uint32_t rigidTriangleClassAndFlags = rigidSurfaceClassId |
                     (SmokeEntitySurfaceHasActiveEmissiveStage(viewDef, entity, material) ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
@@ -8635,6 +8667,17 @@ bool RtSmokeGeometryUniverse::IsRigidRouteResidentReadyForEntityMaterial(int ent
 std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(const RtSmokeRigidTlasPlan& plan) const
 {
     std::vector<uint32_t> materialIds;
+    const auto appendUniqueMaterialId =
+        [&materialIds](uint32_t materialId)
+        {
+            if (materialId == 0u ||
+                std::find(materialIds.begin(), materialIds.end(), materialId) !=
+                    materialIds.end())
+            {
+                return;
+            }
+            materialIds.push_back(materialId);
+        };
     for (const RtSmokePlanTlasInstance& plannedInstance : plan.instances)
     {
         if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
@@ -8649,14 +8692,14 @@ std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(cons
         {
             continue;
         }
-        const uint32_t materialId =
-            plannedInstance.materialId != 0u
-                ? plannedInstance.materialId
-                : record.materialId;
-        if (std::find(materialIds.begin(), materialIds.end(), materialId) == materialIds.end())
-        {
-            materialIds.push_back(materialId);
-        }
+        // A rigid route has two independently consumed material identities.
+        // The instance record uses the live per-instance override, while the
+        // cached geometry range and emissive inventory use the mesh material.
+        // Publishing only the selected instance identity left the other one
+        // absent from the frame table, where the legacy missing-index fallback
+        // aliased it to slot zero and could turn ordinary geometry emissive.
+        appendUniqueMaterialId(record.materialId);
+        appendUniqueMaterialId(plannedInstance.materialId);
     }
     return materialIds;
 }

@@ -3218,3 +3218,134 @@ UPT-46 native G1 build checkpoint, 2026-08-14:
   Vulkan release build and `spirv-val` pass for all 32 rebuilt blobs; EXE and
   only rebuilt Vulkan artifacts are deployed. Runtime window-motion, sky-color
   and sky-cube fallback acceptance remain pending.
+
+- UPT49 production component diagnostics: family 1/2 were proven invalid for
+  production-image isolation because they change the accepted unified reuse
+  topology and omit post-resolve PSR optics. The first resolve-mask views were
+  also rejected: masking the one winner after direct/indirect competition made
+  view 10 sparse, noisy and dark, and it omitted primary emission. The corrected
+  views restrict D0 proposal admission while retaining unified family-0 T0/S0;
+  the family mask changes content generation so incompatible history is never
+  merged. Both transport views include primary emission. View 12 continues to
+  isolate untagged late glass optics. Corrected release build and Vulkan
+  validation pass; the EXE and only the rebuilt family-0 UPT-04 blob plus four
+  UPT-05 resolve blobs are deployed. Runtime re-test is pending.
+
+- UPT50 three-vertex estimator correction: comparison with NVIDIA FullSample
+  proved UPT's optional third vertex generated only direct x3 emissive hits and
+  omitted NEE at ordinary x3 surfaces. This explains why enabling the extra
+  bounce barely changed indirect density. The correction adds bounce-index-3
+  inverse-square inner RIS, traces visibility only for its winner, stores the
+  selected stable light identity/sample coordinates in the existing compact32
+  reservoir and extends exact T0/S0 replay to the new
+  `eventKind=1/2,pathLength=3,reconnectionVertexLength=1` topology. The bounded
+  D0 ceiling is 2 continuation + 3 visibility = 5 total rays; T0 and shared S0
+  fail closed on stale/remap/replay/target/visibility failure. NEE cache is not
+  involved. The full `win64-pt-dev-release` Vulkan build and all updated
+  structural verifiers pass. The executable and exactly the rebuilt UPT-04,
+  UPT-07 and UPT-09 Vulkan blobs were deployed with SHA-256 equality checks;
+  runtime density, energy and motion validation are pending.
+
+- UPT51 secondary material-color parity: the suspected hard-coded white
+  continuation was not present; OpenPBR carries RGB `BRDF*cos/pdf`. A concrete
+  reuse-only defect was present instead. D0 applied the material classifier to
+  secondary base color/F0/roughness, but the T0/S0 replay provider omitted it.
+  Classified RMAO, metallic, full-metal, zero-roughness and fallback surfaces
+  could therefore change transport color after initial sampling. The classifier
+  is now one shared Slang module used by D0/T0/S0, with UPT-36 structural proof.
+  The full Vulkan preset passed. Six temporal and eight shared-spatial rebuilt
+  blobs were deployed; the executable was already byte-identical. Runtime
+  bounce-chroma and density acceptance are pending.
+
+- UPT52 analytic-light calibration correction: Doom lightRadius is an
+  influence-volume extent, but the UPT publisher inherited a proxy emitter
+  sphere computed as clamp(radius * 0.08, 4, 64). UPT now publishes a fixed
+  4-unit emitter controlled by r_pathTracingUnifiedPtAnalyticEmitterRadius;
+  legacy analytic routes retain their old radius conversion. The audit also
+  proved r_pathTracingAnalyticLightIntensityScale was log-only for UPT.
+  UPT-enabled candidate publication now multiplies RGB by it and recomputes
+  the intensity lane; legacy HLSL/particle consumers retain raw payload RGB
+  because they already apply this CVar downstream.
+  r_pathTracingUnifiedPtAnalyticDoomRadiusIntensity optionally multiplies UPT
+  radiance by max(lightRadius.xyz)/300 while leaving emitter geometry fixed;
+  it is off by default because this is a biased calibration heuristic. The
+  full Vulkan PT-dev Release build passes. Only the rebuilt executable changed
+  and was deployed; runtime fixed-size and intensity A/B remains pending.
+
+- UPT52 legacy-power follow-up: runtime proved that fixed source geometry alone
+  collapsed UPT analytic energy: intensity 20 was only comparable to about 0.1
+  in the legacy estimator. The target/source-PDF audit found no extra PDF term;
+  replacing the old 24..64-unit proxy sphere with 4 units removes approximately
+  36..256x integrated solid angle. The default-on
+  r_pathTracingUnifiedPtAnalyticPreserveLegacyPower transfers the squared old
+  proxy-radius/fixed-radius ratio into UPT radiance while retaining fixed
+  emitter size and softness. The separate linear Doom-radius intensity heuristic
+  remains default off. Runtime accepted the correction: analytic illumination
+  improved substantially, proving UPT had previously been starved of analytic
+  energy while sparse/noisy emissive NEE carried most of the visible lighting.
+UPT-54 prepared emissive proposal weights (2026-08-17)
+-------------------------------------------------------
+
+Corrected Nsight captures of the identical split-indirect shader show that the
+small hanging fixture does not increase traversal.  RayQuery dependency
+samples fall approximately 10 percent, while total sampled instructions rise
+63 percent and No-Instructions stalls rise from 73,249 to 168,813.  The view
+activates the cold emissive CDF/geometry/material/bindless-texture closure in a
+single large SPIR-V function and collapses parallel slack.
+
+The avoidable multiplier is the four-region emissive proposal: one preliminary
+replay plus four material probes precede the exact replay and exact endpoint
+evaluation for every selected emissive candidate.  FullSample and Remix both
+move analogous material work into bounded light/cache preparation.
+
+UPT-54 therefore prepares the four proposal weights once per current emissive
+light in the existing compact64 light pass.  The 64-byte stride is unchanged;
+emissive-only dead position words carry four weights, while analytic position
+and radius remain untouched.  D0 still performs exact selected-barycentric
+geometry and material evaluation. Invalid preparation rejects the compact
+candidate fail-closed; the natural 112-byte rollback specialization retains
+the old probes, rather than importing that cold fallback closure into the
+compact hot shader.  No reservoir, source-PDF, visibility, temporal/spatial,
+ray-ceiling or full-clear contract changes.  See
+`74_upt54_emissive_proposal_preparation.txt` for the measured failure,
+reference comparison and acceptance gate.
+
+The 2026-08-17 Vulkan release build and backend verification pass. Preparation
+is ray-free and exposes one bounded image-sample loop. Compared with the prior
+deployed artifacts, split direct shrank 214,628 -> 199,620 bytes, split
+indirect 347,512 -> 332,236, and three-vertex indirect 726,408 -> 686,412;
+their ray-start counts are unchanged.
+
+Runtime rejected UPT-54 as a standalone performance optimization. The log
+proved the compact preparation and rebuilt split-indirect artifacts were live,
+but the game and Nsight showed no material change; the dominant
+No-Instructions DAS region moved by less than one percent in
+`E:\prog\nsightUPTbrokenobject2.csv`. Removing four regional probes did not
+remove the exact emissive endpoint/material closure, and one active lane is
+enough to expose that resident path. The next proof is therefore a separate
+compile-time analytic-only x3 artifact. Runtime light-count or range branches
+are not an acceptable footprint-isolation test.
+
+UPT-55 static closure-excision proof (2026-08-17)
+--------------------------------------------------
+
+The follow-up review proved UPT-53 had not created a dispatch split: it doubled
+one inlined entry point behind a runtime branch and increased live-register
+pressure. UPT-55 does not promote that architecture. It adds a separate
+analytic-only three-vertex `.bin` selected only by bottleneck probes 5/6, with
+all x2/x3 emissive endpoint, reverse-PDF, triangle replay and emission-material
+paths removed at preprocessing time. The production artifact is untouched.
+
+The Vulkan release build passes. Production is 686,412 bytes / 42,898 SPIR-V
+instructions / 20 image-sample sites; the static artifact is 578,608 bytes /
+36,300 instructions / 14 image-sample sites. Both retain four RayQuery sites.
+The runtime pipeline line must say `staticAnalyticOnly=1`. Compare production
+probe 4 against static probe 6 with temporal/spatial disabled. Only a material
+fixture-cliff reduction admits work on a real queue plus second dispatch.
+
+Runtime rejected UPT-55. The diagnostic PSO was active and the fixture A/B
+showed no material performance improvement. Compiling out 6,598 SPIR-V
+instructions plus the targeted x2/x3 emissive endpoint, reverse-PDF, replay and
+material-texture closures did not remove the cliff. Do not commission the
+emissive queue/second-dispatch design from this result; UPT-54 and UPT-55 are
+preserved as negative experimental evidence for the next investigation.

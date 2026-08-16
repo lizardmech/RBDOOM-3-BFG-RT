@@ -175,3 +175,39 @@ transport, fixed-q roulette compensation and x3 endpoint admission as runtime
 accepted. This acceptance does not yet admit `eventKind=4,pathLength=2` into
 temporal or spatial reuse; those passes remain deliberately disabled until
 their two-continuation shift/replay contract is implemented and verified.
+
+UPT-50 correction: complete x3 NEE, 2026-08-15
+------------------------------------------------
+
+The earlier workload interpretation above was incomplete. Direct source
+comparison with NVIDIA FullSample's `RAB_PathTrace` / `handleHit` loop proves
+that every accepted surface hit evaluates both terminal emission and NEE
+before the next continuation decision. Consequently max bounce depth 3 adds:
+
+    x2 -> x3 continuation
+    x3 emissive endpoint
+    x3 NEE selected from the bounce-index-3 light schedule
+
+The former UPT specialization implemented only the first two lines. That made
+the extra bounce useful only when x3 happened to land directly on emissive
+geometry and explains why changing from two to three vertices barely changed
+indirect sparsity. This was a base-estimator completeness defect, not evidence
+that NEE cache or portal filtering was required.
+
+The corrected specialization now runs an independent inner RIS at x3 using
+the existing inverse-square schedule. With primary parity counts of 32
+analytic and one emissive trial, x2 receives at most 8+1 trials and x3 receives
+at most 3+1; 32 is not the per-bounce indirect count. Only the selected x3
+light receives a visibility query. The selected stable light identity and
+sample coordinates use the existing 64-byte reservoir ABI.
+
+Corrected bounded ceiling:
+
+    continuation RayQueries <= 2
+    visibility RayQueries   <= 3
+    total RayQueries        <= 5
+
+There is no NEE cache, new descriptor, full-resolution allocation, queue or
+per-frame clear. The Vulkan verifier now requires four static RayQuery sites,
+an x3 `pathLength=3` light topology, winner-only visibility and zero TraceRay
+sites. T0/S0 support is defined by the corresponding corrections in 51/53.

@@ -14,11 +14,15 @@ public static const uint kUpt04D0PreviousBest = 0x80000000u;
 public static const uint kUpt04TextureProbeDisabled = 0u;
 public static const uint kUpt04ControlMetadataValidBit = 0x80000000u;
 public static const uint kUpt04ControlMetadataCountMask = 0x7fffffffu;
+public static const uint kUpt04ThreeVertexProbeMask = 0x0000000fu;
 
 public uint Upt04EnabledFamilyMask(uint dynamicMask)
 {
 #ifdef UPT04_STATIC_ENABLED_FAMILY_MASK
-    return UPT04_STATIC_ENABLED_FAMILY_MASK;
+    // The production specialization removes unavailable families at compile
+    // time, while the dynamic mask may further restrict admission for a
+    // family-0 diagnostic. Normal production still supplies the full mask.
+    return UPT04_STATIC_ENABLED_FAMILY_MASK & dynamicMask;
 #else
     return dynamicMask;
 #endif
@@ -43,7 +47,7 @@ public uint Upt04ConfiguredEmissiveTrialCount(uint availabilityFlags)
         16u);
 }
 
-// Fifty-five scalar words / 220 bytes. The first 128 bytes retain the
+// Fifty-six scalar words / 224 bytes. The first 128 bytes retain the
 // accepted current-frame D0 ABI. The final four words groups add the exact
 // previous-camera/remap metadata needed by the D0 previous-best lookup and the
 // current valid CDF count. Both count words reserve their high bit for the
@@ -113,6 +117,9 @@ public struct Upt04InitialControl
     // ordinary temporal/spatial reservoir chain owns it. Keep this as a
     // suffix to preserve every accepted field offset above.
     public float skyBrightness;
+    // Texture-space floor shared by D0/T0/S0. Near-black compression residue
+    // must not become a valid terminal emitter and enter replay.
+    public float emissiveTexelBlackFloor;
 };
 
 public bool Upt04D0PreviousBestHistoryAvailable(
@@ -156,4 +163,9 @@ public bool Upt04EmissiveLookupValid(
 public uint Upt04EmissiveLookupCapacity(uint capacityAndValid)
 {
     return capacityAndValid & kUpt04ControlMetadataCountMask;
+}
+
+public uint Upt04ThreeVertexBottleneckProbe(uint indirectPolicyFlags)
+{
+    return indirectPolicyFlags & kUpt04ThreeVertexProbeMask;
 }

@@ -70,8 +70,9 @@ foreach(kind full compact)
        NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"emissiveScale\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*116" OR
        NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"previousToCurrentLightCount\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*120" OR
        NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"previousCameraJitterPixels\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"vec2\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*160" OR
-       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"skyBrightness\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*168")
-        message(FATAL_ERROR "UPT-07 ${kind} direct temporal push constants lost the established prefix or 172-byte sky suffix")
+       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"skyBrightness\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*168" OR
+       NOT ${kind}_reflection MATCHES "\"name\"[ \t]*:[ \t]*\"emissiveTexelBlackFloor\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*172")
+        message(FATAL_ERROR "UPT-07 ${kind} direct temporal push constants lost the established prefix or 176-byte emissive-floor suffix")
     endif()
     string(REGEX MATCHALL "OpRayQueryInitializeKHR" rayquery_initializers "${${kind}_disassembly}")
     list(LENGTH rayquery_initializers rayquery_initializer_count)

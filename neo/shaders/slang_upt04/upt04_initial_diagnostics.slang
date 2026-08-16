@@ -6,6 +6,7 @@ import upt04_hit_contract;
 import upt03_reservoir_contract;
 import upt04_transport_initial_bounded;
 import upt04_initial_indirect;
+import upt04_initial_multibounce;
 import upt04_initial_reservoir_stream;
 import upt04_primary_surface_live_contract;
 import upt04_light_contract;
@@ -136,9 +137,17 @@ public static const uint kUpt04DiagContinuationDecodeFailureDynamic = 103u;
 public static const uint kUpt04DiagContinuationDecodeFailureRigid = 104u;
 public static const uint kUpt04DiagContinuationDecodeFailureSkinned = 105u;
 public static const uint kUpt04DiagContinuationDecodeFailureUnknown = 106u;
-public static const uint kUpt04DiagD0ProbeBase = 123u;
+public static const uint kUpt04DiagX3ContinuationPrepared = 107u;
+public static const uint kUpt04DiagX3ContinuationHit = 108u;
+public static const uint kUpt04DiagX3EndpointPositive = 109u;
+public static const uint kUpt04DiagX3NeePreparedPositive = 110u;
+public static const uint kUpt04DiagX3NeeVisibilityPassed = 111u;
+public static const uint kUpt04DiagX3EndpointSelected = 112u;
+public static const uint kUpt04DiagX3NeeSelected = 113u;
+public static const uint kUpt04DiagX3AnySelected = 114u;
+public static const uint kUpt04DiagD0ProbeBase = 131u;
 public static const uint kUpt04DiagD0ProbeMagic = 0x44305052u;
-public static const uint kUpt04DiagC0ProbeBase = 139u;
+public static const uint kUpt04DiagC0ProbeBase = 147u;
 public static const uint kUpt04DiagC0ProbeMagic = 0x43305052u;
 
 public static const uint kUpt04DiagRouteStatic = 0u;
@@ -674,7 +683,10 @@ public void Upt04DiagRay(Upt04InitialTraceWork work, bool continuation)
     Upt04DiagIncrement(continuation
         ? kUpt04DiagContinuationRays
         : kUpt04DiagVisibilityRays);
-    if (!Upt04RayBudgetWithinD0Ceiling(work.transport))
+    const bool threeVertex = asfloat(gUpt04Control.reservedControl0) > 0.0f;
+    if (!(threeVertex
+            ? Upt04RayBudgetWithinThreeVertexCeiling(work.transport)
+            : Upt04RayBudgetWithinD0Ceiling(work.transport)))
         Upt04DiagIncrement(kUpt04DiagRayCeilingViolations);
 }
 
@@ -715,11 +727,21 @@ public void Upt04DiagSelection(Upt03LogicalReservoir reservoir)
     {
         Upt04DiagIncrement(kUpt04DiagSelectedBsdfEndpoint);
         Upt04DiagIncrement(kUpt04DiagFinalIndirectSelected);
+        if (reservoir.selected.pathLength == 2u)
+        {
+            Upt04DiagIncrement(kUpt04DiagX3EndpointSelected);
+            Upt04DiagIncrement(kUpt04DiagX3AnySelected);
+        }
     }
     else
     {
         Upt04DiagIncrement(kUpt04DiagSelectedSecondaryNee);
         Upt04DiagIncrement(kUpt04DiagFinalIndirectSelected);
+        if (reservoir.selected.pathLength == 3u)
+        {
+            Upt04DiagIncrement(kUpt04DiagX3NeeSelected);
+            Upt04DiagIncrement(kUpt04DiagX3AnySelected);
+        }
     }
 }
 
@@ -893,6 +915,62 @@ public Upt03PackedReservoir Upt04BuildDiagnosticReservoir(
             Upt04DiagIncrement(kUpt04DiagSecondaryCandidatePositive);
     }
     Upt04StreamInitialTraceWork(reservoir, secondaryNee, pixel, 2u);
+
+    // The diagnostic specialization contains the production x3 closure, but
+    // the host publishes q=0 when three-vertex transport is disabled.  Count
+    // candidate existence separately from final unified-reservoir selection;
+    // this distinguishes path-production loss from energy-weighted competition
+    // with primary and x2 terms.
+    if (asfloat(gUpt04Control.reservedControl0) > 0.0f)
+    {
+        Upt04InitialTraceWork secondSource = continuation;
+        if (indirect.neeWork.valid != 0u)
+        {
+            secondSource.transport.budget.visibilityRays = max(
+                secondSource.transport.budget.visibilityRays,
+                indirect.neeWork.transport.budget.visibilityRays);
+        }
+        const Upt04SecondContinuationResult secondContinuation =
+            Upt04PrepareSecondContinuation<Upt05OpenPbrMaterialSet>(
+                secondSource, indirect.secondarySurface);
+        if (secondContinuation.work.valid != 0u)
+            Upt04DiagIncrement(kUpt04DiagX3ContinuationPrepared);
+        hit = Upt04MissFacts(secondContinuation.work.ray.tMax);
+        Upt04DiagRay(secondContinuation.work, true);
+        if (secondContinuation.work.valid != 0u
+            && secondContinuation.work.traceRequired != 0u)
+            hit = Upt04TraceRayQuery(secondContinuation.work.ray);
+        if (hit.status == kUpt04HitTriangle)
+            Upt04DiagIncrement(kUpt04DiagX3ContinuationHit);
+        const Upt04InitialTraceWork secondEndpoint =
+            Upt04EvaluateSecondEndpoint<Upt05OpenPbrMaterialSet>(
+                secondContinuation, indirect.secondarySurface, hit);
+        if (secondEndpoint.candidateReady != 0u
+            && secondEndpoint.candidateStatus == kUpt04SampleValidPositive)
+            Upt04DiagIncrement(kUpt04DiagX3EndpointPositive);
+        Upt04StreamInitialTraceWork(reservoir, secondEndpoint, pixel, 3u);
+
+        Upt04InitialTraceWork thirdNee = (Upt04InitialTraceWork)0;
+        if (hit.status == kUpt04HitTriangle)
+        {
+            const Upt04GeometryHitSurface thirdSurface =
+                Upt04DecodeGeometryHit(hit);
+            thirdNee = Upt04PrepareThirdVertexNee<Upt05OpenPbrMaterialSet>(
+                secondContinuation, thirdSurface, pixel);
+        }
+        if (thirdNee.valid != 0u && thirdNee.traceRequired != 0u)
+            Upt04DiagIncrement(kUpt04DiagX3NeePreparedPositive);
+        hit = Upt04MissFacts(thirdNee.ray.tMax);
+        Upt04DiagRay(thirdNee, false);
+        if (thirdNee.valid != 0u && thirdNee.traceRequired != 0u)
+            hit = Upt04TraceIndirectVisibilityRayQuery(
+                thirdNee.ray, Upt04IndirectNeeVisibilityIgnore(thirdNee));
+        thirdNee = Upt04CompleteIndirectNeeVisibility(thirdNee, hit);
+        if (thirdNee.candidateReady != 0u
+            && thirdNee.candidateStatus == kUpt04SampleValidPositive)
+            Upt04DiagIncrement(kUpt04DiagX3NeeVisibilityPassed);
+        Upt04StreamInitialTraceWork(reservoir, thirdNee, pixel, 4u);
+    }
     Upt04DiagSelection(reservoir);
     return Upt04FinalizeInitialReservoir(reservoir);
 }

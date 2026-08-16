@@ -23,7 +23,7 @@ endfunction()
 upt43_require_rayquery_count("${UPT43_CLASSIFY_ASM}" 2 "classifier")
 upt43_require_rayquery_count("${UPT43_COMPACT_ASM}" 4 "compact consumer")
 upt43_require_rayquery_count("${UPT43_THREE_CLASSIFY_ASM}" 2 "three-vertex classifier")
-upt43_require_rayquery_count("${UPT43_THREE_COMPACT_ASM}" 6 "three-vertex compact consumer")
+upt43_require_rayquery_count("${UPT43_THREE_COMPACT_ASM}" 8 "three-vertex compact consumer")
 
 file(READ "${UPT43_CLASSIFY_REFLECTION}" classify_reflection)
 file(READ "${UPT43_COMPACT_REFLECTION}" compact_reflection)
@@ -49,4 +49,4 @@ if(NOT temporal_source MATCHES "failureReason = kUpt07NeedsCompactReplay" OR
 endif()
 
 file(WRITE "${UPT43_STAMP}"
-    "UPT-43.4 replay compaction verified: classifier/compact RayQuery=2/4, threeVertex=2/6, queue=uint, bindings=33/34/35, fullQueueClear=0\n")
+    "UPT-43.4 replay compaction verified: classifier/compact RayQuery=2/4, threeVertex=2/8, queue=uint, bindings=33/34/35, fullQueueClear=0\n")

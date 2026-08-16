@@ -79,9 +79,11 @@ endif()
 if(NOT reflection MATCHES
         "\"name\"[ \t]*:[ \t]*\"emissiveDistributionCountAndValid\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*88" OR
    NOT reflection MATCHES
-        "\"name\"[ \t]*:[ \t]*\"skyBrightness\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*96")
+        "\"name\"[ \t]*:[ \t]*\"skyBrightness\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*96" OR
+   NOT reflection MATCHES
+        "\"name\"[ \t]*:[ \t]*\"emissiveTexelBlackFloor\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"float\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*100")
     message(FATAL_ERROR
-        "UPT-30 selected-pair spatial lost its 100-byte directional-sky replay control ABI")
+        "UPT-30 selected-pair spatial lost its 104-byte emissive-floor replay control ABI")
 endif()
 
 string(REGEX MATCHALL "OpRayQueryInitializeKHR" ray_queries "${disassembly}")

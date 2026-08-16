@@ -238,10 +238,22 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     const uint reflectionDeclusterMode =
         (gUpt45Control.sourceModeAndFrameIndex >> 1u) & 3u;
     const uint frameSampleIndex =
-        gUpt45Control.sourceModeAndFrameIndex >> 3u;
-    const bool resolvedRefraction = !legacySidecarEncoding &&
+        (gUpt45Control.sourceModeAndFrameIndex >> 3u) & 0x01ffffffu;
+    const uint resolveView =
+        (gUpt45Control.sourceModeAndFrameIndex >> 28u) & 0x0fu;
+    // Views 10 and 11 isolate the already-reused reservoir domains. Preserve
+    // pane attenuation and screen-space distortion, but do not inject native
+    // UPT-46 radiance that has no direct/global reservoir classification.
+    // View 12 starts from a black UPT-05 source and deliberately retains those
+    // late optical sidecars as their own complementary diagnostic.
+    const bool reservoirComponentView = resolveView == 10u || resolveView == 11u;
+    const bool nativeOpticalReplacement = !legacySidecarEncoding &&
+        transmission.a >= 1.5f;
+    const bool resolvedRefraction = !reservoirComponentView &&
+        nativeOpticalReplacement &&
         transmission.a >= 1.5f && transmission.a < 2.5f;
-    const bool exactMirror = !legacySidecarEncoding && transmission.a >= 2.5f;
+    const bool exactMirror = !reservoirComponentView &&
+        !legacySidecarEncoding && transmission.a >= 2.5f;
     float4 base = resolvedRefraction
         ? float4(max(transmission.rgb, float3(0.0f)), source.a)
         : source;
@@ -286,23 +298,30 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         }
     }
 
-    const float3 throughput = max(
-        max(transmission.rgb, float3(0.0f)),
-        float3(max(gUpt45Control.transmissionFloor, 0.0f)));
+    // Native modes 2/3 store replacement radiance, not transmittance. A
+    // component view cannot multiply by that unclassified radiance without
+    // corrupting the split, so retain the masked reservoir source and leave
+    // the complete replacement to view 12.
+    const float3 throughput = reservoirComponentView && nativeOpticalReplacement
+        ? float3(1.0f)
+        : max(
+            max(transmission.rgb, float3(0.0f)),
+            float3(max(gUpt45Control.transmissionFloor, 0.0f)));
     float3 composed = resolvedRefraction
         ? base.rgb
         : base.rgb * throughput;
     const float4 reflection = gUpt45Reflection.Load(int3(pixel, 0));
     float3 reflectionSpecularSignal = float3(0.0f);
     bool reflectionSpecularSignalValid = false;
-    if (exactMirror && reflection.a >= 0.95f &&
+    if (!reservoirComponentView && exactMirror && reflection.a >= 0.95f &&
         all(isfinite(reflection.rgb)))
     {
         composed = max(reflection.rgb, float3(0.0f));
         reflectionSpecularSignal = composed;
         reflectionSpecularSignalValid = true;
     }
-    else if (reflection.a < 0.0f && all(isfinite(reflection.rgb)))
+    else if (!reservoirComponentView && reflection.a < 0.0f &&
+        all(isfinite(reflection.rgb)))
     {
         const float4 reusedReflection =
             Upt45LoadReflectionReuseBilinear(pixel);
@@ -334,7 +353,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 : reflectionContribution);
         reflectionSpecularSignalValid = true;
     }
-    else if (reflection.a >= 0.75f && reflection.a < 0.95f &&
+    else if (!reservoirComponentView &&
+        reflection.a >= 0.75f && reflection.a < 0.95f &&
         all(isfinite(reflection.rgb)))
     {
         const float3 reflectionContribution =
