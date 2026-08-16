@@ -31,6 +31,7 @@ import upt04_initial_light_selection;
 #endif
 import upt04_emissive_compact;
 import upt04_material_emission;
+import upt04_material_live_contract;
 
 public struct Upt04IndirectHitTrialResult
 {
@@ -324,9 +325,21 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     endpointEmission.valid = 1u;
 #elif UPT04_EMISSIVE_COMPACT_CLASSIFY
     endpointEmission.valid = 1u;
-    if ((Upt04LoadMaterialFlags(hitSurface.materialIndex)
-            & kUpt04MaterialEmissive) != 0u)
-        Upt56NoteEmissiveCompactNeeded();
+    {
+        const uint materialFlags =
+            Upt04LoadMaterialFlags(hitSurface.materialIndex);
+        if ((materialFlags & kUpt04TriangleEmissiveStageOff) != 0u)
+        {
+            const Upt04SmokeMaterialRecord skyMaterial =
+                Upt04LoadMaterialRecord(hitSurface.materialIndex);
+            endpointEmission.radiance = max(skyMaterial.emissiveColor.xyz, float3(0.0f))
+                * Upt04SampleSkyEnvironment(work.ray.direction);
+        }
+        else if ((materialFlags & kUpt04MaterialEmissiveLightCandidate) != 0u)
+        {
+            Upt56NoteEmissiveCompactKind(kUpt56KindHit2);
+        }
+    }
 #else
     endpointEmission = TMaterialSet.EvaluateEmissiveEndpoint(
         hitSurface.materialIndex,
@@ -340,11 +353,13 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         result.diagnostics |= kUpt04IndirectDiagEndpointEmissionFailure;
         return result;
     }
+#if !UPT04_EMISSIVE_COMPACT_CLASSIFY
     if ((Upt04LoadMaterialFlags(hitSurface.materialIndex) & 0x00040000u) != 0u)
     {
         endpointEmission.radiance *=
             Upt04SampleSkyEnvironment(work.ray.direction);
     }
+#endif
     result.diagnostics |= any(endpointEmission.radiance > 0.0f)
         ? kUpt04IndirectDiagEndpointEmissionPositive
         : kUpt04IndirectDiagEndpointEmissionZero;
@@ -401,6 +416,12 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         : kUpt04SampleValidZero;
     endpoint.candidateReady = 1u;
     result.endpointCandidate = endpoint;
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+    if ((Upt56EmissiveCompactRequested() & kUpt56KindHit2) != 0u)
+    {
+        result.endpointCandidate = (Upt04InitialTraceWork)0;
+    }
+#endif
 
     Upt04LocalLightRanges ranges;
     ranges.emissiveStart = gUpt04Control.emissiveRangeStart;
@@ -419,6 +440,11 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     }
 
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+    if (ranges.emissiveCount != 0u)
+        Upt56NoteEmissiveCompactKind(kUpt56KindNee2);
+    return result;
+#else
     const Upt04PreparedDirectMaterial preparedMaterial =
         TMaterialSet.PrepareSecondaryDirect(hitSurface, -work.ray.direction);
     if (preparedMaterial.valid == 0u)
@@ -557,6 +583,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     nee.candidateReady = 0u;
     result.neeWork = nee;
     return result;
+#endif
 }
 
 public Upt04VisibilityIgnore Upt04IndirectNeeVisibilityIgnore(

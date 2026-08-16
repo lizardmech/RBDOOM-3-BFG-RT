@@ -3519,10 +3519,11 @@ bool PathTraceUnifiedPtState::EnsureEmissiveCompactBuffers(
         return true;
     }
 
+    static const uint32_t kUpt56EmissiveTokenStride = 32u;
     nvrhi::BufferDesc queueDesc;
     queueDesc.debugName = "PathTraceUnifiedPtEmissiveCompactQueue";
-    queueDesc.byteSize = count64 * sizeof(uint32_t);
-    queueDesc.structStride = sizeof(uint32_t);
+    queueDesc.byteSize = count64 * kUpt56EmissiveTokenStride;
+    queueDesc.structStride = kUpt56EmissiveTokenStride;
     queueDesc.canHaveUAVs = true;
     queueDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
     queueDesc.keepInitialState = true;
@@ -3569,7 +3570,7 @@ bool PathTraceUnifiedPtState::EnsureEmissiveCompactBuffers(
     if (m_emissiveCompactCapacity != 0u)
     {
         common->Printf(
-            "PathTraceUnifiedPt: emissive compact queue pixels=%u bytes=%llu recordBytes=4 clear=never resetBytes=20 groups=64x1\n",
+            "PathTraceUnifiedPt: emissive compact queue pixels=%u bytes=%llu recordBytes=32 clear=never resetBytes=20 groups=64x1 thinConsume=1\n",
             count,
             static_cast<unsigned long long>(queueDesc.byteSize));
     }

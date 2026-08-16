@@ -251,9 +251,6 @@ public Upt04InitialTraceWork Upt04EvaluateSecondEndpoint<
     emission.valid = 1u;
 #elif UPT04_EMISSIVE_COMPACT_CLASSIFY
     emission.valid = 1u;
-    if ((Upt04LoadMaterialFlags(hitSurface.materialIndex)
-            & kUpt04MaterialEmissive) != 0u)
-        Upt56NoteEmissiveCompactNeeded();
 #else
     emission = TMaterialSet.EvaluateEmissiveEndpoint(
         hitSurface.materialIndex,

@@ -5,8 +5,8 @@ STATUS: cause CONFIRMED by a valid A/B on 2026-08-17. Design LOCKED to
 option A and implemented. G1 passed on the 2026-08-17 Vulkan release build:
 
     production  42,898 ops / 20 image-sample sites
-    classify    36,854 ops / 14 image-sample sites   (8x8)
-    consume     64x1, full closure retained
+    classify    30,031 ops / 11 image-sample sites   (8x8, NEE deferred)
+    consume     64x1 thin: stored x2 hit, no continuation retrace, no x3
 
 Classifier is 548 ops above the excised diagnostic (36,306) for the queue
 append. Enable with +set r_pathTracingUnifiedPtEmissiveCompact 1 (default

@@ -41,12 +41,60 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     const uint compactCount = Upt56CompactQueuedCount();
     if (dispatchThreadId.x >= compactCount)
         return;
-    const uint surfaceIndex = Upt56CompactQueuedIndex(dispatchThreadId.x);
-    if (surfaceIndex >= gUpt04Control.surfaceCount)
+    const Upt56EmissiveToken token = Upt56CompactQueuedToken(dispatchThreadId.x);
+    const uint surfaceIndex = token.surfaceIndex;
+    if (surfaceIndex >= gUpt04Control.surfaceCount || token.kind == 0u)
         return;
     const uint pixelY = surfaceIndex / gUpt04Control.renderWidth;
     const uint2 pixel = uint2(
         surfaceIndex - pixelY * gUpt04Control.renderWidth, pixelY);
+
+    uint directVisibilityRays = 0u;
+    Upt03LogicalReservoir reservoir = Upt04LoadIntermediateInitialReservoir(
+        surfaceIndex,
+        directVisibilityRays);
+    Upt04BoundedTransportState transport = Upt04BeginBoundedTransport();
+    transport.budget.visibilityRays = directVisibilityRays;
+    if (!Upt04CompletePrimaryNeeStage(transport))
+    {
+        Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+        return;
+    }
+    Upt04InitialTraceWork continuation =
+        Upt04PrepareIndirectPathTreeWork<Upt05OpenPbrMaterialSet>(pixel, transport);
+    Upt04HitFacts hit = (Upt04HitFacts)0;
+    hit.status = kUpt04HitTriangle;
+    hit.instanceId = token.instanceId;
+    hit.primitiveId = token.primitiveId;
+    hit.barycentrics = token.barycentrics;
+    hit.frontFace = 1u;
+    hit.hitT = 1.0f;
+    if (continuation.valid != 0u)
+        continuation.traceRequired = 1u;
+    const Upt04IndirectHitTrialResult indirect =
+        Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
+            continuation, hit, pixel);
+    if ((token.kind & kUpt56KindHit2) != 0u)
+    {
+        Upt04StreamInitialTraceWork(
+            reservoir,
+            indirect.endpointCandidate,
+            pixel,
+            1u);
+    }
+    Upt04InitialTraceWork secondaryNee = indirect.neeWork;
+    if ((token.kind & kUpt56KindNee2) != 0u
+        && secondaryNee.valid != 0u
+        && secondaryNee.traceRequired != 0u)
+    {
+        hit = Upt04TraceIndirectVisibilityRayQuery(
+            secondaryNee.ray,
+            Upt04IndirectNeeVisibilityIgnore(secondaryNee));
+        secondaryNee = Upt04AdvanceInitialTraceWork(secondaryNee, hit);
+        Upt04StreamInitialTraceWork(reservoir, secondaryNee, pixel, 2u);
+    }
+    Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+    return;
 #else
     const uint2 pixel = dispatchThreadId.xy;
     if (pixel.x >= gUpt04Control.renderWidth || pixel.y >= gUpt04Control.renderHeight)
@@ -54,7 +102,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     const uint surfaceIndex = pixel.y * gUpt04Control.renderWidth + pixel.x;
     if (surfaceIndex >= gUpt04Control.surfaceCount)
         return;
-#endif
 #if UPT04_EMISSIVE_COMPACT_CLASSIFY
     Upt56ResetEmissiveCompactRequest();
 #endif
@@ -81,6 +128,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     Upt04HitFacts hit = Upt04MissFacts(continuation.ray.tMax);
     if (continuation.valid != 0u && continuation.traceRequired != 0u)
         hit = Upt04TraceRayQuery(continuation.ray);
+    const Upt04HitFacts continuationHit = hit;
     const Upt04IndirectHitTrialResult indirect =
         Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
             continuation, hit, pixel);
@@ -122,7 +170,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
 #if UPT04_EMISSIVE_COMPACT_CLASSIFY
         if (Upt56EmissiveCompactRequested() != 0u)
-            Upt56AppendEmissivePixel(surfaceIndex);
+        {
+            Upt56AppendEmissiveToken(surfaceIndex, continuationHit);
+            Upt04WriteIntermediateInitialReservoir(
+                surfaceIndex, reservoir, directVisibilityRays);
+            return;
+        }
 #endif
         Upt04WriteInitialReservoir(surfaceIndex, reservoir);
         return;
@@ -162,7 +215,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
 #if UPT04_EMISSIVE_COMPACT_CLASSIFY
         if (Upt56EmissiveCompactRequested() != 0u)
-            Upt56AppendEmissivePixel(surfaceIndex);
+        {
+            Upt56AppendEmissiveToken(surfaceIndex, continuationHit);
+            Upt04WriteIntermediateInitialReservoir(
+                surfaceIndex, reservoir, directVisibilityRays);
+            return;
+        }
 #endif
         Upt04WriteInitialReservoir(surfaceIndex, reservoir);
         return;
@@ -216,7 +274,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #endif
 #if UPT04_EMISSIVE_COMPACT_CLASSIFY
     if (Upt56EmissiveCompactRequested() != 0u)
-        Upt56AppendEmissivePixel(surfaceIndex);
+    {
+        Upt56AppendEmissiveToken(surfaceIndex, continuationHit);
+        Upt04WriteIntermediateInitialReservoir(
+            surfaceIndex, reservoir, directVisibilityRays);
+        return;
+    }
 #endif
     Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+#endif
 }
