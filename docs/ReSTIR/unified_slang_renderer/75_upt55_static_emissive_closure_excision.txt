@@ -1,6 +1,12 @@
 UPT-55 - static emissive-closure excision proof
 ================================================
 
+SUPERSEDED RUNTIME CONCLUSION. The "Runtime result" section below ran the
+production artifact (probe cvar is not in EnsurePipeline invalidation). A
+later valid A/B showed the excised PSO collapses the fixture cliff. See
+docs/ReSTIR/standalone_emissive_closure_task.txt. Do not treat the rejection
+as current.
+
 Purpose
 -------
 

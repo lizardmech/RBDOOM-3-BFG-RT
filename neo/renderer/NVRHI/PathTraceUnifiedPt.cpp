@@ -572,13 +572,20 @@ static const char* Upt04SplitIndirectShaderPath(
     bool compactMaterials,
     bool lightTiles,
     bool threeVertexInitial,
-    bool staticAnalyticOnly)
+    bool staticAnalyticOnly,
+    bool emissiveClassify)
 {
     if (threeVertexInitial)
     {
-        return staticAnalyticOnly
-            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_analytic_only.bin"
-            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex.bin";
+        if (staticAnalyticOnly)
+        {
+            return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_analytic_only.bin";
+        }
+        if (emissiveClassify)
+        {
+            return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_classify.bin";
+        }
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex.bin";
     }
     if (lightTiles)
     {
@@ -593,6 +600,11 @@ static const char* Upt04SplitIndirectShaderPath(
     return compactMaterials
         ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_material48.bin"
         : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64.bin";
+}
+
+static const char* Upt04EmissiveCompactConsumeShaderPath()
+{
+    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_consume.bin";
 }
 
 static const char* Upt04ContinuationTraceShaderPath()
@@ -839,6 +851,8 @@ static uint64_t Upt06BuildContentGeneration(
     hash = Upt04HashValue(hash, enabledFamilyMask);
     hash = Upt04HashValue(hash, specializationIdentity);
     hash = Upt04HashValue(hash, dispatch.lambertDiagnostic ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.staticAnalyticOnly ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.emissiveCompact ? 1u : 0u);
     hash = Upt04HashValue(hash,
         dispatch.frozenStaticDiagnostic ? 1u : 0u);
     hash = Upt04HashValue(hash,
@@ -1261,7 +1275,8 @@ static void Upt04AddBindingLayoutItems(
     nvrhi::BindingLayoutDesc& desc,
     bool diagnostics,
     bool splitContinuation,
-    bool lightTiles)
+    bool lightTiles,
+    bool emissiveCompact)
 {
     desc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
     desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
@@ -1291,6 +1306,12 @@ static void Upt04AddBindingLayoutItems(
     }
     desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(31));
     desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
+    if (emissiveCompact)
+    {
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(33));
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(34));
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(35));
+    }
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
 }
 
@@ -1406,7 +1427,10 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     nvrhi::BufferHandle compactLights,
     nvrhi::BufferHandle compactMaterials,
     nvrhi::BufferHandle continuationHits,
-    nvrhi::BufferHandle lightTiles)
+    nvrhi::BufferHandle lightTiles,
+    nvrhi::BufferHandle emissiveCompactQueue,
+    nvrhi::BufferHandle emissiveCompactMeta,
+    nvrhi::BufferHandle emissiveCompactDispatchArgs)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -1479,6 +1503,15 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
         nvrhi::TextureDimension::TextureCube));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         32, lights.unifiedPtEmissiveGeometryBuffer));
+    if (dispatch.emissiveCompact)
+    {
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            33, emissiveCompactQueue));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            34, emissiveCompactMeta));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+            35, emissiveCompactDispatchArgs));
+    }
     desc.addItem(nvrhi::BindingSetItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
     return desc;
 }
@@ -1809,6 +1842,8 @@ void PathTraceUnifiedPtState::ReleasePipeline()
     m_closestHitLibrary = nullptr;
     m_splitIndirectComputePipeline = nullptr;
     m_splitIndirectComputeShader = nullptr;
+    m_emissiveCompactConsumePipeline = nullptr;
+    m_emissiveCompactConsumeShader = nullptr;
     m_computePipeline = nullptr;
     m_computeShader = nullptr;
     m_bindingLayout = nullptr;
@@ -1995,6 +2030,7 @@ void PathTraceUnifiedPtState::Release()
     ReleasePipeline();
     ReleaseCompactGeometry();
     ReleaseCompactLights();
+    ReleaseEmissiveCompact();
     ReleaseLightTiles();
     ReleaseCompactMaterials();
     ReleaseContinuation();
@@ -2071,6 +2107,8 @@ void PathTraceUnifiedPtState::Release()
     m_splitInitial = false;
     m_threeVertexInitial = false;
     m_splitContinuation = false;
+    m_staticAnalyticOnly = false;
+    m_emissiveCompact = false;
     m_directProposalParity = false;
     m_lightTiles = false;
     m_temporalModeActive = false;
@@ -2307,6 +2345,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_threeVertexInitial != inputs.threeVertexInitial ||
         m_splitContinuation != inputs.splitContinuation ||
         m_lambertDiagnostic != inputs.lambertDiagnostic ||
+        m_staticAnalyticOnly != inputs.staticAnalyticOnly ||
+        m_emissiveCompact != inputs.emissiveCompact ||
         m_frozenStaticDiagnostic != inputs.frozenStaticDiagnostic ||
         m_frozenLightDiagnostic != inputs.frozenLightDiagnostic ||
         m_directProposalParity != inputs.directProposalParity ||
@@ -2325,6 +2365,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_threeVertexInitial = inputs.threeVertexInitial;
         m_splitContinuation = inputs.splitContinuation;
         m_lambertDiagnostic = inputs.lambertDiagnostic;
+        m_staticAnalyticOnly = inputs.staticAnalyticOnly;
+        m_emissiveCompact = inputs.emissiveCompact;
         m_frozenStaticDiagnostic = inputs.frozenStaticDiagnostic;
         m_frozenLightDiagnostic = inputs.frozenLightDiagnostic;
         m_directProposalParity = inputs.directProposalParity;
@@ -2411,7 +2453,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             layoutDesc,
             inputs.diagnostics,
             inputs.splitContinuation,
-            inputs.lightTiles);
+            inputs.lightTiles,
+            inputs.emissiveCompact);
     }
     m_bindingLayout = inputs.device->createBindingLayout(layoutDesc);
     if (!m_bindingLayout)
@@ -2514,9 +2557,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                         inputs.compactMaterials,
                         inputs.lightTiles,
                         inputs.threeVertexInitial,
-                        inputs.threeVertexInitial
-                            && (r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger() == 5
-                                || r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger() == 6)),
+                        inputs.staticAnalyticOnly,
+                        inputs.emissiveCompact),
                     splitIndirectData,
                     splitIndirectSize,
                     splitIndirectTimestamp,
@@ -2550,6 +2592,50 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                     "PathTraceUnifiedPt: failed to create split indirect RayQuery pipeline\n");
                 return false;
             }
+            if (inputs.emissiveCompact)
+            {
+                void* consumeData = nullptr;
+                int consumeSize = 0;
+                ID_TIME_T consumeTimestamp = 0;
+                uint64_t consumeHash = 0;
+                if (!Upt04ReadShader(
+                        Upt04EmissiveCompactConsumeShaderPath(),
+                        consumeData,
+                        consumeSize,
+                        consumeTimestamp,
+                        consumeHash))
+                {
+                    return false;
+                }
+                nvrhi::ShaderDesc consumeShaderDesc;
+                consumeShaderDesc.shaderType = nvrhi::ShaderType::Compute;
+                consumeShaderDesc.entryName = "main";
+                consumeShaderDesc.debugName =
+                    "PathTraceUnifiedPtEmissiveCompactConsume";
+                m_emissiveCompactConsumeShader = inputs.device->createShader(
+                    consumeShaderDesc, consumeData, consumeSize);
+                Mem_Free(consumeData);
+                if (!m_emissiveCompactConsumeShader)
+                {
+                    common->Printf(
+                        "PathTraceUnifiedPt: failed to create emissive-compact consume shader\n");
+                    return false;
+                }
+                pipelineDesc.CS = m_emissiveCompactConsumeShader;
+                m_emissiveCompactConsumePipeline =
+                    inputs.device->createComputePipeline(pipelineDesc);
+                if (!m_emissiveCompactConsumePipeline)
+                {
+                    common->Printf(
+                        "PathTraceUnifiedPt: failed to create emissive-compact consume pipeline\n");
+                    return false;
+                }
+                common->Printf(
+                    "PathTraceUnifiedPt: emissive compact consume compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=64x1\n",
+                    consumeSize,
+                    static_cast<unsigned long long>(consumeHash),
+                    static_cast<long long>(consumeTimestamp));
+            }
         }
         common->Printf(
             "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s shading=%s split=%s continuation=%s lightTiles=%u payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
@@ -2579,16 +2665,14 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         if (inputs.splitInitial)
         {
             common->Printf(
-                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 threeVertex=%d x3Nee=%d staticAnalyticOnly=%d continuationRaysMax=%u visibilityRaysMax=%u totalRaysMax=%u rouletteQ=%.2f createUs=%llu\n",
+                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 threeVertex=%d x3Nee=%d staticAnalyticOnly=%d emissiveCompact=%d continuationRaysMax=%u visibilityRaysMax=%u totalRaysMax=%u rouletteQ=%.2f createUs=%llu\n",
                 splitIndirectSize,
                 static_cast<unsigned long long>(splitIndirectHash),
                 static_cast<long long>(splitIndirectTimestamp),
                 inputs.threeVertexInitial ? 1 : 0,
                 inputs.threeVertexInitial ? 1 : 0,
-                inputs.threeVertexInitial
-                    && (r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger() == 5
-                        || r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger() == 6)
-                    ? 1 : 0,
+                inputs.staticAnalyticOnly ? 1 : 0,
+                inputs.emissiveCompact ? 1 : 0,
                 inputs.threeVertexInitial ? 2u : 1u,
                 inputs.threeVertexInitial ? 3u : 2u,
                 inputs.threeVertexInitial ? 5u : 3u,
@@ -2788,7 +2872,10 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             m_compactLightsBuffer,
             m_compactMaterialsBuffer,
             m_continuationHits,
-            m_lightTileBuffer);
+            m_lightTileBuffer,
+            m_emissiveCompactQueue,
+            m_emissiveCompactMeta,
+            m_emissiveCompactDispatchArgs);
     }
     if (m_bindingSets[pageIndex] && m_bindingSetDescValid[pageIndex] &&
         m_bindingSetDescs[pageIndex] == desc)
@@ -3408,6 +3495,140 @@ bool PathTraceUnifiedPtState::ExecuteCompactLightPack(
         inputs.commandList->commitBarriers();
     }
     return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureEmissiveCompactBuffers(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.emissiveCompact)
+    {
+        return true;
+    }
+    const uint64_t count64 = uint64_t(inputs.width) * uint64_t(inputs.height);
+    if (count64 == 0u || count64 > UINT32_MAX)
+    {
+        return false;
+    }
+    const uint32_t count = static_cast<uint32_t>(count64);
+    if (m_emissiveCompactQueue && m_emissiveCompactMeta
+        && m_emissiveCompactDispatchArgs
+        && m_emissiveCompactCapacity == count
+        && (!r_pathTracingUnifiedPtEmissiveCompactDiagnostics.GetBool()
+            || m_emissiveCompactReadback))
+    {
+        return true;
+    }
+
+    nvrhi::BufferDesc queueDesc;
+    queueDesc.debugName = "PathTraceUnifiedPtEmissiveCompactQueue";
+    queueDesc.byteSize = count64 * sizeof(uint32_t);
+    queueDesc.structStride = sizeof(uint32_t);
+    queueDesc.canHaveUAVs = true;
+    queueDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    queueDesc.keepInitialState = true;
+    m_emissiveCompactQueue = inputs.device->createBuffer(queueDesc);
+
+    nvrhi::BufferDesc metaDesc;
+    metaDesc.debugName = "PathTraceUnifiedPtEmissiveCompactMeta";
+    metaDesc.byteSize = 2u * sizeof(uint32_t);
+    metaDesc.structStride = sizeof(uint32_t);
+    metaDesc.canHaveUAVs = true;
+    metaDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    metaDesc.keepInitialState = true;
+    m_emissiveCompactMeta = inputs.device->createBuffer(metaDesc);
+
+    nvrhi::BufferDesc argsDesc;
+    argsDesc.debugName = "PathTraceUnifiedPtEmissiveCompactDispatchArgs";
+    argsDesc.byteSize = 3u * sizeof(uint32_t);
+    argsDesc.structStride = sizeof(uint32_t);
+    argsDesc.canHaveUAVs = true;
+    argsDesc.isDrawIndirectArgs = true;
+    argsDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    argsDesc.keepInitialState = true;
+    m_emissiveCompactDispatchArgs = inputs.device->createBuffer(argsDesc);
+
+    m_emissiveCompactReadback = nullptr;
+    if (r_pathTracingUnifiedPtEmissiveCompactDiagnostics.GetBool())
+    {
+        nvrhi::BufferDesc readbackDesc;
+        readbackDesc.debugName = "PathTraceUnifiedPtEmissiveCompactReadback";
+        readbackDesc.byteSize = 5u * sizeof(uint32_t);
+        readbackDesc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        readbackDesc.initialState = nvrhi::ResourceStates::CopyDest;
+        readbackDesc.keepInitialState = true;
+        m_emissiveCompactReadback = inputs.device->createBuffer(readbackDesc);
+    }
+    m_emissiveCompactCapacity = m_emissiveCompactQueue
+            && m_emissiveCompactMeta && m_emissiveCompactDispatchArgs
+        ? count : 0u;
+    for (uint32_t page = 0u; page < 2u; ++page)
+    {
+        m_bindingSets[page] = nullptr;
+        m_bindingSetDescValid[page] = false;
+    }
+    if (m_emissiveCompactCapacity != 0u)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: emissive compact queue pixels=%u bytes=%llu recordBytes=4 clear=never resetBytes=20 groups=64x1\n",
+            count,
+            static_cast<unsigned long long>(queueDesc.byteSize));
+    }
+    return m_emissiveCompactCapacity != 0u
+        && (!r_pathTracingUnifiedPtEmissiveCompactDiagnostics.GetBool()
+            || m_emissiveCompactReadback != nullptr);
+}
+
+void PathTraceUnifiedPtState::DrainEmissiveCompactReadback(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!m_emissiveCompactReadbackPending
+        || !m_emissiveCompactReadback || !inputs.device)
+    {
+        return;
+    }
+    if (m_emissiveCompactReadbackDelayFrames > 0)
+    {
+        --m_emissiveCompactReadbackDelayFrames;
+        return;
+    }
+    const uint32_t* words = static_cast<const uint32_t*>(
+        inputs.device->mapBuffer(
+            m_emissiveCompactReadback, nvrhi::CpuAccessMode::Read));
+    if (!words)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: emissive compact readback map failed\n");
+        m_emissiveCompactReadbackPending = false;
+        return;
+    }
+    const uint32_t groups = words[0];
+    const uint32_t groupY = words[1];
+    const uint32_t groupZ = words[2];
+    const uint32_t published = words[3];
+    const uint32_t capacity = words[4];
+    inputs.device->unmapBuffer(m_emissiveCompactReadback);
+    const uint32_t bounded = Min(published, capacity);
+    const uint32_t expectedGroups = (bounded + 63u) / 64u;
+    common->Printf(
+        "PathTraceUnifiedPt: emissive compact published/bounded/capacity=%u/%u/%u groups(actual/expected,y,z)=%u/%u/%u/%u overflow=%u fraction=%.4f status=%s\n",
+        published, bounded, capacity,
+        groups, expectedGroups, groupY, groupZ,
+        published > capacity ? published - capacity : 0u,
+        capacity != 0u ? float(bounded) / float(capacity) : 0.0f,
+        groups == expectedGroups && groupY == 1u && groupZ == 1u
+            ? "PASS" : "FAIL");
+    m_emissiveCompactReadbackPending = false;
+}
+
+void PathTraceUnifiedPtState::ReleaseEmissiveCompact()
+{
+    m_emissiveCompactQueue = nullptr;
+    m_emissiveCompactMeta = nullptr;
+    m_emissiveCompactDispatchArgs = nullptr;
+    m_emissiveCompactReadback = nullptr;
+    m_emissiveCompactCapacity = 0u;
+    m_emissiveCompactReadbackPending = false;
+    m_emissiveCompactReadbackDelayFrames = 0;
 }
 
 bool PathTraceUnifiedPtState::EnsureLightTileResources(
@@ -4328,6 +4549,11 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     m_initialPublishedThisFrame = false;
     m_spatialExecutedThisFrame = false;
     DrainDiagnosticReadback(inputs);
+    DrainEmissiveCompactReadback(inputs);
+    if (!inputs.emissiveCompact && m_emissiveCompactQueue)
+    {
+        ReleaseEmissiveCompact();
+    }
     if (!inputs.duplication && m_duplicationSampleIds)
     {
         ReleaseDuplication();
@@ -4451,6 +4677,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         (!EnsureContinuationResources(inputs) ||
          !EnsureContinuationPipeline(inputs) ||
          !EnsureContinuationBindingSet(inputs)))
+    {
+        return false;
+    }
+    if (inputs.emissiveCompact && !EnsureEmissiveCompactBuffers(inputs))
     {
         return false;
     }
@@ -4709,6 +4939,27 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 "UPT.D0 Split Intermediate Reservoir Barrier",
                 inputs.nsightMarkers);
             nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
+            if (inputs.emissiveCompact)
+            {
+                const uint32_t compactArgs[3] = { 0u, 1u, 1u };
+                const uint32_t compactMeta[2] = {
+                    0u, m_emissiveCompactCapacity };
+                inputs.commandList->writeBuffer(
+                    m_emissiveCompactDispatchArgs,
+                    compactArgs, sizeof(compactArgs));
+                inputs.commandList->writeBuffer(
+                    m_emissiveCompactMeta,
+                    compactMeta, sizeof(compactMeta));
+                inputs.commandList->setBufferState(
+                    m_emissiveCompactQueue,
+                    nvrhi::ResourceStates::UnorderedAccess);
+                inputs.commandList->setBufferState(
+                    m_emissiveCompactMeta,
+                    nvrhi::ResourceStates::UnorderedAccess);
+                inputs.commandList->setBufferState(
+                    m_emissiveCompactDispatchArgs,
+                    nvrhi::ResourceStates::UnorderedAccess);
+            }
             inputs.commandList->commitBarriers();
             nvrhi::ComputeState state;
             state.pipeline = m_splitIndirectComputePipeline;
@@ -4723,7 +4974,9 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 ? "UPT.D0b Split Indirect RayQuery 8x8"
                 : (oneGroupRow
                     ? "UPT.D0b Split Indirect RayQuery OneGroupRow"
-                    : "UPT.D0b Split Indirect RayQuery FullFrame");
+                    : (inputs.emissiveCompact
+                        ? "UPT.D0b Emissive Compact Classify 8x8"
+                        : "UPT.D0b Split Indirect RayQuery FullFrame"));
             Upt04MarkerScope marker(
                 inputs.commandList,
                 markerName,
@@ -4732,6 +4985,58 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 oneGroup ? 1u : (inputs.width + 7u) / 8u,
                 oneGroup || oneGroupRow ? 1u : (inputs.height + 7u) / 8u,
                 1u);
+        }
+        if (inputs.emissiveCompact && m_emissiveCompactConsumePipeline)
+        {
+            nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_emissiveCompactQueue);
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_emissiveCompactMeta);
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_emissiveCompactDispatchArgs);
+            inputs.commandList->setBufferState(
+                m_emissiveCompactDispatchArgs,
+                nvrhi::ResourceStates::IndirectArgument);
+            inputs.commandList->commitBarriers();
+            Upt04MarkerScope consumeMarker(
+                inputs.commandList,
+                "UPT.D0c Emissive Compact Consume 64x1",
+                inputs.nsightMarkers);
+            nvrhi::ComputeState consumeState;
+            consumeState.pipeline = m_emissiveCompactConsumePipeline;
+            consumeState.bindings = { m_bindingSets[m_currentPageIndex] };
+            consumeState.bindings.push_back(
+                inputs.sceneInputs->materials.textureDescriptorTable);
+            consumeState.indirectParams = m_emissiveCompactDispatchArgs;
+            inputs.commandList->setComputeState(consumeState);
+            inputs.commandList->setPushConstants(&control, sizeof(control));
+            inputs.commandList->dispatchIndirect(0u);
+            if (r_pathTracingUnifiedPtEmissiveCompactDiagnostics.GetBool()
+                && m_emissiveCompactReadback
+                && !m_emissiveCompactReadbackPending)
+            {
+                inputs.commandList->setBufferState(
+                    m_emissiveCompactDispatchArgs,
+                    nvrhi::ResourceStates::CopySource);
+                inputs.commandList->setBufferState(
+                    m_emissiveCompactMeta,
+                    nvrhi::ResourceStates::CopySource);
+                inputs.commandList->setBufferState(
+                    m_emissiveCompactReadback,
+                    nvrhi::ResourceStates::CopyDest);
+                inputs.commandList->commitBarriers();
+                inputs.commandList->copyBuffer(
+                    m_emissiveCompactReadback, 0,
+                    m_emissiveCompactDispatchArgs, 0,
+                    3u * sizeof(uint32_t));
+                inputs.commandList->copyBuffer(
+                    m_emissiveCompactReadback, 3u * sizeof(uint32_t),
+                    m_emissiveCompactMeta, 0,
+                    2u * sizeof(uint32_t));
+                m_emissiveCompactReadbackPending = true;
+                m_emissiveCompactReadbackDelayFrames = 2;
+            }
         }
     }
 

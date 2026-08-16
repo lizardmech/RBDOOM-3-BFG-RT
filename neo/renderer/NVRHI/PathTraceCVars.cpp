@@ -1455,6 +1455,18 @@ idCVar r_pathTracingUnifiedPtThreeVertexBottleneckProbe(
     CVAR_RENDERER | CVAR_INTEGER,
     "UPT D0 x3 bottleneck isolation (temporal should be off): 0 production; 1 no x3; 2 add x3 trace/endpoint; 3/4 combined NEE no-vis/full; 5/6 static analytic-only PSO with emissive closure compiled out, no-vis/full; 7/8 emissive-only no-vis/full; 9/10 combined NEE with constant x3 material no-vis/full; 11 selection only; 12 selection plus light load; 13 selection plus local-light evaluation; 14 synthetic finalization only; 15 one selected proposal" );
 
+idCVar r_pathTracingUnifiedPtEmissiveCompact(
+    "r_pathTracingUnifiedPtEmissiveCompact",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-56 D0 emissive-closure compaction: compile the three emissive call sites out of the full-screen three-vertex classifier and resolve them in a 64x1 consumer over a pixel-index queue; requires effective three-vertex initial and is ignored for probes 5/6" );
+
+idCVar r_pathTracingUnifiedPtEmissiveCompactDiagnostics(
+    "r_pathTracingUnifiedPtEmissiveCompactDiagnostics",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT-56 one-frame-delayed emissive-compact queue published/bounded/capacity diagnostics; no synchronous GPU readback" );
+
 idCVar r_pathTracingUnifiedPtLightTiles(
     "r_pathTracingUnifiedPtLightTiles",
     "0",

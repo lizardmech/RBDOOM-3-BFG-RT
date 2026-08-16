@@ -3816,6 +3816,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             const int threeVertexBottleneckProbe = idMath::ClampInt(
                 0, 15,
                 r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger());
+            unifiedPtInputs.staticAnalyticOnly =
+                unifiedPtInputs.threeVertexInitial
+                && (threeVertexBottleneckProbe == 5
+                    || threeVertexBottleneckProbe == 6);
+            unifiedPtInputs.emissiveCompact =
+                r_pathTracingUnifiedPtEmissiveCompact.GetBool()
+                && unifiedPtInputs.threeVertexInitial
+                && !unifiedPtInputs.staticAnalyticOnly;
+            static int reportedEmissiveCompact = -1;
             if (reportedThreeVertexRequest != threeVertexRequest
                 || reportedThreeVertexEffective != threeVertexEffective
                 || reportedThreeVertexContinueProbabilityKey
@@ -3823,10 +3832,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 || reportedThreeVertexMinimumPathThroughputKey
                     != threeVertexMinimumPathThroughputKey
                 || reportedThreeVertexBottleneckProbe
-                    != threeVertexBottleneckProbe)
+                    != threeVertexBottleneckProbe
+                || reportedEmissiveCompact
+                    != (unifiedPtInputs.emissiveCompact ? 1 : 0))
             {
                 common->Printf(
-                    "PathTraceUnifiedPt: three-vertex initial requested/effective=%d/%d q=%.3f minimumPathThroughput=%.3f bottleneckProbe(requested/effective)=%d/%d stages=1:none,2:+x3trace,3/4:combined-noVis/full,5/6:staticAnalyticOnly-noVis/full,7/8:emissive-noVis/full,9/10:constantMaterial-noVis/full,11:selection,12:+lightLoad,13:+localLightEval,14:finalizeOnly,15:oneSelection temporalOff=%u cutoff=initial-only-uncompensated-L2 gate(splitInitial/nativeGeometry/compactLights/noCompactMaterials/noTiles/temporalReplay/spatialReplay/openPbr/noFrozen/rayquery/unified/compact32/proof6)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
+                    "PathTraceUnifiedPt: three-vertex initial requested/effective=%d/%d q=%.3f minimumPathThroughput=%.3f bottleneckProbe(requested/effective)=%d/%d staticAnalyticOnly=%d emissiveCompact=%d stages=1:none,2:+x3trace,3/4:combined-noVis/full,5/6:staticAnalyticOnly-noVis/full,7/8:emissive-only-noVis/full,9/10:constantMaterial-noVis/full,11:selection,12:+lightLoad,13:+localLightEval,14:finalizeOnly,15:oneSelection temporalOff=%u cutoff=initial-only-uncompensated-L2 gate(splitInitial/nativeGeometry/compactLights/noCompactMaterials/noTiles/temporalReplay/spatialReplay/openPbr/noFrozen/rayquery/unified/compact32/proof6)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
                     threeVertexRequest,
                     threeVertexEffective,
                     threeVertexContinueProbability,
@@ -3834,6 +3845,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     threeVertexBottleneckProbe,
                     unifiedPtInputs.threeVertexInitial
                         ? threeVertexBottleneckProbe : 0,
+                    unifiedPtInputs.staticAnalyticOnly ? 1 : 0,
+                    unifiedPtInputs.emissiveCompact ? 1 : 0,
                     unifiedPtInputs.temporal ? 0u : 1u,
                     unifiedPtInputs.splitInitial ? 1u : 0u,
                     unifiedPtInputs.compactGeometry ? 0u : 1u,
@@ -3857,6 +3870,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     threeVertexMinimumPathThroughputKey;
                 reportedThreeVertexBottleneckProbe =
                     threeVertexBottleneckProbe;
+                reportedEmissiveCompact =
+                    unifiedPtInputs.emissiveCompact ? 1 : 0;
             }
             unifiedPtInputs.historyEpoch = m_frameResources.historyEpoch;
             unifiedPtInputs.historyResetReasonFlags =

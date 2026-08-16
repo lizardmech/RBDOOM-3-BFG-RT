@@ -26,6 +26,11 @@ import upt04_initial_light_selection;
 #ifndef UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
 #define UPT04_STATIC_ANALYTIC_INDIRECT_ONLY 0
 #endif
+#ifndef UPT04_EMISSIVE_COMPACT_CLASSIFY
+#define UPT04_EMISSIVE_COMPACT_CLASSIFY 0
+#endif
+import upt04_emissive_compact;
+import upt04_material_emission;
 
 public struct Upt04IndirectHitTrialResult
 {
@@ -317,6 +322,11 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         (Upt04MaterialEmissionEvaluation)0;
 #if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
     endpointEmission.valid = 1u;
+#elif UPT04_EMISSIVE_COMPACT_CLASSIFY
+    endpointEmission.valid = 1u;
+    if ((Upt04LoadMaterialFlags(hitSurface.materialIndex)
+            & kUpt04MaterialEmissive) != 0u)
+        Upt56NoteEmissiveCompactNeeded();
 #else
     endpointEmission = TMaterialSet.EvaluateEmissiveEndpoint(
         hitSurface.materialIndex,
@@ -349,7 +359,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     }
     uint reverseStatus = 0u;
-#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY || UPT04_EMISSIVE_COMPACT_CLASSIFY
     const float endpointNeePdf = 0.0f;
 #else
     const float endpointNeePdf = any(endpointEmission.radiance > 0.0f)

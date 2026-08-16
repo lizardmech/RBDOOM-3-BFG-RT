@@ -1,0 +1,311 @@
+UPT-56 - emissive closure removal by pre-resolved samples
+==========================================================
+
+SUPERSEDED. Option B (per-triangle pre-resolved samples) is rejected. The
+locked production fix is option A: two-dispatch compact queue, estimator
+unchanged. See docs/ReSTIR/standalone_emissive_closure_task.txt.
+
+Purpose
+-------
+
+UPT-53 and UPT-54 were both rejected at runtime. This document replaces the
+one-variable-at-a-time sequence with a single architectural target taken from
+the NVIDIA references, plus the measurement discipline needed to prove it.
+
+The target is one rule, stated once:
+
+    D0 must not bind emissive geometry, emissive replay, the material table,
+    or the bindless texture table for the emissive NEE path.
+
+Every step below exists to reach that rule without losing the complete stable
+light universe or the small-emissive-mask fidelity that UPT-54 correctly
+refused to trade away.
+
+
+Corrected evidence
+------------------
+
+Source captures, temporal and spatial disabled, same SPIR-V hash
+d8704605ba2b1d22 in the first two:
+
+    nsightUPTwall2.csv          238,130 samples   wall camera
+    nsightUPTbrokenobject.csv   388,156 samples   fixture visible
+    nsightUPTbrokenobject2.csv  352,331 samples   after UPT-53/54
+
+Decomposition of the +150,026 regression by whether the instruction was
+already executing in the wall capture:
+
+    newly-executed lines        +66,665   44.4 percent
+    already-live lines          +83,361   55.6 percent
+
+Stall delta on the already-live lines:
+
+    No Instructions             +73,105
+    Wait                         +6,201
+    Selected                     +3,362
+    Long Scoreboard                -938
+    MIO Throttle                   -669
+    LG Throttle                    -211
+
+Three conclusions follow, and they govern this plan:
+
+1.  Memory and traversal behaviour of the pre-existing code did not degrade.
+    Long Scoreboard is negative. The fixture does not add traversal work.
+
+2.  More than half the regression is instruction fetch on code unrelated to
+    emissive lighting. Making the emissive block cheaper cannot recover it.
+    Only removing the block from the kernel's instruction footprint can.
+
+3.  The baseline is already unhealthy. The wall capture spends
+    73,249 / 238,130 = 30.8 percent on No Instructions with the emissive
+    closure never entered. The fixture aggravates a chronic condition; it does
+    not create one.
+
+Point 3 is the fact missing from documents 74 and 75. It means a successful
+emissive excision still leaves a large footprint problem, and it must be
+tracked as a separate work item rather than folded into this one.
+
+
+Why UPT-53 and UPT-54 failed
+----------------------------
+
+UPT-53 did not split anything. The shipped artifact is one entry point of
+42,904 SPIR-V instructions in which lines L21452 and above carry 167 of
+352,331 samples. Half the module is dead code behind a runtime predicate. It
+also raised peak live registers from 111 to 126, with 335 live-half lines above
+the old maximum carrying 33,823 samples. A ~9 percent instruction-side gain was
+cancelled by the occupancy loss. That is the whole explanation for the null
+result.
+
+UPT-54 is correctly diagnosed in its own postmortem: one exact endpoint
+evaluation is sufficient to keep the entire divergent material/texture/replay
+closure resident. Verified against the shipped artifact - the live half of
+BROKEN2 still contains 11 image-sample sites and 10 material-record loads, and
+introduces no new binding. Reducing five material evaluations to one reduces
+work, not footprint.
+
+Both failures share one root cause: a runtime predicate cannot remove code from
+a single inlined SPIR-V function. Only compile-time exclusion or a separate
+dispatch can.
+
+
+The NVIDIA ownership rule
+-------------------------
+
+Both references put expensive emissive material work in bounded light
+preparation and give the screen-sized kernel a self-contained record:
+
+    FullSample   PrepareLights evaluates the emissive texture once per
+                 triangle at a representative point and stores geometry plus
+                 constant radiance. The PT hot loop loads that record, samples
+                 barycentrics, and traces visibility only for the winner.
+
+    Remix        A world-space NEE-cache update pass produces sixteen resolved
+                 samples per cell, each 32 bytes with position, normal,
+                 half-precision radiance, PDF and identity. The indirect
+                 integrator consumes one packed sample in O(1).
+
+Document 74 rejected the FullSample shape for a correct reason: a single
+representative radiance turns a large triangle with a small emissive mask into
+a ghost emitter. That objection is real and must be preserved.
+
+It does not, however, apply to Remix's shape. Remix keeps exact textured
+evaluation at real sampled barycentrics; it only moves that evaluation out of
+the per-pixel loop and amortizes it. UPT-56 adopts the Remix shape, applied per
+emissive triangle instead of per world-space cell, which additionally preserves
+the complete stable light universe that a feedback-driven cache cannot
+guarantee.
+
+
+Design: pre-resolved emissive samples
+-------------------------------------
+
+Add one sidecar buffer indexed by dense current light index, parallel to the
+existing 64-byte compact light buffer and validated by the same generation.
+
+Per emissive light, the preparation pass writes K resolved samples:
+
+    barycentric        2 x binary16                          4 bytes
+    radiance           RGB9E5 or 3 x binary16                4 bytes
+                                                     total   8 bytes
+
+With K = 16 that is 128 bytes per emissive light. For a few thousand emissive
+triangles this is a few hundred kilobytes, no screen-sized allocation, and no
+per-frame clear. A 32-bit prefix-weight or a small CDF header may share the
+existing compact64 record's now-freed replay field.
+
+Preparation, one thread per dense current light, extending the existing
+128 x 1 pass in upt04_compact_light_pack.slang:
+
+    stratify K barycentrics over the triangle;
+    evaluate the emissive endpoint exactly at each, with the existing
+        material/texture path, which already lives in this pass;
+    store barycentric and radiance;
+    build the K-entry importance CDF from luminance;
+    write the total as the light's emissive power.
+
+Sample sets are regenerated only when the light's generation, material or
+geometry fingerprint changes - not per frame. This keeps stored barycentrics
+replayable by T0/S0 without an ABI change, at the cost of a fixed
+discretization. K = 16 stratified points is sufficient for mesh-light triangles
+at their typical screen size; revisit K only with a measured artifact.
+
+D0 hot path, for a selected emissive candidate:
+
+    load the compact light record;
+    select entry i from the K-entry CDF;
+    position = p0 + e1 * b_i.x + e2 * b_i.y;
+    radiance = stored radiance of entry i;
+    no geometry replay, no material record load, no texture sample,
+        no identity-validation branch tree.
+
+PDF convention. The triangle integral becomes a discrete sum over K points, so
+each point represents area A / K. Selecting entry i with probability p_i gives
+an effective area density of p_i * K / A. Substitute that for the current
+four-region conditional term and leave the area-to-solid-angle conversion,
+selection PDF and reservoir weight algebra byte-for-byte unchanged. The existing
+selectionPdf x solidAnglePdf x regionalPdf shape is preserved; only the third
+factor's source changes.
+
+Fidelity. Black points remain black samples and the CDF down-weights them
+naturally. A small emissive mask on a large triangle is captured because the K
+samples are exact texture evaluations spread across the triangle, and
+importance selection concentrates on the lit ones. No triangle-average radiance
+is ever substituted for an endpoint. This satisfies the UPT-54 constraint that
+FullSample's shape violates.
+
+Reuse. T0 and S0 gain more than D0 does: they currently pay the full replay per
+reused sample, and after this change they perform the same single record load.
+This is the mechanism behind the "multiplied by temporal and spatial" behaviour
+and it is fixed by the same change, without touching either pass's algorithm.
+
+
+Steps
+-----
+
+S56.0  Finish the UPT-55 causal proof, with a corrected gate.
+
+    The separate analytic-only PSO is the right experiment and is already
+    partially implemented via UPT04_STATIC_ANALYTIC_INDIRECT_ONLY. Do not
+    change it. Change only how it is run and judged.
+
+    Run the full 2 x 2 matrix, temporal and spatial disabled:
+
+        production PSO  x  wall camera
+        production PSO  x  fixture camera
+        excised PSO     x  wall camera
+        excised PSO     x  fixture camera
+
+    Document 75 specifies only the fixture pair. The wall pair is what
+    separates the chronic 30.8 percent baseline from the fixture delta, and
+    the excised-fixture-versus-excised-wall difference is the only measurement
+    that can show a residual fixture cost which is not emissive closure.
+
+    Record for each cell: SPIR-V instruction count, module hash, total sample
+    count, No Instructions percentage, registers per thread from Launch
+    Statistics. Frame time last.
+
+    Gate. If excised-fixture minus excised-wall is small relative to
+    production-fixture minus production-wall, resident emissive closure is
+    confirmed as the cause and S56.1 proceeds. If the residual survives, stop
+    and re-diagnose; do not commission the sidecar.
+
+S56.1  Extend the preparation pass to emit K resolved samples.
+
+    New sidecar buffer, dense current-light indexed, generation validated,
+    no per-frame clear, no ray. Reuse the existing bindings that UPT-54
+    already added to this pass.
+
+    Static gate: the preparation artifact contains no OpRayQueryInitializeKHR
+    and no OpTraceRayKHR; exactly one bounded image-sample loop; K is a
+    compile-time constant.
+
+S56.2  Consume the sidecar in D0 behind a compile-time specialization.
+
+    A new specialization, not a runtime branch. UPT-53's shape is prohibited.
+    The rollback path keeps the current replay closure and lives in a separate
+    artifact.
+
+S56.3  Prove the closure is gone structurally, not by timing.
+
+    Add VerifyUpt56EmissiveClosure.cmake alongside the existing verifiers.
+    On the D0 and three-vertex production artifacts it must fail the build if
+    any of the following is reachable from the emissive NEE path:
+
+        gUpt04EmissiveGeometry or gUpt04EmissiveReplay in the entry interface
+        OpImageSampleExplicitLod
+        Upt04SmokeMaterialRecord or Upt04CompactMaterialRecord load
+        Upt04ReplayEmissiveTriangleBarycentrics
+
+    This is the acceptance criterion. Reflection showing those bindings absent
+    from the entry point is worth more than any single frame-time number,
+    because it is what the previous two attempts failed to achieve.
+
+S56.4  Re-run the S56.0 matrix on the new production artifact.
+
+    Expected signature if the design is correct:
+        newly-executed line count between wall and fixture collapses;
+        No Instructions at the fixture approaches the wall value;
+        registers per thread falls;
+        instruction count falls by more than the emissive block's size,
+            because the material and texture closure it anchored goes with it.
+
+S56.5  Only then, extend to T0 and S0 and re-enable reuse.
+
+    No algorithm change. The reuse passes consume the same sidecar. Measure
+    the same counters before and after enabling each pass separately.
+
+
+Separate work item: chronic footprint
+-------------------------------------
+
+Do not fold this into UPT-56 and do not let a good UPT-56 result close it.
+
+The secondary dispatch is one inlined entry point with zero OpFunctionCall and
+zero OpSpecConstant across the whole module, and it burns 30.8 percent on
+instruction fetch with the emissive path never entered. Levers, in order of
+expected leverage:
+
+    selective noinline on large cold blocks - zero function calls in a
+        21,000-instruction shader is the anomaly; watch for register spills;
+    specialization constants for geometry routes and material families - the
+        VerifyUpt04StaticSpecializations machinery exists but no spec constant
+        reaches this module;
+    reduce Unroll decorations.
+
+Gate: baseline wall-camera No Instructions below 15 percent. That result speeds
+up every camera, not only the fixture.
+
+
+Measurement rules
+-----------------
+
+These exist because three consecutive experiments were judged on frame time
+and produced null or misleading results.
+
+1.  Confirm the module hash and SPIR-V instruction count changed in the
+    intended direction before capturing anything. UPT-53's doubling was
+    visible in the CSV immediately and would have saved a full cycle.
+
+2.  Never accept an A/B in which the artifact hash did not change.
+
+3.  Report No Instructions percentage and newly-executed line count for every
+    capture. A change that halves emissive work but leaves No Instructions at
+    40 percent has fixed the smaller half of the problem, and that must be
+    visible rather than inferred from an unchanged frame time.
+
+4.  Report registers per thread from Launch Statistics, not the source view's
+    live-register estimate.
+
+5.  Capture wall and fixture cameras for every variant. A single-camera
+    capture cannot distinguish a chronic cost from a scene-dependent one.
+
+
+Prohibited
+----------
+
+    a second inline lane behind a runtime predicate in the same entry point;
+    triangle-average or centroid radiance replacing an exact endpoint;
+    a feedback-driven cache as the sole emissive proposal source;
+    accepting or rejecting a change on frame time alone;
+    widening the compact64 light ABI - the sidecar is a separate buffer.

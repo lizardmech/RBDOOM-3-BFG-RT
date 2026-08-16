@@ -83,6 +83,8 @@ struct PathTraceUnifiedPtDispatchInputs
     bool threeVertexInitial = false;
     bool splitContinuation = false;
     bool lambertDiagnostic = false;
+    bool staticAnalyticOnly = false;
+    bool emissiveCompact = false;
     bool frozenStaticDiagnostic = false;
     bool frozenLightDiagnostic = false;
     uint32_t temporalBottleneckProbe = 0;
@@ -253,6 +255,9 @@ private:
     bool EnsureCompactLightPipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureCompactLightBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool ExecuteCompactLightPack(const PathTraceUnifiedPtDispatchInputs& inputs);
+    bool EnsureEmissiveCompactBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
+    void DrainEmissiveCompactReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
+    void ReleaseEmissiveCompact();
     bool EnsureLightTileResources(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureLightTilePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureLightTileBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -349,6 +354,8 @@ private:
     bool m_threeVertexInitial = false;
     bool m_splitContinuation = false;
     bool m_lambertDiagnostic = false;
+    bool m_staticAnalyticOnly = false;
+    bool m_emissiveCompact = false;
     bool m_frozenStaticDiagnostic = false;
     bool m_frozenLightDiagnostic = false;
     bool m_directProposalParity = false;
@@ -397,6 +404,15 @@ private:
     nvrhi::ComputePipelineHandle m_computePipeline;
     nvrhi::ShaderHandle m_splitIndirectComputeShader;
     nvrhi::ComputePipelineHandle m_splitIndirectComputePipeline;
+    nvrhi::ShaderHandle m_emissiveCompactConsumeShader;
+    nvrhi::ComputePipelineHandle m_emissiveCompactConsumePipeline;
+    uint32_t m_emissiveCompactCapacity = 0u;
+    nvrhi::BufferHandle m_emissiveCompactQueue;
+    nvrhi::BufferHandle m_emissiveCompactMeta;
+    nvrhi::BufferHandle m_emissiveCompactDispatchArgs;
+    nvrhi::BufferHandle m_emissiveCompactReadback;
+    bool m_emissiveCompactReadbackPending = false;
+    int m_emissiveCompactReadbackDelayFrames = 0;
 
     uint32_t m_continuationCapacity = 0;
     nvrhi::BufferHandle m_continuationHits;

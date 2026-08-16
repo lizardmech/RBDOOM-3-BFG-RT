@@ -78,7 +78,8 @@ set(UPT04_UNIFIED_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_bindings.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_decode.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_replay.slang"
-    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_lookup.slang")
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_lookup.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_compact.slang")
 
 set(UPT04_ALL_OUTPUTS)
 foreach(material_set baseline deterministic)
@@ -423,6 +424,42 @@ path_tracing_declare_slang_spirv_module(
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS
     ${split_indirect_light64_three_vertex_analytic_only_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_classify
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_EMISSIVE_COMPACT_CLASSIFY=1
+    OUT_VAR split_indirect_light64_three_vertex_emissive_classify_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_three_vertex_emissive_classify_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_consume
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_EMISSIVE_COMPACT_CONSUME=1
+    OUT_VAR split_indirect_light64_three_vertex_emissive_consume_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_three_vertex_emissive_consume_outputs})
 
 path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_split_direct_rayquery_compact32_light_tiles
@@ -1211,6 +1248,31 @@ set_target_properties(PathTraceSlangUpt35ThreeVertex
     PROPERTIES FOLDER "Shaders/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph
     PathTraceSlangUpt35ThreeVertex)
+set(UPT56_VERIFY_STAMP
+    "${UPT04_OUTPUT_DIR}/upt56_emissive_closure_verified.txt")
+add_custom_command(
+    OUTPUT "${UPT56_VERIFY_STAMP}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DUPT56_PRODUCTION_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex.slang.spirv-reflection.json
+        -DUPT56_PRODUCTION_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex.slang.spvasm
+        -DUPT56_CLASSIFY_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_classify.slang.spirv-reflection.json
+        -DUPT56_CLASSIFY_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_classify.slang.spvasm
+        -DUPT56_CONSUME_REFLECTION=${UPT04_OUTPUT_DIR}/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_consume.slang.spirv-reflection.json
+        -DUPT56_CONSUME_DISASSEMBLY=${UPT04_OUTPUT_DIR}/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_consume.slang.spvasm
+        -DUPT56_STAMP=${UPT56_VERIFY_STAMP}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt56EmissiveClosure.cmake"
+    DEPENDS ${split_indirect_light64_three_vertex_rayquery_outputs}
+        ${split_indirect_light64_three_vertex_emissive_classify_outputs}
+        ${split_indirect_light64_three_vertex_emissive_consume_outputs}
+        "${CMAKE_CURRENT_SOURCE_DIR}/VerifyUpt56EmissiveClosure.cmake"
+    COMMENT "UPT-56 verifying emissive-compact classify/consume closure split"
+    VERBATIM)
+add_custom_target(PathTraceSlangUpt56EmissiveClosure
+    DEPENDS "${UPT56_VERIFY_STAMP}")
+set_target_properties(PathTraceSlangUpt56EmissiveClosure
+    PROPERTIES FOLDER "Shaders/UPT-04")
+add_dependencies(PathTraceSlangUpt04ModuleGraph
+    PathTraceSlangUpt56EmissiveClosure)
 set(UPT04_LIGHT_TILE_VERIFY_STAMP
     "${UPT04_OUTPUT_DIR}/upt04_light_tiles_verified.txt")
 add_custom_command(
@@ -1274,6 +1336,8 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_split_indirect_rayquery_compact32_light64
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_analytic_only
+    upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_classify
+    upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_consume
     upt04_initial_split_direct_rayquery_compact32_light_tiles
     upt04_initial_split_indirect_rayquery_compact32_light_tiles
     upt04_initial_split_direct_rayquery_compact32_geometry48_light64
@@ -1337,6 +1401,8 @@ set(UPT04_PRODUCTION_RUNTIME_MODULES
     upt04_initial_split_indirect_rayquery_compact32_light64
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_analytic_only
+    upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_classify
+    upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_consume
     upt04_initial_rayquery_compact32_lambert
     upt04_initial_rayquery_compact32_light64_lambert
     upt04_initial_reflection_direct_rayquery)
@@ -1350,6 +1416,12 @@ foreach(runtime_module IN LISTS UPT04_RUNTIME_MODULES)
         if(runtime_module STREQUAL
                 "upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex")
             list(APPEND runtime_dependencies "${UPT35_VERIFY_STAMP}")
+        endif()
+        if(runtime_module STREQUAL
+                "upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_classify"
+           OR runtime_module STREQUAL
+                "upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_consume")
+            list(APPEND runtime_dependencies "${UPT56_VERIFY_STAMP}")
         endif()
     else()
         set(runtime_dependencies "${runtime_source}"

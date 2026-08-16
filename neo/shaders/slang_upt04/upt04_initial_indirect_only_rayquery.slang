@@ -22,16 +22,42 @@ import upt04_initial_multibounce;
 #ifndef UPT04_SPLIT_INITIAL_INDIRECT
 #define UPT04_SPLIT_INITIAL_INDIRECT 0
 #endif
+#ifndef UPT04_EMISSIVE_COMPACT_CLASSIFY
+#define UPT04_EMISSIVE_COMPACT_CLASSIFY 0
+#endif
+#ifndef UPT04_EMISSIVE_COMPACT_CONSUME
+#define UPT04_EMISSIVE_COMPACT_CONSUME 0
+#endif
+import upt04_emissive_compact;
 
+#if UPT04_EMISSIVE_COMPACT_CONSUME
+[numthreads(64, 1, 1)]
+#else
 [numthreads(8, 8, 1)]
+#endif
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
+#if UPT04_EMISSIVE_COMPACT_CONSUME
+    const uint compactCount = Upt56CompactQueuedCount();
+    if (dispatchThreadId.x >= compactCount)
+        return;
+    const uint surfaceIndex = Upt56CompactQueuedIndex(dispatchThreadId.x);
+    if (surfaceIndex >= gUpt04Control.surfaceCount)
+        return;
+    const uint pixelY = surfaceIndex / gUpt04Control.renderWidth;
+    const uint2 pixel = uint2(
+        surfaceIndex - pixelY * gUpt04Control.renderWidth, pixelY);
+#else
     const uint2 pixel = dispatchThreadId.xy;
     if (pixel.x >= gUpt04Control.renderWidth || pixel.y >= gUpt04Control.renderHeight)
         return;
     const uint surfaceIndex = pixel.y * gUpt04Control.renderWidth + pixel.x;
     if (surfaceIndex >= gUpt04Control.surfaceCount)
         return;
+#endif
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+    Upt56ResetEmissiveCompactRequest();
+#endif
 
     uint directVisibilityRays = 0u;
 #if UPT04_SPLIT_INITIAL_INDIRECT
@@ -94,6 +120,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // cost without comparing different PSOs.
     if (threeVertexProbe == 1u)
     {
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+        if (Upt56EmissiveCompactRequested() != 0u)
+            Upt56AppendEmissivePixel(surfaceIndex);
+#endif
         Upt04WriteInitialReservoir(surfaceIndex, reservoir);
         return;
     }
@@ -130,6 +160,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     if (threeVertexProbe == 2u)
     {
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+        if (Upt56EmissiveCompactRequested() != 0u)
+            Upt56AppendEmissivePixel(surfaceIndex);
+#endif
         Upt04WriteInitialReservoir(surfaceIndex, reservoir);
         return;
     }
@@ -179,6 +213,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #else
         3u);
 #endif
+#endif
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+    if (Upt56EmissiveCompactRequested() != 0u)
+        Upt56AppendEmissivePixel(surfaceIndex);
 #endif
     Upt04WriteInitialReservoir(surfaceIndex, reservoir);
 }

@@ -22,6 +22,11 @@ import upt05_material_openpbr;
 #ifndef UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
 #define UPT04_STATIC_ANALYTIC_INDIRECT_ONLY 0
 #endif
+#ifndef UPT04_EMISSIVE_COMPACT_CLASSIFY
+#define UPT04_EMISSIVE_COMPACT_CLASSIFY 0
+#endif
+import upt04_emissive_compact;
+import upt04_material_emission;
 
 public struct Upt04SecondContinuationResult
 {
@@ -244,6 +249,11 @@ public Upt04InitialTraceWork Upt04EvaluateSecondEndpoint<
         (Upt04MaterialEmissionEvaluation)0;
 #if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
     emission.valid = 1u;
+#elif UPT04_EMISSIVE_COMPACT_CLASSIFY
+    emission.valid = 1u;
+    if ((Upt04LoadMaterialFlags(hitSurface.materialIndex)
+            & kUpt04MaterialEmissive) != 0u)
+        Upt56NoteEmissiveCompactNeeded();
 #else
     emission = TMaterialSet.EvaluateEmissiveEndpoint(
         hitSurface.materialIndex,
@@ -257,7 +267,7 @@ public Upt04InitialTraceWork Upt04EvaluateSecondEndpoint<
 
     float3 contribution = endpoint.pathThroughput * emission.radiance;
     uint reverseStatus = 0u;
-#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY || UPT04_EMISSIVE_COMPACT_CLASSIFY
     const float neePdf = 0.0f;
 #else
     const float neePdf = any(emission.radiance > 0.0f)

@@ -11,7 +11,11 @@ import upt04_material_provider_contract;
 #ifndef UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
 #define UPT04_STATIC_ANALYTIC_INDIRECT_ONLY 0
 #endif
+#ifndef UPT04_EMISSIVE_COMPACT_CLASSIFY
+#define UPT04_EMISSIVE_COMPACT_CLASSIFY 0
+#endif
 import upt04_random_white_hash;
+import upt04_emissive_compact;
 
 public float Upt04EmissiveImportance(float3 radiance)
 {
@@ -80,6 +84,18 @@ public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
     if (selection.requiresTriangleReplay != 0u
         || selection.type != kUpt04LightDoomAnalytic)
         return result;
+    if (!Upt04AnalyticLightCurrentPortalEligible(light, policyFlags))
+        return result;
+    result.sample = Upt04SampleAnalyticSphere(
+        light,
+        receiverPosition,
+        selection.sampleCoordinates);
+#elif UPT04_EMISSIVE_COMPACT_CLASSIFY
+    if (selection.requiresTriangleReplay != 0u)
+    {
+        Upt56NoteEmissiveCompactNeeded();
+        return result;
+    }
     if (!Upt04AnalyticLightCurrentPortalEligible(light, policyFlags))
         return result;
     result.sample = Upt04SampleAnalyticSphere(

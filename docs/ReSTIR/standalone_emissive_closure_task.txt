@@ -1,0 +1,269 @@
+Standalone task: remove the emissive closure from the UPT indirect kernel
+=========================================================================
+
+STATUS: cause CONFIRMED by a valid A/B on 2026-08-17. Design LOCKED to
+option A and implemented. G1 passed on the 2026-08-17 Vulkan release build:
+
+    production  42,898 ops / 20 image-sample sites
+    classify    36,854 ops / 14 image-sample sites   (8x8)
+    consume     64x1, full closure retained
+
+Classifier is 548 ops above the excised diagnostic (36,306) for the queue
+append. Enable with +set r_pathTracingUnifiedPtEmissiveCompact 1 (default
+off). G3/G4 are runtime A/B, not yet captured. Do not reopen option B
+unless measured queue density is dense.
+
+
+Scope and reading boundary
+--------------------------
+
+Self-contained. Do NOT read docs/ReSTIR/unified_slang_renderer/*.txt - 76
+documents from a long experimental chain that will fill your context without
+adding what you need.
+
+Note: document 75 in that directory records a "Runtime result" rejecting
+UPT-55. That result is WRONG. Its A/B ran the production artifact, not the
+excised one. See "How the earlier rejection was wrong" below. Do not act on it.
+Document 76 still describes the rejected per-triangle sidecar. Ignore it.
+
+Repository: E:/prog/rbdoom-3-bfg-rt      Branch: restir-development
+Build:      cmake --build --preset win64-pt-dev-release
+
+
+The confirmed cause
+-------------------
+
+A small hanging light fixture costs about 30 percent of frame time when on
+screen. The indirect dispatch is roughly 60 percent of the frame. Temporal and
+spatial reuse are OFF throughout.
+
+The indirect shader is one inlined Slang entry point. When any pixel selects or
+hits an emissive triangle, it enters a large emissive closure - triangle
+geometry replay, material record load, bindless emissive texture sample, and a
+validation branch tree. With no emissive triangle in play that code is never
+fetched. When the fixture appears it becomes resident, and most of the cost
+lands on unrelated code as instruction-fetch stalls.
+
+The valid A/B, Nsight source captures, temporal and spatial off:
+
+    artifact                        wall        fixture      cliff     cliff %
+    probe 4 production   42,904 i   701,283   1,385,588   +684,305   +97.6%
+    probe 6 excised      36,306 i   860,484     963,390   +102,906   +12.0%
+
+    newly-executed instructions      probe 4: 1,393 lines / +286,781 samples
+                                     probe 6:    76 lines /   +6,365 samples
+
+Within-artifact wall-to-fixture ratios: +97.6% -> +12.0%. Newly-executed
+samples collapse 98 percent. That is the confirmation. Do not compute
+1 - 102906/684305 across sessions; those wall baselines are different captures.
+
+Probe 6 deletes emissive lighting as well as the closure. It is a different
+image. Only the wall-to-fixture delta within one probe is meaningful.
+
+Two things this does NOT say:
+
+  * Probe 6 is not faster in absolute terms. Never compare absolute sample
+    counts across capture sessions.
+  * It does not fix the chronic problem. No Instructions sits at 63.8 percent
+    on the wall camera at probe 4 and 72.1 percent on the smaller excised
+    shader. Of the residual +102,906 cliff, +96,541 is on already-live lines
+    and +88,102 of that is instruction fetch. That is Track B below.
+
+
+What a production fix must cover
+--------------------------------
+
+Probe 6 removes THREE call sites. All three were required to get the relative
+cliff collapse. A fix covering only the first will not reproduce this result -
+that is exactly what UPT-54 did, and it changed nothing.
+
+    1. emissive NEE evaluation      upt04_local_light_evaluation.slang
+                                    Upt04ReplayEmissiveTriangleBarycentrics
+                                    + TMaterialSet.EvaluateEmissiveEndpoint
+
+    2. x2/x3 endpoint hit emission  upt04_initial_indirect.slang
+                                    upt04_initial_multibounce.slang
+
+    3. reverse emissive NEE PDF     Upt04ExactNeePdfForEmissiveHit
+                                    (calls the replay and region weights)
+
+
+Locked design: option A
+-----------------------
+
+Two dispatches. Classifier compiles the three call sites out. Consumer runs
+today's continuous four-region scheme, including visibility, and overwrites
+the pixel's reservoir. No estimator change. No discrete K-sample NEE. No
+12.5 percent mixture drop. No sidecar radiance table.
+
+This is a narrower UPT-53 / S43.4: queue a pixel index, recompute
+authoritative state in a 64x1 consumer, overflow keeps the classifier result.
+
+Locked decisions (do not reopen in the implementation):
+
+    1. Dispatch count
+       Two. Classifier finishes analytic/BSDF work and writes a reservoir.
+       Consumer does emissive eval + reverse PDF + visibility + reservoir
+       overwrite. No third merge pass.
+
+    2. Token
+       One uint pixel index, same as S43.4 / UPT-53. Not a payload of light
+       identity / barycentric / request kind. The consumer reloads the
+       primary surface and reruns the accepted indirect path.
+       Hit emission and reverse PDF on the same x2/x3 hit are not two tokens;
+       they are one queued pixel.
+
+    3. Queue contract (copy S43.4)
+       Capacity = one uint per screen pixel. Contents never cleared.
+       Each frame the CPU writes only 20 bytes:
+           dispatchArgs = { 0, 1, 1 }
+           meta         = { 0, surfaceCount }
+       Append: one InterlockedAdd on publishedCount; write pixel if
+       slot < capacity; InterlockedMax groupCountX to ceil((slot+1)/64).
+       Consumer clamps against min(publishedCount, capacity).
+       Overflow keeps the classifier reservoir. No CPU readback in the
+       hot path. Zero published pixels launch zero consumer groups.
+
+    4. Who owns RayQuery
+       Both modules. Classifier keeps continuation and analytic-NEE
+       visibility. Consumer is a second RT kernel and must stay inside the
+       existing four-RayQuery ceiling per module, not per frame.
+
+    5. Queue condition in the classifier
+       Set a thread flag, append at most once at end of main:
+         - NEE selection.requiresTriangleReplay != 0
+         - OR hit material flags contain kUpt04MaterialEmissive
+       False positives are correct (consumer overwrites). Do not call
+       EvaluateEmissiveEndpoint, ExactNeePdfForEmissiveHit, or either
+       replay function in the classifier.
+
+    6. Specializations
+       UPT04_EMISSIVE_COMPACT_CLASSIFY=1
+           8x8, three call sites compiled out, queue append
+       UPT04_EMISSIVE_COMPACT_CONSUME=1
+           64x1, full current production path, queue read
+       Separate .bin files. A runtime branch in one entry point is prohibited.
+       Production rollback keeps the current three-vertex .bin.
+
+    7. Gate
+       r_pathTracingUnifiedPtEmissiveCompact, default 0, A/B.
+       Effective only when threeVertexInitial is effective and
+       staticAnalyticOnly is off. Probe 5/6 stays the excised diagnostic.
+
+    8. G2 applies to the classifier only
+       Classifier instruction count should approach the excised 36,306.
+       The consumer contains the closure on purpose.
+
+    9. Measurement
+       Combined D0 = classifier + barriers + consumer.
+       Report published/bounded/capacity and queue fraction on both cameras.
+       Option A wins if the emissive-active population is sparse. If the
+       fixture puts tens of percent of pixels on the queue, stop and report;
+       do not invent option B in the same change.
+
+
+Gates
+-----
+
+G1. Structural, and this is the acceptance test.
+    VerifyUpt56EmissiveClosure.cmake must FAIL on the current three-vertex
+    artifact and PASS on the classify artifact. Discriminators that actually
+    flip:
+        classify workgroup 8x8, consume workgroup 64x1
+        classify SPIR-V instruction count < production
+        classify OpImageSample* count < production (production 20, excised 14)
+    Do not ban OpImageSample or material loads module-wide: continuation
+    shading keeps them. Do not search for an inlined function name.
+
+G2. Classifier instruction count near 36,300.
+
+G3. Combined D0 fixture cliff at or below +20 percent wall-to-fixture inside
+    the new pair. Probe 6 achieved +12.0 percent with lighting deleted; a
+    correct fix should land close while keeping the image. Measure both
+    dispatches. Passing G3 on the classifier alone while a near-fullscreen
+    consumer appears is a failed experiment.
+
+G4. Image parity against probe 4 production. Same rng, same four-region
+    scheme, same 12.5 percent uniform mixture, just in the other dispatch.
+    Emitters keep brightness, colour and acquisition; no ghost emitters;
+    valid-zero behaviour unchanged.
+
+
+P0 - required before any A/B
+----------------------------
+
+r_pathTracingUnifiedPtThreeVertexBottleneckProbe is not in the EnsurePipeline
+invalidation list (PathTraceUnifiedPt.cpp ~2300). Changing it at runtime
+never releases the pipeline, so artifact selection never re-runs.
+
+Add bool staticAnalyticOnly to PathTraceUnifiedPtDispatchInputs, mirror
+lambertDiagnostic: store it on state, include it in the invalidation list,
+and pass it into Upt04SplitIndirectShaderPath instead of reading the cvar
+only at PSO create. Set it from smoke dispatch when the probe is 5 or 6.
+
+Working method until that lands: +set the probe on the command line so it is
+active before the first dispatch.
+
+    +set r_pathTracingUnifiedPtThreeVertexBottleneckProbe 6
+
+Verify from the capture, not the console: hash must differ, instruction count
+about 36,306 rather than 42,904, image-sample sites 14 rather than 20.
+
+
+Track B: the chronic footprint - separate task, larger prize
+------------------------------------------------------------
+
+Do not fold this into Track A and do not let a good Track A result close it.
+
+    probe 4 production, wall camera, fixture absent    63.8% No Instructions
+    probe 6 excised,    wall camera, fixture absent    72.1% No Instructions
+
+A smaller shader is still starved. The kernel is one inlined entry point with
+zero OpFunctionCall and zero OpSpecConstant. The x3 continuation lane is the
+largest single footprint contributor; this queue ABI is deliberately the same
+shape so Track B can later widen the consumer to full x3 (UPT-53).
+
+Gate: wall-camera No Instructions below 15 percent.
+
+
+How the earlier rejection was wrong - do not repeat this
+--------------------------------------------------------
+
+UPT-55 built the excised PSO correctly. Three consecutive A/B attempts then ran
+the PRODUCTION artifact anyway.
+
+  * the probe cvar is not in the invalidation list
+  * no CVAR_ARCHIVE, default "0", restart builds probe 0 first
+  * the confirming log line prints only at pipeline creation
+
+
+Measurement rules
+-----------------
+
+1.  Verify the artifact hash and instruction count changed in the intended
+    direction BEFORE capturing. Three cycles were lost to this.
+2.  Never compare absolute sample counts across capture sessions. Only
+    wall-to-fixture deltas within one session are meaningful.
+3.  Report No Instructions percentage, newly-executed line count, registers
+    per thread from Launch Statistics, and queue published/bounded/capacity.
+    Frame time last, never alone.
+4.  A zero-sample region means "not executed in this configuration", not
+    "dead code".
+
+
+Prohibited
+----------
+
+    a second inline lane behind a runtime predicate in one entry point;
+    a fix covering only the NEE evaluate block - all three call sites or none;
+    triangle-average or centroid radiance replacing an exact endpoint;
+    dropping the 12.5 percent uniform mixture that preserves NEE support;
+    discrete per-triangle K-sample NEE (option B) in this change;
+    changing temporal or spatial reuse in this task;
+    accepting or rejecting a change on frame time alone;
+    widening Upt04CompactLightRecord.
+
+
+Build/deploy (from neo/): cmake --build --preset win64-pt-dev-release; copy
+Only Vulkan is used, compiling DX12 shaders is not needed and wastes compile time.
+RBDoom3BFG.exe to E:/prog/rbdoom-3-BFG-prebuilt/; copy rebuilt SPIR-V under base/renderprogs2/spirv only. Gotcha: editing a .hlsli/.rt.hlsl may not retrigger DXC — delete the affected .rt.bin first, and confirm the new blob's mtime is newer than your edit. Commit a checkpoint after portions of code are written but avoid excessive commits when minor changes are made mid task.
