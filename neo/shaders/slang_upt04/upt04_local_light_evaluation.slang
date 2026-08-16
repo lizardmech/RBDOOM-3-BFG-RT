@@ -92,10 +92,7 @@ public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
         selection.sampleCoordinates);
 #elif UPT04_EMISSIVE_COMPACT_CLASSIFY
     if (selection.requiresTriangleReplay != 0u)
-    {
-        Upt56NoteEmissiveCompactNeeded();
         return result;
-    }
     if (!Upt04AnalyticLightCurrentPortalEligible(light, policyFlags))
         return result;
     result.sample = Upt04SampleAnalyticSphere(

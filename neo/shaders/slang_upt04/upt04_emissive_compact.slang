@@ -1,4 +1,5 @@
 import upt04_hit_contract;
+import upt04_binary16;
 
 #ifndef UPT04_EMISSIVE_COMPACT_CLASSIFY
 #define UPT04_EMISSIVE_COMPACT_CLASSIFY 0
@@ -31,10 +32,18 @@ public [[vk::binding(35, 0)]] RWStructuredBuffer<uint> gUpt56EmissiveDispatchArg
 
 #if UPT04_EMISSIVE_COMPACT_CLASSIFY
 static uint gUpt56EmissiveCompactKind;
+static uint gUpt56NeeLightIndex;
+static float2 gUpt56NeeSample;
+static float gUpt56NeeMass;
+static uint gUpt56NeeCandidateCount;
 
 public void Upt56ResetEmissiveCompactRequest()
 {
     gUpt56EmissiveCompactKind = 0u;
+    gUpt56NeeLightIndex = 0u;
+    gUpt56NeeSample = float2(0.0f);
+    gUpt56NeeMass = 0.0f;
+    gUpt56NeeCandidateCount = 0u;
 }
 
 public void Upt56NoteEmissiveCompactNeeded()
@@ -45,6 +54,19 @@ public void Upt56NoteEmissiveCompactNeeded()
 public void Upt56NoteEmissiveCompactKind(uint kind)
 {
     gUpt56EmissiveCompactKind |= kind;
+}
+
+public void Upt56SetDeferredNee(
+    uint lightIndex,
+    float2 sampleCoordinates,
+    float finalizedMass,
+    uint candidateCount)
+{
+    gUpt56NeeLightIndex = lightIndex;
+    gUpt56NeeSample = sampleCoordinates;
+    gUpt56NeeMass = finalizedMass;
+    gUpt56NeeCandidateCount = candidateCount;
+    gUpt56EmissiveCompactKind |= kUpt56KindNee2;
 }
 
 public uint Upt56EmissiveCompactRequested()
@@ -64,10 +86,16 @@ public void Upt56AppendEmissiveToken(uint index, Upt04HitFacts hit)
         return;
     Upt56EmissiveToken token = (Upt56EmissiveToken)0;
     token.surfaceIndex = index;
-    token.kind = kind;
+    const uint massBits =
+        Upt04PackBinary16Pair(float2(gUpt56NeeMass, 0.0f)) & 0xffffu;
+    token.kind = (kind & 0xffu)
+        | ((gUpt56NeeCandidateCount & 0xffu) << 8u)
+        | (massBits << 16u);
     token.instanceId = hit.instanceId;
     token.primitiveId = hit.primitiveId;
     token.barycentrics = hit.barycentrics;
+    token.reserved0 = gUpt56NeeLightIndex;
+    token.reserved1 = Upt04PackBinary16Pair(gUpt56NeeSample);
     gUpt56EmissiveQueue[slot] = token;
     const uint requiredGroups = (slot + 64u) / 64u;
     uint ignored;
@@ -88,6 +116,14 @@ public void Upt56NoteEmissiveCompactNeeded()
 }
 
 public void Upt56NoteEmissiveCompactKind(uint kind)
+{
+}
+
+public void Upt56SetDeferredNee(
+    uint lightIndex,
+    float2 sampleCoordinates,
+    float finalizedMass,
+    uint candidateCount)
 {
 }
 
@@ -113,6 +149,31 @@ public Upt56EmissiveToken Upt56CompactQueuedToken(uint slot)
 {
     return gUpt56EmissiveQueue[slot];
 }
+
+public uint Upt56TokenKindFlags(Upt56EmissiveToken token)
+{
+    return token.kind & 0xffu;
+}
+
+public uint Upt56TokenNeeLightIndex(Upt56EmissiveToken token)
+{
+    return token.reserved0;
+}
+
+public float2 Upt56TokenNeeSample(Upt56EmissiveToken token)
+{
+    return Upt04UnpackBinary16Pair(token.reserved1);
+}
+
+public float Upt56TokenNeeMass(Upt56EmissiveToken token)
+{
+    return Upt04UnpackBinary16Pair(token.kind >> 16u).x;
+}
+
+public uint Upt56TokenNeeCandidateCount(Upt56EmissiveToken token)
+{
+    return (token.kind >> 8u) & 0xffu;
+}
 #else
 public void Upt56ResetEmissiveCompactRequest()
 {
@@ -123,6 +184,14 @@ public void Upt56NoteEmissiveCompactNeeded()
 }
 
 public void Upt56NoteEmissiveCompactKind(uint kind)
+{
+}
+
+public void Upt56SetDeferredNee(
+    uint lightIndex,
+    float2 sampleCoordinates,
+    float finalizedMass,
+    uint candidateCount)
 {
 }
 

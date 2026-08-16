@@ -71,27 +71,49 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     hit.hitT = 1.0f;
     if (continuation.valid != 0u)
         continuation.traceRequired = 1u;
-    const Upt04IndirectHitTrialResult indirect =
-        Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
-            continuation, hit, pixel);
-    if ((token.kind & kUpt56KindHit2) != 0u)
+    const uint kindFlags = Upt56TokenKindFlags(token);
+    if ((kindFlags & kUpt56KindHit2) != 0u)
     {
+        const Upt04IndirectHitTrialResult indirect =
+            Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
+                continuation, hit, pixel);
         Upt04StreamInitialTraceWork(
             reservoir,
             indirect.endpointCandidate,
             pixel,
             1u);
+        if ((kindFlags & kUpt56KindNee2) != 0u)
+        {
+            Upt04InitialTraceWork secondaryNee = indirect.neeWork;
+            if (secondaryNee.valid != 0u && secondaryNee.traceRequired != 0u)
+            {
+                hit = Upt04TraceIndirectVisibilityRayQuery(
+                    secondaryNee.ray,
+                    Upt04IndirectNeeVisibilityIgnore(secondaryNee));
+                secondaryNee = Upt04AdvanceInitialTraceWork(secondaryNee, hit);
+                Upt04StreamInitialTraceWork(
+                    reservoir, secondaryNee, pixel, 2u);
+            }
+        }
     }
-    Upt04InitialTraceWork secondaryNee = indirect.neeWork;
-    if ((token.kind & kUpt56KindNee2) != 0u
-        && secondaryNee.valid != 0u
-        && secondaryNee.traceRequired != 0u)
+    else if ((kindFlags & kUpt56KindNee2) != 0u)
     {
-        hit = Upt04TraceIndirectVisibilityRayQuery(
-            secondaryNee.ray,
-            Upt04IndirectNeeVisibilityIgnore(secondaryNee));
-        secondaryNee = Upt04AdvanceInitialTraceWork(secondaryNee, hit);
-        Upt04StreamInitialTraceWork(reservoir, secondaryNee, pixel, 2u);
+        Upt04InitialTraceWork secondaryNee =
+            Upt56ConsumeDeferredX2Nee<Upt05OpenPbrMaterialSet>(
+                continuation,
+                hit,
+                pixel,
+                Upt56TokenNeeLightIndex(token),
+                Upt56TokenNeeSample(token),
+                Upt56TokenNeeMass(token));
+        if (secondaryNee.valid != 0u && secondaryNee.traceRequired != 0u)
+        {
+            hit = Upt04TraceIndirectVisibilityRayQuery(
+                secondaryNee.ray,
+                Upt04IndirectNeeVisibilityIgnore(secondaryNee));
+            secondaryNee = Upt04AdvanceInitialTraceWork(secondaryNee, hit);
+            Upt04StreamInitialTraceWork(reservoir, secondaryNee, pixel, 2u);
+        }
     }
     Upt04WriteInitialReservoir(surfaceIndex, reservoir);
     return;
