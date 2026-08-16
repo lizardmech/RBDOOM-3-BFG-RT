@@ -442,6 +442,7 @@ private:
 
     uint32_t m_compactLightCapacity = 0;
     nvrhi::BufferHandle m_compactLightsBuffer;
+    nvrhi::BufferHandle m_resolvedEmissiveBuffer;
     nvrhi::BindingLayoutHandle m_compactLightBindingLayout;
     nvrhi::BindingSetHandle m_compactLightBindingSet;
     nvrhi::BindingSetDesc m_compactLightBindingSetDesc;

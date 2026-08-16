@@ -22,6 +22,7 @@ static constexpr uint32_t UPT04_RESERVOIR_STRIDE = 64u;
 static constexpr uint32_t UPT04_COMPACT_VERTEX_STRIDE = 48u;
 static constexpr uint32_t UPT04_COMPACT_GEOMETRY_PUSH_CONSTANT_BYTES = 16u;
 static constexpr uint32_t UPT04_COMPACT_LIGHT_STRIDE = 64u;
+static constexpr uint32_t UPT56_RESOLVED_EMISSIVE_STRIDE = 128u;
 static constexpr uint32_t UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES = 32u;
 static constexpr uint32_t UPT04_LIGHT_TILE_COUNT = 128u;
 static constexpr uint32_t UPT04_LIGHT_TILE_DOMAIN_SIZE = 1024u;
@@ -1308,9 +1309,7 @@ static void Upt04AddBindingLayoutItems(
     desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
     if (emissiveCompact)
     {
-        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(33));
-        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(34));
-        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(35));
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(33));
     }
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
 }
@@ -1428,9 +1427,7 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     nvrhi::BufferHandle compactMaterials,
     nvrhi::BufferHandle continuationHits,
     nvrhi::BufferHandle lightTiles,
-    nvrhi::BufferHandle emissiveCompactQueue,
-    nvrhi::BufferHandle emissiveCompactMeta,
-    nvrhi::BufferHandle emissiveCompactDispatchArgs)
+    nvrhi::BufferHandle resolvedEmissive)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -1505,12 +1502,8 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
         32, lights.unifiedPtEmissiveGeometryBuffer));
     if (dispatch.emissiveCompact)
     {
-        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
-            33, emissiveCompactQueue));
-        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
-            34, emissiveCompactMeta));
-        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
-            35, emissiveCompactDispatchArgs));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+            33, resolvedEmissive));
     }
     desc.addItem(nvrhi::BindingSetItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
     return desc;
@@ -1879,6 +1872,7 @@ void PathTraceUnifiedPtState::ReleaseCompactLights()
     m_compactLightBindingLayout = nullptr;
     m_compactLightPipelineAttempted = false;
     m_compactLightsBuffer = nullptr;
+    m_resolvedEmissiveBuffer = nullptr;
     m_compactLightCapacity = 0;
     for (uint32_t page = 0; page < 2u; ++page)
     {
@@ -2873,9 +2867,7 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             m_compactMaterialsBuffer,
             m_continuationHits,
             m_lightTileBuffer,
-            m_emissiveCompactQueue,
-            m_emissiveCompactMeta,
-            m_emissiveCompactDispatchArgs);
+            m_resolvedEmissiveBuffer);
     }
     if (m_bindingSets[pageIndex] && m_bindingSetDescValid[pageIndex] &&
         m_bindingSetDescs[pageIndex] == desc)
@@ -3262,9 +3254,15 @@ bool PathTraceUnifiedPtState::EnsureCompactLightResources(
         0, inputs.sceneInputs->lights.restirLightManagerCurrentPayloadCount));
     const uint32_t capacity = Max(1u, requestedCount);
     const uint64_t bytes = uint64_t(capacity) * UPT04_COMPACT_LIGHT_STRIDE;
+    const uint64_t resolvedBytes =
+        uint64_t(capacity) * UPT56_RESOLVED_EMISSIVE_STRIDE;
     if (m_compactLightsBuffer &&
         m_compactLightsBuffer->getDesc().structStride == UPT04_COMPACT_LIGHT_STRIDE &&
-        m_compactLightsBuffer->getDesc().byteSize >= bytes)
+        m_compactLightsBuffer->getDesc().byteSize >= bytes &&
+        m_resolvedEmissiveBuffer &&
+        m_resolvedEmissiveBuffer->getDesc().structStride ==
+            UPT56_RESOLVED_EMISSIVE_STRIDE &&
+        m_resolvedEmissiveBuffer->getDesc().byteSize >= resolvedBytes)
     {
         return true;
     }
@@ -3283,6 +3281,22 @@ bool PathTraceUnifiedPtState::EnsureCompactLightResources(
             "PathTraceUnifiedPt: failed to allocate compact lights count=%u bytes=%llu\n",
             requestedCount,
             static_cast<unsigned long long>(bytes));
+        return false;
+    }
+    nvrhi::BufferDesc resolvedDesc;
+    resolvedDesc.debugName = "PathTraceUnifiedPtResolvedEmissive";
+    resolvedDesc.byteSize = resolvedBytes;
+    resolvedDesc.structStride = UPT56_RESOLVED_EMISSIVE_STRIDE;
+    resolvedDesc.canHaveUAVs = true;
+    resolvedDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    resolvedDesc.keepInitialState = true;
+    m_resolvedEmissiveBuffer = inputs.device->createBuffer(resolvedDesc);
+    if (!m_resolvedEmissiveBuffer)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to allocate resolved emissive count=%u bytes=%llu\n",
+            requestedCount,
+            static_cast<unsigned long long>(resolvedBytes));
         return false;
     }
     m_compactLightCapacity = capacity;
@@ -3332,6 +3346,7 @@ bool PathTraceUnifiedPtState::EnsureCompactLightPipeline(
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(5));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(6));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES));
     m_compactLightBindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -3409,6 +3424,8 @@ bool PathTraceUnifiedPtState::EnsureCompactLightBindingSet(
         4, inputs.sceneInputs->materials.materialTableBuffer));
     desc.addItem(nvrhi::BindingSetItem::Sampler(
         5, inputs.sceneInputs->materials.textureSampler));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
+        6, m_resolvedEmissiveBuffer));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT04_COMPACT_LIGHT_PUSH_CONSTANT_BYTES));
     if (m_compactLightBindingSet && m_compactLightBindingSetDescValid &&
@@ -3466,6 +3483,8 @@ bool PathTraceUnifiedPtState::ExecuteCompactLightPack(
             nvrhi::ResourceStates::ShaderResource);
         inputs.commandList->setBufferState(
             m_compactLightsBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setBufferState(
+            m_resolvedEmissiveBuffer, nvrhi::ResourceStates::UnorderedAccess);
         inputs.commandList->commitBarriers();
         nvrhi::ComputeState state;
         state.pipeline = m_compactLightPipeline;
@@ -3490,8 +3509,11 @@ bool PathTraceUnifiedPtState::ExecuteCompactLightPack(
             "UPT.L0 CompactLight64 OutputBarrier",
             inputs.nsightMarkers);
         nvrhi::utils::BufferUavBarrier(inputs.commandList, m_compactLightsBuffer);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_resolvedEmissiveBuffer);
         inputs.commandList->setBufferState(
             m_compactLightsBuffer, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_resolvedEmissiveBuffer, nvrhi::ResourceStates::ShaderResource);
         inputs.commandList->commitBarriers();
     }
     return true;

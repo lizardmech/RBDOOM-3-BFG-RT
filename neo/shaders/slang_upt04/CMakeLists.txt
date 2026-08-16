@@ -79,7 +79,8 @@ set(UPT04_UNIFIED_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_decode.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_replay.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_lookup.slang"
-    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_compact.slang")
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_emissive_compact.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_resolved_emissive.slang")
 
 set(UPT04_ALL_OUTPUTS)
 foreach(material_set baseline deterministic)
@@ -275,6 +276,8 @@ path_tracing_declare_slang_spirv_module(
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_contract.slang"
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_live_contract.slang"
         "${CMAKE_CURRENT_SOURCE_DIR}/upt04_material_emission.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_resolved_emissive.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_random_white_hash.slang"
     OUT_VAR compact_light_pack_outputs)
 list(APPEND UPT04_BACKEND_OUTPUTS ${compact_light_pack_outputs})
 

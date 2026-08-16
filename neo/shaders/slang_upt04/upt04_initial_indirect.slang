@@ -341,6 +341,20 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
             endpointEmission.radiance = max(skyMaterial.emissiveColor.xyz, float3(0.0f))
                 * Upt04SampleSkyEnvironment(work.ray.direction);
         }
+        else
+        {
+            uint denseLightIndex = kUpt04InvalidLightIndex;
+            float identityPdf = 0.0f;
+            if (Upt04FindEmissiveDenseLight(
+                    hit.instanceId,
+                    hit.primitiveId,
+                    denseLightIndex,
+                    identityPdf))
+            {
+                endpointEmission.radiance = Upt56LoadResolvedHitRadiance(
+                    denseLightIndex, hit.barycentrics);
+            }
+        }
     }
 #else
     endpointEmission = TMaterialSet.EvaluateEmissiveEndpoint(

@@ -16,6 +16,21 @@ import upt04_material_provider_contract;
 #endif
 import upt04_random_white_hash;
 import upt04_emissive_compact;
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+import upt04_resolved_emissive;
+public [[vk::binding(33, 0)]] StructuredBuffer<Upt56ResolvedEmissiveRecord> gUpt56ResolvedEmissive;
+
+public float3 Upt56LoadResolvedHitRadiance(uint denseIndex, float2 barycentrics)
+{
+    uint resolvedCount = 0u;
+    uint resolvedStride = 0u;
+    gUpt56ResolvedEmissive.GetDimensions(resolvedCount, resolvedStride);
+    if (denseIndex >= resolvedCount)
+        return float3(0.0f);
+    return Upt56ResolvedRadianceAtBarycentrics(
+        gUpt56ResolvedEmissive[denseIndex], barycentrics);
+}
+#endif
 
 public float Upt04EmissiveImportance(float3 radiance)
 {
@@ -92,7 +107,19 @@ public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
         selection.sampleCoordinates);
 #elif UPT04_EMISSIVE_COMPACT_CLASSIFY
     if (selection.requiresTriangleReplay != 0u)
-        return result;
+    {
+        uint resolvedCount = 0u;
+        uint resolvedStride = 0u;
+        gUpt56ResolvedEmissive.GetDimensions(resolvedCount, resolvedStride);
+        if (selection.denseIndex >= resolvedCount)
+            return result;
+        return Upt56EvaluateResolvedEmissive(
+            gUpt56ResolvedEmissive[selection.denseIndex],
+            light,
+            receiverPosition,
+            selection.sampleCoordinates,
+            (policyFlags & kUpt56ResolvedTwoSided) != 0u);
+    }
     if (!Upt04AnalyticLightCurrentPortalEligible(light, policyFlags))
         return result;
     result.sample = Upt04SampleAnalyticSphere(

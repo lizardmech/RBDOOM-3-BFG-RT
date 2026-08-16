@@ -1459,7 +1459,7 @@ idCVar r_pathTracingUnifiedPtEmissiveCompact(
     "r_pathTracingUnifiedPtEmissiveCompact",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT-56 D0 emissive-closure compaction: use the classify PSO with emissive replay/texture compiled out. The 64x1 consume queue is disabled: material light-candidate bits are not sparse and a second dispatch turned the frame white. Requires effective three-vertex initial and is ignored for probes 5/6" );
+    "UPT-56 D0 emissive-closure compaction: classify PSO with replay/texture compiled out; mesh-light NEE and hit emission use per-light resolved 4-region radiance from the compact pack pass. No screen-sized consume queue. Requires effective three-vertex initial and is ignored for probes 5/6" );
 
 idCVar r_pathTracingUnifiedPtEmissiveCompactDiagnostics(
     "r_pathTracingUnifiedPtEmissiveCompactDiagnostics",
