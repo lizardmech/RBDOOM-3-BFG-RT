@@ -122,42 +122,6 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
         && selection.reserved != 0u
         && light.sourceIndex != selection.reserved - 1u)
         return proposal;
-#if UPT04_EMISSIVE_COMPACT_CLASSIFY
-    if (selection.type == kUpt04LightEmissiveTriangle
-        || selection.requiresTriangleReplay != 0u)
-    {
-#if UPT04_PACKED_LIGHT_RECORD
-        const float4 regionWeights = light.positionAndRadius;
-        const float proxyTarget =
-            all(isfinite(regionWeights)) && all(regionWeights >= 0.0f)
-            ? (regionWeights.x + regionWeights.y
-                + regionWeights.z + regionWeights.w)
-            : 0.0f;
-#else
-        const float proxyTarget = max(
-            light.radianceAndLuminance.w,
-            max(light.radianceAndLuminance.x,
-                max(light.radianceAndLuminance.y,
-                    light.radianceAndLuminance.z)));
-#endif
-        if (!Upt04FinitePositive(selection.selectionPdf)
-            || !Upt04FinitePositive(proxyTarget))
-            return proposal;
-        proposal.valid = 1u;
-        proposal.stage = 4u;
-        proposal.lightIndex = selection.denseIndex;
-        proposal.lightType = kUpt04LightEmissiveTriangle;
-        proposal.sampleCoordinates = selection.sampleCoordinates;
-        proposal.rawContribution = float3(proxyTarget);
-        proposal.suffixRadiance = float3(proxyTarget);
-        proposal.target = proxyTarget;
-        proposal.sourcePdf = selection.selectionPdf;
-        proposal.emissiveReplayPdfScale = 1.0f;
-        proposal.sampleDirection = hitSurface.shadingNormal;
-        proposal.sampleDistance = 1.0f;
-        return proposal;
-    }
-#endif
     const Upt04EvaluatedLocalLight evaluated =
         Upt04EvaluateSelectedLocalLight<TMaterialSet>(
             selection,
@@ -599,18 +563,6 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     }
     nee.candidateStatus = kUpt04SampleValidPositive;
 
-#if UPT04_EMISSIVE_COMPACT_CLASSIFY
-    if (selected.lightType == kUpt04LightEmissiveTriangle)
-    {
-        Upt56SetDeferredNee(
-            selected.lightIndex,
-            selected.sampleCoordinates,
-            finalizedMass,
-            candidateCount);
-        return result;
-    }
-#endif
-
     if (!Upt04AdmitIndirectNeeVisibility(nee.transport)
         || !Upt04RayBudgetWithinD0Ceiling(nee.transport))
     {
@@ -718,6 +670,7 @@ public Upt04InitialTraceWork Upt56ConsumeDeferredX2Nee<
     const float proposalPdf = target / finalizedMass;
     if (!Upt04FinitePositive(sourcePdf)
         || !Upt04FinitePositive(proposalPdf)
+        || proposalPdf > 1.0e8f
         || !all(isfinite(rawContribution))
         || !Upt04FinitePositive(target))
         return invalid;
