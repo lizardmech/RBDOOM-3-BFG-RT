@@ -123,7 +123,6 @@ bool Upt54PrepareEmissiveRegionWeights(
     float3 radiance1 = float3(0.0f);
     float3 radiance2 = float3(0.0f);
     float3 radiance3 = float3(0.0f);
-    bool probesValid = true;
     [loop]
     for (uint region = 0u; region < 4u; ++region)
     {
@@ -159,10 +158,7 @@ bool Upt54PrepareEmissiveRegionWeights(
                 gPackControl.emissiveScale,
                 gPackControl.emissiveTexelBlackFloor);
         if (emission.valid == 0u)
-        {
-            probesValid = false;
-            break;
-        }
+            return false;
         prepared[region] = Upt54EmissiveImportance(emission.radiance);
         if (region == 0u)
             radiance0 = emission.radiance;
@@ -173,22 +169,10 @@ bool Upt54PrepareEmissiveRegionWeights(
         else
             radiance3 = emission.radiance;
     }
-    if (!probesValid
-        || !all(isfinite(prepared)) || any(prepared < 0.0f)
+    if (!all(isfinite(prepared)) || any(prepared < 0.0f)
         || !all(isfinite(radiance0)) || !all(isfinite(radiance1))
-        || !all(isfinite(radiance2)) || !all(isfinite(radiance3)))
-    {
-        const float3 estimate = max(light.radianceAndLuminance.xyz, float3(0.0f))
-            * 1.75f * max(gPackControl.emissiveScale, 0.0f);
-        if (!all(isfinite(estimate)))
-            return false;
-        prepared = float4(0.25f, 0.25f, 0.25f, 0.25f);
-        radiance0 = estimate;
-        radiance1 = estimate;
-        radiance2 = estimate;
-        radiance3 = estimate;
-    }
-    if (!Upt04FinitePositive(area) || !all(isfinite(p0))
+        || !all(isfinite(radiance2)) || !all(isfinite(radiance3))
+        || !Upt04FinitePositive(area) || !all(isfinite(p0))
         || !all(isfinite(e1)) || !all(isfinite(e2)) || !all(isfinite(normal)))
         return false;
     weights = prepared;

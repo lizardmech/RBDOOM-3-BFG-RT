@@ -55,8 +55,14 @@ public float3 Upt56ClassifyHitRadiance(
     uint primitiveId,
     float2 barycentrics,
     uint materialIndex,
-    float3 rayDirection)
+    float3 rayDirection,
+    bool applySkyMultiply)
 {
+    const uint materialFlags = Upt04LoadMaterialFlags(materialIndex);
+    const bool sky = (materialFlags & 0x00040000u) != 0u;
+    if ((materialFlags & kUpt04MaterialEmissive) == 0u)
+        return float3(0.0f);
+
     float3 radiance = float3(0.0f);
     uint denseLightIndex = kUpt04InvalidLightIndex;
     float identityPdf = 0.0f;
@@ -69,16 +75,14 @@ public float3 Upt56ClassifyHitRadiance(
         radiance = Upt56LoadResolvedHitRadiance(
             denseLightIndex, barycentrics);
     }
-    if ((Upt04LoadMaterialFlags(materialIndex) & 0x00040000u) != 0u)
+    else if (sky)
     {
-        if (!any(radiance > 0.0f))
-        {
-            const Upt04SmokeMaterialRecord skyMaterial =
-                Upt04LoadMaterialRecord(materialIndex);
-            radiance = max(skyMaterial.emissiveColor.xyz, float3(0.0f));
-        }
-        radiance *= Upt04SampleSkyEnvironment(rayDirection);
+        const Upt04SmokeMaterialRecord skyMaterial =
+            Upt04LoadMaterialRecord(materialIndex);
+        radiance = max(skyMaterial.emissiveColor.xyz, float3(0.0f));
     }
+    if (applySkyMultiply && sky)
+        radiance *= Upt04SampleSkyEnvironment(rayDirection);
     return radiance;
 }
 #endif
@@ -370,7 +374,8 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         hit.primitiveId,
         hit.barycentrics,
         hitSurface.materialIndex,
-        work.ray.direction);
+        work.ray.direction,
+        true);
 #else
     endpointEmission = TMaterialSet.EvaluateEmissiveEndpoint(
         hitSurface.materialIndex,
@@ -405,7 +410,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     }
     uint reverseStatus = 0u;
-#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY || UPT04_EMISSIVE_COMPACT_CLASSIFY
     const float endpointNeePdf = 0.0f;
 #else
     const float endpointNeePdf = any(endpointEmission.radiance > 0.0f)

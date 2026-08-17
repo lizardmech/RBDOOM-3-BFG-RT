@@ -256,7 +256,8 @@ public Upt04InitialTraceWork Upt04EvaluateSecondEndpoint<
         hit.primitiveId,
         hit.barycentrics,
         hitSurface.materialIndex,
-        endpoint.ray.direction);
+        endpoint.ray.direction,
+        false);
 #else
     emission = TMaterialSet.EvaluateEmissiveEndpoint(
         hitSurface.materialIndex,
@@ -270,7 +271,7 @@ public Upt04InitialTraceWork Upt04EvaluateSecondEndpoint<
 
     float3 contribution = endpoint.pathThroughput * emission.radiance;
     uint reverseStatus = 0u;
-#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY || UPT04_EMISSIVE_COMPACT_CLASSIFY
     const float neePdf = 0.0f;
 #else
     const float neePdf = any(emission.radiance > 0.0f)
