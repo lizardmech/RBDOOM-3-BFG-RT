@@ -22,7 +22,7 @@ public struct Upt56EmissiveToken
     public uint reserved1;
 };
 
-#if 0
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY || UPT04_EMISSIVE_COMPACT_CONSUME
 public [[vk::binding(33, 0)]] RWStructuredBuffer<Upt56EmissiveToken> gUpt56EmissiveQueue;
 public [[vk::binding(34, 0)]] RWStructuredBuffer<uint> gUpt56EmissiveMeta;
 public [[vk::binding(35, 0)]] RWStructuredBuffer<uint> gUpt56EmissiveDispatchArgs;
@@ -74,6 +74,30 @@ public uint Upt56EmissiveCompactRequested()
 
 public void Upt56AppendEmissiveToken(uint index, Upt04HitFacts hit)
 {
+    const uint kind = gUpt56EmissiveCompactKind;
+    if (kind == 0u)
+        return;
+    uint slot = 0u;
+    InterlockedAdd(gUpt56EmissiveMeta[0], 1u, slot);
+    const uint capacity = gUpt56EmissiveMeta[1];
+    if (slot >= capacity)
+        return;
+    Upt56EmissiveToken token = (Upt56EmissiveToken)0;
+    token.surfaceIndex = index;
+    const uint massBits =
+        Upt04PackBinary16Pair(float2(gUpt56NeeMass, 0.0f)) & 0xffffu;
+    token.kind = (kind & 0xffu)
+        | ((gUpt56NeeCandidateCount & 0xffu) << 8u)
+        | (massBits << 16u);
+    token.instanceId = hit.instanceId;
+    token.primitiveId = hit.primitiveId;
+    token.barycentrics = hit.barycentrics;
+    token.reserved0 = gUpt56NeeLightIndex;
+    token.reserved1 = Upt04PackBinary16Pair(gUpt56NeeSample);
+    gUpt56EmissiveQueue[slot] = token;
+    const uint requiredGroups = (slot + 64u) / 64u;
+    uint ignored;
+    InterlockedMax(gUpt56EmissiveDispatchArgs[0], requiredGroups, ignored);
 }
 
 public void Upt56AppendEmissivePixel(uint index)
@@ -116,12 +140,12 @@ public void Upt56AppendEmissiveToken(uint index, Upt04HitFacts hit)
 
 public uint Upt56CompactQueuedCount()
 {
-    return 0u;
+    return min(gUpt56EmissiveMeta[0], gUpt56EmissiveMeta[1]);
 }
 
 public Upt56EmissiveToken Upt56CompactQueuedToken(uint slot)
 {
-    return (Upt56EmissiveToken)0;
+    return gUpt56EmissiveQueue[slot];
 }
 
 public uint Upt56TokenKindFlags(Upt56EmissiveToken token)

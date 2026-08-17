@@ -150,6 +150,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     Upt04HitFacts hit = Upt04MissFacts(continuation.ray.tMax);
     if (continuation.valid != 0u && continuation.traceRequired != 0u)
         hit = Upt04TraceRayQuery(continuation.ray);
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+    const Upt04HitFacts continuationHit = hit;
+#endif
     const Upt04IndirectHitTrialResult indirect =
         Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
             continuation, hit, pixel);
@@ -189,6 +192,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // cost without comparing different PSOs.
     if (threeVertexProbe == 1u)
     {
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+        if (Upt56EmissiveCompactRequested() != 0u)
+        {
+            Upt56AppendEmissiveToken(surfaceIndex, continuationHit);
+            Upt04WriteIntermediateInitialReservoir(
+                surfaceIndex, reservoir, directVisibilityRays);
+            return;
+        }
+#endif
         Upt04WriteInitialReservoir(surfaceIndex, reservoir);
         return;
     }
@@ -225,6 +237,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     if (threeVertexProbe == 2u)
     {
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+        if (Upt56EmissiveCompactRequested() != 0u)
+        {
+            Upt56AppendEmissiveToken(surfaceIndex, continuationHit);
+            Upt04WriteIntermediateInitialReservoir(
+                surfaceIndex, reservoir, directVisibilityRays);
+            return;
+        }
+#endif
         Upt04WriteInitialReservoir(surfaceIndex, reservoir);
         return;
     }
@@ -274,6 +295,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #else
         3u);
 #endif
+#endif
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+    if (Upt56EmissiveCompactRequested() != 0u)
+    {
+        Upt56AppendEmissiveToken(surfaceIndex, continuationHit);
+        Upt04WriteIntermediateInitialReservoir(
+            surfaceIndex, reservoir, directVisibilityRays);
+        return;
+    }
 #endif
     Upt04WriteInitialReservoir(surfaceIndex, reservoir);
 #endif

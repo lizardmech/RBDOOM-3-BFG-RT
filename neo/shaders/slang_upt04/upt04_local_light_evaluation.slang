@@ -14,11 +14,14 @@ import upt04_material_provider_contract;
 #ifndef UPT04_EMISSIVE_COMPACT_CLASSIFY
 #define UPT04_EMISSIVE_COMPACT_CLASSIFY 0
 #endif
+#ifndef UPT04_EMISSIVE_COMPACT_CONSUME
+#define UPT04_EMISSIVE_COMPACT_CONSUME 0
+#endif
 import upt04_random_white_hash;
 import upt04_emissive_compact;
-#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+#if UPT04_EMISSIVE_COMPACT_CONSUME
 import upt04_resolved_emissive;
-public [[vk::binding(33, 0)]] StructuredBuffer<Upt56ResolvedEmissiveRecord> gUpt56ResolvedEmissive;
+public [[vk::binding(36, 0)]] StructuredBuffer<Upt56ResolvedEmissiveRecord> gUpt56ResolvedEmissive;
 
 public Upt56ResolvedEmissiveRecord Upt56LoadResolvedEmissive(uint denseIndex)
 {
@@ -106,6 +109,15 @@ public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
         receiverPosition,
         selection.sampleCoordinates);
 #elif UPT04_EMISSIVE_COMPACT_CLASSIFY
+    if (selection.requiresTriangleReplay != 0u)
+        return result;
+    if (!Upt04AnalyticLightCurrentPortalEligible(light, policyFlags))
+        return result;
+    result.sample = Upt04SampleAnalyticSphere(
+        light,
+        receiverPosition,
+        selection.sampleCoordinates);
+#elif UPT04_EMISSIVE_COMPACT_CONSUME
     if (selection.requiresTriangleReplay != 0u)
     {
         return Upt56EvaluateResolvedEmissive(

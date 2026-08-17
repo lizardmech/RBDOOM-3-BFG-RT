@@ -179,24 +179,7 @@ public float Upt04ExactNeePdfForEmissiveHit<
     const Upt04UnifiedLightRecord light =
         Upt04LoadCurrentLightRecord(denseLightIndex);
 #if UPT04_EMISSIVE_COMPACT_CLASSIFY
-    const Upt56ResolvedEmissiveRecord resolved =
-        Upt56LoadResolvedEmissive(denseLightIndex);
-    const float4 regionWeights = light.positionAndRadius;
-    if (!Upt56ResolvedRecordValid(resolved)
-        || !all(isfinite(regionWeights)) || any(regionWeights < 0.0f))
-        return 0.0f;
-    const float geometryPdf = Upt56ResolvedSolidAnglePdf(
-        resolved,
-        light,
-        receiverPosition,
-        hitBarycentrics,
-        (gUpt04Control.availabilityFlags
-            & kUpt04EmissiveReplayTwoSided) != 0u);
-    if (!Upt04FinitePositive(geometryPdf))
-        return 0.0f;
-    const uint region = Upt56RegionFromBarycentrics(hitBarycentrics);
-    const float solidAnglePdf = geometryPdf
-        * (4.0f * Upt56RegionSelectionPdf(regionWeights, region));
+    return 0.0f;
 #else
     const Upt04EmissiveGeometrySample replay =
         Upt04ReplayEmissiveTriangleBarycentrics(
@@ -217,7 +200,6 @@ public float Upt04ExactNeePdfForEmissiveHit<
     const float solidAnglePdf = replay.solidAnglePdf
         * (4.0f * Upt04EmissiveRegionSelectionPdf(
             regionWeights, region));
-#endif
     // Multi-sample balance heuristic density: selectionPdf is the normalized
     // per-draw typed mixture, so multiplying by the complete RIS trial count
     // yields sum_j n_j p_j for the heterogeneous NEE schedule.
@@ -242,4 +224,5 @@ public float Upt04ExactNeePdfForEmissiveHit<
         return 0.0f;
     reverseStatus = kUpt04ReverseNeePositivePdf;
     return neePdf;
+#endif
 }
