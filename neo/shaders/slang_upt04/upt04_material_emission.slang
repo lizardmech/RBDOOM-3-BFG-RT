@@ -4,6 +4,7 @@ import upt04_material_live_contract;
 
 public static const uint kUpt04MaterialEmissive = 0x00000008u;
 public static const uint kUpt04MaterialEmissiveLightCandidate = 0x00020000u;
+public static const uint kUpt04MaterialSkyEnvironment = 0x00040000u;
 public static const uint kUpt04TriangleEmissiveStageOff = 0x00040000u;
 
 // Complete the emitter-side material evaluation after the binding owner has

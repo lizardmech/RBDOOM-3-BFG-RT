@@ -59,7 +59,19 @@ public float3 Upt56ClassifyHitRadiance(
     bool applySkyMultiply)
 {
     const uint materialFlags = Upt04LoadMaterialFlags(materialIndex);
-    const bool sky = (materialFlags & 0x00040000u) != 0u;
+    const bool sky = (materialFlags & kUpt04MaterialSkyEnvironment) != 0u;
+    // Sky is an environment terminal. Do not require the emissive flag and do
+    // not queue it: consume packed radiance has no cubemap, so a lookup hit
+    // would black out the ambient fill.
+    if (sky)
+    {
+        const Upt04SmokeMaterialRecord skyMaterial =
+            Upt04LoadMaterialRecord(materialIndex);
+        float3 radiance = max(skyMaterial.emissiveColor.xyz, float3(0.0f));
+        if (applySkyMultiply)
+            radiance *= Upt04SampleSkyEnvironment(rayDirection);
+        return radiance;
+    }
     if ((materialFlags & kUpt04MaterialEmissive) == 0u)
         return float3(0.0f);
 
@@ -75,14 +87,7 @@ public float3 Upt56ClassifyHitRadiance(
             Upt56NoteEmissiveCompactKind(kUpt56KindHit2);
         return float3(0.0f);
     }
-    if (!sky)
-        return float3(0.0f);
-    const Upt04SmokeMaterialRecord skyMaterial =
-        Upt04LoadMaterialRecord(materialIndex);
-    float3 radiance = max(skyMaterial.emissiveColor.xyz, float3(0.0f));
-    if (applySkyMultiply)
-        radiance *= Upt04SampleSkyEnvironment(rayDirection);
-    return radiance;
+    return float3(0.0f);
 }
 #endif
 
@@ -419,7 +424,8 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     }
 #if !UPT04_EMISSIVE_COMPACT_CLASSIFY
-    if ((Upt04LoadMaterialFlags(hitSurface.materialIndex) & 0x00040000u) != 0u)
+    if ((Upt04LoadMaterialFlags(hitSurface.materialIndex)
+            & kUpt04MaterialSkyEnvironment) != 0u)
     {
         endpointEmission.radiance *=
             Upt04SampleSkyEnvironment(work.ray.direction);
