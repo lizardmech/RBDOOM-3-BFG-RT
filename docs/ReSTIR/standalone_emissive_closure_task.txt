@@ -1,17 +1,18 @@
 Standalone task: remove the emissive closure from the UPT indirect kernel
 =========================================================================
 
-STATUS: cause CONFIRMED by a valid A/B on 2026-08-17. Design LOCKED to
-option A and implemented. G1 passed on the 2026-08-17 Vulkan release build:
+STATUS: STALE as of 2026-08-17 evening. Do not implement from this
+paragraph. Authoritative state is docs/ReSTIR/HANDOVER_2026_08_17.txt.
 
-    production  42,898 ops / 20 image-sample sites
-    classify    30,031 ops / 11 image-sample sites   (8x8, NEE deferred)
-    consume     64x1 thin: stored x2 hit, no continuation retrace, no x3
+Cause remains CONFIRMED. What landed is a HYBRID, not locked option A.
+Queue density already hit the 95-96 percent stop condition. Image-quality
+panic in the morning handover was wrong; 87d4aa660 compact-on with sky
+evaluated inline is the accepted compact image. Production compact-off
+matches f4b8fdec9, not the 16th-morning b681598e2 shot.
 
-Classifier is 548 ops above the excised diagnostic (36,306) for the queue
-append. Enable with +set r_pathTracingUnifiedPtEmissiveCompact 1 (default
-off). G3/G4 are runtime A/B, not yet captured. Do not reopen option B
-unless measured queue density is dense.
+Last measured classify artifact: 38,555 ops / 15 image sites, not 30,031 / 11.
+Enable with r_pathTracingUnifiedPtEmissiveCompact 1 (default off). G3/G4
+uncaptured. D2/D3 in the handover are user calls.
 
 
 Scope and reading boundary

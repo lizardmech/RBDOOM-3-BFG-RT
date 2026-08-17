@@ -1,0 +1,284 @@
+UPT-56 handover - 2026-08-17 (evening)
+======================================
+
+Read this file and docs/ReSTIR/standalone_emissive_closure_task.txt. Do NOT
+read docs/ReSTIR/unified_slang_renderer/*.txt - 76 documents from a long
+experimental chain, several of which record conclusions now known to be wrong.
+Two are explicitly superseded: doc 75's "Runtime result" and all of doc 76.
+
+The plan file's STATUS is stale. Believe this handover for image, HEAD, and
+what actually landed. Do not implement from the plan's first paragraph.
+
+Repository: E:/prog/rbdoom-3-bfg-rt      Branch: restir-development
+Build:      cmake --build --preset win64-pt-dev-release
+Head at handover: 87d4aa660
+
+
+0. Image quality - RESOLVED, do not re-open
+-------------------------------------------
+
+The morning handover claimed UPT-56 had broken shared/production sky fill
+(room collapsing to warm window bleed, grain, GPU ~17.2 ms idle-heavy to
+~35.9 ms). That diagnosis was wrong in two places, and it sent the next
+session looking for a production regression that was not there.
+
+What was wrong in the morning note:
+
+  * The early return after 1e9483a88 is inside
+    #if UPT04_EMISSIVE_COMPACT_CLASSIFY. It is not shared production.
+  * Host sky shells already set SKY_ENVIRONMENT | EMISSIVE
+    (PathTraceMaterialUniverse.cpp). They do not die on
+    kUpt04MaterialEmissive == 0.
+  * Compact-off production three-vertex SPIR-V at 16fa85fe8 / 87d4aa660 is
+    BYTE-IDENTICAL to f4b8fdec9 (686,412 bytes, SHA256 CF46ED9F...).
+    Compact 0 cannot restore the 16th-morning image, because that image was
+    not f4b8fdec9.
+
+What the A/B actually showed on 2026-08-17 evening:
+
+  last known-good screenshot
+      base/screenshots/rbdoom-3-bfg-20260816-053114-001.png
+      2026-08-16 05:31, Command HQ Control, cool ambient fill intact
+      built from b681598e2 (2026-08-15 16:53)
+      "Stabilize UPT glass and transmitted sky reuse"
+
+  f4b8fdec9 (2026-08-17 03:09)
+      Checkpoint post-glass through UPT-55. Not "just diagnostics" - about
+      2,000 lines of renderer/shader including compact light pack,
+      multibounce, material emission, temporal indirect. UPT-54/55 recorded
+      as rejected and gated. Production image matches later compact-off
+      UPT-56. User judged this the same as the degraded look.
+
+  b681598e2 rebuilt and deployed
+      three-vertex 493,504 bytes, SHA256 B7AB62CE...  DIFFERENT blob.
+      User confirmed: this one definitely works.
+
+  87d4aa660 + compact path, skybox value corrected
+      User accepted: image is fine, decent performance uplift. This is the
+      current tip. Do not treat compact-on as an image emergency.
+
+The classify sky hole that DID exist, and is fixed in 87d4aa660:
+
+  Upt56ClassifyHitRadiance used to run FindEmissiveDenseLight before sky.
+  A sky triangle that hit the lookup was queued and returned black.
+  Consume packed radiance has no cubemap, so ambient sky fill died on the
+  compact path only. 87d4aa660 evaluates sky FIRST, never queues it.
+  x2 still multiplies Upt04SampleSkyEnvironment; x3 still does not.
+
+Do not compare compact-off UPT-56 to the 16th 05:31 shot and call the delta
+an UPT-56 regression. That delta is b681598e2 -> f4b8fdec9.
+
+The 17.2 ms -> 35.9 ms overlay pair is not a valid cost for the accepted
+tree. Cross-launch frame time on this kernel has a 20-37 percent noise
+floor (R2). Report wall-to-fixture stall cliffs, not those two GPU totals.
+
+
+1. Current accepted state
+-------------------------
+
+Tip: 87d4aa660 on restir-development (not pushed; 534 ahead of origin).
+
+    r_pathTracingUnifiedPtEmissiveCompact 0
+        production three-vertex, same SPIR-V as f4b8fdec9
+    r_pathTracingUnifiedPtEmissiveCompact 1
+        classify + sparse-mesh consume; sky evaluated inline in classify
+        THIS is the accepted compact image
+
+Confirm from the pipeline create line, not the console: emissiveCompact=1
+and the classify hash must differ from production. m_emissiveCompact IS in
+EnsurePipeline's invalidation list, so this gate works at runtime. The
+probe cvar still does not (R7).
+
+Known-good restore if compact is later rejected: b681598e2, not f4b8fdec9.
+
+
+2. The original bug - CONFIRMED, do not re-diagnose
+----------------------------------------------------
+
+A small hanging light fixture cost about 30 percent of frame time when on
+screen. The indirect dispatch is roughly 60 percent of the frame. Temporal
+and spatial reuse OFF throughout.
+
+Cause: the indirect shader is one inlined Slang entry point. When a pixel
+selects or hits an emissive triangle it enters a large emissive closure -
+geometry replay, material record load, bindless emissive texture sample, and
+a validation branch tree. That code is never fetched when no emissive
+triangle is in play. When the fixture appears it becomes resident and most
+of the cost lands on unrelated code as instruction-fetch stalls.
+
+Proof, valid A/B, Nsight source captures:
+
+    artifact                       wall        fixture      cliff     cliff %
+    probe 4 production  42,904 i   701,283   1,385,588   +684,305   +97.6%
+    probe 6 excised     36,306 i   860,484     963,390   +102,906   +12.0%
+
+    newly-executed      probe 4: 1,393 instrs / +286,781 samples
+                        probe 6:    76 instrs /   +6,365 samples
+
+Only the within-artifact wall-to-fixture ratio is meaningful. Do not compare
+absolute sample counts across capture sessions.
+
+Residual after excision: the remaining +12 percent is entirely SKINNED
+GEOMETRY decode - gUpt04SkinnedSourceIndices, gUpt04SkinnedCurrentVertices,
+gUpt04SkinnedTriangles. Not emissive. Unscoped. Connects to a prior finding
+about one merged dynamic BLAS rebuilt every frame.
+
+Chronic problem, out of scope for UPT-56: No Instructions 63-72 percent on
+the wall camera with the fixture absent, on BOTH artifacts. Gate: wall-camera
+No Instructions below 15 percent. Levers: selective noinline on cold blocks,
+spec constants for geometry routes, less Unroll.
+
+
+3. What is actually implemented
+--------------------------------
+
+The plan locked option A (two-dispatch queue, estimator unchanged). What
+landed is a HYBRID. Option A's stop condition already fired (queue density
+95-96 percent of screen) and was passed through. Do not silently invent
+another option B; D2/D3 below are user calls.
+
+  * x2 emissive NEE and x2 mesh-light hits -> queued, 64x1 consume, packed
+    4-region radiance (option A shape)
+  * x2 sky hits -> inline in classify, emissiveColor * cubemap (87d4aa660)
+  * x3 endpoint: sky inline without cubemap; mesh-light hits are not
+    evaluated in classify and are not queued (16fa85fe8 stopped classify
+    from evaluating mesh lights). User accepted the current image anyway.
+
+Verified good:
+  * gUpt04EmissiveGeometry and gUpt04EmissiveReplay are absent from the
+    classifier binding set. Structural goal, achieved.
+  * Host queue is a faithful S43.4 implementation - 20-byte per-frame CPU
+    write, InterlockedAdd then capacity clamp, InterlockedMax to
+    ceil((slot+1)/64), correct barriers, IndirectArgument transition,
+    dispatchIndirect, no clear, no hot-path readback.
+  * Compact gate invalidates the PSO. Probe cvar still does not.
+  * 12.5 percent uniform mixture is preserved in Upt56RegionSelectionPdf.
+  * G1 still passes at 87d4aa660: classify 38,555 ops / 15 image sites,
+    production 42,898 / 20, consume 64x1.
+
+Stale or unverified:
+  * Plan STATUS claims classify 30,031 ops / 11 image sites. Current is
+    38,555 / 15. G2 unverified against this build.
+  * Current "sparse-mesh" queue density has never been measured after the
+    sky-first change. Nee2 still triggers on
+    selection.type == kUpt04LightEmissiveTriangle ||
+    selection.requiresTriangleReplay != 0, which in a mesh-light scene is
+    most pixels.
+  * G3 and G4 never captured.
+  * Reverse PDF is compiled out of classify and consume (endpointNeePdf = 0).
+    That is an estimator change the plan forbade. User accepted the image;
+    do not "fix" MIS without being asked.
+
+Queue append still does InterlockedAdd on gUpt56EmissiveMeta[0]. At high
+density that serializes millions of atomics on one dword. Per-warp ballot
+if the queue is kept (D2).
+
+
+4. Open decisions - these need the user, not an agent
+------------------------------------------------------
+
+D1. Packed radiance is piecewise-constant over four regions
+    (Upt56ResolvedRadianceAtBarycentrics). Small fixture triangles are
+    fine. A large authored emissive with a small mask will glow or go dark
+    over a quarter of the triangle. Test the largest emissive in the game
+    before treating this as accepted. Implicit during implementation.
+
+D2. Keep or remove the queue. Measure density first:
+        r_pathTracingUnifiedPtEmissiveCompactDiagnostics 1
+    Prints published/bounded/capacity and fraction. If the fraction is
+    high, delete the queue and keep packed radiance plus inline sky - that
+    is a simpler design than what exists now.
+
+D3. Rewrite the plan around the hybrid, or say option A is dead. Any agent
+    that reads standalone_emissive_closure_task.txt STATUS first will
+    implement the wrong thing.
+
+Do not iterate the hybrid without a written replacement plan. Compact
+default stays 0. Accepted compact image is gate 1 at 87d4aa660.
+
+
+5. Measurement rules - these were learned expensively
+------------------------------------------------------
+
+R1. Verify the artifact hash and instruction count changed in the intended
+    direction BEFORE capturing. Three cycles were lost to A/Bs that ran the
+    production artifact while the console said otherwise.
+
+R2. Cross-launch frame-time comparison has a measured 20-37 PERCENT NOISE
+    FLOOR on this kernel, from driver register allocation differing between
+    process launches with byte-identical SPIR-V. Any effect smaller than
+    that is not measurable by that method. Within-session wall-to-fixture
+    ratios are protected and remain valid.
+
+R3. Report absolute stall counts, never shares alone. A share moves when
+    either term moves, and the causes are opposite.
+
+R4. A zero-sample region means "not executed in this configuration", not
+    "dead code". The x3 lane looked dead in one capture and carries 45
+    percent of samples in another.
+
+R5. Long Scoreboard is real memory work; No Instructions is overhead. If
+    Long Scoreboard is flat or negative while totals rise, the cost is not
+    traversal or memory.
+
+R6. Frame time is reported last, never alone. Three consecutive experiments
+    in this project were accepted or rejected on it and two were null
+    results that concealed what happened.
+
+R7. cvar changes do not necessarily reach the GPU. The probe cvar is absent
+    from EnsurePipeline's invalidation list and has no CVAR_ARCHIVE, so it
+    must be set with +set at launch. Verify from the capture, not the
+    console.
+
+
+6. Tooling and file map
+------------------------
+
+E:/prog/gpu_optimization/                  new section for agentic GPU work
+    tools/nsight_source_diff.py            validated Nsight source-view
+                                           analysis. Refuses to diff
+                                           captures with different module
+                                           hashes, identifies artifacts by
+                                           fingerprint, reports absolute
+                                           stall deltas, groups newly-
+                                           executed regions by the buffers
+                                           they touch, classifies stall
+                                           shifts. USE THIS instead of
+                                           loading CSVs into context.
+    tools/fingerprints/rbdoom_upt.json     known artifacts incl. ones you
+                                           do NOT want to be analyzing
+    agent_failure_modes/01_...             15 failure modes from this
+                                           investigation
+    agent_failure_modes/02_...             cross-launch compilation variance
+    *.rtf, *.pdf                           reference material
+
+E:/prog/rbdoom-3-bfg-rt/docs/ReSTIR/
+    standalone_emissive_closure_task.txt   the plan. STATUS is stale; this
+                                           file is authoritative for HEAD
+                                           and image.
+    HANDOVER_2026_08_17.txt                this file
+
+Captures on disk: E:/prog/probe4wall.csv, probe4fixture.csv, probe6wall3.csv,
+probe6fixture3.csv are the valid 2x2. Files named probe6wall.csv,
+probe6wall2.csv, probe6fixture.csv, probe6fixture2.csv are VOID - they ran
+the production artifact. nsightUPTwall.csv is the wrong kernel entirely.
+
+Screenshot anchors:
+    20260816-053114-001.png    last known-good (b681598e2)
+    20260817-160854 / 160918   later rooms; temporal on; not the
+                               investigation config
+
+
+7. Still unrun
+---------------
+
+M2, the frame-level capture. Nothing measured so far establishes that the
+30 percent frame cost actually lives in the indirect dispatch. Capture
+per-dispatch durations at both cameras including acceleration-structure
+build and refit. If a substantial part of the fixture delta is BLAS build,
+the shader work is misdirected. Outstanding for the whole investigation;
+cheap to settle.
+
+G3 (combined D0 wall-to-fixture cliff) and queue-density print on the
+accepted 87d4aa660 compact path are also unrun. Do those before proposing
+another compact design change.
