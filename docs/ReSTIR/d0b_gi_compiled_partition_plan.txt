@@ -1,0 +1,333 @@
+D0b GI compiled partition plan
+==============================
+
+Date: 2026-08-18
+Status: rev 2 executed through step 2. Track B stopped per §5.2.
+        W landed (G-P1 pass, G-P2 NI miss on 2-vtx). X accepted
+        (3rd bounce, NI ~60% -> ~20%). G landed (noSkinned=1,
+        412668 -> 377984) and G-P2 was flat on the easy camera.
+        §5.2: if G misses and frame time is flat, stop Track B.
+        Do not spray NaN/Inf / noinline / unroll (§5.5).
+        Compact default stays 0 (G-P4). C stays. X is the 3-vtx PSO.
+Author: Quinn
+Review: Voss (approve-with-changes)
+Repo: E:/prog/rbdoom-3-bfg-rt   Branch: restir-development
+Authority for current compact image/HEAD: docs/ReSTIR/HANDOVER_2026_08_17.txt
+Do not implement from docs/ReSTIR/standalone_emissive_closure_task.txt (STATUS stale).
+Do not read docs/ReSTIR/unified_slang_renderer/*.txt.
+
+This is a compiled-shape plan for the split-initial **indirect** dispatch
+(D0b). It is not a rewrite of CPU submit, reservoirs, materials, lights,
+or D0a. Replace which closures are reachable in which .bin. Keep the ABI.
+
+Mechanism is **touched footprint and contiguity**, not SPIR-V op count.
+RTXDI PT is a larger module than our 2-vtx GI (23,748 vs 20,507) and
+has 4.2% NI vs 60.4%. Their dead code sits in a few huge cold runs
+(largest 9,403 lines). Ours is minced through the hot path. A W that
+hits ops <= 16000 with a 14k interleaved footprint can pass a size
+gate and stay sick.
+
+
+0. Why this exists
+------------------
+
+Nsight source-view, temporal/spatial off, 2026-08-18 test_scene
+(nsighcsv/, tool: gpu_optimization/tools/nsight_source_diff.py):
+
+    capture              ops     img  rq  regs max/mean    NI          Long SB
+    UPT DI (D0a)         16082   4    1   84 / 55.7        9.7%        23.5%
+    UPT GI 2-vtx         20507   9    2   111 / 85.2       60.4%       14.5%
+    UPT GI 3-vtx         38561   15   4   126 / 86.5       75.4%       10.9%
+    RTXDI DI             9272    10   2   64 / 48.7        1.1%        29.7%
+    RTXDI PT indirect    23748   31   5   161 / 120.5      4.2%        69.9%
+
+Footprint (live span minus contiguous cold runs >64 lines), review:
+
+    capture         total    live    footprint    NI
+    RTXDI DI         9272    1645     4213        1.1%
+    RTXDI PT        23748    2453     6832        4.2%
+    UPT DI          16082    1404     7665        9.7%
+    UPT GI 2-vtx    20507    2931    17141       60.4%
+    UPT GI 3-vtx    38561    4844    29046       75.4%
+
+Same-session sample totals are not comparable across these files (F12).
+The stall mix and footprint are.
+
+Derivation (do not re-litigate):
+
+  * D0a is in the healthy family. D0b is not.
+  * NVIDIA PT is larger, higher regs, more RQ and image sites, and
+    Long-Scoreboard bound. High regs are not the disease. Register-cut
+    campaign forbidden (prior 108->96 regress).
+  * 2-vtx is already 60% NI. Compiling x3 out is not sufficient.
+  * 2-vtx -> 3-vtx: ops ~2x, weighted regs flat, NI absolute grew
+    faster than samples. Extra Proceed sites are live.
+  * GI NI is smeared (top 8 PCs ~11%). Opcode mix on 2-vtx: BranchConditional
+    27.2%, IsNan 8.5%, Load 7.6%, ExtInst 6.9%, Dot 5.9%,
+    RayQueryProceedKHR 5.0%, IsInf 3.8%. ~30% is control flow — the
+    footprint signature, not one closure. Emissive symbols 0.2-0.5% of NI.
+  * The 2026-08-18 file named *compactemissive* 2-vtx is
+    upt04_initial_split_indirect_rayquery_compact32_light64.bin
+    (20,501 spvasm ops / 9 img / 2 rq). It still references
+    gUpt04EmissiveReplay and gUpt04EmissiveGeometry. The 60.4% NI
+    includes the closure UPT-56 removes. Filename is wrong.
+  * Shipping default today is that 2-vtx light64 blob (both
+    threeVertexInitial and emissiveCompact default 0). 3-vtx classify
+    is the accepted *compact* image, not the shipping default.
+  * Deleting the emissive queue and evaluating packed in classify
+    nearly doubled D0b (entry 03). Specialization is not optional.
+
+The bug is one inlined Slang entry, 0 OpFunctionCall, 0 OpSpecConstant,
+minced dead code through the hot path, 2-4 live Proceeds.
+
+
+1. What we keep
+---------------
+
+Host / ABI (do not touch in this plan):
+
+  * D0a writes the intermediate initial reservoir; D0b loads it.
+  * D0b writes the same 64-byte initial reservoir page resolve already
+    consumes. M-normalization must stay identical across W/C/X
+    (pipeline line prints exactM=1). Disagreement double-counts in T0.
+  * compact32 + sidecar receiver, packed light records, compact materials.
+  * RayQuery, not pipeline TraceRay.
+  * r_pathTracingUnifiedPtEmissiveCompact default 0 until G-P4 + reuse-on
+    image check.
+  * Emissive classify/consume split as it exists after revert
+    (queue + 64x1 consume). Do not fold consume back into classify.
+
+Existing D0b .bins (Upt04SplitIndirectShaderPath):
+
+  * ..._compact32_light64.bin
+        2-vtx shipping default. Starting point for W. Still has replay.
+  * ..._three_vertex.bin
+        3-vtx, no compact
+  * ..._three_vertex_emissive_classify.bin
+        3-vtx + compact classify 8x8     (accepted compact image @ 87d4aa660)
+  * ..._three_vertex_emissive_consume.bin
+        64x1 packed consume
+  * ..._three_vertex_analytic_only.bin
+        probe 5/6 excised diagnostic
+
+Missing: a **2-vtx compact classify** .bin. Host does not offer
+threeVertexInitial=0 + emissiveCompact=1 today (see §4).
+
+
+2. Partition (exclusion first)
+------------------------------
+
+Every closure is in exactly one compiled specialization, or it is not
+in D0b at all.
+
+Blob W — wide 8x8, 2-vtx compact classify
+    Allowed:
+        load intermediate reservoir
+        continuation + x2 NEE visibility: exactly two
+        OpRayQueryInitializeKHR and two OpRayQueryProceedKHR
+        analytic NEE
+        sky environment (inline, as 87d4aa660)
+        packed-light load / compact32 receiver decode
+        write final reservoir when no compact token
+        noinline on cold blocks (this is a required lever — it is how
+        interleaved dead code becomes contiguous cold code, i.e. the
+        RTXDI shape, without deleting a feature)
+    Forbidden in this .bin:
+        x3 continuation, x3 NEE, third/fourth Proceed
+        gUpt04EmissiveReplay, gUpt04EmissiveGeometry
+        EvaluateEmissiveEndpoint, ExactNeePdfForEmissiveHit
+        [unroll] region-probe / RIS loops that exist only for replay
+    Geometry (skinned / rigid) is Blob G, the *second* change, not
+    bundled into the first W land. W may still reference those buffers
+    until G. Check W by buffer reference, not OpName:
+        must NOT reference %gUpt04EmissiveReplay or %gUpt04EmissiveGeometry
+        must reference %gUpt56Emissive*
+    Signed budget, W = 2-vtx + classify only (vs today's light64 20507/9/2):
+        ops            <= 18700
+        img            <= 7
+        rqInit         == 2
+        rqProceed      == 2
+        OpFunctionCall unconstrained (0 is not a virtue)
+        footprint(64)  <= 14000     (down from 17141)
+        NI absolute    down >= 15%, same session, sample totals within 1.5x
+        Long SB / Wait may rise
+    Classify-only is expected to move NI 15-30%, not return W to the
+    DI family. The 16k-ops-like-D0a gate is rejected: D0a is 16082 ops
+    with a 7665 footprint; a 16k-op W with a 14k footprint is still sick.
+
+Blob C — existing 64x1 emissive consume
+    Unchanged job: packed 4-region eval + that path's visibility.
+    Do not widen to full x3 (UPT-53) in this plan.
+    Do not delete for any reason, including "W is now cheap enough."
+
+Blob X — x3 as a compiled split
+    M-x3 still required, but it **bounds X's cost**, it does not veto
+    the split. Entry 03: 95% queue density and the 64x1 consume was
+    still the win. "Dense => do not split" is that failure.
+    In a fetch-bound regime a split can shrink each kernel's footprint
+    even at high take rate. Schedule:
+        Implement X only after W exists.
+        Accept X only if (W+X) vs current 3-vtx classify wins on
+        footprint(64) and NI absolute, same session.
+        If that A/B loses, keep the 3-vtx blob as the 3-vtx PSO.
+    Route tag: decide *now*, before X. If x3 leaves W, T0 replay and
+    S0 shift must know producing path length. Today that is implied by
+    a global cvar. Retrofitting a bit into the 64-byte page is what
+    this plan forbids — so either:
+        (a) a sideband / existing unused page bit already in the ABI, or
+        (b) T0/S0 continue to key off the PSO / cvar that selected W vs X
+            and must not run mixed-length pages in one frame.
+    Pick (b) unless an existing unused bit is found. Do not widen the
+    reservoir format.
+
+Blob G — geometry route (second change, not last)
+    Spec constant or extra .bin: skinned vs not first.
+    light64 today references all four gUpt04Skinned* plus
+    gUpt04RigidInstanceWords. G's variant must not reference
+    %gUpt04Skinned*.
+    Signed budget, W+G (the comparison worth wanting):
+        ops            <= 15000
+        img            <= 6
+        footprint(64)  <= 9000
+        NI absolute    down >= 50%
+        NI percent     < 30%
+    If W+G lands there and frame time has not moved, the fetch theory
+    is wrong and Track B stops.
+
+Also leave W, ranked after classify excision:
+    1. Blob G (geometry)
+    2. NaN/Inf guards (~12.3% of 2-vtx NI, on no prior exclusion list)
+    3. material texture path
+    4. remaining [unroll] regions
+    5. noinline to pack leftover dead code into cold runs
+
+No new reservoir format. No new host light list. No RTXDI port.
+
+
+3. Gates
+--------
+
+G-P0  Artifact identity. Pipeline create line + module hash + op count
+      + buffer-reference stamp before any capture. Probe cvar: +set at
+      launch (R7). threeVertex and emissiveCompact *are* in the
+      invalidation list and the create hash — R7 does not apply to them.
+      ThreeVertexBottleneckProbe still does not shrink the blob (F3).
+
+G-P1  Structural, per new W blob (extend VerifyUpt56EmissiveClosure.cmake,
+      do not write a new verifier):
+        ops <= 18700, img <= 7, rqInit == 2, rqProceed == 2
+        no %gUpt04EmissiveReplay / %gUpt04EmissiveGeometry
+        has %gUpt56Emissive*
+      This is a compile check, not a performance result.
+
+G-P2  Mechanism, same session, fixture-off wall, temporal/spatial off:
+      W vs today's light64. Sample totals within 1.5x.
+      NI absolute down >= 15%.
+      footprint(64) <= 14000.
+      Combined D0 (D0a + W + C + barriers) reported. Frame time last.
+      Kill if NI absolute is not down >= 15% *or* footprint(64) misses,
+      even if G-P1 passes.
+
+G-P3  Combined fixture cliff (handover G3) on W+C, not on W alone.
+
+G-P4  Image: accepted 87d4aa660 compact look is the floor for compact-on.
+      Do not restore reverse PDF. Do not flip compact default.
+      Before W becomes any kind of default: one reuse-on image check.
+      Upt43SpatialShiftPrepassEnabled and
+      Upt438SpatialDisocclusionBoostEnabled both require
+      !threeVertexInitial. A 2-vtx W as production turns those spatial
+      paths on; every other gate is specified reuse-off.
+
+G-P5  Binding-layout parity. Slots 33-36 exist only when emissiveCompact.
+      After rewiring, Upt04InputsValid must require standalone
+      emissiveCompact (today the 3-vtx conjunct covers it).
+
+
+4. Host wiring (prerequisite, four edits)
+-----------------------------------------
+
+threeVertexInitial=0 + emissiveCompact=1 does not exist:
+
+  * PathTraceSmokeDispatch.cpp ~3822:
+        emissiveCompact = cvar && threeVertexInitial && !staticAnalyticOnly
+  * Upt04SplitIndirectShaderPath ~585: emissiveClassify nested inside
+    if (threeVertexInitial); else falls through to light64
+  * Cvar help text: "Requires effective three-vertex initial"
+  * Console prints emissiveCompact=0; the cvar is silently ignored
+
+Four edits, one change:
+
+  1. Drop the threeVertexInitial conjunct at SmokeDispatch ~3822
+  2. Non-3-vtx classify branch in Upt04SplitIndirectShaderPath
+  3. Upt04InputsValid clause for standalone emissiveCompact
+  4. CMake variant: 2-vtx + UPT04_EMISSIVE_COMPACT_CLASSIFY=1
+     (defines are orthogonal; classify guards already exist)
+
+Non-hazards (do not spend a session on these):
+
+  * Consume PSO is created whenever emissiveCompact; meta/args reset
+    to {0,1,1}/{0,capacity} every frame — empty queue => 0 groups
+  * m_emissiveCompact and m_threeVertexInitial are both in the
+    invalidation comparison and both hashed
+
+
+5. Implementation order
+-----------------------
+
+  0. Host wiring + CMake 2-vtx classify variant (§4). No behavior
+     change until the new .bin is selected.
+  1. Blob W: 2-vtx + CLASSIFY, G-P1 then G-P2 vs today's light64.
+     Expect 15-30% NI absolute, not a miracle.
+  2. Blob G: skinned vs not. G-P2 against the W+G budget. If this
+     misses and frame time is flat, stop Track B.
+  3. M-x3 (pixels and warps-with-a-lane) on test_scene and fixture.
+     Bounds Blob X, does not cancel it.
+  4. Blob X only after W, accepted only on (W+X) vs 3-vtx classify
+     footprint + NI absolute.
+  5. NaN/Inf / noinline / remaining unroll as follow-ups named by
+     the post-W NI map, not as a spray.
+
+1 and 2 are separate landings. Do not fold G into the first W commit.
+
+
+6. Forbidden
+------------
+
+  * Greenfield rewrite of "the indirect section"
+  * Folding C into W, or deleting C
+  * "Dense take-rate => do not split" (entry 03)
+  * Option B discrete K-sample NEE
+  * MIS / endpointNeePdf restore
+  * Treating G-P1 pass as a performance result
+  * Judging on overlay ms or cross-launch frame time (20-37% floor)
+  * --allow-different-modules source-diff vs RTXDI
+  * Runtime predicate to "disable x3" inside the 3-vtx blob (F3)
+  * Register-count target
+  * Widening the 64-byte reservoir page
+  * Reading docs/ReSTIR/unified_slang_renderer/*.txt for this work
+
+
+7. Open measurements
+--------------------
+
+  M-x3   pixel fraction and warp-with-a-lane fraction for x2->x3
+         on test_scene and fixture. Bounds X. Does not block W or G.
+  M-sk   D0b waves that touch skinned decode on those cameras.
+  M2     per-dispatch times including AS build (handover). Still unrun.
+  M-fp   fold the review's footprint script into
+         nsight_source_diff.py PROFILE. Validate once against a
+         SASS-view export before footprint(64) is a kill metric.
+
+Verify W/G with buffer references (extend
+VerifyUpt56EmissiveClosure.cmake). 0 OpFunctionCall / 62 OpNames —
+symbol search will not see replay.
+
+
+8. Review resolution
+--------------------
+
+Full text: docs/ReSTIR/d0b_gi_compiled_partition_plan_review.txt
+Verdict was approve-with-changes. Rev 2 takes B1-B4, the signed
+budgets, host four-edit list, route-tag (b), reuse-on G-P4, Blob G
+as second change, noinline, and the light64 identification of the
+2026-08-18 2-vtx capture.

@@ -1,0 +1,615 @@
+Review: D0b GI compiled partition plan
+======================================
+
+Date: 2026-08-18
+Reviewer: Opus 5 worker (hired by Quinn)
+Subject: docs/ReSTIR/d0b_gi_compiled_partition_plan.txt (draft, 2026-08-18)
+Delegation: delegation-1786977298938-bf970mq
+Scope: review only. Nothing implemented, no plan file edited, no todos touched.
+
+Everything below is derived from the compiled artifacts in
+build-win64-pt-dev/shaders/slang_upt04/artifacts/, the host source in
+neo/renderer/NVRHI/, and aggregate statistics over the 2026-08-18 Nsight
+exports. No CSV rows were read into context; the aggregate script is in
+appendix B and is reproducible.
+
+
+0. Verdict
+----------
+
+APPROVE WITH CHANGES.
+
+The diagnosis ("one inlined entry, 0 OpFunctionCall, 0 OpSpecConstant,
+20-38k reachable ops") is correct and verified independently below. The
+strategy (specialize by compiled shape, keep the ABI, keep C, do not
+rewrite) is right and is the only strategy the evidence supports.
+
+Three things must change before implementation:
+
+  B1  The primary budget metric is wrong. Total op count does not predict
+      the No Instructions cliff in this data set. RTXDI PT indirect has
+      MORE compiled ops than our 2-vtx GI (23,748 vs 20,507) and 4.2% NI
+      vs 60.4%. What separates them is measured in section 3. A W that
+      passes "ops <= 16000" can miss the win entirely, and a W that
+      misses 16000 can take it. Gate on footprint, keep ops as a proxy.
+
+  B2  Blob W as scheduled (step 2 = 2-vtx classify only) cannot reach the
+      budget the plan sets for it. The classify excision is worth roughly
+      -2,200 ops at 2 vertices (measured basis in section 4). W lands
+      near 18,300, not 16,000. Either move the geometry-route exclusion
+      into the same change or restate the budget. As written, G-P1 kills
+      a correct change.
+
+  B3  Blob X's decision rule is 03-shaped by the plan's own definition.
+      "dense -> do not split" is the same inference that failed in entry
+      03, where a 95.6%-dense queue's separate 64x1 kernel WAS the win
+      and deleting it because density was high cost the session. Take
+      rate bounds the cost of the extra pass; it does not decide whether
+      specialization helps. See section 6, Q5.
+
+Everything else is sound, and two of the plan's uncertainties are now
+closed as facts (sections 4 and 5).
+
+
+1. What I verified, and how
+---------------------------
+
+Compiled artifacts, counted directly from the .spvasm the build emits
+(cd build-win64-pt-dev/shaders/slang_upt04/artifacts):
+
+  blob                                   ops    img  rqInit rqProceed  fn  spec
+  ..._compact32_light64                 20501    9     2       2        0    0
+  ..._light64_three_vertex              42898   20     4       4        0    0
+  ..._light64_three_vertex_emissive_classify
+                                        38555   15     4       4        0    0
+  ..._light64_three_vertex_emissive_consume
+                                        25525    9     2       2        0    0
+  ..._light64_three_vertex_analytic_only
+                                        36300   14     4       4        0    0
+
+  fn = OpFunctionCall count, spec = OpSpecConstant count. Both are zero in
+  every indirect blob. The plan's core claim is confirmed at the artifact
+  level, not inferred.
+
+  (The +5/+6 difference vs the plan's table and the fingerprint file is
+  the .spvasm header lines. Not an error in either.)
+
+Nsight exports, via the tool as instructed:
+
+  python gpu_optimization/tools/nsight_source_diff.py \
+      E:/prog/nsighcsv/rbdoomUPT/test_scene_GI_2vertex_compactemissive.csv \
+      --fingerprints gpu_optimization/tools/fingerprints/rbdoom_upt.json
+
+  2-vtx GI: hash 1132f0e9582eb32d, 20507 instrs, 9 img, 2 rqInit,
+  956,555 samples, 2,931 live of 20,507 instructions, NI 577,391 (60.4%).
+
+Host source read: PathTraceUnifiedPt.cpp (570-604 selector, 2556-2640
+pipeline creation, 4975-5080 dispatch sequence, 1219+ Upt04InputsValid,
+2351-2375 invalidation list), PathTraceSmokeDispatch.cpp 3819-3826,
+PathTraceCVars.cpp cvar declarations, slang_upt04/CMakeLists.txt 376-465,
+VerifyUpt56EmissiveClosure.cmake.
+
+
+2. Blocking issues
+------------------
+
+B1. Op count is not the mechanism. Replace the W budget metric.
+
+    Section 2 sets "ops <= 16000" and G-P1 stamps ops/img/rqInit. That
+    set of numbers is satisfiable without touching the disease. Proof
+    from the same five captures, section 3.
+
+    Required change: G-P1 keeps ops/img/rq as a cheap structural stamp
+    (it is a real closure check, keep it), but the number that decides
+    pass/fail moves to G-P2 and is the touched-footprint metric with a
+    stated threshold. Without this, G-P1 is UPT-56's op-count theater
+    with a new name, which section 5 of the plan already forbids.
+
+B2. W's scheduled content cannot meet W's stated budget.
+
+    Step 2 scopes W as "2-vtx classify with MULTI_BOUNCE compiled out".
+    That is exactly the light64 blob (20,501) minus the emissive closure.
+    Measured basis: at 3 vertices the same excision is 42,898 -> 38,555,
+    i.e. -4,343 ops and -5 image sites across two instantiation sites.
+    Per site that is about -2,170 ops and -2.5 img. The 2-vtx blob has
+    one such site, so W lands near 18,300 ops and 6-7 image sites.
+
+    The exclusions that could close the remaining ~2,300 (skinned decode,
+    rigid instance word walk) are step 5, explicitly after W ships, and
+    "do not start 4 or 5 in the same change as 2".
+
+    So the plan schedules a change that its own gate fails. Pick one:
+    (a) restate W's budget as section 7 below, or (b) move the skinned/
+    rigid spec-constant into step 2 and accept a bigger first change.
+    I recommend (a) plus a graded G-P2, because the 03 lesson is that
+    one specialization at a time is what works.
+
+B3. Blob X's take-rate rule contradicts entry 03. See section 6, Q5.
+
+    Also: making M-x3 a blocking measurement for X is defensible, but
+    the rule it feeds is the wrong rule. Fix the rule, keep the counter -
+    it is cheap and it bounds the extra pass's cost either way.
+
+
+3. The measurement the plan is missing
+--------------------------------------
+
+Live instructions are a sparse thread through the compiled body, and how
+sparse is what separates our GI from every healthy kernel here.
+
+Define, over the Nsight source view of one capture:
+  live      = instruction lines with samples > 0
+  span      = last live line - first live line
+  footprint = span minus every run of consecutive dead lines longer than
+              a threshold (i.e. contiguous cold regions the fetcher can
+              skip; interleaved dead code is counted, because it is
+              fetched along with the live code around it)
+
+Measured (threshold in the column header; the ranking is stable across
+all four thresholds, so it is not an artifact of the cut):
+
+  capture              total   live   f>32   f>64  f>128  f>256   NI%
+  RTXDI DI              9272   1645   4006   4213   4821   5220    1.1
+  RTXDI PT indirect    23748   2453   6501   6832   7443   7706    4.2
+  UPT DI (D0a)         16082   1404   6630   7665   8229   8911    9.7
+  UPT GI 2-vtx         20507   2931  15211  17141  17795  18905   60.4
+  UPT GI 3-vtx         38561   4844  24497  29046  30956  33705   75.4
+
+Read the second and fourth rows together. RTXDI's PT indirect is a
+LARGER module than our 2-vtx GI and executes fewer live lines from it,
+yet its footprint is 6,832 against our 17,141, and its NI is 4.2%
+against our 60.4%. Their dead code sits in a few enormous contiguous
+blocks - the largest single cold run in their PT module is 9,403 lines,
+40% of the module in one piece. Ours is minced through the hot path:
+of our 17,576 dead lines, only 4,489 sit in cold runs longer than 32
+lines. About 13,000 dead lines are interleaved at run lengths the
+fetcher cannot skip. Our live runs have median length 1 and mean 1.5.
+So does theirs (median 1, mean 1.8) - run length is not the difference.
+Total fetched region is.
+
+This sharpens the plan rather than contradicting it. It says:
+
+  * The direction (make less code reachable in the hot blob) is right.
+  * The lever ranking is wrong. Contiguity beats deletion. Deleting
+    2,000 ops that were interleaved through the hot path is worth more
+    than deleting 6,000 ops that were already one cold block, and the
+    op-count gate cannot tell those apart.
+  * It reconciles the two facts that look contradictory in section 0 of
+    the plan: emissive symbols are 0.2-0.5% of executed NI, yet excising
+    them is still the right first move. They are ballast, not work. The
+    win is footprint, not saved cycles. Say that explicitly in the plan
+    or the next reader will re-litigate it.
+
+Honest limitation: Nsight maps SASS samples back to SPIR-V lines, so the
+ordering used here is SPIR-V order, not the SASS layout the fetcher
+actually sees. For straight-line fully-inlined code the driver largely
+preserves block order, and the correlation holds across five modules from
+two different vendors' code, but this is a strong proxy, not a proof.
+If the metric is adopted as a gate, validate it once against an Nsight
+SASS-level source view on any single capture. That is a one-capture
+cost, and worth it before it decides a kill.
+
+Recommended addition to gpu_optimization/tools/nsight_source_diff.py:
+report live/total, span, footprint at threshold 64, and the largest cold
+runs, in the PROFILE block. The script in appendix B is the whole
+computation; it is about 30 lines.
+
+
+4. Section 1's open question is now closed
+------------------------------------------
+
+The plan says: "Confirm which .bin that was; if it is light64 without
+MULTI_BOUNCE, that is the 2-vtx starting point for Track B."
+
+It is. The 2026-08-18 2-vtx capture is
+upt04_initial_split_indirect_rayquery_compact32_light64.bin.
+
+Identification is exact on all three fingerprint dimensions, and no other
+indirect variant is close: 20,501 ops (+5 spvasm header lines = 20,507
+CSV rows), 9 OpImageSample, 2 OpRayQueryInitializeKHR. The next nearest
+indirect blob is 25,525/9/2 (the consume 64x1, wrong workgroup and wrong
+dispatch) and then 36,300/14/4. Confirm the hash 1132f0e9582eb32d once
+from the pipeline print line at launch; the counts already decide it.
+
+Consequence the plan should state: that capture had emissive replay
+COMPILED IN. Verified by buffer references in the disassembly -
+gUpt04EmissiveReplay and gUpt04EmissiveGeometry are both present in
+light64 and both absent from the 3-vtx classify blob. So the 60.4% NI
+number was measured on a blob that still carries the closure UPT-56
+removes. The CSV filename says "compactemissive" and that part of the
+label is wrong; see section 5 for why it could not have been on.
+
+Useful side effect: this gives G-P1 a mechanically checkable form of its
+"still no replay/emission/exact-pdf in W" clause. Function symbols do not
+survive (0 OpFunctionCall, only 62 OpNames, all buffers and structs), so
+a symbol grep will not work. Buffer references do:
+
+    W must not reference %gUpt04EmissiveReplay or %gUpt04EmissiveGeometry
+    W must reference %gUpt56EmissiveQueue / Meta / DispatchArgs
+    Blob G's skinned variant must not reference %gUpt04Skinned* (all four
+        are present in both light64 and the 3-vtx classify today)
+
+VerifyUpt56EmissiveClosure.cmake already does the relative op/img
+comparison and the workgroup-shape assertions for the 3-vtx pair. Extend
+that file for W rather than writing a new verifier; it is ~45 lines and
+the pattern is right.
+
+
+5. Host path finding (the assignment's question 6)
+--------------------------------------------------
+
+Question: is 2-vtx + emissiveCompact wired, or only 3-vtx classify?
+
+Only 3-vtx classify. And it is worse than a missing branch in the
+selector - the input is forced off two levels earlier.
+
+  PathTraceSmokeDispatch.cpp:3822
+
+      unifiedPtInputs.emissiveCompact =
+          r_pathTracingUnifiedPtEmissiveCompact.GetBool()
+          && unifiedPtInputs.threeVertexInitial
+          && !unifiedPtInputs.staticAnalyticOnly;
+
+  PathTraceUnifiedPt.cpp:579 Upt04SplitIndirectShaderPath
+
+      the emissiveClassify branch is nested inside if (threeVertexInitial).
+      With threeVertexInitial=0 the function falls through to lightTiles /
+      compactGeometry / compactLights and returns ..._compact32_light64.bin.
+
+  PathTraceCVars.cpp, the cvar's own help text
+
+      "Requires effective three-vertex initial and is ignored for probes 5/6"
+
+So threeVertexInitial=0 + emissiveCompact=1 is not a configuration that
+exists today. The cvar is silently ignored, the plain 2-vtx blob runs,
+and the console line prints emissiveCompact=0. That is documented
+behaviour, not a bug - but it means step 2's parenthetical ("That host
+wiring may already be missing") understates it. Wiring W is four edits,
+not one:
+
+  1. SmokeDispatch.cpp:3822 - drop the threeVertexInitial conjunct, or
+     replace it with (threeVertexInitial || twoVertexClassifyAvailable).
+  2. Upt04SplitIndirectShaderPath - a non-3-vtx emissiveClassify branch
+     returning the new blob.
+  3. Upt04InputsValid - emissiveCompact currently has no validity clause
+     of its own because 3-vtx's clause covers it (compactLights required,
+     compactGeometry/compactMaterials/lightTiles forbidden, receiver
+     mode 2, RayQuery, Unified). Standing alone it needs the same clause,
+     or an invalid combination will select a blob whose bindings do not
+     match the layout.
+  4. CMakeLists.txt - a new upt04_declare variant. The defines are
+     already orthogonal:
+        classify = ... UPT04_SPLIT_INITIAL_INDIRECT=1
+                       UPT04_MULTI_BOUNCE_INITIAL=1
+                       UPT04_EMISSIVE_COMPACT_CLASSIFY=1
+     and UPT04_EMISSIVE_COMPACT_CLASSIFY guards exist in
+     upt04_initial_indirect.slang (lines 52, 167, 404, 426, 448) as well
+     as in upt04_initial_multibounce.slang. So dropping MULTI_BOUNCE from
+     that define list is expected to compile. Good news for the plan:
+     Blob W is a build variant plus host wiring, not new shader logic.
+
+Two things that are NOT hazards, checked so the plan does not spend a
+session on them:
+
+  * The consume PSO is created whenever inputs.emissiveCompact is true
+    (PathTraceUnifiedPt.cpp:2601), independent of the selector. When W
+    queues nothing, the meta and args buffers are rewritten every frame
+    to {0,1,1} and {0,capacity} at 4981-4995 before the classify
+    dispatch, so the indirect consume dispatches zero groups. Cost is a
+    barrier chain, not a correctness bug or a stale count.
+  * m_emissiveCompact and m_threeVertexInitial are both in the pipeline
+    invalidation comparison (2351-2375), and both are hashed (856, 875).
+    G-P0's R7 warning is about the probe cvar, and that is still true;
+    it does not apply to these two.
+
+Terminology nit for section 1 of the plan: "..._three_vertex.bin - 3-vtx
+production" matches the handover's usage (production = the non-classify
+member of the 3-vtx pair), but both r_pathTracingUnifiedPtThreeVertexInitial
+and r_pathTracingUnifiedPtEmissiveCompact default to "0". The blob that
+actually ships today is the 2-vtx light64 blob - which is W's base. Worth
+one sentence, because Blob X's "dense" branch reads as if 3-vtx were the
+shipping configuration, and it is not.
+
+
+6. The five review questions
+----------------------------
+
+Q1. Is W's exclusion list sufficient to move NI, or is the 60% already in
+    continuation + 2 Proceeds + packed-light loads?
+
+    Neither framing is right, and the second one is the more dangerous
+    error.
+
+    The NI is not concentrated in the closures the exclusion list names,
+    and it is not concentrated in the continuation either. Attributed by
+    opcode over the whole 2-vtx capture:
+
+        OpBranchConditional     156,863   27.2% of NI
+        OpIsNan                  49,031    8.5%
+        OpLoad                   43,880    7.6%
+        OpExtInst                39,752    6.9%
+        OpDot                    34,056    5.9%
+        OpRayQueryProceedKHR     29,144    5.0%
+        OpIsInf                  21,714    3.8%
+        OpBranch                 19,633    3.4%
+        (tail: VectorTimesScalar, FSub, FMul, FDiv, shifts, xor)
+
+    NI at a PC means the warp sat there waiting for instructions to
+    arrive. 30.6% of it sits on control flow (BranchConditional +
+    Branch), which is the signature of "every branch lands somewhere the
+    fetcher has not prefetched" - i.e. the footprint problem in section
+    3, not a specific closure. Proceed is 5.0%, not the story; the plan
+    already says the top 8 PCs are only ~11% of NI and that is right.
+
+    So: the exclusion list is NECESSARY and INSUFFICIENT, and the reason
+    it is insufficient is not "the 60% is in the continuation". It is
+    that removing 2,200 interleaved ops from a 17,141-line footprint
+    moves it to roughly 14,000-15,000, and the healthy band in this data
+    is 4,000-8,900. Expect G-P2 on classify-only W to show NI absolute
+    down by something like 15-30%, not a return to the DI family. Plan
+    for that outcome or the kill rule will fire on a correct change.
+
+    What else must leave W, ranked by expected footprint per unit of
+    risk:
+
+      1. Geometry route. Static / rigid / skinned are all three compiled
+         in today (all four gUpt04Skinned* buffers plus
+         gUpt04RigidInstanceWords are referenced by light64). This is the
+         plan's Blob G and it should be promoted from step 5 to "the
+         second change", not "last".
+      2. The NaN/Inf sanitation. OpIsNan + OpIsInf together are 12.3% of
+         NI and, being guards, they are interleaved with everything.
+         This is not on the plan's exclusion list at all. Worth a look at
+         whether every one of them is load-bearing or whether they are a
+         historical defensive layer that can be collapsed to one check
+         at the reservoir write. Cheap to inspect, no ABI risk.
+      3. Material texture path. img 9 -> 6 is in the plan's target, and
+         each OpImageSample drags a decode/filter tail behind it.
+      4. Anything the Slang [unroll] pragmas expand. 0 OpFunctionCall
+         plus heavy unrolling is exactly how a 20k body gets minced.
+         Selectively removing [unroll] costs nothing to try and is
+         measurable with the structural stamp alone.
+
+    And one lever the plan explicitly does not have: noinline. The plan
+    treats the blob boundary as the only partition. Marking cold-but-live
+    blocks noinline introduces OpFunctionCall (currently 0) and converts
+    interleaved dead code into contiguous cold code, which is exactly the
+    shape RTXDI has. It costs a call, some spill, and possibly registers -
+    and the plan forbids register-count targets, correctly, so that is not
+    a reason to refuse it. I would put "one noinline experiment on the
+    coldest live block the NI map names" as a step 3.5, gated on the same
+    footprint metric. It is reversible in one define.
+
+Q2. Is "ops <= 16000" a fantasy? Propose a budget you would sign.
+
+    Not fantasy as a number - reachable with classify plus geometry
+    routes. Fantasy as a gate, for two reasons: the change that is
+    scheduled to meet it cannot (B2), and hitting it would not prove the
+    win (B1). D0a is 16,082 ops with a 7,665 footprint; a W at 16,000
+    ops with a 14,000 footprint would pass this gate and still be sick.
+
+    Budget I will sign, for W = 2-vtx + emissive classify, nothing else:
+
+        ops        <= 18,500      (expected ~18,300; hard fail above)
+        img        <= 7           (expected 6-7)
+        rqInit     == 2           exactly, and rqProceed == 2
+        OpFunctionCall            unconstrained - do not use 0 as a virtue
+        footprint(64) <= 14,000   down from 17,141
+        NI absolute   down >= 15% vs the 2-vtx capture, same session,
+                              same clocks, sample totals within 1.5x
+        Long Scoreboard may rise; Wait may rise. Neither is a failure.
+
+    Budget I will sign for W after the geometry route lands (W + G, the
+    thing that should actually be compared against D0a):
+
+        ops        <= 15,000
+        img        <= 6
+        footprint(64) <= 9,000
+        NI absolute   down >= 50% vs the 2-vtx capture
+        NI percent    below 30%
+
+    The second table is the one worth wanting. If W+G lands there and the
+    frame time has not moved, the fetch theory is wrong and the whole
+    Track B should stop - that is the honest kill condition, and it is
+    stronger than the one in the plan because it can actually fire.
+
+Q3. Is wiring a 2-vtx compact classify a prerequisite, or is today's
+    2-vtx capture already that path?
+
+    Prerequisite. Today's capture is not that path - it is the plain
+    light64 blob with the emissive closure compiled in, and
+    emissiveCompact was inert (section 5). The four edits are listed
+    there. None of them are deep; the shader side is a define change.
+
+Q4. Missing ABI invariants for T0/S0 when reuse comes back?
+
+    The 64-byte page and compact32+sidecar are fine and the plan is right
+    not to touch them. Four things it does not state that will bite:
+
+    a) Route tag. If x3 ever moves to Blob X, two pixels' reservoirs will
+       have been produced by different path lengths from different
+       kernels. The shift in S0 and the exact replay in T0 need to know
+       which. Today path length is implied by a global cvar, which is
+       exactly why it works. Either W and X must write pages that are
+       indistinguishable and correctly shiftable without knowing the
+       producer, or the page needs a producer/vertex-count bit. Decide
+       this BEFORE Blob X, because retrofitting a bit into an accepted
+       64-byte page is the kind of change this plan otherwise forbids.
+
+    b) M normalization must stay identical across blobs. The pipeline
+       line prints exactM=1. If W and C and X disagree about M or about
+       when the reservoir is finalized, temporal will double count and
+       the failure will look like a lighting bug, not an ABI bug.
+
+    c) The reuse feature set is gated on threeVertexInitial, in both
+       directions. Upt43SpatialShiftPrepassEnabled and
+       Upt438SpatialDisocclusionBoostEnabled both require
+       !threeVertexInitial (PathTraceUnifiedPt.cpp ~402 and ~418), and
+       Upt38ThreeVertexSpatialEnabled is the 3-vtx-only path. Promoting a
+       2-vtx W to production therefore turns ON reuse paths that the
+       current 3-vtx configuration never runs. Every gate in this plan is
+       specified temporal/spatial off, so none of them will see it. Add
+       one line to section 3: before W becomes the default, run one
+       reuse-on image check, because W changes which spatial features are
+       live even though W does not touch spatial code.
+
+    d) Binding layout parity. Slots 33-36 are added to the layout only
+       when emissiveCompact is set (Upt04Add*BindingLayoutItems, ~1310).
+       W and C must be created against the same layout they are
+       dispatched with; that is currently guaranteed by 3-vtx implying
+       compact, and after the rewiring it is guaranteed by nothing except
+       the new validity clause. Hence edit 3 in section 5 is not
+       optional.
+
+Q5. What would make me reject this plan as 03-shaped?
+
+    Blob X's dense branch, as written, already is - and it is the one
+    place the plan repeats the exact inference entry 03 records as the
+    failure.
+
+    Entry 03: the compact queue held 95-96% of the screen. The handover
+    said "if the fraction is high, delete the queue". That was acted on,
+    and it nearly doubled D0b. The recorded lesson is: "The win was
+    specialization: a coherent 64x1 kernel, not a sparse population."
+
+    The plan's Blob X rule is "sparse -> specialized dispatch; dense ->
+    do not split, keep the single 3-vtx blob". That is density deciding
+    against a specialization, which is the same move with a different
+    subject. And in a fetch-bound regime the argument is even weaker than
+    it was for C: splitting a 38.5k blob into a 2-vtx pass and an x3 pass
+    halves the fetched footprint of each, and by section 3 footprint is
+    what predicts NI. At 100% take rate, splitting can still win.
+
+    The real cost of splitting at high density is memory traffic and an
+    extra full-screen pass, and that is measurable, not deducible. So:
+
+      Replace the take-rate branch with: X is decided by a measured A/B
+      of (W + X) against the 3-vtx blob on footprint and NI absolute,
+      with M-x3 used to bound the cost of X's dispatch, not to veto it.
+
+    Other things that would move me to reject:
+
+      * Any step that deletes Blob C, for any reason, including "W is now
+        cheap enough".
+      * G-P1 passing being treated as a result. The plan says op count is
+        not time; the budget table then makes op count the gate. Fix B1
+        and that tension goes away.
+      * A W change that also touches the reservoir format, the light
+        list, or the resolve page "while we are in there".
+      * Restoring reverse PDF / MIS as part of "cleaning up" W.
+      * Reading a take-rate print off a build whose cvars did not reach
+        the GPU (handover R7). The x3 counter in step 1 must be validated
+        against the pipeline print line before its number is believed.
+
+
+7. Blocking / concern / nit summary
+-----------------------------------
+
+BLOCKING (change before implementation)
+
+  1. B1. Footprint replaces ops as the deciding budget; ops stays as a
+     structural stamp. Section 3 has the metric and the numbers.
+  2. B2. W's budget as written is unreachable by W's scheduled content.
+     Adopt the two-stage budget in Q2 or move Blob G into step 2.
+  3. B3. Blob X's dense branch is 03-shaped. Replace take-rate veto with
+     a measured A/B; keep M-x3 as a cost bound.
+  4. Section 5 host wiring is four edits including a Upt04InputsValid
+     clause, not one selector branch. An implementer reading step 2 will
+     miss the SmokeDispatch:3822 conjunct and conclude the plan is wrong.
+
+CONCERNS (should change, will not break the work if they do not)
+
+  5. G-P2's kill rule has no threshold. "Absolute No Instructions down"
+     with no magnitude, plus "kill the change if G-P2 fails", means a
+     15% improvement on the way to a 60% improvement can be killed by
+     whoever is reading the number that day. Q2 proposes thresholds.
+  6. Reuse-on image check before W becomes default (Q4c). Nothing else
+     in the plan will catch the spatial feature-set flip.
+  7. The x3 route tag decision (Q4a) belongs in this document, before
+     Blob X is scheduled, not after M-x3 comes back.
+  8. Blob G should be the second change, not the last. It is the largest
+     remaining interleaved excision after emissive, and it has an
+     existing verification pattern.
+  9. The NaN/Inf guards (12.3% of NI) are not on any exclusion list and
+     nobody has looked at them. Cheap to inspect.
+ 10. noinline is not in the plan's toolbox at all, and it is the only
+     lever that converts interleaved dead code into contiguous cold code
+     without deleting a feature. Add it as a bounded experiment.
+ 11. Section 4 step 0 says the fingerprint work is "done for the
+     2026-08-18 exports" - true, but the entry is keyed by capture name,
+     not by .bin. Add the artifact name now that section 4 above pins it,
+     or the next investigation re-derives it.
+
+NITS
+
+ 12. "3-vtx production" vs shipping default (end of section 5 above).
+ 13. Plan's op counts are CSV row counts (20507 / 38561 / 42900); the
+     .spvasm opcode counts are 20501 / 38555 / 42898. Both are correct,
+     the difference is header lines, and the tool's tolerance covers it.
+     One footnote saves the next reader the check.
+ 14. Section 2 Blob W says "continuation ray + 1 Proceed (or the current
+     2-vtx pair ...)". The artifact is unambiguous: light64 has exactly
+     2 OpRayQueryInitializeKHR and 2 OpRayQueryProceedKHR. Drop the
+     "1 Proceed" alternative; it reads as an option and it is not one.
+ 15. The CSV filename test_scene_GI_2vertex_compactemissive is
+     misleading (compact was inert). Not worth a re-export; worth a note
+     in the fingerprint file so nobody concludes classify was measured.
+
+
+Appendix A - reproduction
+-------------------------
+
+Artifact counts:
+
+  cd build-win64-pt-dev/shaders/slang_upt04/artifacts
+  awk '/Op[A-Za-z]/{ops++} /OpImageSample/{img++}
+       /OpRayQueryInitializeKHR/{ri++} /OpRayQueryProceedKHR/{rp++}
+       /OpFunctionCall/{fc++} /OpSpecConstant/{sc++}
+       END{print ops, img, ri, rp, fc, sc}' \
+      upt04_initial_split_indirect_rayquery_compact32_light64.slang.spvasm
+
+Buffer-reference closure check (the G-P1 form proposed in section 4):
+
+  grep -o "OpName %g[A-Za-z0-9_]*" <blob>.spvasm | sort -u
+
+Profile:
+
+  python gpu_optimization/tools/nsight_source_diff.py <csv> \
+      --fingerprints gpu_optimization/tools/fingerprints/rbdoom_upt.json
+
+
+Appendix B - footprint metric
+-----------------------------
+
+Prints one row per capture; reads the CSV, emits nothing per-line. This
+belongs in nsight_source_diff.py's PROFILE block.
+
+    import csv, sys
+
+    def load(path):
+        rows = []
+        with open(path, newline='', encoding='utf-8',
+                  errors='replace') as f:
+            r = csv.reader(f); next(r)
+            for row in r:
+                if not row or not row[0].strip().isdigit():
+                    continue
+                try:
+                    s = int(row[2]) if row[2].strip() else 0
+                except ValueError:
+                    s = 0
+                rows.append((int(row[0]), s))
+        return rows
+
+    for path in sys.argv[1:]:
+        rows = load(path)
+        live = [i for i, s in rows if s > 0]
+        gaps = [b - a - 1 for a, b in zip(live, live[1:])]
+        span = live[-1] - live[0] + 1
+        for thr in (32, 64, 128, 256):
+            cold = sum(g for g in gaps if g > thr)
+            print(path, thr, len(rows), len(live), span - cold)
+
+NI attribution by opcode (section 6, Q1) is the same loop, summing the
+"Top Stall #N (Samples)" columns where the paired type column is
+"No Instructions", bucketed by the first Op token in the Source column.

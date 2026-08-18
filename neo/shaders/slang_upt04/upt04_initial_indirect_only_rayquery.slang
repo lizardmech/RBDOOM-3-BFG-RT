@@ -15,7 +15,13 @@ import upt05_material_set_openpbr;
 #ifndef UPT04_MULTI_BOUNCE_INITIAL
 #define UPT04_MULTI_BOUNCE_INITIAL 0
 #endif
-#if UPT04_MULTI_BOUNCE_INITIAL
+#ifndef UPT04_THREE_VERTEX_SPLIT_PRODUCE
+#define UPT04_THREE_VERTEX_SPLIT_PRODUCE 0
+#endif
+#ifndef UPT04_THREE_VERTEX_SPLIT_CONSUME
+#define UPT04_THREE_VERTEX_SPLIT_CONSUME 0
+#endif
+#if UPT04_MULTI_BOUNCE_INITIAL || UPT04_THREE_VERTEX_SPLIT_PRODUCE
 import upt04_initial_multibounce;
 #endif
 
@@ -29,15 +35,60 @@ import upt04_initial_multibounce;
 #define UPT04_EMISSIVE_COMPACT_CONSUME 0
 #endif
 import upt04_emissive_compact;
+import upt04_x3_split;
 
-#if UPT04_EMISSIVE_COMPACT_CONSUME
+#if UPT04_EMISSIVE_COMPACT_CONSUME || UPT04_THREE_VERTEX_SPLIT_CONSUME
 [numthreads(64, 1, 1)]
 #else
 [numthreads(8, 8, 1)]
 #endif
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-#if UPT04_EMISSIVE_COMPACT_CONSUME
+#if UPT04_THREE_VERTEX_SPLIT_CONSUME
+    const uint compactCount = Upt04X3QueuedCount();
+    if (dispatchThreadId.x >= compactCount)
+        return;
+    const Upt04X3Token token = Upt04X3QueuedToken(dispatchThreadId.x);
+    const uint surfaceIndex = token.a.x;
+    if (surfaceIndex >= gUpt04Control.surfaceCount)
+        return;
+    const uint pixelY = surfaceIndex / gUpt04Control.renderWidth;
+    const uint2 pixel = uint2(
+        surfaceIndex - pixelY * gUpt04Control.renderWidth, pixelY);
+    uint directVisibilityRays = 0u;
+    Upt03LogicalReservoir reservoir = Upt04LoadIntermediateInitialReservoir(
+        surfaceIndex,
+        directVisibilityRays);
+    const Upt04SecondContinuationResult secondContinuation =
+        Upt04X3UnpackPrepared(token);
+    const Upt04GeometryHitSurface secondarySurface =
+        Upt04X3UnpackX2Surface(token);
+    Upt04HitFacts hit = Upt04MissFacts(secondContinuation.work.ray.tMax);
+    if (secondContinuation.work.valid != 0u
+        && secondContinuation.work.traceRequired != 0u)
+        hit = Upt04TraceRayQuery(secondContinuation.work.ray);
+    const Upt04InitialTraceWork secondEndpoint =
+        Upt04EvaluateSecondEndpoint<Upt05OpenPbrMaterialSet>(
+            secondContinuation, secondarySurface, hit);
+    Upt04StreamInitialTraceWork(reservoir, secondEndpoint, pixel, 3u);
+    Upt04InitialTraceWork thirdNee = (Upt04InitialTraceWork)0;
+    if (hit.status == kUpt04HitTriangle)
+    {
+        const Upt04GeometryHitSurface thirdSurface =
+            Upt04DecodeGeometryHit(hit);
+        thirdNee = Upt04PrepareThirdVertexNee<Upt05OpenPbrMaterialSet>(
+            secondContinuation, thirdSurface, pixel);
+    }
+    hit = Upt04MissFacts(thirdNee.ray.tMax);
+    if (thirdNee.valid != 0u && thirdNee.traceRequired != 0u)
+        hit = Upt04TraceIndirectVisibilityRayQuery(
+            thirdNee.ray,
+            Upt04IndirectNeeVisibilityIgnore(thirdNee));
+    thirdNee = Upt04CompleteIndirectNeeVisibility(thirdNee, hit);
+    Upt04StreamInitialTraceWork(reservoir, thirdNee, pixel, 4u);
+    Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+    return;
+#elif UPT04_EMISSIVE_COMPACT_CONSUME
     const uint compactCount = Upt56CompactQueuedCount();
     if (dispatchThreadId.x >= compactCount)
         return;
@@ -150,7 +201,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     Upt04HitFacts hit = Upt04MissFacts(continuation.ray.tMax);
     if (continuation.valid != 0u && continuation.traceRequired != 0u)
         hit = Upt04TraceRayQuery(continuation.ray);
-#if UPT04_EMISSIVE_COMPACT_CLASSIFY
+#if UPT04_EMISSIVE_COMPACT_CLASSIFY || UPT04_THREE_VERTEX_SPLIT_PRODUCE
     const Upt04HitFacts continuationHit = hit;
 #endif
     const Upt04IndirectHitTrialResult indirect =
@@ -296,6 +347,40 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         3u);
 #endif
 #endif
+#if UPT04_THREE_VERTEX_SPLIT_PRODUCE
+    Upt04SecondContinuationResult preparedX3 = (Upt04SecondContinuationResult)0;
+    if (continuation.valid != 0u
+        && continuationHit.status == kUpt04HitTriangle)
+    {
+        const Upt04GeometryHitSurface queuedSurface =
+            Upt04DecodeGeometryHit(continuationHit);
+        if (queuedSurface.valid != 0u)
+        {
+            Upt04InitialTraceWork secondSource = continuation;
+            if (indirect.neeWork.valid != 0u)
+            {
+                secondSource.transport.budget.visibilityRays = max(
+                    secondSource.transport.budget.visibilityRays,
+                    indirect.neeWork.transport.budget.visibilityRays);
+            }
+            preparedX3 = Upt04PrepareSecondContinuation<Upt05OpenPbrMaterialSet>(
+                secondSource, queuedSurface);
+            if (preparedX3.work.valid != 0u
+                && preparedX3.work.traceRequired != 0u)
+            {
+                Upt04AppendX3Token(
+                    surfaceIndex,
+                    preparedX3,
+                    queuedSurface.position,
+                    secondSource.transport.budget.visibilityRays);
+            }
+        }
+    }
+    const bool queueX3 = preparedX3.work.valid != 0u
+        && preparedX3.work.traceRequired != 0u;
+#else
+    const bool queueX3 = false;
+#endif
 #if UPT04_EMISSIVE_COMPACT_CLASSIFY
     if (Upt56EmissiveCompactRequested() != 0u)
     {
@@ -305,6 +390,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 #endif
+    if (queueX3)
+    {
+        Upt04WriteIntermediateInitialReservoir(
+            surfaceIndex, reservoir, directVisibilityRays);
+        return;
+    }
     Upt04WriteInitialReservoir(surfaceIndex, reservoir);
 #endif
 }

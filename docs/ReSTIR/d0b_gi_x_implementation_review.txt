@@ -1,0 +1,400 @@
+Review: D0b GI Blob X (uptx) implementation - 3rd vertex never lands
+====================================================================
+
+Date: 2026-08-18
+Reviewer: Voss (Opus 5, peer request from Quinn)
+Subject: neo/shaders/slang_upt04/upt04_x3_split.slang
+         neo/shaders/slang_upt04/upt04_initial_indirect_only_rayquery.slang
+         neo/shaders/slang_upt04/upt04_initial_multibounce.slang
+         neo/renderer/NVRHI/PathTraceUnifiedPt.cpp
+Delegation: delegation-1787019987081-d7052zq
+Scope: review only. No shader, host, or cfg edited. No todos touched.
+       No unified_slang_renderer docs read. No CSV rows loaded.
+
+
+0. Verdict
+----------
+
+ROOT CAUSE IDENTIFIED. Single line, fail-closed, 100% hit rate.
+
+The x3 ray is prepared correctly, queued correctly, dispatched correctly,
+and traced correctly. The 3rd-vertex endpoint candidate is then thrown
+away by the reservoir contract's structural validator, silently, on every
+consume thread, because the token round-trip drops one float.
+
+  upt04_x3_split.slang:114-142  Upt04X3UnpackPrepared builds
+    Upt04InitialTraceWork work = (Upt04InitialTraceWork)0;
+  and never assigns work.partialJacobian. It stays 0.0f.
+
+  upt03_reservoir_contract.slang:195  Upt03StructurallyValid rejects any
+  non-cached-X2 candidate unless
+    Upt03FinitePositive(candidate.partialJacobian)
+
+  upt04_initial_reservoir_stream.slang:19,51,62  Upt04StreamInitialTraceWork
+  copies work.partialJacobian into the candidate and hands it to
+  Upt03StreamCandidate, which returns at its first line
+  (upt03_reservoir_contract.slang:217) when the candidate is not
+  structurally valid.
+
+In the monolith the same field is 1.0f, set once at
+upt04_initial_indirect.slang:322 inside Upt04PrepareIndirectPathTreeWork,
+and carried by value through Upt04PrepareSecondContinuation
+(upt04_initial_multibounce.slang:187, `work = firstContinuation`) into
+Upt04EvaluateSecondEndpoint (:220, `endpoint = continuation.work`), which
+never touches partialJacobian. That inheritance is the only reason uptb2
+works. The split severs it.
+
+So the bounce-3 stream at
+upt04_initial_indirect_only_rayquery.slang:73 is a no-op for every pixel,
+including the miss/ValidZero path (StructurallyValid runs before the
+status==1 M-increment shortcut at :219, so X does not even accumulate the
+count-only multiplicity uptb2 does).
+
+Second, independent defect in the same function: candidateFlags is also
+dropped. See B2. It does not cause the 2-vtx image, but it will be the
+next mystery the moment T/S is switched on.
+
+Third: bounce 4 (third-vertex NEE) should still be landing in X, because
+Upt04PrepareThirdVertexNee explicitly writes
+`nee.partialJacobian = selected.emissiveReplayPdfScale`
+(upt04_initial_multibounce.slang:557) and that value is guarded finite-
+positive. If the human's "matches uptw0" is pixel-exact rather than
+eyeball-close, something else is also killing consume and the probe in
+section 5 separates the two cases in one frame with zero code changes.
+
+
+1. What I verified, and how
+---------------------------
+
+Read end to end: upt04_x3_split.slang (all 152 lines);
+upt04_initial_indirect_only_rayquery.slang consume block :47-90, monolith
+MULTI_BOUNCE block :237-348, produce tail :350-400;
+upt04_initial_multibounce.slang Admit/Prepare/Evaluate/ThirdNee :77-579;
+upt03_reservoir_contract.slang :130-265; upt04_initial_reservoir_stream.slang
+all; upt04_initial_work_contract.slang all; upt04_initial_indirect.slang
+:136-250, :300-420, :792-812; upt04_backend_rayquery.slang :6-100;
+upt04_hit_contract.slang :18-24; upt05_resolve.slang :190-360;
+PathTraceUnifiedPt.cpp :3776-3835, :5143-5300, :1840-1875;
+slang_upt04/CMakeLists.txt :412-447; base/uptx.cfg, uptb2.cfg, uptw0.cfg,
+upt.cfg, uptf2.cfg.
+
+Verified GOOD (ruled out, do not spend another session on these):
+
+  Token stride and layout. Eight uint4s, no float3, no implicit padding.
+  Host stride 128 at PathTraceUnifiedPt.cpp:3789/3798, recreate-on-change
+  guard at :3790-3791. Matches the SPIR-V ArrayStride Quinn already
+  confirmed. queueDesc/metaDesc/argsDesc all canHaveUAVs, args has
+  isDrawIndirectArgs=true (:3816). Binding set is invalidated on
+  recreate (:3822-3826), so a stale set cannot survive a resize.
+
+  Ray completeness. Upt04TraceRequest is exactly {float3 origin, float
+  tMin, float3 direction, float tMax} (upt04_hit_contract.slang:18-24) -
+  eight scalars, all eight packed in token.d/token.e and all eight
+  unpacked. Instance mask is hardcoded 0xff at
+  upt04_backend_rayquery.slang:29, not carried in the request. The x3
+  trace at rayquery:69 is byte-identical to what the monolith traces at
+  rayquery:275. The ray is not the problem.
+
+  Transport gates. Unpack sets stage=IndirectContinuation,
+  continuationRays=2, visibilityRays=min(a.y,2)
+  (upt04_x3_split.slang:136-138). Upt04BoundedTransportState has exactly
+  three members {stage, valid, budget} (upt04_transport_initial_bounded.slang
+  :16-21), all three restored. AdmitThirdVertexNeeVisibility
+  (multibounce:98-109) wants stage==IndirectContinuation, contRays==2,
+  visRays<=2 - satisfied. RayBudgetWithinThreeVertexCeiling (:89-96)
+  after the increment is 2+3=5 <= 5 - satisfied.
+  Upt04CompleteIndirectNeeVisibility (upt04_initial_indirect.slang:796)
+  additionally wants familyKind==Indirect - set at
+  upt04_x3_split.slang:120. All budget/stage plumbing is correct.
+
+  Produce reaches Append. Produce's guard chain at rayquery:352-378 is
+  `continuation.valid && continuationHit.status==HitTriangle &&
+  queuedSurface.valid`, then the identical
+  Upt04PrepareSecondContinuation call the monolith makes at :269-271 with
+  the identical secondSource visibility merge (:359-365 vs :262-268).
+  Produce decodes continuationHit itself rather than reading
+  indirect.secondarySurface, which only exists under MULTI_BOUNCE
+  (upt04_initial_indirect.slang:47-49) - but that field is assigned from
+  `Upt04DecodeGeometryHit(hit)` at :361/:368, the same call produce makes
+  at rayquery:356 on the same Upt04HitFacts. Same surface. Same q, same
+  minT: control.reservedControl0/1 are published whenever
+  dispatch.threeVertexInitial (PathTraceUnifiedPt.cpp:1860-1867), which
+  the log confirms (q=0.800, minT=0.000). Nothing in produce can fail
+  that does not also fail in uptb2.
+
+  Queue/dispatch arithmetic. requiredGroups=(slot+64)/64 gives 1 for
+  slots 0-63, 2 for 64 (upt04_x3_split.slang:97). Capacity is
+  width*height and Append runs at most once per pixel, so meta[0] can
+  never exceed meta[1] and Upt04X3QueuedCount's min() is a no-op safety
+  net. Args reset to {0,1,1} and meta to {0,capacity} before the produce
+  dispatch (PathTraceUnifiedPt.cpp:5164-5179 emissiveCompact path,
+  :5190-5206 non-compact path - X runs the second one, emissiveCompact=0).
+  UAV barriers on page + queue + meta + args, then
+  args -> IndirectArgument, then commitBarriers, then dispatchIndirect(0)
+  (:5285-5296). Push constants re-bound for the consume PSO (:5294).
+  Correct.
+
+  Intermediate handoff. Upt04PackIntermediateInitialReservoir keeps
+  weightSum in word11 and pathPdf/partialJacobian/accumRoulette in
+  word13/14/15 (upt03_reservoir_contract.slang:292-306), and
+  Upt04UnpackIntermediateInitialReservoir restores all of them plus
+  hasSelectedSample=1 (upt04_initial_reservoir_stream.slang:178-181 as
+  numbered in the file). The produce->consume reservoir round-trip is
+  faithful and is the same mechanism the shipping D0 direct->indirect
+  split already uses. Not the problem.
+
+  Compile defines. CMakeLists.txt:424 produce =
+  PACKED_PRIMARY_RECEIVER=2 PACKED_LIGHT_RECORD=1 SPLIT_INITIAL_INDIRECT=1
+  THREE_VERTEX_SPLIT_PRODUCE=1. CMakeLists.txt:443 consume = same minus
+  THREE_VERTEX_SPLIT_PRODUCE, plus MULTI_BOUNCE_INITIAL=1
+  THREE_VERTEX_SPLIT_CONSUME=1. Consume therefore does NOT compile
+  AppendX3Token, and both blobs declare bindings 37-39 because
+  upt04_x3_split.slang:33 gates on PRODUCE||CONSUME. MULTI_BOUNCE_INITIAL
+  does not reach the reservoir format, the transport contract, the
+  bindings, or the control struct (grepped: it appears only in
+  upt04_initial_indirect.slang:23,47,367 and the two import guards).
+  Define set is correct.
+
+
+2. Blocking issues
+------------------
+
+B1  [BLOCKING - this is the bug]
+    upt04_x3_split.slang:116-139, Upt04X3UnpackPrepared does not restore
+    partialJacobian. Zero-initialized to 0.0f, which
+    upt03_reservoir_contract.slang:195 treats as structurally invalid.
+    Every bounce-3 candidate produced at
+    upt04_initial_indirect_only_rayquery.slang:70-73 is discarded before
+    it can compete in the reservoir. Monolith value is 1.0f from
+    upt04_initial_indirect.slang:322.
+
+    This is exactly consistent with the symptom: X's consume adds nothing
+    the endpoint reservoir did not already have, so X == uptw0 for the
+    x3-emission term, and X != uptb2.
+
+B2  [BLOCKING for the T/S phase, not for the current image]
+    Same function, same cause: candidateFlags is not restored either.
+    Monolith carries
+      Global | Replayable | NeedsShift | (DirectProposalParity)
+    from upt04_initial_indirect.slang:314-319. In X the consume candidates
+    end up with only VisibilityKnown|VisibilityPassed - 0x0C from
+    Upt04EvaluateSecondEndpoint:313-314, or from
+    Upt04CompleteIndirectNeeVisibility:802-804 for the NEE - plus the
+    forced bit0 in Upt03PackHeader (upt03_reservoir_contract.slang:261).
+
+    Consequences, all silent:
+      - upt07_temporal_indirect.slang:233-238 requires exactly
+        Global|Replayable|NeedsShift to be all set. X's x3 candidates are
+        invisible to temporal indirect reuse. With T/S off you cannot see
+        this yet; it will look like "X renders but reuse is dead."
+      - upt09_spatial_direct_rayquery.slang:197,559,608,681 and
+        upt07_temporal_direct_rayquery.slang:161,375,923,1298,1341,1494
+        route on the Global bit; an x3 candidate with Global=0 will be
+        misclassified as a direct/local sample.
+      - upt05_resolve.slang:355 gates the RR specular albedo export on
+        Global, and views 1/10/11 (:201,:228,:232) bucket on it.
+
+    Default view 0 returns `estimate` regardless (upt05_resolve.slang:237),
+    which is why B2 does not by itself darken the image - and why the
+    view-10/11 split is a usable probe (section 5).
+
+B3  [BLOCKING - open question, cheap to close]
+    Bounce 4 SHOULD be landing in X today. Upt04PrepareThirdVertexNee sets
+    nee.partialJacobian = selected.emissiveReplayPdfScale
+    (upt04_initial_multibounce.slang:557), which is 1.0f for analytic
+    lights and a guarded finite-positive scale for emissive
+    (upt04_initial_indirect.slang:232-236 + the <=4.0 clamp at :234-236),
+    so it survives B1. Its pathLength=3 / reconnectionVertexLength=1 keep
+    it off the cached-X2 branch, and every other field it needs
+    (replayKey, replayIndex, pathPdf, pathThroughput, lobeMask) IS in the
+    token.
+
+    Therefore uptx should differ from uptw0 by the x3 NEE term. If the
+    human's comparison is pixel-exact, there is a second failure and B1
+    alone will not close this out. Section 5 resolves this in one frame.
+
+
+3. Non-blocking findings
+------------------------
+
+N1  [nit] rayquery:352-353 - produce's queue guard checks
+    `continuationHit.status == kUpt04HitTriangle` but not
+    `hit.instanceId != 0xffffffffu`. The monolith reaches
+    PrepareSecondContinuation only via indirect.secondarySurface, which
+    Upt04PrepareIndirectHitTrials leaves zeroed when instanceId is invalid
+    (upt04_initial_indirect.slang:362-366), so Prepare fails closed there.
+    Produce's path is strictly wider. Harmless (queues extra tokens that
+    do useless work), but it is a real produce/monolith divergence and
+    worth closing when B1 is fixed.
+
+N2  [nit] rayquery:356 decodes the continuation hit a second time;
+    Upt04PrepareIndirectHitTrials already decoded the identical
+    Upt04HitFacts at upt04_initial_indirect.slang:361. That is a second
+    full Upt04DecodeGeometryHit in the produce blob's hot path, i.e. a
+    chunk of the op budget Blob X exists to save. Fold it once B1 lands
+    and the gate numbers matter.
+
+N3  [nit] token.c.w, token.f.w, token.g, token.h are 20 unused words
+    (upt04_x3_split.slang:61,75,77,78). There is no reason to hardcode
+    reconstructed values in the unpacker when the producer can just write
+    the real ones. See section 6.
+
+N4  [concern, A/B hygiene] uptx.cfg execs upt.cfg, which ends with
+    `wait 1` then `Temporal 1` / `Spatial 1` (base/upt.cfg, last four
+    lines). uptx.cfg's own `Temporal 0 / Spatial 0` are issued
+    immediately, i.e. BEFORE the deferred re-enable fires a frame later.
+    uptw0.cfg has the identical structure so the X-vs-W0 comparison is at
+    least self-consistent, but uptb2.cfg execs uptf2.cfg (a different
+    chain, `exec upt_temporal_motion_common` + `wait 1` + `Temporal 1`
+    only, no Spatial re-enable), so X-vs-B2 may not be comparing the same
+    T/S state. Not the 3rd-vertex bug - but verify T/S is actually 0 in
+    the console before trusting any X-vs-B2 image delta.
+
+
+4. Ranked hypotheses
+--------------------
+
+H1  ~85%  partialJacobian=0 kills every bounce-3 candidate in
+          Upt03StructurallyValid.
+          upt04_x3_split.slang:116 (zero-init, never assigned)
+          upt03_reservoir_contract.slang:195 (the rejection)
+          upt04_initial_reservoir_stream.slang:51 (the copy)
+          upt04_initial_indirect.slang:322 (the 1.0f the monolith has)
+          Directly explains "X == 2-vtx for the x3 emission term".
+          Would be falsified by: consume selecting an eventKind==4
+          candidate anywhere on screen.
+
+H2  ~70%  candidateFlags=0 (co-present, same function, same cause).
+          Not the current image symptom - resolve view 0 ignores the
+          Global bit (upt05_resolve.slang:237) - but it is a correctness
+          defect today and a hard blocker for the T/S phase
+          (upt07_temporal_indirect.slang:233-238). Fix in the same edit
+          as H1 or it becomes next week's session.
+
+H3  ~15%  A second, still-unlocated killer that also drops bounce 4.
+          Required only if X is pixel-exact to uptw0 rather than
+          visually close. Everything bounce 4 reads is in the token and
+          every gate it passes through is satisfied (verified in
+          section 1), so I have no candidate line for this - which is
+          why the section-5 probe is a discriminator and not a guess.
+          If it fires, the next suspects in order are: the queue is
+          empty after all (meta[0]==0, i.e. produce's Prepare fails for
+          a reason that does not reproduce in uptb2), or
+          dispatchIndirect is running 0 groups.
+
+H4   ~5%  Unfinalized intermediate pages. Produce writes intermediate
+          only when queueX3 (rayquery:393-398) and consume finalizes
+          exactly the queued slots, one token per pixel, capacity ==
+          pixel count, so the sets are identical by construction. A
+          skipped slot would leave word1 carrying the transport bit and
+          an un-normalized effectiveM, which resolves as garbage, not as
+          a clean 2-vtx image. The reported symptom argues against this.
+          Listed for completeness.
+
+H5   ~2%  Token/stride/binding/dispatch plumbing. Ruled out in
+          section 1 on direct reads of both the shader and the host.
+
+
+5. Smallest next probe (zero code changes, one frame)
+-----------------------------------------------------
+
+Run `exec uptx`, then `r_pathTracingUnifiedPtResolveView 11`, then
+`r_pathTracingUnifiedPtResolveView 10`.
+
+Why this works: view 10 shows only pixels whose selected candidate has
+the Global flag; view 11 shows only pixels whose selected candidate does
+NOT (upt05_resolve.slang:228-234). Every candidate produce streams carries
+Global (upt04_initial_indirect.slang:314). Every candidate consume streams
+has Global=0, because of B2. So the two views cleanly partition
+"produce won this pixel" from "consume won this pixel", with no
+instrumentation.
+
+  view 11 has content   -> consume IS landing bounce 4. H3 is dead, H1 is
+                           the whole story, fix B1+B2 and re-run the A/B.
+  view 11 is black      -> consume lands nothing at all. H3 is live; go
+                           straight to the meta readback below before
+                           touching the shader.
+  view 10 also black    -> the page is not being written at all; look at
+                           the intermediate/final handoff, not the token.
+
+Cross-check on uptw0 first: view 11 must be black there (2-vtx has no
+non-Global indirect candidates). That validates the probe itself.
+
+If the probe says H3 is live, the next step is a readback, not a guess:
+mirror the existing emissive-compact diagnostic readback at
+PathTraceUnifiedPt.cpp:5259-5283 onto m_x3DispatchArgs and m_x3Meta and
+print args[0] and meta[0]. That block already does exactly this pattern
+(copyBuffer of 3 words of args + 2 words of meta into a readback buffer,
+2-frame delay), so it is a copy-paste with three identifiers changed and
+it settles produce-side vs consume-side in one frame.
+
+Note for whoever probes: the x3 diagnostic counters that already exist -
+kUpt04DiagX3ContinuationPrepared/ContinuationHit/EndpointPositive/
+NeePreparedPositive/NeeVisibilityPassed, upt04_initial_diagnostics.slang
+:140-147, incremented at :937-971 - are NOT reachable from the split
+path. upt04_initial_indirect_only_rayquery.slang does not import
+upt04_initial_diagnostics. The host print at PathTraceUnifiedPt.cpp:4593
+will read zeros or stale monolith values under uptx. Do not trust it.
+
+
+6. Smallest fix (NOT implemented - for Quinn's call)
+----------------------------------------------------
+
+Two words in the token, one line each side. The struct already has 20
+unused words, so nothing about the 128-byte stride, the SPIR-V
+ArrayStride, or the host buffers changes.
+
+  Produce, upt04_x3_split.slang:57-61, use the free word in token.c:
+    token.c.w = asuint(prepared.work.partialJacobian);
+  and the free word in token.f (or token.g.x):
+    token.f.w = prepared.work.candidateFlags;
+
+  Consume, upt04_x3_split.slang:126-128, restore them:
+    work.partialJacobian = asfloat(token.c.w);
+    work.candidateFlags  = token.f.w;
+
+Pack them, do not hardcode 1.0f and a flag literal in the unpacker. The
+whole class of bug here is "the token is an incomplete copy of
+Upt04InitialTraceWork and nothing tells you which field you forgot."
+Hardcoding the two known-missing values fixes today's symptom and leaves
+the next omission just as silent.
+
+If you want the structural version of that instead: add a debug-only
+assertion path that re-runs Upt03StructurallyValid on the unpacked work
+in consume and increments a counter on rejection. That turns every future
+token omission from an invisible 2-vtx image into a number.
+
+Do not change the token size, the reservoir format, or the MIS math to
+fix this. None of them are implicated.
+
+
+Appendix A - the exact inheritance chain the split severs
+----------------------------------------------------------
+
+  upt04_initial_indirect.slang:311-324
+    Upt04PrepareIndirectPathTreeWork sets
+      work.candidateFlags = Global|Replayable|NeedsShift|(Parity)
+      work.partialJacobian = 1.0f
+      work.accumulatedRouletteProbability = 1.0f
+
+  upt04_initial_multibounce.slang:187
+    Upt04PrepareSecondContinuation: work = firstContinuation
+      -> both fields survive by value
+
+  upt04_initial_multibounce.slang:220
+    Upt04EvaluateSecondEndpoint: endpoint = continuation.work
+      -> both fields survive; neither is ever reassigned
+
+  upt04_initial_reservoir_stream.slang:32,51
+    candidate.flags = work.candidateFlags
+    candidate.partialJacobian = work.partialJacobian
+
+  upt03_reservoir_contract.slang:195,217
+    !Upt03FinitePositive(partialJacobian) -> StructurallyValid false
+    -> Upt03StreamCandidate returns, candidate discarded
+
+In X the chain starts at upt04_x3_split.slang:116 instead
+(`(Upt04InitialTraceWork)0`), so both fields enter the chain as zero.
+accumulatedRouletteProbability is the third member of that trio and IS
+packed (token.b.w) - which is the tell that the omission was an oversight
+in the same edit, not a deliberate simplification.

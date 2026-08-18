@@ -574,8 +574,16 @@ static const char* Upt04SplitIndirectShaderPath(
     bool lightTiles,
     bool threeVertexInitial,
     bool staticAnalyticOnly,
-    bool emissiveClassify)
+    bool emissiveClassify,
+    bool threeVertexSplit,
+    bool geometryNoSkinned)
 {
+    if (threeVertexInitial && threeVertexSplit && !staticAnalyticOnly)
+    {
+        return geometryNoSkinned
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_noskinned.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce.bin";
+    }
     if (threeVertexInitial)
     {
         if (staticAnalyticOnly)
@@ -587,6 +595,12 @@ static const char* Upt04SplitIndirectShaderPath(
             return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_classify.bin";
         }
         return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex.bin";
+    }
+    if (emissiveClassify)
+    {
+        return geometryNoSkinned
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_emissive_classify_noskinned.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_emissive_classify.bin";
     }
     if (lightTiles)
     {
@@ -606,6 +620,11 @@ static const char* Upt04SplitIndirectShaderPath(
 static const char* Upt04EmissiveCompactConsumeShaderPath()
 {
     return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_consume.bin";
+}
+
+static const char* Upt04X3ConsumeShaderPath()
+{
+    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume.bin";
 }
 
 static const char* Upt04ContinuationTraceShaderPath()
@@ -854,6 +873,8 @@ static uint64_t Upt06BuildContentGeneration(
     hash = Upt04HashValue(hash, dispatch.lambertDiagnostic ? 1u : 0u);
     hash = Upt04HashValue(hash, dispatch.staticAnalyticOnly ? 1u : 0u);
     hash = Upt04HashValue(hash, dispatch.emissiveCompact ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.threeVertexSplit ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.geometryNoSkinned ? 1u : 0u);
     hash = Upt04HashValue(hash,
         dispatch.frozenStaticDiagnostic ? 1u : 0u);
     hash = Upt04HashValue(hash,
@@ -1228,6 +1249,18 @@ static bool Upt04InputsValid(const PathTraceUnifiedPtDispatchInputs& dispatch)
     {
         return false;
     }
+    if (dispatch.emissiveCompact &&
+        (!dispatch.splitInitial || dispatch.compactGeometry ||
+         !dispatch.compactLights || dispatch.compactMaterials ||
+         dispatch.lightTiles ||
+         dispatch.backend != PathTraceUnifiedPtBackend::RayQuery ||
+         dispatch.family != PathTraceUnifiedPtFamily::Unified ||
+         dispatch.primaryReceiverMode != 2u || dispatch.diagnostics ||
+         dispatch.lambertDiagnostic || dispatch.shaderProofMode != 6u ||
+         dispatch.staticAnalyticOnly))
+    {
+        return false;
+    }
     const uint32_t expectedPrimaryStride = dispatch.primaryReceiverMode == 2u
         ? PATH_TRACE_UNIFIED_PT_PRIMARY_RECEIVER32_STRIDE
         : (dispatch.primaryReceiverMode == 1u
@@ -1277,7 +1310,8 @@ static void Upt04AddBindingLayoutItems(
     bool diagnostics,
     bool splitContinuation,
     bool lightTiles,
-    bool emissiveCompact)
+    bool emissiveCompact,
+    bool threeVertexSplit)
 {
     desc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
     desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
@@ -1313,6 +1347,12 @@ static void Upt04AddBindingLayoutItems(
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(34));
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(35));
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(36));
+    }
+    if (threeVertexSplit)
+    {
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(37));
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(38));
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(39));
     }
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
 }
@@ -1433,7 +1473,10 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     nvrhi::BufferHandle resolvedEmissive,
     nvrhi::BufferHandle emissiveCompactQueue,
     nvrhi::BufferHandle emissiveCompactMeta,
-    nvrhi::BufferHandle emissiveCompactDispatchArgs)
+    nvrhi::BufferHandle emissiveCompactDispatchArgs,
+    nvrhi::BufferHandle x3Queue,
+    nvrhi::BufferHandle x3Meta,
+    nvrhi::BufferHandle x3DispatchArgs)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -1516,6 +1559,12 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
             35, emissiveCompactDispatchArgs));
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
             36, resolvedEmissive));
+    }
+    if (dispatch.threeVertexSplit)
+    {
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(37, x3Queue));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(38, x3Meta));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(39, x3DispatchArgs));
     }
     desc.addItem(nvrhi::BindingSetItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
     return desc;
@@ -1849,6 +1898,8 @@ void PathTraceUnifiedPtState::ReleasePipeline()
     m_splitIndirectComputeShader = nullptr;
     m_emissiveCompactConsumePipeline = nullptr;
     m_emissiveCompactConsumeShader = nullptr;
+    m_x3ConsumePipeline = nullptr;
+    m_x3ConsumeShader = nullptr;
     m_computePipeline = nullptr;
     m_computeShader = nullptr;
     m_bindingLayout = nullptr;
@@ -2037,6 +2088,7 @@ void PathTraceUnifiedPtState::Release()
     ReleaseCompactGeometry();
     ReleaseCompactLights();
     ReleaseEmissiveCompact();
+    ReleaseX3Split();
     ReleaseLightTiles();
     ReleaseCompactMaterials();
     ReleaseContinuation();
@@ -2112,6 +2164,8 @@ void PathTraceUnifiedPtState::Release()
     m_compactMaterials = false;
     m_splitInitial = false;
     m_threeVertexInitial = false;
+    m_threeVertexSplit = false;
+    m_geometryNoSkinned = false;
     m_splitContinuation = false;
     m_staticAnalyticOnly = false;
     m_emissiveCompact = false;
@@ -2349,6 +2403,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_compactMaterials != inputs.compactMaterials ||
         m_splitInitial != inputs.splitInitial ||
         m_threeVertexInitial != inputs.threeVertexInitial ||
+        m_threeVertexSplit != inputs.threeVertexSplit ||
+        m_geometryNoSkinned != inputs.geometryNoSkinned ||
         m_splitContinuation != inputs.splitContinuation ||
         m_lambertDiagnostic != inputs.lambertDiagnostic ||
         m_staticAnalyticOnly != inputs.staticAnalyticOnly ||
@@ -2373,6 +2429,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_lambertDiagnostic = inputs.lambertDiagnostic;
         m_staticAnalyticOnly = inputs.staticAnalyticOnly;
         m_emissiveCompact = inputs.emissiveCompact;
+        m_threeVertexSplit = inputs.threeVertexSplit;
+        m_geometryNoSkinned = inputs.geometryNoSkinned;
         m_frozenStaticDiagnostic = inputs.frozenStaticDiagnostic;
         m_frozenLightDiagnostic = inputs.frozenLightDiagnostic;
         m_directProposalParity = inputs.directProposalParity;
@@ -2460,7 +2518,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.diagnostics,
             inputs.splitContinuation,
             inputs.lightTiles,
-            inputs.emissiveCompact);
+            inputs.emissiveCompact,
+            inputs.threeVertexSplit);
     }
     m_bindingLayout = inputs.device->createBindingLayout(layoutDesc);
     if (!m_bindingLayout)
@@ -2564,7 +2623,9 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                         inputs.lightTiles,
                         inputs.threeVertexInitial,
                         inputs.staticAnalyticOnly,
-                        inputs.emissiveCompact),
+                        inputs.emissiveCompact,
+                        inputs.threeVertexSplit,
+                        inputs.geometryNoSkinned),
                     splitIndirectData,
                     splitIndirectSize,
                     splitIndirectTimestamp,
@@ -2642,6 +2703,46 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                     static_cast<unsigned long long>(consumeHash),
                     static_cast<long long>(consumeTimestamp));
             }
+            if (inputs.threeVertexSplit)
+            {
+                void* x3Data = nullptr;
+                int x3Size = 0;
+                ID_TIME_T x3Timestamp = 0;
+                uint64_t x3Hash = 0;
+                if (!Upt04ReadShader(
+                        Upt04X3ConsumeShaderPath(),
+                        x3Data, x3Size, x3Timestamp, x3Hash))
+                {
+                    return false;
+                }
+                nvrhi::ShaderDesc x3Desc;
+                x3Desc.shaderType = nvrhi::ShaderType::Compute;
+                x3Desc.entryName = "main";
+                x3Desc.debugName = "PathTraceUnifiedPtX3Consume";
+                m_x3ConsumeShader = inputs.device->createShader(
+                    x3Desc, x3Data, x3Size);
+                Mem_Free(x3Data);
+                if (!m_x3ConsumeShader)
+                {
+                    common->Printf(
+                        "PathTraceUnifiedPt: failed to create x3 consume shader\n");
+                    return false;
+                }
+                pipelineDesc.CS = m_x3ConsumeShader;
+                m_x3ConsumePipeline =
+                    inputs.device->createComputePipeline(pipelineDesc);
+                if (!m_x3ConsumePipeline)
+                {
+                    common->Printf(
+                        "PathTraceUnifiedPt: failed to create x3 consume pipeline\n");
+                    return false;
+                }
+                common->Printf(
+                    "PathTraceUnifiedPt: x3 consume compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=64x1\n",
+                    x3Size,
+                    static_cast<unsigned long long>(x3Hash),
+                    static_cast<long long>(x3Timestamp));
+            }
         }
         common->Printf(
             "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s shading=%s split=%s continuation=%s lightTiles=%u payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
@@ -2671,7 +2772,7 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         if (inputs.splitInitial)
         {
             common->Printf(
-                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 threeVertex=%d x3Nee=%d staticAnalyticOnly=%d emissiveCompact=%d queuePolicy=sparse-mesh continuationRaysMax=%u visibilityRaysMax=%u totalRaysMax=%u rouletteQ=%.2f createUs=%llu\n",
+                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 threeVertex=%d x3Nee=%d staticAnalyticOnly=%d emissiveCompact=%d threeVertexSplit=%d noSkinned=%d queuePolicy=sparse-mesh continuationRaysMax=%u visibilityRaysMax=%u totalRaysMax=%u rouletteQ=%.2f createUs=%llu\n",
                 splitIndirectSize,
                 static_cast<unsigned long long>(splitIndirectHash),
                 static_cast<long long>(splitIndirectTimestamp),
@@ -2679,6 +2780,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                 inputs.threeVertexInitial ? 1 : 0,
                 inputs.staticAnalyticOnly ? 1 : 0,
                 inputs.emissiveCompact ? 1 : 0,
+                inputs.threeVertexSplit ? 1 : 0,
+                inputs.geometryNoSkinned ? 1 : 0,
                 inputs.threeVertexInitial ? 2u : 1u,
                 inputs.threeVertexInitial ? 3u : 2u,
                 inputs.threeVertexInitial ? 5u : 3u,
@@ -2882,7 +2985,10 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             m_resolvedEmissiveBuffer,
             m_emissiveCompactQueue,
             m_emissiveCompactMeta,
-            m_emissiveCompactDispatchArgs);
+            m_emissiveCompactDispatchArgs,
+            m_x3Queue,
+            m_x3Meta,
+            m_x3DispatchArgs);
     }
     if (m_bindingSets[pageIndex] && m_bindingSetDescValid[pageIndex] &&
         m_bindingSetDescs[pageIndex] == desc)
@@ -3667,6 +3773,76 @@ void PathTraceUnifiedPtState::ReleaseEmissiveCompact()
     m_emissiveCompactCapacity = 0u;
     m_emissiveCompactReadbackPending = false;
     m_emissiveCompactReadbackDelayFrames = 0;
+}
+
+void PathTraceUnifiedPtState::ReleaseX3Split()
+{
+    m_x3Queue = nullptr;
+    m_x3Meta = nullptr;
+    m_x3DispatchArgs = nullptr;
+    m_x3Capacity = 0u;
+    m_x3TokenStride = 0u;
+}
+
+bool PathTraceUnifiedPtState::EnsureX3SplitBuffers(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.threeVertexSplit)
+    {
+        return true;
+    }
+    const uint64_t count64 = uint64_t(inputs.width) * uint64_t(inputs.height);
+    if (count64 == 0u || count64 > UINT32_MAX)
+    {
+        return false;
+    }
+    const uint32_t count = static_cast<uint32_t>(count64);
+    static const uint32_t kUpt04X3TokenStride = 128u;
+    if (m_x3Queue && m_x3Meta && m_x3DispatchArgs && m_x3Capacity == count
+        && m_x3TokenStride == kUpt04X3TokenStride)
+    {
+        return true;
+    }
+    nvrhi::BufferDesc queueDesc;
+    queueDesc.debugName = "PathTraceUnifiedPtX3Queue";
+    queueDesc.byteSize = count64 * kUpt04X3TokenStride;
+    queueDesc.structStride = kUpt04X3TokenStride;
+    queueDesc.canHaveUAVs = true;
+    queueDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    queueDesc.keepInitialState = true;
+    m_x3Queue = inputs.device->createBuffer(queueDesc);
+    nvrhi::BufferDesc metaDesc;
+    metaDesc.debugName = "PathTraceUnifiedPtX3Meta";
+    metaDesc.byteSize = 2u * sizeof(uint32_t);
+    metaDesc.structStride = sizeof(uint32_t);
+    metaDesc.canHaveUAVs = true;
+    metaDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    metaDesc.keepInitialState = true;
+    m_x3Meta = inputs.device->createBuffer(metaDesc);
+    nvrhi::BufferDesc argsDesc;
+    argsDesc.debugName = "PathTraceUnifiedPtX3DispatchArgs";
+    argsDesc.byteSize = 3u * sizeof(uint32_t);
+    argsDesc.structStride = sizeof(uint32_t);
+    argsDesc.canHaveUAVs = true;
+    argsDesc.isDrawIndirectArgs = true;
+    argsDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    argsDesc.keepInitialState = true;
+    m_x3DispatchArgs = inputs.device->createBuffer(argsDesc);
+    m_x3Capacity = (m_x3Queue && m_x3Meta && m_x3DispatchArgs) ? count : 0u;
+    m_x3TokenStride = (m_x3Capacity != 0u) ? kUpt04X3TokenStride : 0u;
+    for (uint32_t page = 0u; page < 2u; ++page)
+    {
+        m_bindingSets[page] = nullptr;
+        m_bindingSetDescValid[page] = false;
+    }
+    if (m_x3Capacity != 0u)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: x3 split queue pixels=%u bytes=%llu recordBytes=128 groups=64x1\n",
+            count,
+            static_cast<unsigned long long>(queueDesc.byteSize));
+    }
+    return m_x3Capacity != 0u;
 }
 
 bool PathTraceUnifiedPtState::EnsureLightTileResources(
@@ -4592,6 +4768,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
     {
         ReleaseEmissiveCompact();
     }
+    if (!inputs.threeVertexSplit && m_x3Queue)
+    {
+        ReleaseX3Split();
+    }
     if (!inputs.duplication && m_duplicationSampleIds)
     {
         ReleaseDuplication();
@@ -4719,6 +4899,10 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         return false;
     }
     if (inputs.emissiveCompact && !EnsureEmissiveCompactBuffers(inputs))
+    {
+        return false;
+    }
+    if (inputs.threeVertexSplit && !EnsureX3SplitBuffers(inputs))
     {
         return false;
     }
@@ -4988,6 +5172,22 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 inputs.commandList->writeBuffer(
                     m_emissiveCompactMeta,
                     compactMeta, sizeof(compactMeta));
+                if (inputs.threeVertexSplit && m_x3Meta && m_x3DispatchArgs)
+                {
+                    const uint32_t x3Args[3] = { 0u, 1u, 1u };
+                    const uint32_t x3Meta[2] = { 0u, m_x3Capacity };
+                    inputs.commandList->writeBuffer(
+                        m_x3DispatchArgs, x3Args, sizeof(x3Args));
+                    inputs.commandList->writeBuffer(
+                        m_x3Meta, x3Meta, sizeof(x3Meta));
+                    inputs.commandList->setBufferState(
+                        m_x3Queue, nvrhi::ResourceStates::UnorderedAccess);
+                    inputs.commandList->setBufferState(
+                        m_x3Meta, nvrhi::ResourceStates::UnorderedAccess);
+                    inputs.commandList->setBufferState(
+                        m_x3DispatchArgs,
+                        nvrhi::ResourceStates::UnorderedAccess);
+                }
                 inputs.commandList->setBufferState(
                     m_emissiveCompactQueue,
                     nvrhi::ResourceStates::UnorderedAccess);
@@ -4996,6 +5196,23 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                     nvrhi::ResourceStates::UnorderedAccess);
                 inputs.commandList->setBufferState(
                     m_emissiveCompactDispatchArgs,
+                    nvrhi::ResourceStates::UnorderedAccess);
+            }
+            if (inputs.threeVertexSplit && m_x3Meta && m_x3DispatchArgs
+                && !inputs.emissiveCompact)
+            {
+                const uint32_t x3OnlyArgs[3] = { 0u, 1u, 1u };
+                const uint32_t x3OnlyMeta[2] = { 0u, m_x3Capacity };
+                inputs.commandList->writeBuffer(
+                    m_x3DispatchArgs, x3OnlyArgs, sizeof(x3OnlyArgs));
+                inputs.commandList->writeBuffer(
+                    m_x3Meta, x3OnlyMeta, sizeof(x3OnlyMeta));
+                inputs.commandList->setBufferState(
+                    m_x3Queue, nvrhi::ResourceStates::UnorderedAccess);
+                inputs.commandList->setBufferState(
+                    m_x3Meta, nvrhi::ResourceStates::UnorderedAccess);
+                inputs.commandList->setBufferState(
+                    m_x3DispatchArgs,
                     nvrhi::ResourceStates::UnorderedAccess);
             }
             inputs.commandList->commitBarriers();
@@ -5075,6 +5292,31 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 m_emissiveCompactReadbackPending = true;
                 m_emissiveCompactReadbackDelayFrames = 2;
             }
+        }
+        if (inputs.threeVertexSplit && m_x3ConsumePipeline)
+        {
+            nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
+            nvrhi::utils::BufferUavBarrier(inputs.commandList, m_x3Queue);
+            nvrhi::utils::BufferUavBarrier(inputs.commandList, m_x3Meta);
+            nvrhi::utils::BufferUavBarrier(
+                inputs.commandList, m_x3DispatchArgs);
+            inputs.commandList->setBufferState(
+                m_x3DispatchArgs,
+                nvrhi::ResourceStates::IndirectArgument);
+            inputs.commandList->commitBarriers();
+            Upt04MarkerScope x3Marker(
+                inputs.commandList,
+                "UPT.D0x Three-Vertex Consume 64x1",
+                inputs.nsightMarkers);
+            nvrhi::ComputeState x3State;
+            x3State.pipeline = m_x3ConsumePipeline;
+            x3State.bindings = { m_bindingSets[m_currentPageIndex] };
+            x3State.bindings.push_back(
+                inputs.sceneInputs->materials.textureDescriptorTable);
+            x3State.indirectParams = m_x3DispatchArgs;
+            inputs.commandList->setComputeState(x3State);
+            inputs.commandList->setPushConstants(&control, sizeof(control));
+            inputs.commandList->dispatchIndirect(0u);
         }
     }
 

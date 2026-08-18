@@ -81,6 +81,8 @@ struct PathTraceUnifiedPtDispatchInputs
     bool compactMaterials = false;
     bool splitInitial = false;
     bool threeVertexInitial = false;
+    bool threeVertexSplit = false;
+    bool geometryNoSkinned = false;
     bool splitContinuation = false;
     bool lambertDiagnostic = false;
     bool staticAnalyticOnly = false;
@@ -258,6 +260,8 @@ private:
     bool EnsureEmissiveCompactBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
     void DrainEmissiveCompactReadback(const PathTraceUnifiedPtDispatchInputs& inputs);
     void ReleaseEmissiveCompact();
+    bool EnsureX3SplitBuffers(const PathTraceUnifiedPtDispatchInputs& inputs);
+    void ReleaseX3Split();
     bool EnsureLightTileResources(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureLightTilePipeline(const PathTraceUnifiedPtDispatchInputs& inputs);
     bool EnsureLightTileBindingSet(const PathTraceUnifiedPtDispatchInputs& inputs);
@@ -352,6 +356,8 @@ private:
     bool m_compactMaterials = false;
     bool m_splitInitial = false;
     bool m_threeVertexInitial = false;
+    bool m_threeVertexSplit = false;
+    bool m_geometryNoSkinned = false;
     bool m_splitContinuation = false;
     bool m_lambertDiagnostic = false;
     bool m_staticAnalyticOnly = false;
@@ -406,6 +412,13 @@ private:
     nvrhi::ComputePipelineHandle m_splitIndirectComputePipeline;
     nvrhi::ShaderHandle m_emissiveCompactConsumeShader;
     nvrhi::ComputePipelineHandle m_emissiveCompactConsumePipeline;
+    nvrhi::ShaderHandle m_x3ConsumeShader;
+    nvrhi::ComputePipelineHandle m_x3ConsumePipeline;
+    uint32_t m_x3Capacity = 0u;
+    uint32_t m_x3TokenStride = 0u;
+    nvrhi::BufferHandle m_x3Queue;
+    nvrhi::BufferHandle m_x3Meta;
+    nvrhi::BufferHandle m_x3DispatchArgs;
     uint32_t m_emissiveCompactCapacity = 0u;
     nvrhi::BufferHandle m_emissiveCompactQueue;
     nvrhi::BufferHandle m_emissiveCompactMeta;

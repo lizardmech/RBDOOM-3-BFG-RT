@@ -1,0 +1,75 @@
+D0b Blob X first landing
+========================
+
+Date: 2026-08-18
+Status: accepted and shipping default (2026-08-18). threeVertexInitial
+        and threeVertexSplit default 1. exec upt pins the same. Monolith
+        A/B remains exec uptb2 (split 0). 2-vtx A/B is exec uptw0.
+
+What
+  threeVertexInitial=1 + threeVertexSplit=1 selects 2-vtx produce
+  (..._light64_x3_produce.bin) then 64x1 x3 consume
+  (..._light64_x3_consume.bin). Fat 3-vtx monolith is exec uptb2
+  (split=0).
+
+  Produce decodes the live x2 hit, runs PrepareSecondContinuation
+  (q + minT) on that surface, and queues only if the x3 ray is
+  admitted. Token is eight uint4s (explicit 128 bytes): prepared
+  ray + path + x2 position. Consume unpacks that ray and traces;
+  it does not Prepare or re-decode x2. Intermediate/final writes
+  unchanged.
+
+  Compact is ignored on this path for the first landing (use
+  emissiveCompact 0).
+
+  Visual no-op after the 80-byte ID token (redeployed 2026-08-18
+  04:05): consume still rebuilt the first continuation and
+  re-decoded. ID re-decode can fail closed even when produce's
+  live decode succeeded. Prepare now runs on produce with the
+  live surface. uptx.cfg pins minT=0.0 / q=0.8 to match uptb2.
+  Compare exec uptx vs exec uptb2 in a second-bounce-only corner,
+  not by toggling the 3-vtx cvar.
+
+Enable
+  exec uptx
+  Confirm: "x3 consume compiler=slang" and split-indirect is the
+  produce blob, not the 38k three_vertex.bin.
+  Leave X with exec uptb2 (now pins threeVertexSplit 0). upt / uptw /
+  uptw0 also pin split 0. The cvar is not archived; a restart also
+  returns to 0. Do not exec uptb2 after uptx without that pin — you
+  stay on the X PSO and the 3rd bounce never returns.
+
+Gate
+  Same easy camera, T/S off: (produce + consume) must beat 5.6 ms
+  and 60% NI of the monolith. Scaling target ~1.7x vs 2-vtx 1.5 ms,
+  not RTXDI milliseconds. Combined D0 = produce + barriers + consume.
+
+Two-word token restore 2026-08-18
+  Root cause (Voss / review section 6): Upt04X3UnpackPrepared
+  zero-inited Upt04InitialTraceWork and never restored
+  partialJacobian (stayed 0 -> Upt03StructurallyValid reject) or
+  candidateFlags (Global|Replayable|NeedsShift). Token stayed 128
+  bytes; packed the live produce values into unused words:
+    token.c.w = asuint(prepared.work.partialJacobian)
+    token.f.w = prepared.work.candidateFlags
+    work.partialJacobian = asfloat(token.c.w)
+    work.candidateFlags  = token.f.w
+  Did not hardcode 1.0f or flag literals. No stride / host buffer
+  / MIS / reservoir-format change.
+
+  Deployed (Vulkan only)
+    E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+      16485888 bytes  mtime 2026-08-18 04:27:52
+      sha256 25788097E7E0485C844F80FFE411746DDD3C508AAD3D3EC3D6618B279E25B8A2
+    .../slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce.bin
+      412668 bytes  mtime 2026-08-18 12:44:24
+      sha256 0C152B1551D845F5971F3A60C106B7C7A5E432ADEC2EBEA924254E1C19B067DB
+    .../slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume.bin
+      323984 bytes  mtime 2026-08-18 12:44:24
+      sha256 3D55DAA766B67086B1B22349D5ABAE26A3F7377C7AA34710168742752D49CF35
+  Emissive consume left in place. Compact default still 0.
+
+  Human A/B after restart: exec uptx vs exec uptb2 vs exec uptw0
+  in a second-bounce-only corner. Confirm recordBytes=128,
+  produce+consume blobs (not three_vertex.bin), threeVertexSplit=1,
+  q=0.80 minT=0. Leave X with exec uptb2.

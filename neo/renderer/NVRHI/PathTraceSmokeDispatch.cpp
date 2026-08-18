@@ -3822,8 +3822,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     || threeVertexBottleneckProbe == 6);
             unifiedPtInputs.emissiveCompact =
                 r_pathTracingUnifiedPtEmissiveCompact.GetBool()
+                && !unifiedPtInputs.staticAnalyticOnly;
+            unifiedPtInputs.threeVertexSplit =
+                r_pathTracingUnifiedPtThreeVertexSplit.GetBool()
                 && unifiedPtInputs.threeVertexInitial
                 && !unifiedPtInputs.staticAnalyticOnly;
+            unifiedPtInputs.geometryNoSkinned =
+                r_pathTracingUnifiedPtGeometryNoSkinned.GetBool();
             static int reportedEmissiveCompact = -1;
             if (reportedThreeVertexRequest != threeVertexRequest
                 || reportedThreeVertexEffective != threeVertexEffective

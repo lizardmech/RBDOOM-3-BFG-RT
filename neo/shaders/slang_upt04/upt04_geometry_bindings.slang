@@ -49,6 +49,10 @@ public [[vk::binding(16, 0)]] StructuredBuffer<uint> gUpt04RigidIndices;
 // encode a structured stride, so this preserves the CPU byte ABI while letting
 // the shader avoid whole-record OpLoad instructions.
 public [[vk::binding(17, 0)]] StructuredBuffer<uint4> gUpt04RigidInstanceWords;
+#ifndef UPT04_NO_SKINNED_GEOMETRY
+#define UPT04_NO_SKINNED_GEOMETRY 0
+#endif
+#if !UPT04_NO_SKINNED_GEOMETRY
 #if UPT04_PACKED_GEOMETRY_VERTEX
 public [[vk::binding(18, 0)]] StructuredBuffer<Upt04CompactVertex> gUpt04SkinnedCurrentVertices;
 #else
@@ -57,6 +61,7 @@ public [[vk::binding(18, 0)]] StructuredBuffer<Upt04SmokeVertex> gUpt04SkinnedCu
 public [[vk::binding(19, 0)]] StructuredBuffer<uint> gUpt04SkinnedSourceIndices;
 public [[vk::binding(20, 0)]] StructuredBuffer<uint4> gUpt04SkinnedRouteWords;
 public [[vk::binding(21, 0)]] StructuredBuffer<Upt04SkinnedRouteTriangle> gUpt04SkinnedTriangles;
+#endif
 public [[vk::binding(22, 0)]] StructuredBuffer<Upt04EmissiveLookupEntry> gUpt04EmissiveLookup;
 public [[vk::binding(32, 0)]] StructuredBuffer<Upt04EmissiveGeometryRecord> gUpt04EmissiveGeometry;
 
@@ -173,7 +178,9 @@ public uint Upt04RigidInstanceCount()
 
 public uint Upt04SkinnedRouteRecordCount()
 {
-#if UPT07_TEMPORAL_GEOMETRY_REPLAY || UPT09_SPATIAL_GEOMETRY_REPLAY
+#if UPT04_NO_SKINNED_GEOMETRY
+    return 0u;
+#elif UPT07_TEMPORAL_GEOMETRY_REPLAY || UPT09_SPATIAL_GEOMETRY_REPLAY
     return Upt04GeometryBufferCount(gUpt04SkinnedRouteWords)
         / kUpt04SkinnedRouteUint4Stride;
 #else
@@ -183,7 +190,9 @@ public uint Upt04SkinnedRouteRecordCount()
 
 public uint Upt04SkinnedRouteTriangleCount()
 {
-#if UPT07_TEMPORAL_GEOMETRY_REPLAY || UPT09_SPATIAL_GEOMETRY_REPLAY
+#if UPT04_NO_SKINNED_GEOMETRY
+    return 0u;
+#elif UPT07_TEMPORAL_GEOMETRY_REPLAY || UPT09_SPATIAL_GEOMETRY_REPLAY
     return Upt04GeometryBufferCount(gUpt04SkinnedTriangles);
 #else
     return gUpt04Control.skinnedRouteTriangleCount;
@@ -192,7 +201,9 @@ public uint Upt04SkinnedRouteTriangleCount()
 
 public uint Upt04SkinnedSourceIndexCount()
 {
-#if UPT07_TEMPORAL_GEOMETRY_REPLAY || UPT09_SPATIAL_GEOMETRY_REPLAY
+#if UPT04_NO_SKINNED_GEOMETRY
+    return 0u;
+#elif UPT07_TEMPORAL_GEOMETRY_REPLAY || UPT09_SPATIAL_GEOMETRY_REPLAY
     return Upt04GeometryBufferCount(gUpt04SkinnedSourceIndices);
 #else
     return gUpt04Control.skinnedSourceIndexCount;
@@ -201,7 +212,9 @@ public uint Upt04SkinnedSourceIndexCount()
 
 public uint Upt04SkinnedCurrentVertexCount()
 {
-#if UPT07_TEMPORAL_GEOMETRY_REPLAY || UPT09_SPATIAL_GEOMETRY_REPLAY
+#if UPT04_NO_SKINNED_GEOMETRY
+    return 0u;
+#elif UPT07_TEMPORAL_GEOMETRY_REPLAY || UPT09_SPATIAL_GEOMETRY_REPLAY
     return Upt04GeometryBufferCount(gUpt04SkinnedCurrentVertices);
 #else
     return gUpt04Control.skinnedCurrentVertexCount;

@@ -10,6 +10,9 @@ import upt04_hit_contract;
 #ifndef UPT_FROZEN_STATIC_GEOMETRY
 #define UPT_FROZEN_STATIC_GEOMETRY UPT_FROZEN_STATIC_SCENE
 #endif
+#ifndef UPT04_NO_SKINNED_GEOMETRY
+#define UPT04_NO_SKINNED_GEOMETRY 0
+#endif
 
 #ifndef UPT04_PACKED_GEOMETRY_VERTEX
 #define UPT04_PACKED_GEOMETRY_VERTEX 0
@@ -128,6 +131,9 @@ public uint2 Upt04LoadRigidMaterialAndTriangleCount(uint routeIndex)
 public Upt04SkinnedResolveRoute Upt04LoadSkinnedResolveRoute(uint routeIndex)
 {
     Upt04SkinnedResolveRoute route = (Upt04SkinnedResolveRoute)0;
+#if UPT04_NO_SKINNED_GEOMETRY
+    return route;
+#else
     const uint wordBase = routeIndex * kUpt04SkinnedRouteUint4Stride;
     const uint4 offsets = gUpt04SkinnedRouteWords[wordBase + 0u];
     const uint4 counts = gUpt04SkinnedRouteWords[wordBase + 1u];
@@ -142,6 +148,7 @@ public Upt04SkinnedResolveRoute Upt04LoadSkinnedResolveRoute(uint routeIndex)
     route.routeCount = tableCounts.y;
     route.triangleMetadataCount = tableCounts.z;
     return route;
+#endif
 }
 
 public float3 Upt04RigidTransformPoint(Upt04RigidResolveRoute route, float3 point)
@@ -276,6 +283,9 @@ public bool Upt04LoadRigidTriangle(
 public bool Upt04SkinnedInstanceInRange(uint instanceId, out uint routeIndex)
 {
     routeIndex = 0u;
+#if UPT04_NO_SKINNED_GEOMETRY
+    return false;
+#else
     const uint routeCount = Upt04SkinnedRouteRecordCount();
     const uint firstInstanceId = 2u + Upt04RigidInstanceCount();
     if (routeCount == 0u || instanceId < firstInstanceId
@@ -283,6 +293,7 @@ public bool Upt04SkinnedInstanceInRange(uint instanceId, out uint routeIndex)
         return false;
     routeIndex = instanceId - firstInstanceId;
     return true;
+#endif
 }
 
 public bool Upt04LoadSkinnedTriangle(
@@ -291,6 +302,9 @@ public bool Upt04LoadSkinnedTriangle(
     out Upt04ResolvedTriangle triangle)
 {
     triangle = (Upt04ResolvedTriangle)0;
+#if UPT04_NO_SKINNED_GEOMETRY
+    return false;
+#else
     uint routeIndex;
     if (!Upt04SkinnedInstanceInRange(instanceId, routeIndex))
         return false;
@@ -339,6 +353,7 @@ public bool Upt04LoadSkinnedTriangle(
     triangle.primitiveIndex = primitiveIndex;
     triangle.valid = 1u;
     return true;
+#endif
 }
 
 public bool Upt04ResolveTriangle(Upt04HitFacts hit, out Upt04ResolvedTriangle triangle)
@@ -439,6 +454,7 @@ public bool Upt04ResolveTriangleMaterialIndex(
     }
 
     uint skinnedRouteIndex;
+#if !UPT04_NO_SKINNED_GEOMETRY
     if (Upt04SkinnedInstanceInRange(
             hit.instanceId, skinnedRouteIndex))
     {
@@ -463,6 +479,7 @@ public bool Upt04ResolveTriangleMaterialIndex(
         materialIndex = metadata.materialIndex;
         return true;
     }
+#endif
 
     if (hit.instanceId < 2u
         || hit.instanceId - 2u >= Upt04RigidInstanceCount())
@@ -525,6 +542,7 @@ public bool Upt04ResolveTriangleClassAndFlags(
     }
 
     uint skinnedRouteIndex;
+#if !UPT04_NO_SKINNED_GEOMETRY
     if (Upt04SkinnedInstanceInRange(hit.instanceId, skinnedRouteIndex))
     {
         const Upt04SkinnedResolveRoute route =
@@ -544,6 +562,7 @@ public bool Upt04ResolveTriangleClassAndFlags(
         triangleClassAndFlags = metadata.triangleClassAndFlags;
         return true;
     }
+#endif
 
     if (hit.instanceId < 2u
         || hit.instanceId - 2u >= Upt04RigidInstanceCount())

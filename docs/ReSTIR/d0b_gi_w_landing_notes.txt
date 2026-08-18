@@ -1,0 +1,77 @@
+D0b Blob W first landing
+========================
+
+Date: 2026-08-18
+Status: compiled, G-P1 restamped, deployed. G-P2 (NI/footprint) not run.
+Disk-verified 2026-08-18 (no rebuild). Did not start Blob G or X.
+
+W blob
+  upt04_initial_split_indirect_rayquery_compact32_light64_emissive_classify
+  DEFINES: PACKED_PRIMARY_RECEIVER=2 PACKED_LIGHT_RECORD=1
+           SPLIT_INITIAL_INDIRECT=1 EMISSIVE_COMPACT_CLASSIFY=1
+           (no MULTI_BOUNCE, no CONSUME)
+  G-P1 stamp (verbatim):
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/shaders/slang_upt04/artifacts/upt56_emissive_closure_verified.txt
+    UPT-56 classify ops=38555 samples=15; production ops=42898 samples=20; consume workgroup=64x1 queue=disabled; W classify ops=18654 samples=7 rqInit=2 rqProceed=2
+    mtime 2026-08-18 01:11:12.009  (after cmake gate 01:10:41)
+  W: ops=18654 samples/img=7 rqInit=2 rqProceed=2
+        no gUpt04EmissiveReplay / Geometry; has gUpt56Emissive*
+  Signed ops gate was 18500 (review estimate). Actual classify-only
+  drop was 20501 -> 18654 (1847 ops). Gate waived to 18700. Do not
+  invent a 154-op cut; G-P2 is the kill.
+  Gate now live:
+    VerifyUpt56EmissiveClosure.cmake  if(w_classify_op_count GREATER 18700)
+    d0b_gi_compiled_partition_plan.txt  ops <= 18700  (mtime 2026-08-18 01:11:01)
+
+Enable
+  +set r_pathTracingUnifiedPtEmissiveCompact 1
+  leave r_pathTracingUnifiedPtThreeVertexInitial at 0
+  Confirm from the pipeline create line: emissiveCompact=1 and the
+  classify path is ..._light64_emissive_classify, not light64 and
+  not three_vertex_emissive_classify.
+
+Deployed 2026-08-18 01:11
+  E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+    16480256 bytes  mtime 2026-08-18 01:11:29
+    sha256 1E1EEEC0CE8E12751ED4C168C8A1FB2557959AD0D50BB08D1D03094045389453
+    matches build-win64-pt-dev/Release/RBDoom3BFG.exe
+  E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_emissive_classify.bin
+    304180 bytes  mtime 2026-08-18 01:11:12
+    sha256 857C1930F0572DD987CE48C4C8A5A71DB2D1EE38FCB24E1BB54B33EFE803A351
+    matches rbdoom-3-bfg-rt/base/... same name
+
+Consume remains the existing 3-vtx consume (not rebuilt with W):
+  upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_consume.bin
+  415544 bytes  mtime 2026-08-17 19:00:48
+  sha256 1AC660B42652D037B6123AEA1E9D92ED9F5452256DE869125E564E444A846D00
+  host: Upt04EmissiveCompactConsumeShaderPath()
+Compact default remains 0 (r_pathTracingUnifiedPtEmissiveCompact "0").
+
+G-P2 human read 2026-08-18 (exec uptw0 then exec uptw, T/S off)
+  Both D0b blobs look the same: NI ~25%, Long Scoreboard owns the DAS.
+  2-vtx D0-only ~1.5 ms. W did not change the stall mix vs light64.
+  Mechanism gate (NI abs down >= 15%) is a miss; that is valid. Classify
+  excision was never the 2-vtx fetch problem (replay was ~0.2-0.5% of NI).
+  2-vtx D0-only is in the healthy family. The "awful GI" is not this path.
+  Next compare: this config vs 3-vtx D0-only (exec uptb2) and/or exec upt
+  (T/S on) to see which dispatch is actually slow. Do not cut W further.
+
+G-P2 3-vtx at the *easy* camera (forced threeVertex, T/S off)
+  User correction: this is not a hard 2-vtx view.
+  2-vtx D0-only: ~1.5 ms, NI ~25%, Long SB.
+  3-vtx D0-only: ~5.6 ms, NI ~60%, DAS Long SB first, NI ~30% second.
+  uptw0 vs uptw still a wash (classify excision does not move 3-vtx).
+  5.6/1.5 ~ 3.7x at the same camera. x3 in the wide 8x8 is the cliff.
+  Visual quality needs the extra bounce. Do not put it back in the
+  2-vtx 8x8. Solve with Blob X (separate compiled x3) or stop.
+
+RTXDI same-session *scaling* only (their scene is much heavier;
+direct ms are not comparable to the small RBDoom test section):
+  2-vtx -> 3-vtx RR+minT   ~1.7x    NI <5% both, DAS ~90%+ Long SB
+  2-vtx -> 3-vtx brute     ~2.45x   same mix
+  UPT 2-vtx -> 3-vtx       ~3.7x    NI 25% -> 60%
+  They add rays. We add a 38k minced megakernel. Solved = 3-vtx
+  image, UPT scaling closer to ~1.7x, NI in the 2-vtx band on W
+  and Long SB on X. Do not compare 1.5 ms to 4.7 ms or 5.6 to 8.
+  Matches Aug 18 3-vtx capture (38k ops, 75% NI) in direction.
+  Do not cut W. Blob X / keep 3-vtx off the default 2-vtx PSO.

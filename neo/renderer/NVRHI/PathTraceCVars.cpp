@@ -1431,11 +1431,23 @@ idCVar r_pathTracingUnifiedPtSplitInitial(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT unified D0 A/B: 0 runs the three-query RayQuery megakernel; 1 splits direct and indirect work into two 8x8 dispatches using one exact intermediate/final 64-byte reservoir page; supports native geometry with native or compact64 lights, or paired compact geometry+light" );
 
-idCVar r_pathTracingUnifiedPtThreeVertexInitial(
-    "r_pathTracingUnifiedPtThreeVertexInitial",
+idCVar r_pathTracingUnifiedPtThreeVertexSplit(
+    "r_pathTracingUnifiedPtThreeVertexSplit",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "3-vtx quality via 2-vtx produce + 64x1 x3 consume. Requires threeVertexInitial. Default 1. Fat megakernel is exec uptb2 (split 0)." );
+
+idCVar r_pathTracingUnifiedPtGeometryNoSkinned(
+    "r_pathTracingUnifiedPtGeometryNoSkinned",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT-35/36 three-vertex transport: add one roulette-gated x2-to-x3 continuation and endpoint proposal to split-initial native-geometry compact64-light mode with exact temporal replay; spatial must be disabled" );
+    "Blob G: compile skinned decode out of D0b 2-vtx W classify / X produce. Skinned hits fail closed. Default 0 for A/B." );
+
+idCVar r_pathTracingUnifiedPtThreeVertexInitial(
+    "r_pathTracingUnifiedPtThreeVertexInitial",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Three-vertex D0: roulette-gated x2-to-x3 continuation. Default 1 with threeVertexSplit. 2-vtx A/B is exec uptw0." );
 
 idCVar r_pathTracingUnifiedPtThreeVertexContinueProbability(
     "r_pathTracingUnifiedPtThreeVertexContinueProbability",
@@ -1459,7 +1471,7 @@ idCVar r_pathTracingUnifiedPtEmissiveCompact(
     "r_pathTracingUnifiedPtEmissiveCompact",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT-56 D0 emissive-closure compaction: classify PSO with replay/texture compiled out; mesh-light NEE and hit emission use per-light resolved 4-region radiance from the compact pack pass. No screen-sized consume queue. Requires effective three-vertex initial and is ignored for probes 5/6" );
+    "UPT-56 D0 emissive-closure compaction: classify PSO with replay/texture compiled out; mesh-light NEE and hit emission use per-light resolved 4-region radiance from the compact pack pass. No screen-sized consume queue. Works with 2-vtx or 3-vtx initial; ignored for probes 5/6" );
 
 idCVar r_pathTracingUnifiedPtEmissiveCompactDiagnostics(
     "r_pathTracingUnifiedPtEmissiveCompactDiagnostics",

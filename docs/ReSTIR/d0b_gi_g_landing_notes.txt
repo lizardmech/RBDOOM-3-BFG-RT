@@ -1,0 +1,60 @@
+D0b Blob G first landing
+========================
+
+Date: 2026-08-18
+Status: G-P1 pass. G-P2 miss + flat frame time. Track B stopped
+        per d0b_gi_compiled_partition_plan.txt §5.2.
+
+What
+  UPT04_NO_SKINNED_GEOMETRY=1 compiles skinned decode out of the 2-vtx
+  D0b 8x8. G's variant must not reference %gUpt04Skinned*. Rigid +
+  static + dynamic stay. X consume still has skinned (x3 hit decode).
+
+  Two new bins:
+    ..._light64_emissive_classify_noskinned.bin   W+G
+    ..._light64_x3_produce_noskinned.bin          X produce + G
+
+  Cvar r_pathTracingUnifiedPtGeometryNoSkinned default 0.
+  exec uptg = exec uptx + cvar 1. Leave with exec uptx (pins 0).
+  upt / uptb2 / uptw / uptw0 also pin 0.
+  Skinned hits fail closed on this variant. Use a camera that does
+  not need character GI for the NI A/B.
+
+G-P1 stamp (verbatim)
+  E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/shaders/slang_upt04/artifacts/upt56_emissive_closure_verified.txt
+  UPT-56 classify ops=38555 samples=15; production ops=42898 samples=20; consume workgroup=64x1 queue=disabled; W classify ops=18654 samples=7 rqInit=2 rqProceed=2; W+G classify ops=16823 samples=7 rqInit=2 rqProceed=2; X+G produce ops=23203 samples=11 rqInit=2 rqProceed=2
+
+  W+G: no %gUpt04Skinned* in either noskinned spvasm (verified).
+  rqInit=2 rqProceed=2 kept.
+  img stayed 7 (signed W+G budget was <=6).
+  ops 18654 -> 16823 (-1831). Signed W+G ops budget was <=15000.
+  Same as W's first land: do not invent an 1823-op cut. Stamp it.
+  G-P2 (footprint(64) <= 9000, NI abs -50%, NI% < 30%) is the kill.
+
+Enable
+  exec uptg
+  Confirm: noSkinned=1 and the produce blob is
+  ..._x3_produce_noskinned.bin, not x3_produce.bin.
+  For the signed W+G budget: exec uptw then
+  r_pathTracingUnifiedPtGeometryNoSkinned 1
+  and confirm ..._emissive_classify_noskinned.bin.
+
+Deployed 2026-08-18 16:54
+  E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+    16486400 bytes  mtime 2026-08-18 16:54:45
+  .../slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_noskinned.bin
+    377984 bytes  mtime 2026-08-18 16:50:51
+  .../slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_emissive_classify_noskinned.bin
+    275464 bytes  mtime 2026-08-18 16:50:51
+
+Human A/B 2026-08-18, easy camera, T/S off
+  exec uptx: blobBytes=412668 noSkinned=0  (..._x3_produce.bin)
+  exec uptg: blobBytes=377984 noSkinned=1  (..._x3_produce_noskinned.bin)
+             hash/timestamp changed, createUs=2.8s first PSO.
+  G activated. Scene still has skinnedRtCpu=26. No Nsight mix or
+  frame-time move. Skinned decode was not live on this camera
+  (compiled out 1831 W ops / ~35kB produce; already minced-dead).
+  Plan: if W+G lands and time has not moved, fetch theory for
+  *this* excision is wrong. Do not cut G further. Next leftover
+  on W is NaN/Inf (~12.3% of old 2-vtx NI), not another geometry
+  route. X already put 3-vtx NI in the ~20% band.
