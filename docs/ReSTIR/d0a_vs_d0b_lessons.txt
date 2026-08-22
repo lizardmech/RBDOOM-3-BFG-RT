@@ -1,0 +1,74 @@
+D0a vs D0b lessons (exec uptx, look-only)
+========================================
+
+Date: 2026-08-20
+Status: diagnosis. No D0a shader change in this note.
+
+Locked D0a (d0b_gi_level_ab_nsight.txt, d0b_gi_compiled_partition_plan.txt)
+  UPT D0a uptx   12355 ops / ~2 img / 1 rq   NI 14.6%  LS 9.2%
+  vs RTXDI DI    9272 ops / 10 img / 2 rq    NI 2.1%   LS 43.8%
+  samples        D0a / DI ~1.54x with shade
+  Plan: "D0a is in the healthy family. D0b is not."
+        "D0a is not the D0 problem."
+
+Shipping D0a blob
+  upt04_initial_split_direct_rayquery_compact32_light64.bin
+  DEFINES: PACKED_PRIMARY=2 PACKED_LIGHT=1 SPLIT_INITIAL_DIRECT=1
+  No ONE_PATH, no REPLAY_FREE, no x3 token.
+
+
+What D0b taught that does / does not copy
+-----------------------------------------
+Megakernel I-fetch (sibling split)
+  D0b was 5.5 ms / 8% RTCORE / 57% NI with bounce+OpenPBR+replay+vis+x3
+  in one 8x8. D0a is already split-direct: pick + one vis ray, 14.6% NI.
+  A 64x1 sibling for D0a would likely add overhead (first Q1 try). Skip.
+
+Replay vs resolved ALU (ReplayFree)
+  D0a still calls Upt04EvaluateSelectedLocalLight<TMaterialSet>
+  (upt04_initial_direct.slang). With PACKED_LIGHT_RECORD it skips the
+  *first* geometry replay (region weights live in the 64 B sidecar) but
+  still does ReplayEmissiveTriangleBarycentrics + EvaluateEmissiveEndpoint
+  (material sample) per emissive trial.
+
+  When ReplayFree is on for GI, D0b sibling + D0x already use
+  Upt56EvaluateResolvedEmissive. D0a does not: there is no
+  split_direct_*_resolved.bin, and Upt04SplitDirectShaderPath ignores
+  replayFreeSecondaryNee. So stacked ReplayFree leaves primary NEE on
+  live UV sampling.
+
+  Direct-only helper Upt04EvaluateSelectedLocalLightDirectOnly is even
+  closer to a baked light (one replay, radiance from
+  light.radianceAndLuminance). D0a does not call it.
+
+  Easy A/B: light64 split-direct + UPT04_REPLAY_FREE_SECONDARY_NEE=1,
+  select it when compactLights && ReplayFree. Same L0 pack already
+  fills slot 36. Expect a smaller win than D0x (~0.5 ms) because D0a
+  is already healthy and RIS may mix analytic spheres. Image: same
+  four-region vs live UV as GI.
+
+Token / VRAM padding
+  D0a writes the 64 B intermediate page only. No W x H 128 B work
+  queue. x3 96 B / Q1 112 B does not apply.
+
+Light tiles
+  A D0a tiles blob exists. InputsValid forbids tiles with compactLights
+  and with 3-vtx Q1+Q2. Not an uptx A/B.
+
+OnePath
+  D0a does not decode GI hits; primary is compact32 TEX. OnePath is a
+  D0b geometry lever.
+
+Do not
+  pin anything on D0a
+  split D0a into a sibling
+  resume Track B / noinline / unroll because D0a NI is 14.6%
+  turn LightTiles on this stack
+
+
+Landed  2026-08-20  D0a ReplayFree twin (default 0)
+--------------------------------------------------
+  ..._split_direct_rayquery_compact32_light64_resolved.bin
+  Selected when compactLights && ReplayFree (same cvar as GI).
+  Score UPT.D0a Split Direct RayQuery 8x8 vs light64 blob.
+  Glance emissives. Do not expect a D0b-sized cut. Not pinned.

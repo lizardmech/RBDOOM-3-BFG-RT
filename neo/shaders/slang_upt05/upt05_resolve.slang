@@ -42,10 +42,77 @@ RWTexture2D<float4> gUpt05Output;
 RWTexture2D<float4> gUpt05RrSpecularAlbedo;
 [[vk::push_constant]] ConstantBuffer<Upt05ResolveControl> gUpt05Control;
 
+[[vk::binding(4, 0)]]
+[[vk::image_format("rgba32ui")]]
+Texture2DArray<uint4> gUpt05ReservoirTex;
+
+[[vk::binding(5, 0)]]
+[[vk::image_format("rgba32ui")]]
+Texture2DArray<uint4> gUpt05PrimaryTex;
+
+public uint Upt05SurfaceBufferIndex(uint surfaceIndex)
+{
+    if ((gUpt05Control.reserved0 & 1u) == 0u || gUpt05Control.renderWidth == 0u)
+        return surfaceIndex;
+    const uint width = gUpt05Control.renderWidth;
+    const uint x = surfaceIndex % width;
+    const uint y = surfaceIndex / width;
+    const uint tilesX = (width + 7u) / 8u;
+    return (((y >> 3u) * tilesX) + (x >> 3u)) * 64u
+        + ((y & 7u) * 8u) + (x & 7u);
+}
+
+public Upt03PackedReservoir Upt05LoadPackedReservoir(uint surfaceIndex)
+{
+    if ((gUpt05Control.reserved0 & 2u) != 0u && gUpt05Control.renderWidth != 0u)
+    {
+        const uint width = gUpt05Control.renderWidth;
+        const uint2 pixel = uint2(surfaceIndex % width, surfaceIndex / width);
+        const uint4 a = gUpt05ReservoirTex[uint3(pixel, 0)];
+        const uint4 b = gUpt05ReservoirTex[uint3(pixel, 1)];
+        const uint4 c = gUpt05ReservoirTex[uint3(pixel, 2)];
+        const uint4 d = gUpt05ReservoirTex[uint3(pixel, 3)];
+        Upt03PackedReservoir packed;
+        packed.word0 = a.x; packed.word1 = a.y; packed.word2 = a.z; packed.word3 = a.w;
+        packed.word4 = b.x; packed.word5 = b.y; packed.word6 = b.z; packed.word7 = b.w;
+        packed.word8 = c.x; packed.word9 = c.y; packed.word10 = c.z; packed.word11 = c.w;
+        packed.word12 = d.x; packed.word13 = d.y; packed.word14 = d.z; packed.word15 = d.w;
+        return packed;
+    }
+    return gUpt05Reservoirs[Upt05SurfaceBufferIndex(surfaceIndex)];
+}
+
 public bool Upt05FiniteNonNegative3(float3 value)
 {
     return all(isfinite(value)) && all(value >= 0.0f);
 }
+
+public bool Upt05PrimaryTextureEnabled()
+{
+    return (gUpt05Control.reserved0 & 4u) != 0u
+        && gUpt05Control.renderWidth != 0u;
+}
+
+public uint2 Upt05PrimaryTexel(uint surfaceIndex)
+{
+    const uint width = max(gUpt05Control.renderWidth, 1u);
+    return uint2(surfaceIndex % width, surfaceIndex / width);
+}
+
+#if UPT05_PRIMARY_RECEIVER_MODE == 2
+public Upt04PackedPrimarySurfaceRecord32 Upt05LoadPacked32Primary(uint surfaceIndex)
+{
+    if (Upt05PrimaryTextureEnabled())
+    {
+        const uint2 pixel = Upt05PrimaryTexel(surfaceIndex);
+        Upt04PackedPrimarySurfaceRecord32 packed;
+        packed.geometry = gUpt05PrimaryTex[uint3(pixel, 0)];
+        packed.material = gUpt05PrimaryTex[uint3(pixel, 1)];
+        return packed;
+    }
+    return gUpt05PrimarySurfaces[surfaceIndex];
+}
+#endif
 
 public float3 Upt05LoadPrimaryEmission(uint surfaceIndex)
 {
@@ -56,7 +123,8 @@ public float3 Upt05LoadPrimaryEmission(uint surfaceIndex)
         return float3(0.0f);
     return max(Upt04UnpackSharedExponentEmission(packed.material.w), float3(0.0f));
 #elif UPT05_PRIMARY_RECEIVER_MODE == 2
-    const Upt04PackedPrimarySurfaceRecord32 packed = gUpt05PrimarySurfaces[surfaceIndex];
+    const Upt04PackedPrimarySurfaceRecord32 packed =
+        Upt05LoadPacked32Primary(surfaceIndex);
     const uint header = packed.material.w >> 16u;
     if ((header & 0x7fffu) != kUpt04PackedPrimary32Version ||
         (header & kUpt04PackedPrimary32Valid) == 0u)
@@ -77,7 +145,7 @@ public Upt04PrimarySurfaceRecord Upt05LoadPrimarySurface(uint surfaceIndex)
     return Upt04UnpackPrimarySurface(gUpt05PrimarySurfaces[surfaceIndex]);
 #elif UPT05_PRIMARY_RECEIVER_MODE == 2
     return Upt04UnpackPrimarySurface32(
-        gUpt05PrimarySurfaces[surfaceIndex],
+        Upt05LoadPacked32Primary(surfaceIndex),
         gUpt05Control.primaryCameraOrigin);
 #else
     return gUpt05PrimarySurfaces[surfaceIndex];
@@ -301,7 +369,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (gUpt05Control.view == 5u)
     {
         gUpt05Output[pixel] = float4(
-            Upt05PackedStateView(gUpt05Reservoirs[surfaceIndex]), 1.0f);
+            Upt05PackedStateView(Upt05LoadPackedReservoir(surfaceIndex)), 1.0f);
         return;
     }
 
@@ -312,7 +380,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint lobeMask;
     uint flags;
     const bool valid = Upt05DecodeEstimate(
-        gUpt05Reservoirs[surfaceIndex],
+        Upt05LoadPackedReservoir(surfaceIndex),
         surfaceIndex,
         estimate,
         selectedContribution,

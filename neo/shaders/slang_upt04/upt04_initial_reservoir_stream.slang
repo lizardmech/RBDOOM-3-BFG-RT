@@ -1,5 +1,7 @@
 import upt03_reservoir_contract;
 import upt04_initial_bindings;
+import upt04_reservoir_image;
+import upt04_primary_image;
 import upt04_initial_random;
 import upt04_initial_work_contract;
 import upt04_light_contract;
@@ -99,8 +101,9 @@ public void Upt04WriteInitialReservoir(
     uint surfaceIndex,
     inout Upt03LogicalReservoir reservoir)
 {
-    gUpt04Reservoirs[surfaceIndex] =
-        Upt04FinalizeInitialReservoir(reservoir);
+    Upt04StorePackedReservoir(
+        surfaceIndex,
+        Upt04FinalizeInitialReservoir(reservoir));
 }
 
 // D0 split-only transport encoding. The direct pass must preserve the
@@ -190,9 +193,11 @@ public void Upt04WriteIntermediateInitialReservoir(
     Upt03LogicalReservoir reservoir,
     uint directVisibilityRays)
 {
-    gUpt04Reservoirs[surfaceIndex] = Upt04PackIntermediateInitialReservoir(
-        reservoir,
-        directVisibilityRays);
+    Upt04StorePackedReservoir(
+        surfaceIndex,
+        Upt04PackIntermediateInitialReservoir(
+            reservoir,
+            directVisibilityRays));
 }
 
 public Upt03LogicalReservoir Upt04LoadIntermediateInitialReservoir(
@@ -200,7 +205,7 @@ public Upt03LogicalReservoir Upt04LoadIntermediateInitialReservoir(
     out uint directVisibilityRays)
 {
     return Upt04UnpackIntermediateInitialReservoir(
-        gUpt04Reservoirs[surfaceIndex],
+        Upt04LoadPackedReservoir(surfaceIndex),
         directVisibilityRays);
 }
 

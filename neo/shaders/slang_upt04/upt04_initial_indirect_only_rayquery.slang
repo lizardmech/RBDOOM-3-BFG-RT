@@ -10,13 +10,31 @@ import upt03_reservoir_contract;
 import upt04_transport_initial_bounded;
 import upt04_initial_indirect;
 import upt04_initial_reservoir_stream;
+#ifndef UPT_DIAGNOSTIC_LAMBERT
+#define UPT_DIAGNOSTIC_LAMBERT 0
+#endif
+#if UPT_DIAGNOSTIC_LAMBERT
+import upt05_material_set_lambert_diagnostic;
+#define UPT_SELECTED_MATERIAL_SET Upt05LambertDiagnosticMaterialSet
+#else
 import upt05_material_set_openpbr;
+#define UPT_SELECTED_MATERIAL_SET Upt05OpenPbrMaterialSet
+#endif
 
 #ifndef UPT04_MULTI_BOUNCE_INITIAL
 #define UPT04_MULTI_BOUNCE_INITIAL 0
 #endif
 #ifndef UPT04_THREE_VERTEX_SPLIT_PRODUCE
 #define UPT04_THREE_VERTEX_SPLIT_PRODUCE 0
+#endif
+#ifndef UPT04_PRODUCE_BODY_PROBE
+#define UPT04_PRODUCE_BODY_PROBE 0
+#endif
+#ifndef UPT04_Q1_SIBLING
+#define UPT04_Q1_SIBLING 0
+#endif
+#if UPT04_Q1_SIBLING
+import upt04_q1_split;
 #endif
 #ifndef UPT04_THREE_VERTEX_SPLIT_CONSUME
 #define UPT04_THREE_VERTEX_SPLIT_CONSUME 0
@@ -68,7 +86,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         && secondContinuation.work.traceRequired != 0u)
         hit = Upt04TraceRayQuery(secondContinuation.work.ray);
     const Upt04InitialTraceWork secondEndpoint =
-        Upt04EvaluateSecondEndpoint<Upt05OpenPbrMaterialSet>(
+        Upt04EvaluateSecondEndpoint<UPT_SELECTED_MATERIAL_SET>(
             secondContinuation, secondarySurface, hit);
     Upt04StreamInitialTraceWork(reservoir, secondEndpoint, pixel, 3u);
     Upt04InitialTraceWork thirdNee = (Upt04InitialTraceWork)0;
@@ -76,7 +94,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         const Upt04GeometryHitSurface thirdSurface =
             Upt04DecodeGeometryHit(hit);
-        thirdNee = Upt04PrepareThirdVertexNee<Upt05OpenPbrMaterialSet>(
+        thirdNee = Upt04PrepareThirdVertexNee<UPT_SELECTED_MATERIAL_SET>(
             secondContinuation, thirdSurface, pixel);
     }
     hit = Upt04MissFacts(thirdNee.ray.tMax);
@@ -112,7 +130,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
     Upt04InitialTraceWork continuation =
-        Upt04PrepareIndirectPathTreeWork<Upt05OpenPbrMaterialSet>(pixel, transport);
+        Upt04PrepareIndirectPathTreeWork<UPT_SELECTED_MATERIAL_SET>(pixel, transport);
     Upt04HitFacts hit = (Upt04HitFacts)0;
     hit.status = kUpt04HitTriangle;
     hit.instanceId = token.instanceId;
@@ -126,8 +144,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if ((kindFlags & kUpt56KindHit2) != 0u)
     {
         const Upt04IndirectHitTrialResult indirect =
-            Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
-                continuation, hit, pixel);
+            Upt04PrepareIndirectHitTrials<UPT_SELECTED_MATERIAL_SET>(
+                continuation, hit, pixel, Upt04EmptyLocalLightSelection());
         Upt04StreamInitialTraceWork(
             reservoir,
             indirect.endpointCandidate,
@@ -150,7 +168,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     else if ((kindFlags & kUpt56KindNee2) != 0u)
     {
         Upt04InitialTraceWork secondaryNee =
-            Upt56ConsumeDeferredX2Nee<Upt05OpenPbrMaterialSet>(
+            Upt56ConsumeDeferredX2Nee<UPT_SELECTED_MATERIAL_SET>(
                 continuation,
                 hit,
                 pixel,
@@ -197,16 +215,51 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
     Upt04InitialTraceWork continuation =
-        Upt04PrepareIndirectPathTreeWork<Upt05OpenPbrMaterialSet>(pixel, transport);
+        Upt04PrepareIndirectPathTreeWork<UPT_SELECTED_MATERIAL_SET>(pixel, transport);
     Upt04HitFacts hit = Upt04MissFacts(continuation.ray.tMax);
     if (continuation.valid != 0u && continuation.traceRequired != 0u)
         hit = Upt04TraceRayQuery(continuation.ray);
 #if UPT04_EMISSIVE_COMPACT_CLASSIFY || UPT04_THREE_VERTEX_SPLIT_PRODUCE
     const Upt04HitFacts continuationHit = hit;
 #endif
+#if UPT04_PRODUCE_BODY_PROBE == 1
+    // Real first-bounce ray only. Keep committed T live so Slang cannot
+    // erase the query. No decode, NEE, visibility, or x3 enqueue.
+    float keep = 0.0f;
+    if (hit.status == kUpt04HitTriangle)
+        keep = hit.hitT;
+    if (asuint(keep) == gUpt04Control.surfaceCount)
+        return;
+    Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+    return;
+#elif UPT04_PRODUCE_BODY_PROBE == 4
+    // Decode only. Keep a world-space field live.
+    float keepDecode = 0.0f;
+    if (hit.status == kUpt04HitTriangle)
+    {
+        const Upt04GeometryHitSurface decoded = Upt04DecodeGeometryHit(hit);
+        if (decoded.valid != 0u)
+            keepDecode = decoded.position.x;
+    }
+    if (asuint(keepDecode) == gUpt04Control.surfaceCount)
+        return;
+    Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+    return;
+#elif UPT04_Q1_SIBLING
+    if (continuation.valid != 0u && hit.status == kUpt04HitTriangle)
+    {
+        Upt04AppendQ1Token(
+            continuation, hit, Upt04EmptyLocalLightSelection());
+        Upt04WriteIntermediateInitialReservoir(
+            surfaceIndex, reservoir, directVisibilityRays);
+        return;
+    }
+    Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+    return;
+#else
     const Upt04IndirectHitTrialResult indirect =
-        Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
-            continuation, hit, pixel);
+        Upt04PrepareIndirectHitTrials<UPT_SELECTED_MATERIAL_SET>(
+            continuation, hit, pixel, Upt04EmptyLocalLightSelection());
     Upt04StreamInitialTraceWork(
         reservoir,
         indirect.endpointCandidate,
@@ -217,6 +270,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         0u);
 #endif
 
+#if (UPT04_PRODUCE_BODY_PROBE == 0 || UPT04_PRODUCE_BODY_PROBE == 3) && !UPT04_Q1_SIBLING
     Upt04InitialTraceWork secondaryNee = indirect.neeWork;
     hit = Upt04MissFacts(secondaryNee.ray.tMax);
     if (secondaryNee.valid != 0u && secondaryNee.traceRequired != 0u)
@@ -232,6 +286,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         2u);
 #else
         1u);
+#endif
 #endif
 
 #if UPT04_MULTI_BOUNCE_INITIAL
@@ -267,14 +322,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             indirect.neeWork.transport.budget.visibilityRays);
     }
     const Upt04SecondContinuationResult secondContinuation =
-        Upt04PrepareSecondContinuation<Upt05OpenPbrMaterialSet>(
+        Upt04PrepareSecondContinuation<UPT_SELECTED_MATERIAL_SET>(
             secondSource, indirect.secondarySurface);
     hit = Upt04MissFacts(secondContinuation.work.ray.tMax);
     if (secondContinuation.work.valid != 0u
         && secondContinuation.work.traceRequired != 0u)
         hit = Upt04TraceRayQuery(secondContinuation.work.ray);
     const Upt04InitialTraceWork secondEndpoint =
-        Upt04EvaluateSecondEndpoint<Upt05OpenPbrMaterialSet>(
+        Upt04EvaluateSecondEndpoint<UPT_SELECTED_MATERIAL_SET>(
             secondContinuation, indirect.secondarySurface, hit);
     Upt04StreamInitialTraceWork(
         reservoir,
@@ -306,7 +361,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         const Upt04GeometryHitSurface thirdSurface =
             Upt04DecodeGeometryHit(hit);
-        thirdNee = Upt04PrepareThirdVertexNee<Upt05OpenPbrMaterialSet>(
+        thirdNee = Upt04PrepareThirdVertexNee<UPT_SELECTED_MATERIAL_SET>(
             secondContinuation, thirdSurface, pixel);
     }
     hit = Upt04MissFacts(thirdNee.ray.tMax);
@@ -347,7 +402,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         3u);
 #endif
 #endif
-#if UPT04_THREE_VERTEX_SPLIT_PRODUCE
+#if UPT04_THREE_VERTEX_SPLIT_PRODUCE && UPT04_PRODUCE_BODY_PROBE == 0 && !UPT04_Q1_SIBLING
     Upt04SecondContinuationResult preparedX3 = (Upt04SecondContinuationResult)0;
     if (continuation.valid != 0u
         && continuationHit.status == kUpt04HitTriangle)
@@ -363,7 +418,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                     secondSource.transport.budget.visibilityRays,
                     indirect.neeWork.transport.budget.visibilityRays);
             }
-            preparedX3 = Upt04PrepareSecondContinuation<Upt05OpenPbrMaterialSet>(
+            preparedX3 = Upt04PrepareSecondContinuation<UPT_SELECTED_MATERIAL_SET>(
                 secondSource, queuedSurface);
             if (preparedX3.work.valid != 0u
                 && preparedX3.work.traceRequired != 0u)
@@ -396,6 +451,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             surfaceIndex, reservoir, directVisibilityRays);
         return;
     }
+#if UPT04_Q1_SIBLING
+    if (indirect.q1Queued != 0u)
+    {
+        Upt04WriteIntermediateInitialReservoir(
+            surfaceIndex, reservoir, directVisibilityRays);
+        return;
+    }
+#endif
     Upt04WriteInitialReservoir(surfaceIndex, reservoir);
+#endif
 #endif
 }

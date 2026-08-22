@@ -1,0 +1,94 @@
+Locked same-session source-view A/B
+===================================
+
+Date: 2026-08-18 19:26-19:51
+Method: nsight_source_diff.py PROFILE + footprint(64). No CSV rows
+        in context. D0a uptx vs uptb2 same-module DIFF (hash match).
+        GI vs RTXDI / monolith: aggregates only.
+
+Identified
+  uptx d0a     1dd7e656  12355/2/1   8x8  split-direct light64
+  uptx produce f161ca52  25393/11/2  8x8  x3 produce
+  uptx consume b9b4b318  20193/9/2   64x1 x3 consume
+  uptb2 d0a    1dd7e656  same module as uptx d0a
+  uptb2 GI     ebdad188  42904/20/4  8x8  three_vertex monolith
+  RTXDI DI     0494d1f0  9272/10/2   generate (RayQuery compute)
+  RTXDI PT     9eb15ce6  23748/31/5  generate (RayQuery compute)
+
+Samples / NI / LS / footprint(64)
+
+  capture              samples    NI%     LS%    fp64   regs
+  RTXDI DI              280487    2.1    43.8    4150   93/61
+  UPT D0a uptx          488741   14.6     9.2    6652   89/66
+  UPT D0a uptb2         492608   14.4     9.4    6652   89/66
+  RTXDI PT             1198547    3.6    72.6    6920  161/121
+  X consume             514711   49.6    26.6   14662   94/71
+  X produce            1494042   67.3    13.4   21798  123/84
+  X produce+consume    2008753   62.8    16.8      --     --
+  monolith GI          4175794   83.3     7.0   34248  126/89
+
+Ratios (samples)
+  monolith / X GI          4.18M / 2.01M = 2.08x
+  X GI / RTXDI PT          2.01M / 1.20M = 1.68x
+  produce / RTXDI PT       1.49M / 1.20M = 1.25x   (produce alone)
+  D0a / RTXDI DI           0.49M / 0.28M = 1.74x
+  D0a uptb2 / D0a uptx     +0.8%  (same SPIR-V, no stall shift)
+
+Notes
+  Human earlier ~3.5M vs 2M; these files are 4.18M vs 2.01M.
+  RTXDI PT largest cold run 9402 lines; X produce 1048.
+  D0a stall mix is not RTXDI DI (Wait/NI vs LS/MIO). Same-metrics
+  claim does not hold on this pair. Sample 2x is real; mix is not.
+  D0a is independent of the GI split.
+
+Shade added 2026-08-18 20:12-20:17 (DispatchRays, same RTXDI look)
+
+  DI shade raygen     e28ba89f  3922/4/0   31054  LS 62.5%
+  DI shade anyhit     same lib             5142  LS 60.6%
+  DI shade miss                         185
+  DI shade closest                       28
+  DI shade sum                         36409
+  PT shade raygen     2a573537  2931/2/0  61230  LS 93.7%
+  PT shade "main"     7484b42a   580/1/0    184  (ignore)
+
+  RTXDI DI generate+shade   280487+36409  =  316896
+  RTXDI PT generate+shade  1198547+61230  = 1259777
+
+  D0a / DI full     488741 / 0.32M = 1.54x   (was 1.74x vs generate)
+  X GI / PT full   2008753 / 1.26M = 1.59x   (was 1.68x vs generate)
+
+  Shade does not close the gap. PT final is 5% of generate.
+  The leftover is generate vs produce+consume, not a missing shade pass.
+
+Transplant 2026-08-18 21:01 (FullSample, RESTIRPT_CUSTOM)
+  rtxd_ptcustomgeneratesample.csv
+  hash ea67f720  39162 ops / 60 img / 10 rqInit
+  samples 1.701M  NI 4.9%  LS 72.1%  MIO 14.8%
+  fp64 8307  largest cold 9389  regs 89/67
+  Human: slower than stock PT with RR+throughput off (~1.0M).
+
+Matched res 2026-08-18 21:12 (RR 0.8, min throughput 0 both)
+  stock  rtxd_pt_sample_comparison_RR_no_throughput.csv
+         hash 9eb15ce6  23748/31/5   samples 941437  NI 2.5%  LS 71.8%
+  custom rtxd_ptcustomgeneratesample_comparison.csv
+         hash ea67f720  39162/60/10  samples 1.677M  NI 4.9%  LS 70.4%
+  ratio 1.78x. Same scene/res/RR. Gap is extra compiled work
+  (10 vs 5 rqInit, 60 vs 31 img, MIO 16% vs 3%), not fetch.
+
+UPT-style NEE 2026-08-18 21:32 (RR 0.8, min throughput 0, same res)
+  stock  rtxd_pt_sample_comparison_RR_no_throughput2.csv
+         23748/31/5  samples 852772  NI 2.4%  LS 72.4%
+  custom rtxd_ptcustomgeneratesample_comparison2.csv
+         6185/14/3   samples 678727  NI 0.4%  LS 73.1%
+  custom/stock 0.80x. Custom is now cheaper. 3 rqInit / 14 img
+  after dropping fat DI RIS. Visuals should differ (1 uniform
+  light vs stock Power/ReGIR RIS). Hosting still healthy (NI 0.4%).
+
+  Hosting was the NI cliff. Same 3-vtx shape on FullSample is
+  RTXDI-healthy (5% NI, 9k cold hole), not rbdoom produce (67% NI,
+  22k footprint). The 1.7M vs ~1.0-1.2M is extra work in the custom
+  generate (39k/10 rq vs stock 24k/5 rq), Long-SB-bound, not fetch.
+
+Do not
+  Per-PC diff produce vs monolith or vs RTXDI.
+  Treat DIShade / PTFinal as the UPT D0 analog — they are cheap.

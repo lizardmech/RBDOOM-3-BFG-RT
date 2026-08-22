@@ -1,0 +1,309 @@
+D0b Q1 sibling — current optimized exec uptx setup
+==================================================
+
+Date: 2026-08-20
+Status: quality-preserving A/B. Default 0, not pinned.
+        Visuals match shipping on the fixture camera (human).
+        GI-section markers ~8.3 ms -> ~6.7 ms at 2560x1440.
+
+Related
+  docs/ReSTIR/d0b_gi_thin_vs_current_gap.txt     probe ladder
+  docs/ReSTIR/d0b_gi_produce_supply_landing_notes.txt  L1TEX / VRAM wall
+  gpu_optimization/agent_failure_modes/06_q1_sibling_duplicate_shade.txt
+
+
+What it is
+----------
+Shipping D0b (exec uptx, OnePath, Q1+Q2, x3 split) is one 8x8
+kernel that does bounce ray + OpenPBR + Q1 pick + triangle replay
++ NEE vis + x3 enqueue. That megakernel is I-fetch bound:
+~5.5 ms, ~8% RTCORE, NI ~57% on the fixture camera.
+
+Q1 sibling splits that kernel without changing the estimator:
+
+  D0b 8x8     bounce ray + 128 B token (probe-1 shaped)
+  Q1  64x1    shade, pick, replay eval, vis, x3 enqueue
+  D0x 64x1    x3 consume (unchanged shipping blob)
+
+Same path tree: x2 BSDF hit emission + one secondary NEE +
+roulette x3. Same replay keys. Compact geometry 0, compact
+materials 0, OpenPBR. No MIS/reservoir-format change.
+
+
+Why it is split this way
+------------------------
+Thin produce (same 8x8, no GI body) + reservoir as Texture2DArray
+already proved hosting is fine: ~90% RTCORE, bulk L2 gone. The
+12x vs thin was the inlined GI body, not the 64 B page, not NEE
+cache (quality prepass; FullSample has none).
+
+Produce-body probes (r_pathTracingUnifiedPtProduceBodyProbe, not
+pinned) mapped the 8x8 with tex held:
+
+  1 ray     ~0.59 ms   high RTCORE   ~thin
+  4 decode  almost free
+  5 shade   sub 1 ms   ~50% RTCORE
+  6 BRDF    ~same as 5
+  7 pick    ~same as 6
+  8 eval    0.8 -> 1.6 ms, RTCORE down, L2 up, NI 4.5% -> 11%
+  3 vis     1.8 -> 3.3 ms, NI 45%
+  0 prod    5.5 ms, NI 57%
+
+Triangle replay (EvaluateSelectedLocalLight) is the first I-fetch
+cliff. Vis and x3 enqueue stack on it. Bounce ray is not the
+disease.
+
+The 8x8 fails because that cliff is *interleaved with the bounce
+RayQuery*. Remix/UPT-43 shaped work: keep the full-screen wave
+on one real ray; run the fat closure in a later specialized
+dispatch.
+
+First try (pick-shaped produce) was wrong. Produce still ran
+OpenPBR at the GI hit (~50% RTCORE ceiling, probe 7) and the
+sibling called PrepareIndirectHitTrials again, so the GI-hit
+material sampled twice. Slightly slower, L2 up, combined RTCORE
+~22%. Catalogued as failure-mode 06. Produce is therefore
+bounce-only; shade/pick/eval run *once*, in the sibling.
+
+
+Enable (A/B, not a pin)
+-----------------------
+Restart so bins load. Then:
+
+  exec uptx
+  r_pathTracingUnifiedPtQ1Sibling 1
+
+Smoke gate (all required or the cvar is ignored):
+
+  OnePathGeometry
+  secondary NEE one, exact secondary MIS off
+  three-vertex split
+  produce-body probe 0
+  NeeCache off, ReplayFree off
+
+Create log must show:
+
+  q1sib=1
+  produceBody=0
+  blobBytes=105768   (or current bounce-only produce)
+  q1 sibling ... groups=64x1
+  x3 consume ... groups=64x1
+  q1 sibling queue pixels=... recordBytes=128
+
+Shipping compare: r_pathTracingUnifiedPtQ1Sibling 0
+  produce blobBytes=341520, no sibling PSO, same x3 hash.
+
+Cvar default is 0. Do not pin.
+
+
+Held around the A/B (also not pinned)
+-------------------------------------
+These were on for the measured camera; they are independent
+levers. Do not treat them as part of the sibling pin.
+
+  r_pathTracingUnifiedPtReservoirTexture 1
+      64 B page as Texture2DArray (L1TEX). Thin+tex ~90% RTCORE.
+      Product D0b was still NI; this is the page heal.
+  r_pathTracingUnifiedPtPrimaryTexture 1
+      Primary compact32 on TEX. Not the 12x.
+
+Product stack that sibling is built on (exec uptx):
+
+  OnePath geometry, Q1+Q2, OpenPBR, x3 split
+  compact geometry 0, compact materials 0
+  NeeCache 0, ReplayFree 0, produce-body probe 0
+
+
+Bins
+----
+Produce (8x8, UPT04_Q1_SIBLING=1):
+  .../upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_q1sib.bin
+  ~6407 ops, 2 img, rq 1/1, replay=0
+  (probe 1 ray ~5968 ops, 2 img; +queue)
+
+Sibling consume (64x1, UPT04_Q1_SIBLING_CONSUME=1):
+  .../upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume.bin
+  ~15k ops, 9 img, rq 1/1, replay=1, x3 append
+
+X3 consume (unchanged):
+  .../upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis.bin
+
+
+Dispatch
+--------
+Same binding set as split indirect. Extra UAVs only when q1sib=1:
+
+  46  Q1 queue   128 B tokens, capacity = width*height
+  47  Q1 meta    count, capacity
+  48  Q1 args    indirect dispatch (64x1)
+
+X3 stays 37/38/39.
+
+Order:
+
+  1. Reset Q1 meta/args (and x3) to empty
+  2. UPT.D0b Split Indirect RayQuery 8x8
+       bounce RayQuery
+       if triangle hit: AppendQ1Token, write intermediate reservoir
+       if miss: write final (direct only)
+  3. UPT.D0b Q1 Sibling 64x1   (indirect, compact count)
+       unpack token
+       PrepareIndirectHitTrials (empty forced selection => pick)
+       stream endpoint (eventKind 4) + NEE vis
+       PrepareSecondContinuation + AppendX3Token
+       write final, or intermediate if x3 queued
+  4. UPT.D0x Three-Vertex Consume 64x1   (shipping)
+
+Markers must be scored separately *and* summed. Combined RTCORE
+includes the sibling cliff even when D0b recovers.
+
+
+Token (128 B, no float3)
+------------------------
+std430 float3 would desync host stride (same rule as x3).
+
+Produce packs the live continuation work + RayQuery hit.
+Selection is empty (pick is in the sibling).
+
+Unpack restores:
+
+  eventKind          4 if packed 0
+                     Upt03StructurallyValid rejects eventKind < 1.
+                     First bins dropped hit emission; NEE (1/2)
+                     still streamed. Looked like wrong/missing GI.
+  continuationRays   1
+                     AdmitSecondIndirectContinuation requires 1
+                     then sets 2. First bins copied the x3-token
+                     value 2, so x3 never enqueued. Looked like
+                     2-vertex only.
+  proposalPdf, pathPdf, throughput, ray, replayKey/Index,
+  lobeMask, candidateFlags, hit (instance, primitive, geometryId,
+  barycentrics, hitT, frontFace, status)
+
+Do not copy x3 unpack blindly onto an x2 token.
+
+
+Measured (fixture camera, tex held, 2560x1440)
+----------------------------------------------
+Visuals match shipping (human, after the two token fixes).
+
+  q1sib=0
+    D0b 8x8     5.5 ms    8% RTCORE
+    D0x 64x1    2.8 ms
+    sum         ~8.3 ms
+
+  q1sib=1
+    D0b 8x8     1.1 ms   32% RTCORE
+    Q1  64x1    2.8 ms   30% NI
+    D0x 64x1    2.8 ms   (same blob)
+    sum         ~6.7 ms
+
+Same work in a different schedule: ~1.6 ms off the GI section
+after D0a. D0b is no longer the 5.5 ms megakernel. The sibling
+is the specialized body (30% NI vs 57% in the 8x8).
+
+D0b 1.1 ms vs probe 1 ~0.59 ms is leftover produce tax (128 B
+atomic queue + intermediate write), not more GI body.
+
+
+VRAM
+----
+Not the reason the split exists. FullSample generate does not
+keep W x H 128 B UAV queues.
+
+  Q1 queue   112 B * pixels     ~394 MB at 1440p   (q1sib=1 only)
+  x3 queue    96 B * pixels     ~337 MB            (shipping uptx)
+  reservoirs 64 B * pixels * 2  ~450 MB
+  (was 128 B each: ~450 + ~450. Padding dropped, capacity unchanged.)
+
+Human G2  2026-08-20  x3 96 B / Q1 112 B tokens
+  ~1 ms extra vs 128 B tokens. Profiler samples dropped in a
+  few spots (less queue traffic, not a clipped compact count).
+  Create log recordBytes=96 (x3) and 112 (q1). Capacity still
+  width*height. Human: no visual issues. Defaults unchanged,
+  not pinned.
+
+q1sib=0 drops the Q1 450 MB; x3 stays.
+
+D0b DRAM vs FullSample (even before sibling) is the older supply
+wall: unique ~96 B/px already fills L2; shipping D0b also wrote
+x3 128 B/px plus OpenPBR/geometry/replay. Tiled structured 8x8
+raised VRAM throughput and did nothing to RTCORE. Do not pack
+or swizzle to "fix" D0b VRAM. Bounce-only D0b should drop
+material/replay/x3 from that marker; if it is still ~2x
+FullSample generate, the leftover write is the 128 B Q1 token
+on top of the 64 B page.
+
+
+Do not
+------
+  pin Q1Sibling, ReservoirTexture, PrimaryTexture, NeeCache
+  pin produce-body probes
+  resume Track B / register-cut / Enhanced T/S / [noinline] / unroll
+  shrink Q1/x3 capacity to save VRAM (clips GI; entry 03)
+  call PrepareIndirectHitTrials from both produce and sibling
+  treat G1 on produce + G1 on sibling as uniqueness of shade
+  treat D0b-alone looking healthier as a frame win
+
+
+How to A/B
+----------
+Same camera, nsight markers on.
+
+  r_pathTracingUnifiedPtQ1Sibling 0
+    UPT.D0b Split Indirect RayQuery 8x8
+    UPT.D0x Three-Vertex Consume 64x1
+    sum
+
+  r_pathTracingUnifiedPtQ1Sibling 1
+    those two plus UPT.D0b Q1 Sibling 64x1
+    sum
+    glance lighting
+
+Decision is sum 1 vs sum 0, plus the image.
+
+
+Next lighting A/B (not stacked with sibling)
+-------------------------------------------
+Sibling still evaluates NEE by triangle replay + material textures.
+FullSample samples baked PolymorphicLightInfo (ALU). The in-tree
+equivalent is Upt56ResolvedEmissiveRecord, packed by UPT.L0
+CompactLight64 (exec uptx lights=compact64).
+
+  r_pathTracingUnifiedPtQ1Sibling 0
+  r_pathTracingUnifiedPtReplayFreeSecondaryNee 1
+
+OnePath twins (do not leave OnePath; four-route _resolved.bin is
+the wrong stack):
+
+  ..._onepath_x3_produce_nee1_noexactmis_resolved.bin
+  ..._onepath_x3_consume_nee1_noexactmis_resolved.bin
+
+Create log must show resolvedNee=1 and those names. Do not also
+flip EmissiveCompact, LightTiles, or CompactMaterials.
+
+Score D0b + D0x vs sibling-off replay. Glance small emissive on
+a large triangle (four-region vs live UV). Default ReplayFree 0,
+not pinned.
+
+Human G2  2026-08-20  ReplayFree on OnePath (q1sib=0)
+  D0x ~0.5 ms faster, NI down, L2 down, RTCORE up.
+  (ALU 4-region NEE in x3 consume; produce still live-replay
+  until q1sib stacks.)
+
+Human G2  2026-08-20  sibling + ReplayFree stacked
+  Works. Extra ~0.4 ms vs sibling-only. No visible emissive
+  issues on the fixture camera (four-region vs live UV).
+  Defaults stay 0, not pinned. Ghost-light risk is still
+  content-dependent (small indicator on a large wall).
+
+Stack with sibling (produce still bounce-only; eval is in 64x1):
+
+  r_pathTracingUnifiedPtQ1Sibling 1
+  r_pathTracingUnifiedPtReplayFreeSecondaryNee 1
+
+  produce  ..._q1sib.bin
+  sibling  ..._q1sib_consume_resolved.bin
+  x3       ..._onepath_x3_consume_..._resolved.bin
+  create log q1sib=1 resolvedNee=1
+  Default both 0, not pinned.

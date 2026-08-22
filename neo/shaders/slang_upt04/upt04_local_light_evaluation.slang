@@ -17,9 +17,12 @@ import upt04_material_provider_contract;
 #ifndef UPT04_EMISSIVE_COMPACT_CONSUME
 #define UPT04_EMISSIVE_COMPACT_CONSUME 0
 #endif
+#ifndef UPT04_REPLAY_FREE_SECONDARY_NEE
+#define UPT04_REPLAY_FREE_SECONDARY_NEE 0
+#endif
 import upt04_random_white_hash;
 import upt04_emissive_compact;
-#if UPT04_EMISSIVE_COMPACT_CONSUME
+#if UPT04_EMISSIVE_COMPACT_CONSUME || UPT04_REPLAY_FREE_SECONDARY_NEE
 import upt04_resolved_emissive;
 public [[vk::binding(36, 0)]] StructuredBuffer<Upt56ResolvedEmissiveRecord> gUpt56ResolvedEmissive;
 
@@ -117,7 +120,7 @@ public Upt04EvaluatedLocalLight Upt04EvaluateSelectedLocalLight<
         light,
         receiverPosition,
         selection.sampleCoordinates);
-#elif UPT04_EMISSIVE_COMPACT_CONSUME
+#elif UPT04_EMISSIVE_COMPACT_CONSUME || UPT04_REPLAY_FREE_SECONDARY_NEE
     if (selection.requiresTriangleReplay != 0u)
     {
         return Upt56EvaluateResolvedEmissive(

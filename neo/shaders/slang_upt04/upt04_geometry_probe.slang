@@ -1,5 +1,7 @@
 import upt03_reservoir_contract;
 import upt04_initial_bindings;
+import upt04_reservoir_image;
+import upt04_primary_image;
 import upt04_geometry_contract;
 import upt04_geometry_bindings;
 import upt04_geometry_decode;
@@ -52,5 +54,5 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     packed.word4 = replay.replayIndex;
     packed.word5 = asuint(replay.solidAnglePdf);
     packed.word6 = asuint(textureProbe.x);
-    gUpt04Reservoirs[index] = packed;
+    Upt04StorePackedReservoir(index, packed);
 }

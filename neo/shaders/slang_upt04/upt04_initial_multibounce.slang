@@ -28,6 +28,9 @@ import upt05_material_openpbr;
 #ifndef UPT04_EMISSIVE_COMPACT_CONSUME
 #define UPT04_EMISSIVE_COMPACT_CONSUME 0
 #endif
+#ifndef UPT04_EXACT_SECONDARY_MIS
+#define UPT04_EXACT_SECONDARY_MIS 1
+#endif
 import upt04_emissive_compact;
 import upt04_material_emission;
 
@@ -289,7 +292,7 @@ public Upt04InitialTraceWork Upt04EvaluateSecondEndpoint<
 
     float3 contribution = endpoint.pathThroughput * emission.radiance;
     uint reverseStatus = 0u;
-#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY || UPT04_EMISSIVE_COMPACT_CLASSIFY || UPT04_EMISSIVE_COMPACT_CONSUME
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY || UPT04_EMISSIVE_COMPACT_CLASSIFY || UPT04_EMISSIVE_COMPACT_CONSUME || !UPT04_EXACT_SECONDARY_MIS
     const float neePdf = 0.0f;
 #else
     const float neePdf = any(emission.radiance > 0.0f)
@@ -504,7 +507,9 @@ public Upt04InitialTraceWork Upt04PrepareThirdVertexNee<
                 schedule,
                 pixel,
                 2u,
-                candidateOrdinal);
+                candidateOrdinal,
+                (Upt04HitFacts)0,
+                Upt04EmptyLocalLightSelection());
         }
         if (proposal.valid == 0u)
             continue;

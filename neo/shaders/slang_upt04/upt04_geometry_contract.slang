@@ -12,6 +12,31 @@ public static const uint kUpt04ShaderInstanceMask = 0x00ffffffu;
 public static const uint kUpt04RigidRouteUint4Stride = 9u;
 public static const uint kUpt04SkinnedRouteUint4Stride = 5u;
 
+// A2 concatenated one-path instance record. Host stride must match.
+public static const uint kUpt04OnePathClassStatic = 0u;
+public static const uint kUpt04OnePathClassDynamic = 1u;
+public static const uint kUpt04OnePathClassRigid = 2u;
+public static const uint kUpt04OnePathClassSkinned = 3u;
+public static const uint kUpt04OnePathClassMask = 3u;
+public static const uint kUpt04OnePathPerTriangleMaterial = 4u;
+public static const uint kUpt04OnePathPerTriangleClass = 8u;
+public static const uint kUpt04OnePathHasTransform = 16u;
+
+public struct Upt04OnePathInstanceRecord
+{
+    public uint vertexBase;
+    public uint indexBase;
+    public uint triangleCount;
+    public uint materialBase;
+    public uint flags;
+    public uint classBase;
+    public uint vertexCount;
+    public uint indexCount;
+    public float4 objectToWorld0;
+    public float4 objectToWorld1;
+    public float4 objectToWorld2;
+};
+
 public bool Upt04CanonicalizeHardwarePrimitive(
     uint instanceId,
     uint geometryIndex,

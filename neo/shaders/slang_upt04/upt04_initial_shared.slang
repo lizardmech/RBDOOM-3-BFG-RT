@@ -1,5 +1,6 @@
 import upt03_reservoir_contract;
 import upt04_initial_bindings;
+import upt04_primary_image;
 import upt04_initial_control;
 import upt04_initial_direct;
 import upt04_initial_indirect;

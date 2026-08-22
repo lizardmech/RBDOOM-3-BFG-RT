@@ -48,7 +48,15 @@ public [[vk::binding(16, 0)]] StructuredBuffer<uint> gUpt04RigidIndices;
 // Word-address the large route records. Vulkan storage-buffer bindings do not
 // encode a structured stride, so this preserves the CPU byte ABI while letting
 // the shader avoid whole-record OpLoad instructions.
+#ifndef UPT04_ONE_PATH_GEOMETRY
+#define UPT04_ONE_PATH_GEOMETRY 0
+#endif
+#if UPT04_ONE_PATH_GEOMETRY
+public [[vk::binding(17, 0)]] StructuredBuffer<Upt04OnePathInstanceRecord>
+    gUpt04OnePathInstances;
+#else
 public [[vk::binding(17, 0)]] StructuredBuffer<uint4> gUpt04RigidInstanceWords;
+#endif
 #ifndef UPT04_NO_SKINNED_GEOMETRY
 #define UPT04_NO_SKINNED_GEOMETRY 0
 #endif
@@ -169,8 +177,12 @@ public uint Upt04RigidTriangleCount()
 public uint Upt04RigidInstanceCount()
 {
 #if UPT07_TEMPORAL_GEOMETRY_REPLAY || UPT09_SPATIAL_GEOMETRY_REPLAY
+#if UPT04_ONE_PATH_GEOMETRY
+    return 0u;
+#else
     return Upt04GeometryBufferCount(gUpt04RigidInstanceWords)
         / kUpt04RigidRouteUint4Stride;
+#endif
 #else
     return gUpt04Control.rigidInstanceCount;
 #endif

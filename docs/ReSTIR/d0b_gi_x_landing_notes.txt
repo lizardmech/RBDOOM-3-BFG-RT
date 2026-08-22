@@ -6,6 +6,14 @@ Status: accepted and shipping default (2026-08-18). threeVertexInitial
         and threeVertexSplit default 1. exec upt pins the same. Monolith
         A/B remains exec uptb2 (split 0). 2-vtx A/B is exec uptw0.
 
+Fixture (handover G3, informal overlay fps, 2026-08-18)
+  Human: wall ~120 fps, fixture on-screen ~110 fps. Start of the
+  investigation was ~120 to ~85. Residual is still there and small.
+  Not a formal G-P3 Nsight wall-to-fixture stamp; overlay fps has a
+  20-37% cross-launch floor (handover R2). Direction is the old
+  ~30% fixture hit shrinking to ~10 fps. Do not treat as compact-on
+  permission (G-P4 still unrun).
+
 What
   threeVertexInitial=1 + threeVertexSplit=1 selects 2-vtx produce
   (..._light64_x3_produce.bin) then 64x1 x3 consume
@@ -43,6 +51,26 @@ Gate
   Same easy camera, T/S off: (produce + consume) must beat 5.6 ms
   and 60% NI of the monolith. Scaling target ~1.7x vs 2-vtx 1.5 ms,
   not RTXDI milliseconds. Combined D0 = produce + barriers + consume.
+
+Same-section A/B 2026-08-18 (files, this level)
+  Full table: docs/ReSTIR/d0b_gi_level_ab_nsight.txt
+  Combined X GI 2.01M samples vs monolith 4.18M (2.08x).
+  Human earlier ~3.5M vs 2M; the exports are 4.18M vs 2.01M. That is duration,
+  not skipped work — same 3rd bounce, two fetched bodies finish
+  sooner. Cross-scene earlier was 2.05M vs 2.59M and understated
+  it. Combined NI% 64.8 vs 75.4 is the stall mix, not the 2x.
+  Produce is still ~70% NI. Product stays X. Do not read this as
+  ~20% NI or as permission to resume Track B / unroll / noinline.
+
+RTXDI same-look 2026-08-18 (human)
+  Busier RTXDI scene: 3-vtx indirect ~1.0M samples vs combined
+  uptx ~2.0M. D0a stall mix looks like RTXDI DI, but ~2x that
+  dispatch's samples. Indirect is not that: RTXDI PT is LS-bound
+  (scene-batch 4.2% NI / 70% LS); X produce is 70% NI. Half the
+  samples and those samples are traces, not fetch. Closing 2M->1M
+  on X is produce fetch/contiguity, not skipping bounces. D0a 2x
+  with matching metrics is extra healthy work / footprint, not
+  the produce cliff.
 
 Two-word token restore 2026-08-18
   Root cause (Voss / review section 6): Upt04X3UnpackPrepared

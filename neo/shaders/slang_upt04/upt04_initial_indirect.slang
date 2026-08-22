@@ -13,6 +13,7 @@ import upt04_material_contract;
 import upt04_material_provider_contract;
 import upt04_path_event_contract;
 import upt04_primary_surface_live_contract;
+import upt04_primary_image;
 import upt04_random_contract;
 import upt04_random_white_hash;
 import upt04_replay_random;
@@ -35,9 +36,28 @@ import upt04_initial_light_selection;
 #ifndef UPT04_PACKED_LIGHT_RECORD
 #define UPT04_PACKED_LIGHT_RECORD 0
 #endif
+#ifndef UPT04_EXACT_SECONDARY_MIS
+#define UPT04_EXACT_SECONDARY_MIS 1
+#endif
 import upt04_emissive_compact;
 import upt04_material_emission;
 import upt04_material_live_contract;
+import upt04_nee_cache;
+#ifndef UPT04_NEE_CACHE
+#define UPT04_NEE_CACHE 0
+#endif
+#ifndef UPT04_PRODUCE_BODY_PROBE
+#define UPT04_PRODUCE_BODY_PROBE 0
+#endif
+#ifndef UPT04_Q1_SIBLING
+#define UPT04_Q1_SIBLING 0
+#endif
+#ifndef UPT04_Q1_SIBLING_CONSUME
+#define UPT04_Q1_SIBLING_CONSUME 0
+#endif
+#if UPT04_Q1_SIBLING || UPT04_Q1_SIBLING_CONSUME
+import upt04_q1_split;
+#endif
 
 public struct Upt04IndirectHitTrialResult
 {
@@ -47,7 +67,15 @@ public struct Upt04IndirectHitTrialResult
 #if UPT04_MULTI_BOUNCE_INITIAL
     public Upt04GeometryHitSurface secondarySurface;
 #endif
+#if UPT04_Q1_SIBLING
+    public uint q1Queued;
+#endif
 };
+
+public Upt04LocalLightSelection Upt04EmptyLocalLightSelection()
+{
+    return (Upt04LocalLightSelection)0;
+}
 
 #if UPT04_EMISSIVE_COMPACT_CLASSIFY
 public float3 Upt56ClassifyHitRadiance(
@@ -141,11 +169,47 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
     Upt04InitialLightSchedule schedule,
     uint2 pixel,
     uint pathVertex,
-    uint candidateOrdinal)
+    uint candidateOrdinal,
+    Upt04HitFacts hitFacts,
+    Upt04LocalLightSelection forcedSelection)
 {
     Upt04SecondaryNeeProposal proposal = (Upt04SecondaryNeeProposal)0;
-    const Upt04LocalLightSelection selection =
-        Upt04SelectInitialLightFromReplay(
+    Upt04LocalLightSelection selection = (Upt04LocalLightSelection)0;
+#if UPT04_NEE_CACHE
+    if (pathVertex == 1u && candidateOrdinal == 0u)
+    {
+        const float identityRandom = Upt04WhiteHash(
+            Upt04PersistedReplayRandomKey(
+                work.replayKey,
+                work.replayIndex,
+                pathVertex,
+                candidateOrdinal,
+                kUpt04StreamInitialLocalLightIdentity,
+                kUpt04DimensionInitialLocalLightIdentity));
+        const float2 surfaceRandom = float2(
+            Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+                work.replayKey, work.replayIndex, pathVertex,
+                candidateOrdinal,
+                kUpt04StreamInitialLocalLightSurfaceU,
+                kUpt04DimensionInitialLocalLightSurfaceU)),
+            Upt04WhiteHash(Upt04PersistedReplayRandomKey(
+                work.replayKey, work.replayIndex, pathVertex,
+                candidateOrdinal,
+                kUpt04StreamInitialLocalLightSurfaceV,
+                kUpt04DimensionInitialLocalLightSurfaceV)));
+        selection = Upt04TryNeeCacheSelection(
+            hitSurface.position,
+            schedule,
+            identityRandom,
+            surfaceRandom,
+            gUpt04Control.currentLightCount,
+            gUpt04Control.frameSampleIndex);
+    }
+#endif
+    if (forcedSelection.valid != 0u)
+        selection = forcedSelection;
+    if (selection.valid == 0u)
+        selection = Upt04SelectInitialLightFromReplay(
             schedule,
             pixel,
             work.replayKey,
@@ -156,6 +220,17 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
         || selection.denseIndex >= gUpt04Control.currentLightCount)
         return proposal;
     proposal.stage = 1u;
+#if UPT04_Q1_SIBLING && !UPT04_Q1_SIBLING_CONSUME
+    if (pathVertex == 1u)
+        Upt04AppendQ1Token(work, hitFacts, selection);
+    return proposal;
+#endif
+#if UPT04_PRODUCE_BODY_PROBE == 7
+    proposal.lightIndex = selection.denseIndex;
+    if (proposal.lightIndex == gUpt04Control.surfaceCount)
+        return proposal;
+    return proposal;
+#endif
 
     const Upt04UnifiedLightRecord light =
         Upt04LoadCurrentLightEvaluationRecord(
@@ -190,6 +265,27 @@ public Upt04SecondaryNeeProposal Upt04EvaluateSecondaryNeeProposal<
         || evaluated.sample.status != kUpt04SampleValidPositive)
         return proposal;
     proposal.stage = 2u;
+#if UPT04_PRODUCE_BODY_PROBE == 8
+    proposal.valid = 1u;
+    proposal.lightIndex = selection.denseIndex;
+    proposal.lightType = selection.type;
+    proposal.sampleCoordinates = evaluated.storedSampleCoordinates;
+    proposal.rawContribution = evaluated.sample.radiance;
+    proposal.suffixRadiance = evaluated.sample.radiance;
+    proposal.sampleDirection = evaluated.sample.direction;
+    proposal.sampleDistance = evaluated.sample.distance;
+    proposal.sourcePdf = evaluated.sample.solidAnglePdf;
+    proposal.target = max(
+        evaluated.sample.radiance.x,
+        max(evaluated.sample.radiance.y, evaluated.sample.radiance.z));
+    proposal.emissiveReplayPdfScale =
+        selection.type == kUpt04LightEmissiveTriangle
+        ? asfloat(evaluated.sample.reserved) : 1.0f;
+    if (!Upt04FinitePositive(proposal.target)
+        || !Upt04FinitePositive(proposal.sourcePdf))
+        return (Upt04SecondaryNeeProposal)0;
+    return proposal;
+#endif
 
     const Upt04MaterialEvaluation material = TMaterialSet.EvaluatePreparedDirect(
         preparedMaterial,
@@ -342,7 +438,8 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
     TMaterialSet : IUpt04MaterialSet>(
     Upt04InitialTraceWork work,
     Upt04HitFacts hit,
-    uint2 pixel)
+    uint2 pixel,
+    Upt04LocalLightSelection forcedSelection)
 {
     Upt04IndirectHitTrialResult result = (Upt04IndirectHitTrialResult)0;
     if (work.valid == 0u || work.familyKind != kUpt04InitialFamilyIndirect
@@ -445,7 +542,7 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         return result;
     }
     uint reverseStatus = 0u;
-#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY || UPT04_EMISSIVE_COMPACT_CLASSIFY || UPT04_EMISSIVE_COMPACT_CONSUME
+#if UPT04_STATIC_ANALYTIC_INDIRECT_ONLY || UPT04_EMISSIVE_COMPACT_CLASSIFY || UPT04_EMISSIVE_COMPACT_CONSUME || !UPT04_EXACT_SECONDARY_MIS
     const float endpointNeePdf = 0.0f;
 #else
     const float endpointNeePdf = any(endpointEmission.radiance > 0.0f)
@@ -487,6 +584,9 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         : kUpt04SampleValidZero;
     endpoint.candidateReady = 1u;
     result.endpointCandidate = endpoint;
+#if UPT04_PRODUCE_BODY_PROBE == 5
+    return result;
+#endif
 
     Upt04LocalLightRanges ranges;
     ranges.emissiveStart = gUpt04Control.emissiveRangeStart;
@@ -512,6 +612,11 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
         result.diagnostics |= kUpt04IndirectDiagSecondaryMaterialFailure;
         return result;
     }
+#if UPT04_PRODUCE_BODY_PROBE == 6
+    if (asuint(preparedMaterial.roughness) == gUpt04Control.surfaceCount)
+        return result;
+    return result;
+#endif
 
     const Upt04InitialLightSchedule schedule =
         Upt04MakeSecondaryLightSchedule(ranges);
@@ -532,8 +637,14 @@ public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
                 schedule,
                 pixel,
                 1u,
-                candidateOrdinal);
+                candidateOrdinal,
+                hit,
+                forcedSelection);
         deepestStage = max(deepestStage, proposal.stage);
+#if UPT04_Q1_SIBLING && !UPT04_Q1_SIBLING_CONSUME
+        if (proposal.stage != 0u)
+            result.q1Queued = 1u;
+#endif
         if (proposal.valid == 0u)
             continue;
         const float candidateWeight = proposal.target / proposal.sourcePdf;
@@ -764,13 +875,24 @@ public Upt04InitialTraceWork Upt56ConsumeDeferredX2Nee<
     return nee;
 }
 
+public Upt04IndirectHitTrialResult Upt04PrepareIndirectHitTrials<
+    TMaterialSet : IUpt04MaterialSet>(
+    Upt04InitialTraceWork work,
+    Upt04HitFacts hit,
+    uint2 pixel)
+{
+    Upt04LocalLightSelection none = (Upt04LocalLightSelection)0;
+    return Upt04PrepareIndirectHitTrials<TMaterialSet>(
+        work, hit, pixel, none);
+}
+
 public Upt04InitialTraceWork Upt56ConsumeDeferredX2Hit<
     TMaterialSet : IUpt04MaterialSet>(
     Upt04InitialTraceWork work,
     Upt04HitFacts hit)
 {
     return Upt04PrepareIndirectHitTrials<TMaterialSet>(
-        work, hit, uint2(0u, 0u)).endpointCandidate;
+        work, hit, uint2(0u, 0u), Upt04EmptyLocalLightSelection()).endpointCandidate;
 }
 #endif
 

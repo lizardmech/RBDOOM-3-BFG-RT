@@ -1,0 +1,201 @@
+Thin produce vs current X produce — gap, not NEE cache
+======================================================
+
+Date: 2026-08-20
+Status: diagnosis only. No shader/host change in this note.
+
+NEE cache is the wrong lever for low RT utilization.
+Legacy NEECACHE-01 was a quality prepass. RTXDI FullSample
+has none. UPT NeeCache is the same ABI reader, not a new
+cache, and empty-cell fallback is Q1 — same estimator.
+
+Thin is the host/dispatch probe
+-------------------------------
+upt04_initial_split_indirect_debug_thin.slang
+Same 8x8, same bindings, no GI body: load primary, passthrough
+the split-direct reservoir, optionally one closest-hit RayQuery
+with no decode / material / NEE / x3.
+
+thin+ray (locked): 1491 nsight ops, 0 img, 1 rqInit, NI 0.
+thin=2 + ReservoirTexture: bulk L2 gone, ~90% RTCORE.
+So hosting, dispatch, and the 64 B page are not the cliff.
+
+Current shipping produce (exec uptx, OnePath=1)
+-----------------------------------------------
+..._onepath_x3_produce_nee1_noexactmis.bin
+d0b6 locked: 20817 ops, 11 img, 2 rqInit, NI 55%,
+L2 from L1TEX ~23%, L2 from GCC ~21%.
+
+SPIR-V names still in onepath and absent from thin:
+  geometry  gUpt04OnePathInstances + static V/I/classes
+  material  gUpt04Materials, gUpt04MaterialTextures/Sampler
+  lights    gUpt04CurrentLights, EmissiveReplay/Geometry/Distribution
+  x3        gUpt04X3Queue/Meta/DispatchArgs
+  sky       gUpt04SkyEnvironment
+OpenPBR has no OpName — it is inlined. Four-route Load* names
+are gone (A2 held).
+
+Opcode shape (spvasm, same regex):
+  thin+ray   ops 2089   img 0   rq 1/1   IsNan/Inf 18/18    Br 104
+  onepath    ops 20811  img 11  rq 2/2   IsNan/Inf 329/325  Br 1502
+  four-route Q1+Q2      25039  img 11  rq 2/2   329/325      1810
+  lambert four-route    21823  img 7   rq 2/2   271/267      1600
+
+Already closed, not the remaining 12x
+-------------------------------------
+  64 B page on TEX     thin+tex ~90% RTCORE; product still NI
+  A1 primary images    d0b5 ≈ prior L1TEX, NI still 64%
+  A2 one-path          NI 64% -> 55%, samples -21%, ~1.4 ms
+  Q1+Q2                25393 -> 23652
+  Lambert              NI 52% — materials are not the cliff
+  NEE cache            quality; FullSample does not have one
+
+The gap is the inlined GI body in the same 8x8
+----------------------------------------------
+Produce still does, in one kernel:
+  1. first-bounce ray + closest-hit RayQuery
+  2. one-path hit decode
+  3. OpenPBR + 11 texture samples (inlined)
+  4. Q1 light pick + emissive replay/geometry still referenced
+  5. NEE visibility RayQuery (the second init/proceed)
+  6. x3 prepare + queue write
+  7. ~18x the NaN/Inf guards of thin, minced through the body
+
+FullSample PT indirect is *larger* (23748 ops, 31 img, 5 rq)
+with 4.2% NI. Size is not the mechanism. Their dead code is
+contiguous; ours is interleaved with the hot path (GCC I-fetch
+still ~21% of L2).
+
+Do not
+------
+  treat NEE cache as the RT-util fix
+  more stride / LSU / extra TEX pages for lights or X3
+  pin NeeCache
+  resume register-cut / Enhanced T/S / noinline / unroll
+
+Next honest work
+----------------
+Map the produce body as staged slices against thin=2+tex
+(ratio, not equality). Candidates, each behind a cvar:
+  * drop leftover emissive replay/geometry from Q1 produce
+    if the buffer refs are not on the taken path
+  * NaN/Inf guard audit (large vs thin, minced)
+  * split a sibling (NEE visibility or x3 enqueue) so the
+    8x8 hot path looks more like thin + one real ray
+OMM/SER stay Phase C and do not explain the I-fetch cliff.
+
+Landed  2026-08-20  produce-body probe
+-------------------------------------
+Replay/geometry refs on Q1 are live emissive NEE eval, not leftover
+DCE. x3 consume already has bottleneckProbe 1-15; the 12x is produce.
+
+r_pathTracingUnifiedPtProduceBodyProbe (default 0, not pinned)
+  0 production onepath Q1+Q2
+  1 first-bounce ray only (PrepareIndirectPathTreeWork + TraceRayQuery)
+  2 + decode / OpenPBR / Q1 hit trials; no visibility; no x3
+  3 + NEE visibility; no x3 enqueue
+
+Separate PSOs on the OnePath Q1+Q2 stack. Consume stays shipping
+(empty queue on 1-3). Create log produceBody=. Score each vs
+thin=2+tex (ratio). Do not pin.
+
+Bins
+  ..._onepath_x3_produce_nee1_noexactmis_body_ray.bin
+  ..._onepath_x3_produce_nee1_noexactmis_body_hit.bin
+  ..._onepath_x3_produce_nee1_noexactmis_body_nee.bin
+Compile-out shape (spvasm, same regex; not nsight CSV):
+  thin+ray    2089 ops  0 img  rq 1/1
+  body 1 ray  5968 ops  2 img  rq 1/1   primary OpenPBR bounce; no replay/x3
+  body 2 hit 13874 ops  7 img  rq 1/1   + decode/Q1; replay live; no x3
+  body 3 nee 16716 ops  9 img  rq 2/2   + visibility
+  production 20811 ops 11 img  rq 2/2   + x3 enqueue
+
+Largest compiled-out step is ray->hit (decode/material/Q1).
+Then nee->production (x3 enqueue), then hit->nee (visibility),
+then thin->ray (primary bounce). Measure NI/RTCORE on each
+with tex=1 held before splitting a sibling.
+
+Human G2  2026-08-20  exec uptx, tex held, same camera
+  1 ray     ~thin2   85k samples  0.59 ms  RTCORE high
+  2 hit     3x time  250k         1.8  ms  RTCORE < half, NI 25%
+  3 nee     ~2x more 465k         3.3  ms  NI 45%
+  0 prod             750k         5.5  ms  NI 57%
+First cliff is probe 2 (decode + hit emission + Q1).
+Bounce ray is not the disease. Next: split 2 into
+  4 decode only
+  5 decode + hit emission, no Q1 / PrepareSecondaryDirect
+Probe 4/5 compile-out (same regex):
+  4 decode  6331 ops  2 img   +363 vs ray  — decode is almost free
+  5 shade   8626 ops  4 img   +2.3k vs decode — hit emission
+  2 hit    13874 ops  7 img   +5.2k vs shade — Q1 + PrepareSecondaryDirect
+Expect 4 ~ 1, 5 between 1 and 2, and the RTCORE collapse to sit on 5->2 if Q1 is the cliff.
+
+Human G2  2026-08-20  probes 4 and 5
+  4 decode  slips a little vs 1
+  5 shade   still sub 1 ms, ~50% RTCORE
+So decode and hit emission are not the 1.8 ms / RTCORE cliff.
+That cliff is 5 -> 2: PrepareSecondaryDirect + Q1.
+Next: probe 6 = 5 + PrepareSecondaryDirect, no Q1 loop.
+Probe 6 compile-out:
+  5 shade  8626 ops  4 img
+  6 brdf   8931 ops  5 img   +305 — PrepareSecondaryDirect is tiny
+  2 hit   13874 ops  7 img   +4.9k — Q1 loop + replay
+If 6 stays sub 1 ms like 5, the 1.8 ms / RTCORE cliff is the Q1 walk.
+
+Human G2  2026-08-20  probe 6
+  6 brdf  barely any change vs 5 (still sub 1 ms)
+PrepareSecondaryDirect is not the 1.8 ms / RTCORE cliff.
+5 -> 2 is the Q1 walk (SelectInitialLightFromReplay +
+EvaluateSelectedLocalLight + EvaluatePreparedDirect).
+Next: 7 pick-only, 8 pick+replay eval, no BRDF.
+Probe 7/8 compile-out:
+  6 brdf  8931 ops  5 img  rq 1/1
+  7 pick 11623 ops  6 img  rq 2/2  +2.7k vs 6 — Q1 loop + SelectInitialLightFromReplay
+  8 eval 11623 ops  6 img  different hash, replay name still 0
+  2 hit  13874 ops  7 img  rq 1/1  +2.3k vs 7 — EvaluatePreparedDirect + NEE stream
+Measure 7 vs 6 vs 2 first.
+
+Human G2  2026-08-20  probe 7
+  7 pick  ~same as 6, at most ~5% slower, RTCORE still ~50%
+SelectInitialLightFromReplay is not the 1.8 ms cliff.
+7 -> 2 is replay eval + EvaluatePreparedDirect + NEE stream.
+Measure 8 (already in this exe) next.
+
+Human G2  2026-08-20  probe 8 first try
+  8 == 7. Not a real split: Slang DCE'd EvaluateSelectedLocalLight
+  because proposal.valid stayed 0. Replay never entered the binary.
+  Fixed: probe 8 now copies eval radiance/direction/pdf onto a valid
+  proposal (still no EvaluatePreparedDirect, no vis). Re-measure 8.
+
+Human G2  2026-08-20  probe 8 (keep-live, replay actually compiled)
+  8 eval  D0b 0.8 -> ~1.6 ms. RTCORE down hard, L2 up.
+          NI 4.5% -> 11% (not production 50%+).
+EvaluateSelectedLocalLight / triangle replay is the first
+I-fetch cliff. Pick (7) is cheap. BRDF finish (8->2) is leftover.
+Remaining after 8: EvaluatePreparedDirect (~1.6->1.8), vis
+(1.8->3.3), x3 enqueue (3.3->5.5). Production NI 57% is those
+later slices stacked on this I-fetch, not pick.
+
+Quality-preserving fix: Q1 sibling (produce stays pick-shaped;
+replay/eval/vis/x3-enqueue in a later 64x1 kernel).
+r_pathTracingUnifiedPtQ1Sibling default 0, not pinned.
+Optional A/B: onepath + ReplayFreeSecondaryNee (resolved emissive,
+no triangle replay). Default 0.
+
+Landed  2026-08-20  Q1 sibling (default 0)
+----------------------------------------
+First try (pick-shaped produce) was slightly slower, L2 up,
+combined RTCORE ~22%. Cause: OpenPBR still sat in the 8x8 with
+the bounce ray (probe 7 ceiling ~50% RTCORE) and the sibling
+re-shaded, so textures hit L2 twice and eval was not removed
+from the frame.
+
+Second try: produce is bounce-ray + 128 B token (probe-1 shaped).
+Sibling does shade/pick/eval/vis/x3 once. Create log q1sib=1.
+Do not pin. Score D0b vs Q1 Sibling vs x3 separately; combined
+RTCORE will still include the sibling cliff.
+Compile-out:
+  1 ray       5968 ops  2 img  rq 1/1  replay=0
+  q1sib prod  6407 ops  2 img  rq 1/1  replay=0  +queue
+  q1sib cons 15849 ops  9 img  rq 1/1  replay=1  +x3
+  production 20811 ops 11 img  rq 2/2  replay=1  +x3

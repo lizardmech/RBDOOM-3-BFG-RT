@@ -1169,6 +1169,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::IDevice* regirDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
     const bool regirResourceReady = m_smokeReGIRState.EnsureResources(regirDevice, regirSettings, regirDesc);
     PathTraceNeeCacheSettings neeCacheSettings = BuildPathTraceNeeCacheSettingsFromCVars();
+    const bool uptNeeCacheRequested =
+        unifiedPtRouteRequested &&
+        r_pathTracingUnifiedPtNeeCache.GetBool() &&
+        r_pathTracingUnifiedPtOnePathGeometry.GetBool();
+    if (uptNeeCacheRequested)
+        neeCacheSettings.enabled = true;
     PathTraceNeeCacheRluInputs neeCacheRluInputs;
     neeCacheRluInputs.currentLightCount = regirRemixLightManagerStats.currentLightCount;
     neeCacheRluInputs.emissiveRangeOffset = regirRemixLightManagerStats.emissiveRangeOffset;
@@ -1177,7 +1183,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     neeCacheRluInputs.doomAnalyticRangeCount = regirRemixLightManagerStats.doomAnalyticRangeCount;
     neeCacheRluInputs.nonEmptyRangeCount = regirRemixLightManagerStats.nonEmptyRangeCount;
     neeCacheRluInputs.remixDenseDomain =
-        regirRemixLightManagerStats.enabled != 0u &&
+        (regirRemixLightManagerStats.enabled != 0u || uptNeeCacheRequested) &&
         regirRemixLightManagerStats.currentLightCount > 0u &&
         m_smokeRestirLightManagerCurrentPayloadBuffer;
     PathTraceNeeCacheResourceDesc neeCacheDesc = BuildPathTraceNeeCacheResourceDesc(neeCacheSettings);
@@ -1407,9 +1413,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         !cleanNeeCacheProviderStartupDelayActive &&
         cleanNeeCacheProviderStartupRefreshActive &&
         !neeCacheSecondaryVisualSnapshotHold;
+    const bool uptNeeCacheUpdateRequested =
+        uptNeeCacheRequested &&
+        neeCacheCandidateBuildRequested;
+    // Isolation hard-sets neeCachePrimaryUpdate=false. UPT NeeCache still
+    // needs the existing primary-surface fill or consume falls back 100% to Q1.
+    const bool neeCachePrimaryUpdateAllowed =
+        staticBucketSecondaryIsolation.neeCachePrimaryUpdate ||
+        uptNeeCacheUpdateRequested;
     const bool cleanNeeCacheBuildPrepassRequested =
         cleanNeeCacheProviderBuildPrepassRequested ||
-        neeCacheSecondaryVisualRefreshRequested;
+        neeCacheSecondaryVisualRefreshRequested ||
+        uptNeeCacheUpdateRequested;
     const bool neeCacheRouteRequested = neeCacheDebugRouteRequested || neeCacheCandidateBuildRequested;
     const bool regirDebugRouteRequested =
         regirSettings.enabled &&
@@ -2124,7 +2139,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (cleanRtxdiDiRouteRequested &&
             cleanNeeCacheBuildPrepassRequested &&
-            staticBucketSecondaryIsolation.neeCachePrimaryUpdate &&
+            neeCachePrimaryUpdateAllowed &&
             (!m_smokeNeeCachePrimarySurfaceUpdatePipeline || !m_smokeNeeCachePrimarySurfaceUpdateBindingLayout))
         {
             if (cleanRtxdiDiDumpRequested)
@@ -2745,8 +2760,24 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
             }
 
+            if (uptNeeCacheRequested && ((m_smokeGeometryFrameIndex % 120ull) == 1ull))
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: neeCache host domain=%d candidateBuild=%d isolationUpdate=%d pipeline=%d cells=%d update=%d lights=%u\n",
+                    neeCacheRluInputs.remixDenseDomain ? 1 : 0,
+                    neeCacheCandidateBuildRequested ? 1 : 0,
+                    staticBucketSecondaryIsolation.neeCachePrimaryUpdate ? 1 : 0,
+                    (m_smokeNeeCachePrimarySurfaceUpdatePipeline &&
+                        m_smokeNeeCachePrimarySurfaceUpdateBindingLayout) ? 1 : 0,
+                    m_smokeNeeCacheState.cellBuffer ? 1 : 0,
+                    (cleanNeeCacheBuildPrepassRequested &&
+                        neeCachePrimaryUpdateAllowed &&
+                        m_smokeNeeCachePrimarySurfaceUpdatePipeline &&
+                        m_smokeNeeCachePrimarySurfaceUpdateBindingLayout) ? 1 : 0,
+                    neeCacheRluInputs.currentLightCount);
+            }
             if (cleanNeeCacheBuildPrepassRequested &&
-                staticBucketSecondaryIsolation.neeCachePrimaryUpdate &&
+                neeCachePrimaryUpdateAllowed &&
                 m_smokeNeeCachePrimarySurfaceUpdatePipeline &&
                 m_smokeNeeCachePrimarySurfaceUpdateBindingLayout)
             {
@@ -3363,7 +3394,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             unifiedPtInputs.compactMaterials =
                 r_pathTracingUnifiedPtCompactMaterials.GetBool() &&
                 unifiedPtInputs.compactLights &&
-                unifiedPtInputs.compactGeometry &&
+                (unifiedPtInputs.compactGeometry || splitInitialBaseEligible) &&
                 unifiedPtInputs.family != PathTraceUnifiedPtFamily::DirectOnly;
             const int lambertDiagnosticMode = idMath::ClampInt(
                 0, 4,
@@ -3382,8 +3413,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             previousLambertDiagnosticMode = lambertDiagnosticMode;
             const bool lambertShaderRequested =
                 lambertDiagnosticMode == 1 || lambertDiagnosticMode == 3;
+            const bool lambertOnX =
+                lambertShaderRequested &&
+                r_pathTracingUnifiedPtSplitInitial.GetBool() &&
+                r_pathTracingUnifiedPtThreeVertexInitial.GetBool() &&
+                r_pathTracingUnifiedPtThreeVertexSplit.GetBool();
             const bool forceMonolithicDiagnostic =
-                lambertShaderRequested || lambertDiagnosticMode == 4;
+                (lambertShaderRequested || lambertDiagnosticMode == 4) &&
+                !lambertOnX;
             unifiedPtInputs.splitInitial =
                 splitInitialBaseEligible &&
                 !forceMonolithicDiagnostic &&
@@ -3406,7 +3443,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery &&
                 unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified &&
                 unifiedPtInputs.primaryReceiverMode == 2u &&
-                !unifiedPtInputs.splitInitial &&
+                (!unifiedPtInputs.splitInitial || lambertOnX) &&
                 !unifiedPtInputs.diagnostics &&
                 unifiedPtInputs.shaderProofMode <= 6u &&
                 (!r_pathTracingUnifiedPtTemporal.GetBool() ||
@@ -3782,13 +3819,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 r_pathTracingUnifiedPtThreeVertexInitial.GetBool();
             unifiedPtInputs.threeVertexInitial = requestedThreeVertexInitial
                 && unifiedPtInputs.splitInitial
-                && !unifiedPtInputs.compactGeometry
                 && unifiedPtInputs.compactLights
-                && !unifiedPtInputs.compactMaterials
                 && !unifiedPtInputs.lightTiles
                 && (!unifiedPtInputs.temporal || effectiveCommonGrisMerge)
                 && effectiveThreeVertexSpatialReplay
-                && !unifiedPtInputs.lambertDiagnostic
                 && !frozenAnyDiagnostic
                 && unifiedPtInputs.backend == PathTraceUnifiedPtBackend::RayQuery
                 && unifiedPtInputs.family == PathTraceUnifiedPtFamily::Unified
@@ -3829,6 +3863,122 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 && !unifiedPtInputs.staticAnalyticOnly;
             unifiedPtInputs.geometryNoSkinned =
                 r_pathTracingUnifiedPtGeometryNoSkinned.GetBool();
+            const bool studyXLight64 =
+                unifiedPtInputs.threeVertexSplit
+                && unifiedPtInputs.compactLights
+                && !unifiedPtInputs.compactGeometry
+                && !unifiedPtInputs.geometryNoSkinned
+                && !unifiedPtInputs.staticAnalyticOnly
+                && !unifiedPtInputs.emissiveCompact
+                && !unifiedPtInputs.lightTiles;
+            unifiedPtInputs.secondaryNeeOne =
+                studyXLight64
+                && r_pathTracingUnifiedPtSecondaryNeeTrials.GetInteger() == 1;
+            unifiedPtInputs.exactSecondaryMis =
+                !studyXLight64
+                || r_pathTracingUnifiedPtExactSecondaryMis.GetBool();
+            unifiedPtInputs.replayFreeSecondaryNee =
+                studyXLight64
+                && unifiedPtInputs.secondaryNeeOne
+                && !unifiedPtInputs.exactSecondaryMis
+                && r_pathTracingUnifiedPtReplayFreeSecondaryNee.GetBool();
+            if (unifiedPtInputs.compactMaterials
+                && unifiedPtInputs.threeVertexSplit
+                && !unifiedPtInputs.compactGeometry)
+            {
+                const bool haveMaterial48Twin =
+                    (unifiedPtInputs.secondaryNeeOne
+                        && !unifiedPtInputs.exactSecondaryMis)
+                    || (!unifiedPtInputs.secondaryNeeOne
+                        && unifiedPtInputs.exactSecondaryMis);
+                if (!haveMaterial48Twin)
+                    unifiedPtInputs.compactMaterials = false;
+            }
+            const int debugThinMode =
+                r_pathTracingUnifiedPtDebugThinProduce.GetInteger();
+            unifiedPtInputs.debugThinProduce =
+                debugThinMode != 0
+                && unifiedPtInputs.threeVertexSplit
+                && !unifiedPtInputs.compactGeometry
+                && !unifiedPtInputs.geometryNoSkinned
+                && unifiedPtInputs.compactLights;
+            unifiedPtInputs.debugThinProduceRay =
+                unifiedPtInputs.debugThinProduce && debugThinMode >= 2;
+            unifiedPtInputs.tiledSurface =
+                r_pathTracingUnifiedPtTiledSurface.GetBool()
+                && !unifiedPtInputs.temporal
+                && !r_pathTracingUnifiedPtSpatial.GetBool();
+            unifiedPtInputs.reservoirTexture =
+                r_pathTracingUnifiedPtReservoirTexture.GetBool()
+                && !unifiedPtInputs.temporal
+                && !r_pathTracingUnifiedPtSpatial.GetBool();
+            unifiedPtInputs.primaryTexture =
+                r_pathTracingUnifiedPtPrimaryTexture.GetBool()
+                && !unifiedPtInputs.temporal
+                && !r_pathTracingUnifiedPtSpatial.GetBool();
+            unifiedPtInputs.onePathGeometry =
+                r_pathTracingUnifiedPtOnePathGeometry.GetBool();
+            unifiedPtInputs.neeCache =
+                r_pathTracingUnifiedPtNeeCache.GetBool()
+                && unifiedPtInputs.onePathGeometry;
+            if (unifiedPtInputs.neeCache)
+            {
+                unifiedPtInputs.neeCacheCellBuffer =
+                    m_smokeNeeCacheState.cellBuffer;
+                unifiedPtInputs.neeCacheCandidateBuffer =
+                    m_smokeNeeCacheState.candidateBuffer;
+                unifiedPtInputs.neeCachePlaceholderBuffer =
+                    m_smokeNeeCacheState.placeholderSrvBuffer;
+            }
+            unifiedPtInputs.produceBodyProbe = 0;
+            if (unifiedPtInputs.onePathGeometry
+                && unifiedPtInputs.secondaryNeeOne
+                && !unifiedPtInputs.exactSecondaryMis
+                && !unifiedPtInputs.replayFreeSecondaryNee
+                && !unifiedPtInputs.neeCache
+                && !unifiedPtInputs.geometryNoSkinned)
+            {
+                unifiedPtInputs.produceBodyProbe = idMath::ClampInt(
+                    0, 8, r_pathTracingUnifiedPtProduceBodyProbe.GetInteger());
+            }
+            unifiedPtInputs.q1Sibling =
+                r_pathTracingUnifiedPtQ1Sibling.GetBool()
+                && unifiedPtInputs.onePathGeometry
+                && unifiedPtInputs.secondaryNeeOne
+                && !unifiedPtInputs.exactSecondaryMis
+                && !unifiedPtInputs.neeCache
+                && unifiedPtInputs.threeVertexSplit
+                && unifiedPtInputs.produceBodyProbe == 0;
+            unifiedPtInputs.lambertBsdf =
+                r_pathTracingUnifiedPtLambertBsdf.GetBool()
+                && unifiedPtInputs.q1Sibling
+                && !unifiedPtInputs.lambertDiagnostic
+                && !unifiedPtInputs.compactGeometry
+                && !unifiedPtInputs.compactMaterials
+                && !unifiedPtInputs.lightTiles;
+            static int reportedLambertBsdf = -1;
+            const int lambertBsdfMode = unifiedPtInputs.lambertBsdf ? 1 : 0;
+            if (reportedLambertBsdf != lambertBsdfMode)
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: lambertBsdf=%d (textured Lambert eval/cosine, OpenPBR prepare)\n",
+                    lambertBsdfMode);
+                reportedLambertBsdf = lambertBsdfMode;
+            }
+            if (unifiedPtInputs.lambertDiagnostic
+                && unifiedPtInputs.threeVertexSplit
+                && !unifiedPtInputs.compactGeometry)
+            {
+                unifiedPtInputs.replayFreeSecondaryNee = false;
+                unifiedPtInputs.compactMaterials = false;
+                const bool haveLambertTwin =
+                    (unifiedPtInputs.secondaryNeeOne
+                        && !unifiedPtInputs.exactSecondaryMis)
+                    || (!unifiedPtInputs.secondaryNeeOne
+                        && unifiedPtInputs.exactSecondaryMis);
+                if (!haveLambertTwin)
+                    unifiedPtInputs.lambertDiagnostic = false;
+            }
             static int reportedEmissiveCompact = -1;
             if (reportedThreeVertexRequest != threeVertexRequest
                 || reportedThreeVertexEffective != threeVertexEffective
@@ -3842,7 +3992,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     != (unifiedPtInputs.emissiveCompact ? 1 : 0))
             {
                 common->Printf(
-                    "PathTraceUnifiedPt: three-vertex initial requested/effective=%d/%d q=%.3f minimumPathThroughput=%.3f bottleneckProbe(requested/effective)=%d/%d staticAnalyticOnly=%d emissiveCompact=%d stages=1:none,2:+x3trace,3/4:combined-noVis/full,5/6:staticAnalyticOnly-noVis/full,7/8:emissive-only-noVis/full,9/10:constantMaterial-noVis/full,11:selection,12:+lightLoad,13:+localLightEval,14:finalizeOnly,15:oneSelection temporalOff=%u cutoff=initial-only-uncompensated-L2 gate(splitInitial/nativeGeometry/compactLights/noCompactMaterials/noTiles/temporalReplay/spatialReplay/openPbr/noFrozen/rayquery/unified/compact32/proof6)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
+                    "PathTraceUnifiedPt: three-vertex initial requested/effective=%d/%d q=%.3f minimumPathThroughput=%.3f bottleneckProbe(requested/effective)=%d/%d staticAnalyticOnly=%d emissiveCompact=%d stages=1:none,2:+x3trace,3/4:combined-noVis/full,5/6:staticAnalyticOnly-noVis/full,7/8:emissive-only-noVis/full,9/10:constantMaterial-noVis/full,11:selection,12:+lightLoad,13:+localLightEval,14:finalizeOnly,15:oneSelection temporalOff=%u cutoff=initial-only-uncompensated-L2 gate(splitInitial/geometryOk/compactLights/noCompactMaterials/noTiles/temporalReplay/spatialReplay/openPbr/noFrozen/rayquery/unified/compact32/proof6)=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
                     threeVertexRequest,
                     threeVertexEffective,
                     threeVertexContinueProbability,
@@ -3854,9 +4004,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     unifiedPtInputs.emissiveCompact ? 1 : 0,
                     unifiedPtInputs.temporal ? 0u : 1u,
                     unifiedPtInputs.splitInitial ? 1u : 0u,
-                    unifiedPtInputs.compactGeometry ? 0u : 1u,
+                    1u,
                     unifiedPtInputs.compactLights ? 1u : 0u,
-                    unifiedPtInputs.compactMaterials ? 0u : 1u,
+                    1u,
                     unifiedPtInputs.lightTiles ? 0u : 1u,
                     (!unifiedPtInputs.temporal || effectiveCommonGrisMerge)
                         ? 1u : 0u,

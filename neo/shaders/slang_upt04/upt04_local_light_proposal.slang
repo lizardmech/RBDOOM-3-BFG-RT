@@ -9,6 +9,29 @@ public static const uint kUpt04DirectRisMaximumEmissiveCount = 16u;
 public static const uint kUpt04DirectRisMaximumCandidateCount = 48u;
 public static const uint kUpt04SecondaryNeeBounceIndex = 2u;
 
+#ifndef UPT04_SECONDARY_NEE_ONE
+#define UPT04_SECONDARY_NEE_ONE 0
+#endif
+
+// Study Q1: one pick + one visibility. Prefer the emissive domain when both
+// are populated so Exact MIS and the forward schedule share one mixture.
+public void Upt04CollapseSecondaryNeeOneCounts(
+    inout uint emissiveTrials,
+    inout uint analyticTrials)
+{
+#if UPT04_SECONDARY_NEE_ONE
+    if (emissiveTrials > 0u)
+    {
+        emissiveTrials = 1u;
+        analyticTrials = 0u;
+    }
+    else if (analyticTrials > 0u)
+    {
+        analyticTrials = 1u;
+    }
+#endif
+}
+
 // ReSTIR PT Enhanced section 7 uses an inverse-square NEE budget, 32 / i^2,
 // clamped to one draw for each populated proposal domain. Primary NEE is i=1;
 // the first continuation hit is i=2.

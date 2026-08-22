@@ -1,3 +1,7 @@
+#ifndef UPT05_LAMBERT_BSDF
+#define UPT05_LAMBERT_BSDF 0
+#endif
+
 public static const float kUpt05PbrPi = 3.14159265358979323846f;
 public static const float kUpt05PbrInvPi = 0.31830988618379067154f;
 public static const float kUpt05PbrTwoPi = 6.28318530717958647692f;
@@ -33,6 +37,15 @@ public struct Upt05OpenPbrSample
 public float Upt05OpenPbrMaxComponent(float3 value)
 {
     return max(value.x, max(value.y, value.z));
+}
+
+// Perf A/B only: fold F0 into Lambert albedo so metals still continue instead
+// of going black (which would also drop ray count and contaminate the timing).
+public float3 Upt05LambertFoldedAlbedo(Upt05OpenPbrParameters material)
+{
+    const float diffuseScale = saturate(
+        1.0f - Upt05OpenPbrMaxComponent(material.specularF0));
+    return saturate(material.baseColor * diffuseScale + material.specularF0);
 }
 
 public float Upt05OpenPbrLuminance(float3 value)
@@ -80,6 +93,7 @@ public float3 Upt05OpenPbrWorldToLocal(float3 normal, float3 worldDirection)
         dot(worldDirection, normal));
 }
 
+#if !UPT05_LAMBERT_BSDF
 public float Upt05OpenPbrDirectionalAlbedoApprox(float cosine, float roughness)
 {
     const float x = 1.0f - saturate(cosine);
@@ -219,6 +233,8 @@ public Upt05OpenPbrEvaluation Upt05OpenPbrEvaluate(
         material, normal, lightDirection, viewDirection);
 }
 
+#endif
+
 // Evaluates direction-dependent terms for a receiver whose normal, view, and
 // material parameters were already normalized/clamped. This is the inner-loop
 // entry used by prepared direct receivers; the public wrapper above retains
@@ -236,6 +252,12 @@ public Upt05OpenPbrEvaluation Upt05OpenPbrEvaluatePrepared(
     if (noL <= 0.0f || noV <= 0.0f)
         return result;
 
+#if UPT05_LAMBERT_BSDF
+    const float3 lambertAlbedo = Upt05LambertFoldedAlbedo(material);
+    result.brdf = lambertAlbedo * kUpt05PbrInvPi;
+    result.directionalPdf = noL * kUpt05PbrInvPi;
+    result.lobeMask = 1u;
+#else
     const float diffuseScale = saturate(
         1.0f - Upt05OpenPbrMaxComponent(material.specularF0));
     const float3 diffuse = Upt05OpenPbrEvaluateEonDiffuse(
@@ -266,6 +288,7 @@ public Upt05OpenPbrEvaluation Upt05OpenPbrEvaluatePrepared(
     result.lobeMask = (hasDiffuse ? 1u : 0u) | (hasSpecular ? 2u : 0u);
     if (result.lobeMask == 0u)
         result.lobeMask = 1u;
+#endif
     result.valid = all(isfinite(result.brdf))
             && all(result.brdf >= 0.0f)
             && isfinite(result.directionalPdf)
@@ -275,6 +298,7 @@ public Upt05OpenPbrEvaluation Upt05OpenPbrEvaluatePrepared(
     return result;
 }
 
+#if !UPT05_LAMBERT_BSDF
 public float3 Upt05OpenPbrSampleGgxVndfLocal(
     float alpha,
     float3 viewLocal,
@@ -326,6 +350,8 @@ public bool Upt05OpenPbrSampleGgxVndf(
     return dot(normal, lightDirection) > 0.0f;
 }
 
+#endif
+
 public Upt05OpenPbrSample Upt05SampleOpenPbr(
     Upt05OpenPbrParameters material,
     float3 normal,
@@ -347,6 +373,24 @@ public Upt05OpenPbrSample Upt05SampleOpenPbr(
     if (dot(normal, viewDirection) <= 0.0f)
         return result;
 
+#if UPT05_LAMBERT_BSDF
+    const float3 lambertAlbedo = Upt05LambertFoldedAlbedo(material);
+    const float radius = sqrt(directionRandom.x);
+    const float phi = kUpt05PbrTwoPi * directionRandom.y;
+    const float3 localDirection = float3(
+        radius * cos(phi),
+        radius * sin(phi),
+        sqrt(max(0.0f, 1.0f - directionRandom.x)));
+    const float3 direction = Upt05OpenPbrLocalToWorld(normal, localDirection);
+    const float noL = saturate(dot(normal, direction));
+    const float pdf = noL * kUpt05PbrInvPi;
+    if (noL <= 0.0f || !isfinite(pdf) || pdf <= 0.0f)
+        return result;
+    result.direction = direction;
+    result.directionalPdf = pdf;
+    result.throughput = lambertAlbedo;
+    result.lobeMask = 1u;
+#else
     const float specularProbability = Upt05OpenPbrSpecularProbability(
         material.specularF0, material.roughness);
     const bool selectedSpecular = lobeRandom < specularProbability;
@@ -381,6 +425,7 @@ public Upt05OpenPbrSample Upt05SampleOpenPbr(
     result.directionalPdf = evaluated.directionalPdf;
     result.throughput = evaluated.brdf * noL / evaluated.directionalPdf;
     result.lobeMask = selectedSpecular ? 2u : 1u;
+#endif
     result.valid = all(isfinite(result.throughput))
             && all(result.throughput >= 0.0f)
         ? 1u

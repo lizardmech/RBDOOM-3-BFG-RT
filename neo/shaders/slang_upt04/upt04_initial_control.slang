@@ -15,6 +15,23 @@ public static const uint kUpt04TextureProbeDisabled = 0u;
 public static const uint kUpt04ControlMetadataValidBit = 0x80000000u;
 public static const uint kUpt04ControlMetadataCountMask = 0x7fffffffu;
 public static const uint kUpt04ThreeVertexProbeMask = 0x0000000fu;
+public static const uint kUpt04TiledSurface = 0x00000100u;
+public static const uint kUpt04ReservoirTexture = 0x00000200u;
+public static const uint kUpt04PrimaryTexture = 0x00000400u;
+
+public uint Upt04TiledSurfaceBufferIndex(
+    uint surfaceIndex,
+    uint width,
+    uint tiled)
+{
+    if (tiled == 0u || width == 0u)
+        return surfaceIndex;
+    const uint x = surfaceIndex % width;
+    const uint y = surfaceIndex / width;
+    const uint tilesX = (width + 7u) / 8u;
+    return (((y >> 3u) * tilesX) + (x >> 3u)) * 64u
+        + ((y & 7u) * 8u) + (x & 7u);
+}
 
 public uint Upt04EnabledFamilyMask(uint dynamicMask)
 {

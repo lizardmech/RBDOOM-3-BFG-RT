@@ -1,5 +1,7 @@
 import upt03_reservoir_contract;
 import upt04_initial_bindings;
+import upt04_reservoir_image;
+import upt04_primary_image;
 import upt04_initial_control;
 import upt04_initial_work_contract;
 import upt04_primary_surface_live_contract;
@@ -201,7 +203,7 @@ public Upt04D0PreviousBestSource Upt04D0LoadPreviousBestSource(
         return result;
 
     const Upt03PackedReservoir packed =
-        gUpt04PreviousReservoirs[result.historyIndex];
+        Upt04LoadPreviousPackedReservoir(result.historyIndex);
     if (Upt04D0DecodePreviousSelected(packed, result.candidate) == 0u
         || result.candidate.eventKind != 2u
         || (result.candidate.flags & kUpt04CandidateFlagGlobal) != 0u

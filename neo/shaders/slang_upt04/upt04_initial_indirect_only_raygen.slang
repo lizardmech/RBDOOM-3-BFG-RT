@@ -50,7 +50,7 @@ void main()
     Upt04TraceIndirectRaygen(continuation, hit);
     const Upt04IndirectHitTrialResult indirect =
         Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
-            continuation, hit, pixel);
+            continuation, hit, pixel, Upt04EmptyLocalLightSelection());
     Upt04StreamInitialTraceWork(
         reservoir, indirect.endpointCandidate, pixel, 0u);
 

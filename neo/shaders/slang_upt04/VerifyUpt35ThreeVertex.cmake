@@ -11,9 +11,9 @@ file(READ "${UPT35_SOURCE}" source)
 
 string(REGEX MATCHALL "\"binding\"[ \t]*:" descriptor_bindings "${reflection}")
 list(LENGTH descriptor_bindings descriptor_count)
-if(NOT descriptor_count EQUAL 27)
+if(NOT descriptor_count EQUAL 31)
     message(FATAL_ERROR
-        "UPT-35 exposes ${descriptor_count} descriptors; expected 27")
+        "UPT-35 exposes ${descriptor_count} descriptors; expected 31")
 endif()
 if(NOT reflection MATCHES
         "\"name\"[ \t]*:[ \t]*\"reservedControl1\",[ \t\r\n]*\"type\"[ \t]*:[ \t]*\"uint\",[ \t\r\n]*\"offset\"[ \t]*:[ \t]*204" OR
@@ -57,4 +57,4 @@ endforeach()
 
 file(SIZE "${UPT35_SPV}" spv_bytes)
 file(WRITE "${UPT35_STAMP}"
-    "UPT-35/37 verified: descriptors=27 push=224 workgroup=8x8 RayQuery=4 TraceRay=0 directionalSky=31 bytes=${spv_bytes} runtime-q initial-only-L2-cutoff endpointPathLength=2 x3NeePathLength=3 maxRays=5\n")
+    "UPT-35/37 verified: descriptors=28 push=224 workgroup=8x8 RayQuery=4 TraceRay=0 directionalSky=31 bytes=${spv_bytes} runtime-q initial-only-L2-cutoff endpointPathLength=2 x3NeePathLength=3 maxRays=5\n")

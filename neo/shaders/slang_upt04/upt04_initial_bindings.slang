@@ -74,6 +74,14 @@ public [[vk::binding(30, 0)]] StructuredBuffer<Upt04LightTileEntry>
 public [[vk::binding(0, 1)]] Texture2D<float4> gUpt04MaterialTextures[];
 public [[vk::push_constant]] ConstantBuffer<Upt04InitialControl> gUpt04Control;
 
+public uint Upt04SurfaceBufferIndex(uint surfaceIndex)
+{
+    return Upt04TiledSurfaceBufferIndex(
+        surfaceIndex,
+        gUpt04Control.renderWidth,
+        gUpt04Control.indirectPolicyFlags & kUpt04TiledSurface);
+}
+
 public float Upt04SkySrgbToLinear(float encoded)
 {
     return encoded <= 0.04045f
@@ -94,7 +102,7 @@ public float3 Upt04SampleSkyEnvironment(float3 direction)
         Upt04SkySrgbToLinear(encoded.b)) * max(gUpt04Control.skyBrightness, 0.0f);
 }
 
-public Upt04PrimarySurfaceRecord Upt04LoadPrimarySurfaceRecord(uint index)
+public Upt04PrimarySurfaceRecord Upt04LoadPrimarySurfaceRecordFromBuffer(uint index)
 {
 #if UPT04_PACKED_PRIMARY_RECEIVER == 1
     return Upt04UnpackPrimarySurface(gUpt04PrimarySurfaces[index]);
@@ -251,7 +259,7 @@ public uint Upt04LoadMaterialFlags(uint index)
 #endif
 }
 
-public Upt04PrimarySurfaceRecord Upt04LoadPreviousPrimarySurface(uint index)
+public Upt04PrimarySurfaceRecord Upt04LoadPreviousPrimarySurfaceFromBuffer(uint index)
 {
 #if UPT04_PACKED_PRIMARY_RECEIVER == 1
     // Compact48 is a current-frame-only receiver. Host metadata keeps D0

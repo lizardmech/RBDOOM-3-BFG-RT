@@ -8,6 +8,8 @@ import upt04_transport_initial_bounded;
 import upt04_initial_indirect;
 import upt04_initial_multibounce;
 import upt04_initial_reservoir_stream;
+import upt04_reservoir_image;
+import upt04_primary_image;
 import upt04_primary_surface_live_contract;
 import upt04_light_contract;
 import upt04_initial_control;
@@ -875,7 +877,7 @@ public Upt03PackedReservoir Upt04BuildDiagnosticReservoir(
         Upt04DiagSecondaryMaterialRoute(hit);
     const Upt04IndirectHitTrialResult indirect =
         Upt04PrepareIndirectHitTrials<Upt05OpenPbrMaterialSet>(
-            continuation, hit, pixel);
+            continuation, hit, pixel, Upt04EmptyLocalLightSelection());
     if (indirectEnabled)
         Upt04DiagIndirectStages(indirect);
     if (indirectEnabled)
@@ -997,7 +999,7 @@ void main(
     {
         const Upt03PackedReservoir packed =
             Upt04BuildDiagnosticReservoir(pixel, surfaceIndex);
-        gUpt04Reservoirs[surfaceIndex] = packed;
+        Upt04StorePackedReservoir(surfaceIndex, packed);
         const uint4 hash = Upt04DiagReservoirHash(surfaceIndex, packed);
         uint ignored;
         InterlockedXor(gUpt04GroupReservoirHash0, hash.x, ignored);

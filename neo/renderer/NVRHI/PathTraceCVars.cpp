@@ -1423,7 +1423,7 @@ idCVar r_pathTracingUnifiedPtCompactMaterials(
     "r_pathTracingUnifiedPtCompactMaterials",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "UPT D0 material A/B after compact lights: 0 binds the 112-byte material table; 1 GPU-packs a lossless-for-D0 48-byte sidecar; direct-only family suppresses the pack because it does not read secondary material records" );
+    "UPT D0 material A/B after compact lights: 0 binds the 112-byte material table; 1 GPU-packs a lossless-for-D0 48-byte sidecar. Legal with compact geometry or light64 X split. Direct-only suppresses the pack." );
 
 idCVar r_pathTracingUnifiedPtSplitInitial(
     "r_pathTracingUnifiedPtSplitInitial",
@@ -1436,6 +1436,24 @@ idCVar r_pathTracingUnifiedPtThreeVertexSplit(
     "1",
     CVAR_RENDERER | CVAR_BOOL,
     "3-vtx quality via 2-vtx produce + 64x1 x3 consume. Requires threeVertexInitial. Default 1. Fat megakernel is exec uptb2 (split 0)." );
+
+idCVar r_pathTracingUnifiedPtSecondaryNeeTrials(
+    "r_pathTracingUnifiedPtSecondaryNeeTrials",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Study Q1 on light64 X produce+consume: 0 = current Upt04MakeSecondaryLightSchedule; 1 = one pick + one visibility. Default 0. Ignored unless threeVertexSplit and compactGeometry 0." );
+
+idCVar r_pathTracingUnifiedPtExactSecondaryMis(
+    "r_pathTracingUnifiedPtExactSecondaryMis",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Study Q2 on light64 X produce+consume: 1 = keep ExactNeePdf + balance; 0 = skip reverse PDF (possible bias). Default 1. Ignored unless threeVertexSplit and compactGeometry 0." );
+
+idCVar r_pathTracingUnifiedPtReplayFreeSecondaryNee(
+    "r_pathTracingUnifiedPtReplayFreeSecondaryNee",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Study: secondary NEE uses packed resolved-emissive (p0/e1/e2 + 4-region radiance) instead of gUpt04EmissiveReplay. Requires light64 X stack (Q1=1 Q2=0). Default 0." );
 
 idCVar r_pathTracingUnifiedPtGeometryNoSkinned(
     "r_pathTracingUnifiedPtGeometryNoSkinned",
@@ -1491,11 +1509,66 @@ idCVar r_pathTracingUnifiedPtSplitContinuation(
     CVAR_RENDERER | CVAR_BOOL,
     "UPT unified D0 A/B: trace the deterministic primary continuation into one 32-byte hit-facts sidecar, then run direct plus secondary shading with one final reservoir write; mutually exclusive with the rejected direct/indirect split" );
 
+idCVar r_pathTracingUnifiedPtDebugThinProduce(
+    "r_pathTracingUnifiedPtDebugThinProduce",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Debug X produce: 0 off; 1 load primary + write reservoir (no RT); 2 same plus one closest-hit RayQuery along the geometric normal, no material/geometry decode. Default 0." );
+
+idCVar r_pathTracingUnifiedPtProduceBodyProbe(
+    "r_pathTracingUnifiedPtProduceBodyProbe",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Produce-body map on OnePath Q1+Q2 (separate PSOs, score vs thin=2+tex): 0 production; 1 first-bounce ray only; 2 + decode/hit-emission/Q1, no vis, no x3; 3 + NEE visibility, no x3; 4 decode only; 5 decode + hit emission, no Q1; 6 + PrepareSecondaryDirect, no Q1; 7 Q1 pick only; 8 pick+replay eval, no BRDF. Default 0." );
+
+idCVar r_pathTracingUnifiedPtQ1Sibling(
+    "r_pathTracingUnifiedPtQ1Sibling",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Quality-preserving Q1 sibling: produce is bounce-ray only; shade/pick/eval/vis/x3-enqueue run once in a 64x1 kernel. OnePath Q1+Q2 only. Default 0." );
+
+idCVar r_pathTracingUnifiedPtLambertBsdf(
+    "r_pathTracingUnifiedPtLambertBsdf",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Perf A/B: Lambert eval + cosine sample with authored albedo (F0 folded in so metals still bounce). Same texture prepare as OpenPBR; compiles Eon/GGX/VNDF out of the live OnePath Q1 sibling stack. Default 0." );
+
+idCVar r_pathTracingUnifiedPtTiledSurface(
+    "r_pathTracingUnifiedPtTiledSurface",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "NVIDIA-style 8x8 swizzle of the 64-byte UPT reservoir page so an 8x8 produce group is contiguous. Primary stays linear. Requires temporal and spatial off. Default 0." );
+
+idCVar r_pathTracingUnifiedPtReservoirTexture(
+    "r_pathTracingUnifiedPtReservoirTexture",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Store the 64-byte UPT reservoir page as a 4-layer RGBA32UI Texture2DArray so L2 traffic goes through L1TEX like FullSample G-buffer. Requires temporal and spatial off. Default 0." );
+
+idCVar r_pathTracingUnifiedPtPrimaryTexture(
+    "r_pathTracingUnifiedPtPrimaryTexture",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Store packed32 primary / previous / sidecar W x H pages as 2-layer RGBA32UI Texture2DArray so L2 traffic goes through L1TEX. Requires temporal and spatial off. Default 0." );
+
+idCVar r_pathTracingUnifiedPtOnePathGeometry(
+    "r_pathTracingUnifiedPtOnePathGeometry",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Replace four-route hit decode with one instance-table load plus concatenated vertex/index streams. Requires the shipping Q1+Q2 stack. Default 0." );
+
+
+idCVar r_pathTracingUnifiedPtNeeCache(
+    "r_pathTracingUnifiedPtNeeCache",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "UPT X produce/consume: sample NEECACHE-01 cell candidates at the secondary hit (Remix dispatchNEE consume). Requires one-path + Q1+Q2. Runs the existing primary-surface cache update. Default 0." );
+
 idCVar r_pathTracingUnifiedPtLambertDiagnostic(
     "r_pathTracingUnifiedPtLambertDiagnostic",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Vulkan UPT geometry-versus-material isolation: 0 production; 1 monolithic constant-gray Lambert plus flat GPU material table; 2 production split shading plus flat secondary-hit material table; 3 monolithic Lambert plus authored material table; 4 monolithic production OpenPBR plus authored material table; geometry/TLAS admission remains unchanged" );
+    "Vulkan UPT geometry-versus-material isolation: 0 production; 1 Lambert (X split if threeVertexSplit, else monolithic) plus flat GPU material table; 2 production split shading plus flat secondary-hit material table; 3 Lambert (X split if threeVertexSplit, else monolithic) plus authored material table; 4 monolithic production OpenPBR plus authored material table; geometry/TLAS admission remains unchanged" );
 
 idCVar r_pathTracingUnifiedPtFrozenScene(
     "r_pathTracingUnifiedPtFrozenScene",

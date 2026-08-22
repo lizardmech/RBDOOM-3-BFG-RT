@@ -66,8 +66,13 @@ public Upt04InitialLightSchedule Upt04MakeBounceLightSchedule(
 public Upt04InitialLightSchedule Upt04MakeSecondaryLightSchedule(
     Upt04LocalLightRanges ranges)
 {
-    return Upt04MakeBounceLightSchedule(
+    Upt04InitialLightSchedule schedule = Upt04MakeBounceLightSchedule(
         ranges, kUpt04SecondaryNeeBounceIndex);
+    Upt04CollapseSecondaryNeeOneCounts(
+        schedule.emissiveTrials, schedule.analyticTrials);
+    schedule.candidateCount = schedule.emissiveTrials
+        + schedule.analyticTrials;
+    return schedule;
 }
 
 public float Upt04InitialLightScheduleIdentityPdf(

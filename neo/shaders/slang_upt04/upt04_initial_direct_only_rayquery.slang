@@ -11,6 +11,8 @@ import upt04_light_contract;
 import upt04_material_contract;
 import upt04_primary_surface_live_contract;
 import upt04_initial_reservoir_stream;
+import upt04_reservoir_image;
+import upt04_primary_image;
 import upt04_random_contract;
 import upt04_random_white_hash;
 import upt05_material_set_openpbr;
@@ -50,7 +52,7 @@ public void Upt47ExecuteLegacyReflectionInitial(uint2 pixel)
         Upt04LoadPrimarySurfaceRecord(surfaceIndex);
     if (!Upt04PrimarySurfaceRecordValid(surface))
     {
-        gUpt04Reservoirs[surfaceIndex] = (Upt03PackedReservoir)0;
+        Upt04StorePackedReservoir(surfaceIndex, (Upt03PackedReservoir)0);
         return;
     }
 
@@ -67,7 +69,7 @@ public void Upt47ExecuteLegacyReflectionInitial(uint2 pixel)
     schedule.candidateCount = schedule.analyticTrials;
     if (schedule.candidateCount == 0u)
     {
-        gUpt04Reservoirs[surfaceIndex] = (Upt03PackedReservoir)0;
+        Upt04StorePackedReservoir(surfaceIndex, (Upt03PackedReservoir)0);
         return;
     }
 
@@ -134,7 +136,7 @@ public void Upt47ExecuteLegacyReflectionInitial(uint2 pixel)
     if (retryCount == 0u || positiveCandidateCount == 0u
         || !Upt04FinitePositive(weightSum))
     {
-        gUpt04Reservoirs[surfaceIndex] = (Upt03PackedReservoir)0;
+        Upt04StorePackedReservoir(surfaceIndex, (Upt03PackedReservoir)0);
         return;
     }
     if (selectedSlot >= retryCount)
@@ -170,7 +172,7 @@ public void Upt47ExecuteLegacyReflectionInitial(uint2 pixel)
         }
     }
 
-    gUpt04Reservoirs[surfaceIndex] = (Upt03PackedReservoir)0;
+    Upt04StorePackedReservoir(surfaceIndex, (Upt03PackedReservoir)0);
 }
 #endif
 
@@ -190,7 +192,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #if !UPT04_SPLIT_INITIAL_DIRECT
     if (gUpt04Control.shaderProofMode <= 1u)
     {
-        gUpt04Reservoirs[surfaceIndex] = (Upt03PackedReservoir)0;
+        Upt04StorePackedReservoir(surfaceIndex, (Upt03PackedReservoir)0);
         return;
     }
     if (gUpt04Control.shaderProofMode == 2u)
@@ -199,7 +201,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             Upt04LoadPrimarySurfaceRecord(surfaceIndex);
         Upt03PackedReservoir proof = (Upt03PackedReservoir)0;
         proof.word15 = surface.header.x;
-        gUpt04Reservoirs[surfaceIndex] = proof;
+        Upt04StorePackedReservoir(surfaceIndex, proof);
         return;
     }
 #endif
@@ -243,7 +245,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         Upt03PackedReservoir proof = (Upt03PackedReservoir)0;
         proof.word15 = hit.status;
-        gUpt04Reservoirs[surfaceIndex] = proof;
+        Upt04StorePackedReservoir(surfaceIndex, proof);
         return;
     }
     work = Upt04AdvanceInitialTraceWork(work, hit);

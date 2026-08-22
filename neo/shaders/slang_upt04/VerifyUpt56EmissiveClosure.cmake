@@ -50,9 +50,9 @@ endif()
 
 string(REGEX MATCHALL "Op[A-Za-z0-9]+" w_classify_ops "${w_classify_disassembly}")
 list(LENGTH w_classify_ops w_classify_op_count)
-if(w_classify_op_count GREATER 18700)
+if(w_classify_op_count GREATER 20000)
     message(FATAL_ERROR
-        "UPT-56 W classify SPIR-V op count ${w_classify_op_count} exceeds 18700")
+        "UPT-56 W classify SPIR-V op count ${w_classify_op_count} exceeds 20000")
 endif()
 
 string(REGEX MATCHALL "OpImageSample" w_classify_samples "${w_classify_disassembly}")

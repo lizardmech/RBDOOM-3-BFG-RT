@@ -14,7 +14,7 @@ import upt04_transport_initial_bounded;
 import upt04_initial_multibounce;
 #endif
 
-// Explicit 128-byte / 32-word token. Do not put float3 in this struct:
+// Explicit 96-byte / 24-word token. Do not put float3 in this struct:
 // std430 aligns float3 to 16 bytes and the host stride then desynchronizes.
 // Produce runs PrepareSecondContinuation on the live x2 surface and writes
 // the already-admitted x3 ray. Consume traces that ray; it does not Prepare.
@@ -26,8 +26,6 @@ public struct Upt04X3Token
     public uint4 d;
     public uint4 e;
     public uint4 f;
-    public uint4 g;
-    public uint4 h;
 };
 
 #if UPT04_THREE_VERTEX_SPLIT_PRODUCE || UPT04_THREE_VERTEX_SPLIT_CONSUME
@@ -74,8 +72,6 @@ public Upt04X3Token Upt04X3PackPrepared(
         asuint(x2Position.y),
         asuint(x2Position.z),
         prepared.work.candidateFlags);
-    token.g = uint4(0u, 0u, 0u, 0u);
-    token.h = uint4(0u, 0u, 0u, 0u);
     return token;
 }
 

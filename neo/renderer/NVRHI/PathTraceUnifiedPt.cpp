@@ -36,6 +36,27 @@ static constexpr uint32_t UPT04_COMPACT_MATERIAL_STRIDE = 48u;
 static constexpr uint32_t UPT04_COMPACT_MATERIAL_PUSH_CONSTANT_BYTES = 4u;
 static constexpr uint32_t UPT04_CONTINUATION_HIT_STRIDE = 32u;
 static constexpr uint32_t UPT04_PUSH_CONSTANT_BYTES = 224u;
+static constexpr uint32_t UPT04_PRIMARY_IMAGE_COPY_PUSH_CONSTANT_BYTES = 16u;
+static constexpr uint32_t UPT04_SMOKE_VERTEX_STRIDE = 112u;
+static constexpr uint32_t UPT04_ONE_PATH_INSTANCE_STRIDE = 80u;
+static constexpr uint32_t UPT04_ONE_PATH_PACK_PUSH_CONSTANT_BYTES = 64u;
+
+struct Upt04OnePathInstanceRecordHost
+{
+    uint32_t vertexBase;
+    uint32_t indexBase;
+    uint32_t triangleCount;
+    uint32_t materialBase;
+    uint32_t flags;
+    uint32_t classBase;
+    uint32_t vertexCount;
+    uint32_t indexCount;
+    float objectToWorld0[4];
+    float objectToWorld1[4];
+    float objectToWorld2[4];
+};
+static_assert(sizeof(Upt04OnePathInstanceRecordHost) == UPT04_ONE_PATH_INSTANCE_STRIDE,
+    "Upt04OnePathInstanceRecord host/Slang stride mismatch");
 static constexpr uint32_t UPT04_FAMILY_LOCAL_LIGHT = 1u << 0u;
 static constexpr uint32_t UPT04_FAMILY_INDIRECT = 1u << 1u;
 static constexpr uint32_t UPT04_ROUTE_STATIC_BUCKETS = 1u << 1u;
@@ -554,17 +575,31 @@ static const char* Upt04InitialShaderPath(
 static const char* Upt04SplitDirectShaderPath(
     bool compactGeometry,
     bool compactLights,
-    bool lightTiles)
+    bool lightTiles,
+    bool replayFreeSecondaryNee,
+    bool lambertBsdf)
 {
     if (lightTiles)
     {
         return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_light_tiles.bin";
     }
-    return compactGeometry
-        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_geometry48_light64.bin"
-        : (compactLights
-            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_light64.bin"
-            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32.bin");
+    if (compactGeometry)
+    {
+        return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_geometry48_light64.bin";
+    }
+    if (compactLights && replayFreeSecondaryNee)
+    {
+        return lambertBsdf
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_light64_resolved_lambertbsdf.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_light64_resolved.bin";
+    }
+    if (compactLights)
+    {
+        return lambertBsdf
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_light64_lambertbsdf.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32_light64.bin";
+    }
+    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_direct_rayquery_compact32.bin";
 }
 
 static const char* Upt04SplitIndirectShaderPath(
@@ -576,10 +611,120 @@ static const char* Upt04SplitIndirectShaderPath(
     bool staticAnalyticOnly,
     bool emissiveClassify,
     bool threeVertexSplit,
-    bool geometryNoSkinned)
+    bool geometryNoSkinned,
+    bool onePathGeometry,
+    bool neeCache,
+    bool secondaryNeeOne,
+    bool exactSecondaryMis,
+    bool replayFreeSecondaryNee,
+    bool lambertDiagnostic,
+    bool debugThinProduce,
+    bool debugThinProduceRay,
+    int produceBodyProbe,
+    bool q1Sibling,
+    bool lambertBsdf)
 {
     if (threeVertexInitial && threeVertexSplit && !staticAnalyticOnly)
     {
+        if (onePathGeometry && !compactGeometry)
+        {
+            if (q1Sibling && secondaryNeeOne && !exactSecondaryMis &&
+                !neeCache && !geometryNoSkinned)
+            {
+                return lambertBsdf
+                    ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_q1sib_lambertbsdf.bin"
+                    : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_q1sib.bin";
+            }
+            if (produceBodyProbe >= 1 && produceBodyProbe <= 8 &&
+                secondaryNeeOne && !exactSecondaryMis && !replayFreeSecondaryNee &&
+                !neeCache && !geometryNoSkinned)
+            {
+                if (produceBodyProbe == 1)
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_ray.bin";
+                if (produceBodyProbe == 4)
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_decode.bin";
+                if (produceBodyProbe == 5)
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_shade.bin";
+                if (produceBodyProbe == 6)
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_brdf.bin";
+                if (produceBodyProbe == 7)
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_pick.bin";
+                if (produceBodyProbe == 8)
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_eval.bin";
+                if (produceBodyProbe == 2)
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_hit.bin";
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_nee.bin";
+            }
+            if (neeCache && secondaryNeeOne && !exactSecondaryMis && !replayFreeSecondaryNee && !geometryNoSkinned)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_neecache.bin";
+            }
+            if (replayFreeSecondaryNee && secondaryNeeOne && !exactSecondaryMis &&
+                !neeCache && !geometryNoSkinned)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_resolved.bin";
+            }
+            return geometryNoSkinned
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_noskinned.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis.bin";
+        }
+        if (debugThinProduce && !compactGeometry && !geometryNoSkinned)
+        {
+            return debugThinProduceRay
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_debug_thin_ray.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_debug_thin.bin";
+        }
+        if (!compactGeometry && !geometryNoSkinned)
+        {
+            if (lambertDiagnostic)
+            {
+                if (secondaryNeeOne && !exactSecondaryMis && !replayFreeSecondaryNee)
+                {
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_lambert.bin";
+                }
+                if (!secondaryNeeOne && exactSecondaryMis)
+                {
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_lambert.bin";
+                }
+            }
+            if (compactMaterials)
+            {
+                if (secondaryNeeOne && !exactSecondaryMis && replayFreeSecondaryNee)
+                {
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_resolved_material48.bin";
+                }
+                if (secondaryNeeOne && !exactSecondaryMis)
+                {
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_material48.bin";
+                }
+                if (!secondaryNeeOne && exactSecondaryMis)
+                {
+                    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_material48.bin";
+                }
+            }
+            if (secondaryNeeOne && !exactSecondaryMis && replayFreeSecondaryNee)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_resolved.bin";
+            }
+            if (secondaryNeeOne && !exactSecondaryMis)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis.bin";
+            }
+            if (secondaryNeeOne)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1.bin";
+            }
+            if (!exactSecondaryMis)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_noexactmis.bin";
+            }
+        }
+        if (compactGeometry)
+        {
+            return geometryNoSkinned
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_produce_noskinned.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_produce.bin";
+        }
         return geometryNoSkinned
             ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_noskinned.bin"
             : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce.bin";
@@ -622,9 +767,81 @@ static const char* Upt04EmissiveCompactConsumeShaderPath()
     return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_consume.bin";
 }
 
-static const char* Upt04X3ConsumeShaderPath()
+static const char* Upt04X3ConsumeShaderPath(
+    bool compactGeometry,
+    bool onePathGeometry,
+    bool neeCache,
+    bool secondaryNeeOne,
+    bool exactSecondaryMis,
+    bool replayFreeSecondaryNee,
+    bool compactMaterials,
+    bool lambertDiagnostic,
+    bool lambertBsdf)
 {
-    return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume.bin";
+    if (onePathGeometry && !compactGeometry)
+    {
+        if (neeCache && secondaryNeeOne && !exactSecondaryMis && !replayFreeSecondaryNee)
+        {
+            return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_neecache.bin";
+        }
+        if (replayFreeSecondaryNee && secondaryNeeOne && !exactSecondaryMis)
+        {
+            return lambertBsdf
+                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_resolved_lambertbsdf.bin"
+                : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_resolved.bin";
+        }
+        return lambertBsdf
+            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_lambertbsdf.bin"
+            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis.bin";
+    }
+    if (!compactGeometry)
+    {
+        if (lambertDiagnostic)
+        {
+            if (secondaryNeeOne && !exactSecondaryMis && !replayFreeSecondaryNee)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_lambert.bin";
+            }
+            if (!secondaryNeeOne && exactSecondaryMis)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_lambert.bin";
+            }
+        }
+        if (compactMaterials)
+        {
+            if (secondaryNeeOne && !exactSecondaryMis && replayFreeSecondaryNee)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_resolved_material48.bin";
+            }
+            if (secondaryNeeOne && !exactSecondaryMis)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_material48.bin";
+            }
+            if (!secondaryNeeOne && exactSecondaryMis)
+            {
+                return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_material48.bin";
+            }
+        }
+        if (secondaryNeeOne && !exactSecondaryMis && replayFreeSecondaryNee)
+        {
+            return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_resolved.bin";
+        }
+        if (secondaryNeeOne && !exactSecondaryMis)
+        {
+            return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis.bin";
+        }
+        if (secondaryNeeOne)
+        {
+            return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1.bin";
+        }
+        if (!exactSecondaryMis)
+        {
+            return "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_noexactmis.bin";
+        }
+    }
+    return compactGeometry
+        ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_consume.bin"
+        : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume.bin";
 }
 
 static const char* Upt04ContinuationTraceShaderPath()
@@ -871,6 +1088,11 @@ static uint64_t Upt06BuildContentGeneration(
     hash = Upt04HashValue(hash, enabledFamilyMask);
     hash = Upt04HashValue(hash, specializationIdentity);
     hash = Upt04HashValue(hash, dispatch.lambertDiagnostic ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.debugThinProduce ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.debugThinProduceRay ? 1u : 0u);
+    hash = Upt04HashValue(hash, static_cast<uint32_t>(dispatch.produceBodyProbe));
+    hash = Upt04HashValue(hash, dispatch.q1Sibling ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.lambertBsdf ? 1u : 0u);
     hash = Upt04HashValue(hash, dispatch.staticAnalyticOnly ? 1u : 0u);
     hash = Upt04HashValue(hash, dispatch.emissiveCompact ? 1u : 0u);
     hash = Upt04HashValue(hash, dispatch.threeVertexSplit ? 1u : 0u);
@@ -894,6 +1116,9 @@ static uint64_t Upt06BuildContentGeneration(
     hash = Upt04HashValue(hash, UPT04_SECONDARY_NEE_BOUNCE_INDEX);
     hash = Upt04HashValue(hash, dispatch.lightTiles ? 1u : 0u);
     hash = Upt04HashValue(hash, dispatch.threeVertexInitial ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.secondaryNeeOne ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.exactSecondaryMis ? 1u : 0u);
+    hash = Upt04HashValue(hash, dispatch.replayFreeSecondaryNee ? 1u : 0u);
     hash = Upt04HashValue(hash, dispatch.threeVertexInitial
         ? Upt04FloatBitPattern(Upt04ThreeVertexContinueProbability()) : 0u);
     hash = Upt04HashValue(hash, dispatch.threeVertexInitial
@@ -1238,14 +1463,63 @@ static bool Upt04InputsValid(const PathTraceUnifiedPtDispatchInputs& dispatch)
         return false;
     }
     if (dispatch.threeVertexInitial &&
-        (!dispatch.splitInitial || dispatch.compactGeometry ||
-         !dispatch.compactLights || dispatch.compactMaterials ||
+        (!dispatch.splitInitial ||
+         !dispatch.compactLights ||
          dispatch.lightTiles ||
          (dispatch.spatial && !Upt38ThreeVertexSpatialEnabled(dispatch)) ||
          dispatch.backend != PathTraceUnifiedPtBackend::RayQuery ||
          dispatch.family != PathTraceUnifiedPtFamily::Unified ||
          dispatch.primaryReceiverMode != 2u || dispatch.diagnostics ||
-         dispatch.lambertDiagnostic || dispatch.shaderProofMode != 6u))
+         dispatch.shaderProofMode != 6u))
+    {
+        return false;
+    }
+    if ((dispatch.secondaryNeeOne || !dispatch.exactSecondaryMis ||
+         dispatch.replayFreeSecondaryNee) &&
+        (!dispatch.threeVertexSplit || dispatch.compactGeometry ||
+         dispatch.geometryNoSkinned || dispatch.staticAnalyticOnly ||
+         dispatch.emissiveCompact ||
+         dispatch.lightTiles || !dispatch.compactLights))
+    {
+        return false;
+    }
+    if (dispatch.onePathGeometry &&
+        !(dispatch.secondaryNeeOne && !dispatch.exactSecondaryMis))
+    {
+        return false;
+    }
+    if (dispatch.neeCache &&
+        !(dispatch.onePathGeometry && dispatch.secondaryNeeOne &&
+          !dispatch.exactSecondaryMis && !dispatch.replayFreeSecondaryNee))
+    {
+        return false;
+    }
+    if (dispatch.q1Sibling &&
+        !(dispatch.onePathGeometry && dispatch.secondaryNeeOne &&
+          !dispatch.exactSecondaryMis &&
+          !dispatch.neeCache && dispatch.threeVertexSplit))
+    {
+        return false;
+    }
+    if (dispatch.lambertBsdf &&
+        !(dispatch.q1Sibling && dispatch.onePathGeometry &&
+          dispatch.secondaryNeeOne && !dispatch.exactSecondaryMis &&
+          !dispatch.neeCache && !dispatch.lambertDiagnostic &&
+          !dispatch.compactGeometry && !dispatch.compactMaterials &&
+          !dispatch.lightTiles))
+    {
+        return false;
+    }
+    if (dispatch.produceBodyProbe != 0 &&
+        (dispatch.produceBodyProbe < 1 || dispatch.produceBodyProbe > 8 ||
+         !dispatch.onePathGeometry || !dispatch.secondaryNeeOne ||
+         dispatch.exactSecondaryMis || dispatch.replayFreeSecondaryNee ||
+         dispatch.neeCache || dispatch.geometryNoSkinned))
+    {
+        return false;
+    }
+    if (dispatch.replayFreeSecondaryNee &&
+        (!dispatch.secondaryNeeOne || dispatch.exactSecondaryMis))
     {
         return false;
     }
@@ -1311,7 +1585,10 @@ static void Upt04AddBindingLayoutItems(
     bool splitContinuation,
     bool lightTiles,
     bool emissiveCompact,
-    bool threeVertexSplit)
+    bool resolvedEmissive,
+    bool threeVertexSplit,
+    bool neeCache,
+    bool q1Sibling)
 {
     desc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
     desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
@@ -1346,6 +1623,9 @@ static void Upt04AddBindingLayoutItems(
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(33));
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(34));
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(35));
+    }
+    if (emissiveCompact || resolvedEmissive)
+    {
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(36));
     }
     if (threeVertexSplit)
@@ -1353,6 +1633,22 @@ static void Upt04AddBindingLayoutItems(
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(37));
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(38));
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(39));
+    }
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(41));
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(42));
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(43));
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(44));
+    if (q1Sibling)
+    {
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(46));
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(47));
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(48));
+    }
+    if (neeCache)
+    {
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
+        desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
     }
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
 }
@@ -1374,6 +1670,11 @@ static void Upt04AddDirectBindingLayoutItems(nvrhi::BindingLayoutDesc& desc)
     for (uint32_t slot = 26u; slot <= 29u; ++slot)
         desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
     desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(32));
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(41));
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(42));
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(43));
+    desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(44));
     desc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT04_PUSH_CONSTANT_BYTES));
 }
@@ -1476,7 +1777,20 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     nvrhi::BufferHandle emissiveCompactDispatchArgs,
     nvrhi::BufferHandle x3Queue,
     nvrhi::BufferHandle x3Meta,
-    nvrhi::BufferHandle x3DispatchArgs)
+    nvrhi::BufferHandle x3DispatchArgs,
+    nvrhi::BufferHandle q1Queue,
+    nvrhi::BufferHandle q1Meta,
+    nvrhi::BufferHandle q1DispatchArgs,
+    nvrhi::TextureHandle currentTex,
+    nvrhi::TextureHandle historyTex,
+    nvrhi::TextureHandle currentPrimaryTex,
+    nvrhi::TextureHandle previousPrimaryTex,
+    nvrhi::TextureHandle previousSidecarTex,
+    nvrhi::BufferHandle onePathVertices,
+    nvrhi::BufferHandle onePathIndices,
+    nvrhi::BufferHandle onePathClasses,
+    nvrhi::BufferHandle onePathMaterials,
+    nvrhi::BufferHandle onePathInstances)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -1494,10 +1808,14 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     desc.addItem(nvrhi::BindingSetItem::Sampler(5, materials.textureSampler));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, lights.emissiveTriangleBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-        7, dispatch.compactGeometry ? compactStaticVertices : geometry.staticVertexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, geometry.staticIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(9, geometry.staticTriangleClassBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, geometry.staticTriangleMaterialIndexBuffer));
+        7, dispatch.onePathGeometry ? onePathVertices
+            : (dispatch.compactGeometry ? compactStaticVertices : geometry.staticVertexBuffer)));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        8, dispatch.onePathGeometry ? onePathIndices : geometry.staticIndexBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        9, dispatch.onePathGeometry ? onePathClasses : geometry.staticTriangleClassBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        10, dispatch.onePathGeometry ? onePathMaterials : geometry.staticTriangleMaterialIndexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         11, dispatch.compactGeometry ? compactDynamicVertices : geometry.dynamicVertexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, geometry.dynamicIndexBuffer));
@@ -1506,7 +1824,8 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         15, dispatch.compactGeometry ? compactRigidVertices : geometry.rigidRouteVertexBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, geometry.rigidRouteIndexBuffer));
-    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(17, geometry.rigidRouteInstanceBuffer));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
+        17, dispatch.onePathGeometry ? onePathInstances : geometry.rigidRouteInstanceBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         18, dispatch.compactGeometry ? compactSkinnedVertices : Upt04SkinnedVertexBuffer(inputs)));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(19, Upt04SkinnedIndexBuffer(inputs)));
@@ -1557,6 +1876,9 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
             34, emissiveCompactMeta));
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(
             35, emissiveCompactDispatchArgs));
+    }
+    if (dispatch.emissiveCompact || dispatch.replayFreeSecondaryNee)
+    {
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
             36, resolvedEmissive));
     }
@@ -1565,6 +1887,28 @@ static nvrhi::BindingSetDesc Upt04BuildBindingSetDesc(
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(37, x3Queue));
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(38, x3Meta));
         desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(39, x3DispatchArgs));
+    }
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(40, currentTex));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(41, historyTex));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(42, currentPrimaryTex));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(43, previousPrimaryTex));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(44, previousSidecarTex));
+    if (dispatch.q1Sibling)
+    {
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(46, q1Queue));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(47, q1Meta));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(48, q1DispatchArgs));
+    }
+    if (dispatch.neeCache)
+    {
+        nvrhi::IBuffer* cells = dispatch.neeCacheCellBuffer
+            ? dispatch.neeCacheCellBuffer
+            : dispatch.neeCachePlaceholderBuffer;
+        nvrhi::IBuffer* cands = dispatch.neeCacheCandidateBuffer
+            ? dispatch.neeCacheCandidateBuffer
+            : dispatch.neeCachePlaceholderBuffer;
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, cells));
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, cands));
     }
     desc.addItem(nvrhi::BindingSetItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
     return desc;
@@ -1579,7 +1923,12 @@ static nvrhi::BindingSetDesc Upt04BuildDirectBindingSetDesc(
     nvrhi::BufferHandle compactRigidVertices,
     nvrhi::BufferHandle compactSkinnedVertices,
     nvrhi::BufferHandle compactLights,
-    nvrhi::BufferHandle compactMaterials)
+    nvrhi::BufferHandle compactMaterials,
+    nvrhi::TextureHandle currentTex,
+    nvrhi::TextureHandle historyTex,
+    nvrhi::TextureHandle currentPrimaryTex,
+    nvrhi::TextureHandle previousPrimaryTex,
+    nvrhi::TextureHandle previousSidecarTex)
 {
     const RtPathTraceSceneInputs& inputs = *dispatch.sceneInputs;
     const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
@@ -1627,6 +1976,11 @@ static nvrhi::BindingSetDesc Upt04BuildDirectBindingSetDesc(
             : lights.emissiveDistributionBuffer));
     desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
         32, lights.unifiedPtEmissiveGeometryBuffer));
+    desc.addItem(nvrhi::BindingSetItem::Texture_UAV(40, currentTex));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(41, historyTex));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(42, currentPrimaryTex));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(43, previousPrimaryTex));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(44, previousSidecarTex));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(0, UPT04_PUSH_CONSTANT_BYTES));
     return desc;
 }
@@ -1853,6 +2207,12 @@ static Upt04InitialControl Upt04BuildControl(
             0, 15,
             r_pathTracingUnifiedPtThreeVertexBottleneckProbe.GetInteger()))
         : 0u;
+    if (dispatch.tiledSurface)
+        control.indirectPolicyFlags |= 0x00000100u;
+    if (dispatch.reservoirTexture)
+        control.indirectPolicyFlags |= 0x00000200u;
+    if (dispatch.primaryTexture)
+        control.indirectPolicyFlags |= 0x00000400u;
     // Preserve the accepted 208-byte prefix: UPT-37 transports two binary32
     // values through the previously reserved uint words. The RR reprojection
     // jitter is appended after that prefix.
@@ -1899,6 +2259,13 @@ void PathTraceUnifiedPtState::ReleasePipeline()
     m_emissiveCompactConsumePipeline = nullptr;
     m_emissiveCompactConsumeShader = nullptr;
     m_x3ConsumePipeline = nullptr;
+    m_q1SiblingShader = nullptr;
+    m_q1SiblingPipeline = nullptr;
+    m_q1Queue = nullptr;
+    m_q1Meta = nullptr;
+    m_q1DispatchArgs = nullptr;
+    m_q1Capacity = 0u;
+    m_q1TokenStride = 0u;
     m_x3ConsumeShader = nullptr;
     m_computePipeline = nullptr;
     m_computeShader = nullptr;
@@ -2129,6 +2496,34 @@ void PathTraceUnifiedPtState::Release()
     m_spatialGpuTimingQueryFailureLogged = false;
     m_page0 = nullptr;
     m_page1 = nullptr;
+    m_page0Tex = nullptr;
+    m_page1Tex = nullptr;
+    m_dummyReservoirTex = nullptr;
+    m_primaryCurrentTex = nullptr;
+    m_primaryPreviousTex = nullptr;
+    m_primarySidecarTex = nullptr;
+    m_dummyPrimaryTex = nullptr;
+    m_onePathVertices = nullptr;
+    m_onePathIndices = nullptr;
+    m_onePathMaterials = nullptr;
+    m_onePathClasses = nullptr;
+    m_onePathInstances = nullptr;
+    m_onePathDummyUint = nullptr;
+    m_onePathPackBindingLayout = nullptr;
+    m_onePathPackBindingSet = nullptr;
+    m_onePathPackBindingSetDescValid = false;
+    m_onePathPackShader = nullptr;
+    m_onePathPackPipeline = nullptr;
+    m_onePathPackPipelineAttempted = false;
+    m_primaryCopyBindingLayout = nullptr;
+    m_primaryCopyShader = nullptr;
+    m_primaryCopyPipeline = nullptr;
+    m_primaryCopyPipelineAttempted = false;
+    for (uint32_t i = 0u; i < 3u; ++i)
+    {
+        m_primaryCopyBindingSets[i] = nullptr;
+        m_primaryCopyBindingSetDescValid[i] = false;
+    }
     m_page0Metadata.Invalidate();
     m_page1Metadata.Invalidate();
     m_currentPageIndex = 0u;
@@ -2165,6 +2560,9 @@ void PathTraceUnifiedPtState::Release()
     m_splitInitial = false;
     m_threeVertexInitial = false;
     m_threeVertexSplit = false;
+    m_secondaryNeeOne = false;
+    m_exactSecondaryMis = true;
+    m_replayFreeSecondaryNee = false;
     m_geometryNoSkinned = false;
     m_splitContinuation = false;
     m_staticAnalyticOnly = false;
@@ -2261,6 +2659,617 @@ nvrhi::BufferHandle PathTraceUnifiedPtState::HistoryPage() const
     return m_historyPageIndex == 0u ? m_page0 : m_page1;
 }
 
+nvrhi::TextureHandle PathTraceUnifiedPtState::CurrentReservoirTex() const
+{
+    const nvrhi::TextureHandle page =
+        m_currentPageIndex == 0u ? m_page0Tex : m_page1Tex;
+    return page ? page : m_dummyReservoirTex;
+}
+
+nvrhi::TextureHandle PathTraceUnifiedPtState::HistoryReservoirTex() const
+{
+    const nvrhi::TextureHandle page =
+        m_historyPageIndex == 0u ? m_page0Tex : m_page1Tex;
+    return page ? page : m_dummyReservoirTex;
+}
+
+nvrhi::TextureHandle PathTraceUnifiedPtState::ResolveReservoirTex() const
+{
+    const uint32_t pageIndex = m_spatialExecutedThisFrame
+        ? m_historyPageIndex : m_currentPageIndex;
+    const nvrhi::TextureHandle page =
+        pageIndex == 0u ? m_page0Tex : m_page1Tex;
+    return page ? page : m_dummyReservoirTex;
+}
+
+
+nvrhi::TextureHandle PathTraceUnifiedPtState::CurrentPrimaryTex() const
+{
+    return m_primaryCurrentTex ? m_primaryCurrentTex : m_dummyPrimaryTex;
+}
+
+nvrhi::TextureHandle PathTraceUnifiedPtState::HistoryPrimaryTex() const
+{
+    return m_primaryPreviousTex ? m_primaryPreviousTex : m_dummyPrimaryTex;
+}
+
+nvrhi::TextureHandle PathTraceUnifiedPtState::HistorySidecarTex() const
+{
+    return m_primarySidecarTex ? m_primarySidecarTex : m_dummyPrimaryTex;
+}
+
+bool PathTraceUnifiedPtState::EnsurePrimaryTextures(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.device)
+        return false;
+    if (!m_dummyPrimaryTex)
+    {
+        nvrhi::TextureDesc dummy;
+        dummy.width = 1;
+        dummy.height = 1;
+        dummy.arraySize = 2;
+        dummy.mipLevels = 1;
+        dummy.dimension = nvrhi::TextureDimension::Texture2DArray;
+        dummy.format = nvrhi::Format::RGBA32_UINT;
+        dummy.isUAV = true;
+        dummy.debugName = "PathTraceUnifiedPtPrimaryDummy";
+        dummy.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        dummy.keepInitialState = true;
+        m_dummyPrimaryTex = inputs.device->createTexture(dummy);
+        if (!m_dummyPrimaryTex)
+            return false;
+    }
+    if (m_primaryCurrentTex && m_primaryPreviousTex && m_primarySidecarTex &&
+        m_primaryCurrentTex->getDesc().width == inputs.width &&
+        m_primaryCurrentTex->getDesc().height == inputs.height &&
+        m_primaryCurrentTex->getDesc().arraySize == 2)
+    {
+        return true;
+    }
+    nvrhi::TextureDesc desc;
+    desc.width = inputs.width;
+    desc.height = inputs.height;
+    desc.arraySize = 2;
+    desc.mipLevels = 1;
+    desc.dimension = nvrhi::TextureDimension::Texture2DArray;
+    desc.format = nvrhi::Format::RGBA32_UINT;
+    desc.isUAV = true;
+    desc.debugName = "PathTraceUnifiedPtPrimaryCurrent";
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+    m_primaryCurrentTex = inputs.device->createTexture(desc);
+    desc.debugName = "PathTraceUnifiedPtPrimaryPrevious";
+    m_primaryPreviousTex = inputs.device->createTexture(desc);
+    desc.debugName = "PathTraceUnifiedPtPrimarySidecar";
+    m_primarySidecarTex = inputs.device->createTexture(desc);
+    if (!m_primaryCurrentTex || !m_primaryPreviousTex || !m_primarySidecarTex)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to allocate primary textures (%ux%u x2)\n",
+            inputs.width, inputs.height);
+        return false;
+    }
+    for (uint32_t i = 0u; i < 3u; ++i)
+    {
+        m_primaryCopyBindingSets[i] = nullptr;
+        m_primaryCopyBindingSetDescValid[i] = false;
+    }
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsurePrimaryImageCopyPipeline(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (m_primaryCopyPipeline)
+        return true;
+    if (m_primaryCopyPipelineAttempted)
+        return false;
+    m_primaryCopyPipelineAttempted = true;
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT04_PRIMARY_IMAGE_COPY_PUSH_CONSTANT_BYTES));
+    m_primaryCopyBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!m_primaryCopyBindingLayout)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create primary-image copy layout\n");
+        return false;
+    }
+    void* shaderData = nullptr;
+    int shaderSize = 0;
+    ID_TIME_T shaderTimestamp = 0;
+    uint64_t shaderHash = 0;
+    if (!Upt04ReadShader(
+            "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_primary_image_copy.bin",
+            shaderData,
+            shaderSize,
+            shaderTimestamp,
+            shaderHash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtPrimaryImageCopy";
+    m_primaryCopyShader = inputs.device->createShader(
+        shaderDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!m_primaryCopyShader)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create primary-image copy shader\n");
+        return false;
+    }
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_primaryCopyShader;
+    pipelineDesc.bindingLayouts = { m_primaryCopyBindingLayout };
+    m_primaryCopyPipeline = inputs.device->createComputePipeline(pipelineDesc);
+    if (!m_primaryCopyPipeline)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create primary-image copy pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: primary-image copy compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8\n",
+        shaderSize,
+        static_cast<unsigned long long>(shaderHash),
+        static_cast<long long>(shaderTimestamp));
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecutePrimaryImageCopy(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.primaryTexture)
+        return true;
+    if (!EnsurePrimaryImageCopyPipeline(inputs))
+        return false;
+    nvrhi::IBuffer* sources[3] = {
+        inputs.primarySurfaceBuffer,
+        inputs.primarySurfacePreviousBuffer,
+        inputs.primaryHistorySidecarPreviousBuffer
+            ? inputs.primaryHistorySidecarPreviousBuffer
+            : inputs.primarySurfacePreviousBuffer
+    };
+    nvrhi::TextureHandle destinations[3] = {
+        CurrentPrimaryTex(),
+        HistoryPrimaryTex(),
+        HistorySidecarTex()
+    };
+    const uint32_t control[4] = { inputs.width, inputs.height, 0u, 0u };
+    for (uint32_t i = 0u; i < 3u; ++i)
+    {
+        if (!sources[i] || !destinations[i])
+            return false;
+        nvrhi::BindingSetDesc desc;
+        desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, sources[i]));
+        desc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, destinations[i]));
+        desc.addItem(nvrhi::BindingSetItem::PushConstants(
+            0, UPT04_PRIMARY_IMAGE_COPY_PUSH_CONSTANT_BYTES));
+        if (!(m_primaryCopyBindingSets[i] &&
+              m_primaryCopyBindingSetDescValid[i] &&
+              m_primaryCopyBindingSetDescs[i] == desc))
+        {
+            m_primaryCopyBindingSets[i] = inputs.device->createBindingSet(
+                desc, m_primaryCopyBindingLayout);
+            if (!m_primaryCopyBindingSets[i])
+            {
+                common->Printf(
+                    "PathTraceUnifiedPt: failed to create primary-image copy set %u\n",
+                    i);
+                return false;
+            }
+            m_primaryCopyBindingSetDescs[i] = desc;
+            m_primaryCopyBindingSetDescValid[i] = true;
+        }
+        inputs.commandList->setBufferState(
+            sources[i], nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setTextureState(
+            destinations[i],
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+        nvrhi::ComputeState state;
+        state.pipeline = m_primaryCopyPipeline;
+        state.bindings = { m_primaryCopyBindingSets[i] };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(control, sizeof(control));
+        inputs.commandList->dispatch(
+            (inputs.width + 7u) / 8u, (inputs.height + 7u) / 8u, 1u);
+    }
+    for (uint32_t i = 0u; i < 3u; ++i)
+    {
+        inputs.commandList->setTextureState(
+            destinations[i],
+            nvrhi::AllSubresources,
+            nvrhi::ResourceStates::ShaderResource);
+    }
+    inputs.commandList->commitBarriers();
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureOnePathGeometry(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.onePathGeometry)
+        return true;
+    if (!inputs.device)
+        return false;
+    const RtPathTraceSceneInputGeometry& geometry = inputs.sceneInputs->geometry;
+    const uint32_t staticV = static_cast<uint32_t>(Max(0, geometry.staticVertexCount));
+    const uint32_t staticI = static_cast<uint32_t>(Max(0, geometry.staticIndexCount));
+    const uint32_t staticT = static_cast<uint32_t>(Max(0, geometry.staticTriangleCount));
+    const uint32_t dynamicV = static_cast<uint32_t>(Max(0, geometry.dynamicVertexCount));
+    const uint32_t dynamicI = static_cast<uint32_t>(Max(0, geometry.dynamicIndexCount));
+    const uint32_t dynamicT = static_cast<uint32_t>(Max(0, geometry.dynamicTriangleCount));
+    const uint32_t rigidV = static_cast<uint32_t>(Max(0, geometry.rigidRouteVertexCount));
+    const uint32_t rigidI = static_cast<uint32_t>(Max(0, geometry.rigidRouteIndexCount));
+    const uint32_t rigidN = static_cast<uint32_t>(Max(0, geometry.rigidRouteInstanceCount));
+    const uint32_t skinnedV = static_cast<uint32_t>(Max(0, geometry.skinnedGpuComputeVertexCount));
+    const uint32_t skinnedI = static_cast<uint32_t>(Max(0, geometry.skinnedSourceIndexCount));
+    const uint32_t skinnedR = inputs.geometryNoSkinned
+        ? 0u
+        : static_cast<uint32_t>(Max(0, geometry.skinnedHitRouteRecordCount));
+    const uint32_t skinnedT = inputs.geometryNoSkinned
+        ? 0u
+        : static_cast<uint32_t>(Max(0, geometry.skinnedHitRouteTriangleCount));
+    const uint32_t vertexCount = staticV + dynamicV + rigidV + skinnedV;
+    const uint32_t indexCount = staticI + dynamicI + rigidI + skinnedI;
+    const uint32_t materialCount = staticT + dynamicT + skinnedT;
+    const uint32_t instanceCount = 2u + rigidN + skinnedR;
+    const uint64_t vertexBytes = uint64_t(Max(1u, vertexCount)) * UPT04_SMOKE_VERTEX_STRIDE;
+    const uint64_t indexBytes = uint64_t(Max(1u, indexCount)) * 4ull;
+    const uint64_t materialBytes = uint64_t(Max(1u, materialCount)) * 4ull;
+    const uint64_t instanceBytes = uint64_t(Max(2u, instanceCount)) * UPT04_ONE_PATH_INSTANCE_STRIDE;
+    auto ensureBuffer = [&inputs](
+        nvrhi::BufferHandle& buffer,
+        uint64_t bytes,
+        uint32_t stride,
+        bool uav,
+        const char* name) -> bool
+    {
+        if (buffer && buffer->getDesc().structStride == stride &&
+            buffer->getDesc().byteSize >= bytes)
+        {
+            return true;
+        }
+        nvrhi::BufferDesc desc;
+        desc.debugName = name;
+        desc.byteSize = bytes;
+        desc.structStride = stride;
+        desc.canHaveUAVs = uav;
+        desc.initialState = uav
+            ? nvrhi::ResourceStates::UnorderedAccess
+            : nvrhi::ResourceStates::ShaderResource;
+        desc.keepInitialState = true;
+        buffer = inputs.device->createBuffer(desc);
+        if (!buffer)
+        {
+            common->Printf(
+                "PathTraceUnifiedPt: failed to allocate %s bytes=%llu\n",
+                name,
+                static_cast<unsigned long long>(bytes));
+            return false;
+        }
+        return true;
+    };
+    if (!m_onePathDummyUint)
+    {
+        nvrhi::BufferDesc dummy;
+        dummy.debugName = "PathTraceUnifiedPtOnePathDummyUint";
+        dummy.byteSize = 16;
+        dummy.structStride = 4;
+        dummy.initialState = nvrhi::ResourceStates::ShaderResource;
+        dummy.keepInitialState = true;
+        m_onePathDummyUint = inputs.device->createBuffer(dummy);
+        if (!m_onePathDummyUint)
+            return false;
+    }
+    if (!ensureBuffer(m_onePathVertices, vertexBytes, UPT04_SMOKE_VERTEX_STRIDE, false,
+            "PathTraceUnifiedPtOnePathVertices") ||
+        !ensureBuffer(m_onePathIndices, indexBytes, 4u, false,
+            "PathTraceUnifiedPtOnePathIndices") ||
+        !ensureBuffer(m_onePathMaterials, materialBytes, 4u, true,
+            "PathTraceUnifiedPtOnePathMaterials") ||
+        !ensureBuffer(m_onePathClasses, materialBytes, 4u, true,
+            "PathTraceUnifiedPtOnePathClasses") ||
+        !ensureBuffer(m_onePathInstances, instanceBytes, UPT04_ONE_PATH_INSTANCE_STRIDE, true,
+            "PathTraceUnifiedPtOnePathInstances"))
+    {
+        return false;
+    }
+    m_onePathVertexBytes = static_cast<uint32_t>(vertexBytes);
+    m_onePathIndexBytes = static_cast<uint32_t>(indexBytes);
+    m_onePathMaterialCount = Max(1u, materialCount);
+    m_onePathInstanceCount = Max(2u, instanceCount);
+    if (m_onePathPackPipeline)
+        return true;
+    if (m_onePathPackPipelineAttempted)
+        return false;
+    m_onePathPackPipelineAttempted = true;
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.registerSpace = 0;
+    layoutDesc.registerSpaceIsDescriptorSet = true;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setSamplerOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    for (uint32_t slot = 0; slot < 7u; ++slot)
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(slot));
+    for (uint32_t slot = 7; slot < 10u; ++slot)
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(slot));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
+        0, UPT04_ONE_PATH_PACK_PUSH_CONSTANT_BYTES));
+    m_onePathPackBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!m_onePathPackBindingLayout)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create one-path pack layout\n");
+        return false;
+    }
+    void* shaderData = nullptr;
+    int shaderSize = 0;
+    ID_TIME_T shaderTimestamp = 0;
+    uint64_t shaderHash = 0;
+    if (!Upt04ReadShader(
+            "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_onepath_instance_pack.bin",
+            shaderData,
+            shaderSize,
+            shaderTimestamp,
+            shaderHash))
+    {
+        return false;
+    }
+    nvrhi::ShaderDesc shaderDesc;
+    shaderDesc.shaderType = nvrhi::ShaderType::Compute;
+    shaderDesc.entryName = "main";
+    shaderDesc.debugName = "PathTraceUnifiedPtOnePathPack";
+    m_onePathPackShader = inputs.device->createShader(
+        shaderDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!m_onePathPackShader)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create one-path pack shader\n");
+        return false;
+    }
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = m_onePathPackShader;
+    pipelineDesc.bindingLayouts = { m_onePathPackBindingLayout };
+    m_onePathPackPipeline = inputs.device->createComputePipeline(pipelineDesc);
+    if (!m_onePathPackPipeline)
+    {
+        common->Printf("PathTraceUnifiedPt: failed to create one-path pack pipeline\n");
+        return false;
+    }
+    common->Printf(
+        "PathTraceUnifiedPt: one-path pack compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=64x1 stride=%u\n",
+        shaderSize,
+        static_cast<unsigned long long>(shaderHash),
+        static_cast<long long>(shaderTimestamp),
+        UPT04_ONE_PATH_INSTANCE_STRIDE);
+    return true;
+}
+
+bool PathTraceUnifiedPtState::ExecuteOnePathGeometryPack(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.onePathGeometry)
+        return true;
+    if (!EnsureOnePathGeometry(inputs))
+        return false;
+    const RtPathTraceSceneInputs& scene = *inputs.sceneInputs;
+    const RtPathTraceSceneInputGeometry& geometry = scene.geometry;
+    const uint32_t staticV = static_cast<uint32_t>(Max(0, geometry.staticVertexCount));
+    const uint32_t staticI = static_cast<uint32_t>(Max(0, geometry.staticIndexCount));
+    const uint32_t staticT = static_cast<uint32_t>(Max(0, geometry.staticTriangleCount));
+    const uint32_t dynamicV = static_cast<uint32_t>(Max(0, geometry.dynamicVertexCount));
+    const uint32_t dynamicI = static_cast<uint32_t>(Max(0, geometry.dynamicIndexCount));
+    const uint32_t dynamicT = static_cast<uint32_t>(Max(0, geometry.dynamicTriangleCount));
+    const uint32_t rigidV = static_cast<uint32_t>(Max(0, geometry.rigidRouteVertexCount));
+    const uint32_t rigidI = static_cast<uint32_t>(Max(0, geometry.rigidRouteIndexCount));
+    const uint32_t rigidN = static_cast<uint32_t>(Max(0, geometry.rigidRouteInstanceCount));
+    const uint32_t skinnedV = static_cast<uint32_t>(Max(0, geometry.skinnedGpuComputeVertexCount));
+    const uint32_t skinnedI = static_cast<uint32_t>(Max(0, geometry.skinnedSourceIndexCount));
+    const uint32_t skinnedR = inputs.geometryNoSkinned
+        ? 0u
+        : static_cast<uint32_t>(Max(0, geometry.skinnedHitRouteRecordCount));
+    const uint32_t skinnedT = inputs.geometryNoSkinned
+        ? 0u
+        : static_cast<uint32_t>(Max(0, geometry.skinnedHitRouteTriangleCount));
+    auto copyRange = [&inputs](
+        nvrhi::IBuffer* dest,
+        uint64_t destOffset,
+        nvrhi::IBuffer* src,
+        uint64_t bytes)
+    {
+        if (!dest || !src || bytes == 0)
+            return;
+        inputs.commandList->copyBuffer(dest, destOffset, src, 0, bytes);
+    };
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.A2 OnePath Concatenate",
+            inputs.nsightMarkers);
+        uint64_t vertexOffset = 0;
+        copyRange(m_onePathVertices, vertexOffset, geometry.staticVertexBuffer,
+            uint64_t(staticV) * UPT04_SMOKE_VERTEX_STRIDE);
+        vertexOffset += uint64_t(staticV) * UPT04_SMOKE_VERTEX_STRIDE;
+        copyRange(m_onePathVertices, vertexOffset, geometry.dynamicVertexBuffer,
+            uint64_t(dynamicV) * UPT04_SMOKE_VERTEX_STRIDE);
+        vertexOffset += uint64_t(dynamicV) * UPT04_SMOKE_VERTEX_STRIDE;
+        copyRange(m_onePathVertices, vertexOffset, geometry.rigidRouteVertexBuffer,
+            uint64_t(rigidV) * UPT04_SMOKE_VERTEX_STRIDE);
+        vertexOffset += uint64_t(rigidV) * UPT04_SMOKE_VERTEX_STRIDE;
+        copyRange(m_onePathVertices, vertexOffset, Upt04SkinnedVertexBuffer(scene),
+            uint64_t(skinnedV) * UPT04_SMOKE_VERTEX_STRIDE);
+        uint64_t indexOffset = 0;
+        copyRange(m_onePathIndices, indexOffset, geometry.staticIndexBuffer,
+            uint64_t(staticI) * 4ull);
+        indexOffset += uint64_t(staticI) * 4ull;
+        copyRange(m_onePathIndices, indexOffset, geometry.dynamicIndexBuffer,
+            uint64_t(dynamicI) * 4ull);
+        indexOffset += uint64_t(dynamicI) * 4ull;
+        copyRange(m_onePathIndices, indexOffset, geometry.rigidRouteIndexBuffer,
+            uint64_t(rigidI) * 4ull);
+        indexOffset += uint64_t(rigidI) * 4ull;
+        copyRange(m_onePathIndices, indexOffset, Upt04SkinnedIndexBuffer(scene),
+            uint64_t(skinnedI) * 4ull);
+    }
+    nvrhi::IBuffer* rigidWords = geometry.rigidRouteInstanceBuffer
+        ? geometry.rigidRouteInstanceBuffer : m_onePathDummyUint;
+    nvrhi::IBuffer* skinnedRoutes = geometry.skinnedHitRouteRecordBuffer
+        ? geometry.skinnedHitRouteRecordBuffer : m_onePathDummyUint;
+    nvrhi::IBuffer* skinnedTris = geometry.skinnedHitRouteTriangleBuffer
+        ? geometry.skinnedHitRouteTriangleBuffer : m_onePathDummyUint;
+    nvrhi::IBuffer* staticMats = geometry.staticTriangleMaterialIndexBuffer
+        ? geometry.staticTriangleMaterialIndexBuffer : m_onePathDummyUint;
+    nvrhi::IBuffer* dynamicMats = geometry.dynamicTriangleMaterialIndexBuffer
+        ? geometry.dynamicTriangleMaterialIndexBuffer : m_onePathDummyUint;
+    nvrhi::IBuffer* staticClasses = geometry.staticTriangleClassBuffer
+        ? geometry.staticTriangleClassBuffer : m_onePathDummyUint;
+    nvrhi::IBuffer* dynamicClasses = geometry.dynamicTriangleClassBuffer
+        ? geometry.dynamicTriangleClassBuffer : m_onePathDummyUint;
+    nvrhi::BindingSetDesc desc;
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, rigidWords));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, skinnedRoutes));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, skinnedTris));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, staticMats));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, dynamicMats));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(5, staticClasses));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, dynamicClasses));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(7, m_onePathInstances));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(8, m_onePathMaterials));
+    desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(9, m_onePathClasses));
+    desc.addItem(nvrhi::BindingSetItem::PushConstants(
+        0, UPT04_ONE_PATH_PACK_PUSH_CONSTANT_BYTES));
+    if (!(m_onePathPackBindingSet && m_onePathPackBindingSetDescValid &&
+          m_onePathPackBindingSetDesc == desc))
+    {
+        m_onePathPackBindingSet = inputs.device->createBindingSet(
+            desc, m_onePathPackBindingLayout);
+        if (!m_onePathPackBindingSet)
+        {
+            common->Printf("PathTraceUnifiedPt: failed to create one-path pack set\n");
+            return false;
+        }
+        m_onePathPackBindingSetDesc = desc;
+        m_onePathPackBindingSetDescValid = true;
+    }
+    uint32_t control[16] = {};
+    control[0] = staticV;
+    control[1] = staticI;
+    control[2] = staticT;
+    control[3] = dynamicV;
+    control[4] = dynamicI;
+    control[5] = dynamicT;
+    control[6] = rigidV;
+    control[7] = rigidI;
+    control[8] = rigidN;
+    control[9] = skinnedV;
+    control[10] = skinnedI;
+    control[11] = skinnedR;
+    control[12] = skinnedT;
+    const uint32_t dispatchCount = Max(
+        Max(m_onePathInstanceCount, m_onePathMaterialCount), 1u);
+    {
+        Upt04MarkerScope marker(
+            inputs.commandList,
+            "UPT.A2 OnePath InstancePack",
+            inputs.nsightMarkers);
+        inputs.commandList->setBufferState(
+            m_onePathInstances, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setBufferState(
+            m_onePathMaterials, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->setBufferState(
+            m_onePathClasses, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+        nvrhi::ComputeState state;
+        state.pipeline = m_onePathPackPipeline;
+        state.bindings = { m_onePathPackBindingSet };
+        inputs.commandList->setComputeState(state);
+        inputs.commandList->setPushConstants(control, sizeof(control));
+        inputs.commandList->dispatch((dispatchCount + 63u) / 64u, 1u, 1u);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_onePathInstances);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_onePathMaterials);
+        nvrhi::utils::BufferUavBarrier(inputs.commandList, m_onePathClasses);
+        inputs.commandList->setBufferState(
+            m_onePathVertices, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_onePathIndices, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_onePathMaterials, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_onePathClasses, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->setBufferState(
+            m_onePathInstances, nvrhi::ResourceStates::ShaderResource);
+        inputs.commandList->commitBarriers();
+    }
+    return true;
+}
+
+bool PathTraceUnifiedPtState::EnsureReservoirTextures(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.device)
+        return false;
+    if (!m_dummyReservoirTex)
+    {
+        nvrhi::TextureDesc dummy;
+        dummy.width = 1;
+        dummy.height = 1;
+        dummy.arraySize = 4;
+        dummy.mipLevels = 1;
+        dummy.dimension = nvrhi::TextureDimension::Texture2DArray;
+        dummy.format = nvrhi::Format::RGBA32_UINT;
+        dummy.isUAV = true;
+        dummy.debugName = "PathTraceUnifiedPtReservoirDummy";
+        dummy.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        dummy.keepInitialState = true;
+        m_dummyReservoirTex = inputs.device->createTexture(dummy);
+        if (!m_dummyReservoirTex)
+            return false;
+    }
+    if (m_page0Tex && m_page1Tex &&
+        m_page0Tex->getDesc().width == inputs.width &&
+        m_page0Tex->getDesc().height == inputs.height &&
+        m_page0Tex->getDesc().arraySize == 4)
+    {
+        return true;
+    }
+    nvrhi::TextureDesc desc;
+    desc.width = inputs.width;
+    desc.height = inputs.height;
+    desc.arraySize = 4;
+    desc.mipLevels = 1;
+    desc.dimension = nvrhi::TextureDimension::Texture2DArray;
+    desc.format = nvrhi::Format::RGBA32_UINT;
+    desc.isUAV = true;
+    desc.debugName = "PathTraceUnifiedPtReservoirTex0";
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+    m_page0Tex = inputs.device->createTexture(desc);
+    desc.debugName = "PathTraceUnifiedPtReservoirTex1";
+    m_page1Tex = inputs.device->createTexture(desc);
+    if (!m_page0Tex || !m_page1Tex)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: failed to allocate reservoir textures (%ux%u x4)\n",
+            inputs.width, inputs.height);
+        return false;
+    }
+    return true;
+}
+
 PathTraceUnifiedPtPageMetadata& PathTraceUnifiedPtState::CurrentPageMetadata()
 {
     return m_currentPageIndex == 0u ? m_page0Metadata : m_page1Metadata;
@@ -2302,8 +3311,11 @@ void PathTraceUnifiedPtState::ReportProofStage(
 
 bool PathTraceUnifiedPtState::EnsurePages(const PathTraceUnifiedPtDispatchInputs& inputs)
 {
-    const uint64_t count = uint64_t(inputs.width) * uint64_t(inputs.height);
-    if (count == 0 || count > std::numeric_limits<uint32_t>::max() ||
+    const uint64_t linearCount = uint64_t(inputs.width) * uint64_t(inputs.height);
+    const uint64_t tilesX = (uint64_t(inputs.width) + 7ull) / 8ull;
+    const uint64_t tilesY = (uint64_t(inputs.height) + 7ull) / 8ull;
+    const uint64_t count = tilesX * tilesY * 64ull;
+    if (linearCount == 0 || count == 0 || count > std::numeric_limits<uint32_t>::max() ||
         count > std::numeric_limits<uint64_t>::max() / UPT04_RESERVOIR_STRIDE)
     {
         return false;
@@ -2315,7 +3327,7 @@ bool PathTraceUnifiedPtState::EnsurePages(const PathTraceUnifiedPtDispatchInputs
         m_page1->getDesc().structStride == UPT04_RESERVOIR_STRIDE &&
         m_page1->getDesc().byteSize >= bytes)
     {
-        return true;
+        return EnsureReservoirTextures(inputs) && EnsurePrimaryTextures(inputs);
     }
 
     // UPT-08 resources are extent-coupled and their per-page metadata follows
@@ -2352,6 +3364,10 @@ bool PathTraceUnifiedPtState::EnsurePages(const PathTraceUnifiedPtDispatchInputs
     m_pageWidth = inputs.width;
     m_pageHeight = inputs.height;
     m_pageBytes = bytes;
+    if (!EnsureReservoirTextures(inputs))
+        return false;
+    if (!EnsurePrimaryTextures(inputs))
+        return false;
     // Allocation-only deterministic initialization protects partial proof
     // stages. Production D0 fully overwrites the page, including canonical
     // empty records. Never set this for camera cuts or history invalidation;
@@ -2404,9 +3420,22 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_splitInitial != inputs.splitInitial ||
         m_threeVertexInitial != inputs.threeVertexInitial ||
         m_threeVertexSplit != inputs.threeVertexSplit ||
+        m_secondaryNeeOne != inputs.secondaryNeeOne ||
+        m_exactSecondaryMis != inputs.exactSecondaryMis ||
+        m_replayFreeSecondaryNee != inputs.replayFreeSecondaryNee ||
         m_geometryNoSkinned != inputs.geometryNoSkinned ||
         m_splitContinuation != inputs.splitContinuation ||
         m_lambertDiagnostic != inputs.lambertDiagnostic ||
+        m_debugThinProduce != inputs.debugThinProduce ||
+        m_debugThinProduceRay != inputs.debugThinProduceRay ||
+        m_produceBodyProbe != inputs.produceBodyProbe ||
+        m_q1Sibling != inputs.q1Sibling ||
+        m_lambertBsdf != inputs.lambertBsdf ||
+        m_tiledSurface != inputs.tiledSurface ||
+        m_reservoirTexture != inputs.reservoirTexture ||
+        m_primaryTexture != inputs.primaryTexture ||
+        m_onePathGeometry != inputs.onePathGeometry ||
+        m_neeCache != inputs.neeCache ||
         m_staticAnalyticOnly != inputs.staticAnalyticOnly ||
         m_emissiveCompact != inputs.emissiveCompact ||
         m_frozenStaticDiagnostic != inputs.frozenStaticDiagnostic ||
@@ -2427,9 +3456,22 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         m_threeVertexInitial = inputs.threeVertexInitial;
         m_splitContinuation = inputs.splitContinuation;
         m_lambertDiagnostic = inputs.lambertDiagnostic;
+        m_debugThinProduce = inputs.debugThinProduce;
+        m_debugThinProduceRay = inputs.debugThinProduceRay;
+        m_produceBodyProbe = inputs.produceBodyProbe;
+        m_q1Sibling = inputs.q1Sibling;
+        m_lambertBsdf = inputs.lambertBsdf;
+        m_tiledSurface = inputs.tiledSurface;
+        m_reservoirTexture = inputs.reservoirTexture;
+        m_primaryTexture = inputs.primaryTexture;
+        m_onePathGeometry = inputs.onePathGeometry;
+        m_neeCache = inputs.neeCache;
         m_staticAnalyticOnly = inputs.staticAnalyticOnly;
         m_emissiveCompact = inputs.emissiveCompact;
         m_threeVertexSplit = inputs.threeVertexSplit;
+        m_secondaryNeeOne = inputs.secondaryNeeOne;
+        m_exactSecondaryMis = inputs.exactSecondaryMis;
+        m_replayFreeSecondaryNee = inputs.replayFreeSecondaryNee;
         m_geometryNoSkinned = inputs.geometryNoSkinned;
         m_frozenStaticDiagnostic = inputs.frozenStaticDiagnostic;
         m_frozenLightDiagnostic = inputs.frozenLightDiagnostic;
@@ -2519,7 +3561,10 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.splitContinuation,
             inputs.lightTiles,
             inputs.emissiveCompact,
-            inputs.threeVertexSplit);
+            inputs.replayFreeSecondaryNee,
+            inputs.threeVertexSplit,
+            inputs.neeCache,
+            inputs.q1Sibling);
     }
     m_bindingLayout = inputs.device->createBindingLayout(layoutDesc);
     if (!m_bindingLayout)
@@ -2549,13 +3594,14 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
             inputs.lambertDiagnostic,
             inputs.frozenStaticDiagnostic,
             inputs.frozenLightDiagnostic)
+        : (inputs.splitInitial
+        ? Upt04SplitDirectShaderPath(
+            inputs.compactGeometry, inputs.compactLights, inputs.lightTiles,
+            inputs.replayFreeSecondaryNee, inputs.lambertBsdf)
         : (inputs.lambertDiagnostic
         ? Upt04LambertInitialShaderPath(
             inputs.compactGeometry, inputs.compactLights,
             inputs.compactMaterials, inputs.splitContinuation)
-        : (inputs.splitInitial
-        ? Upt04SplitDirectShaderPath(
-            inputs.compactGeometry, inputs.compactLights, inputs.lightTiles)
         : Upt04InitialShaderPath(
             m_backend,
             m_family,
@@ -2625,7 +3671,18 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                         inputs.staticAnalyticOnly,
                         inputs.emissiveCompact,
                         inputs.threeVertexSplit,
-                        inputs.geometryNoSkinned),
+                        inputs.geometryNoSkinned,
+                        inputs.onePathGeometry,
+                        inputs.neeCache,
+                        inputs.secondaryNeeOne,
+                        inputs.exactSecondaryMis,
+                        inputs.replayFreeSecondaryNee,
+                        inputs.lambertDiagnostic,
+                        inputs.debugThinProduce,
+                        inputs.debugThinProduceRay,
+                        inputs.produceBodyProbe,
+                        inputs.q1Sibling,
+                        inputs.lambertBsdf),
                     splitIndirectData,
                     splitIndirectSize,
                     splitIndirectTimestamp,
@@ -2710,7 +3767,16 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                 ID_TIME_T x3Timestamp = 0;
                 uint64_t x3Hash = 0;
                 if (!Upt04ReadShader(
-                        Upt04X3ConsumeShaderPath(),
+                        Upt04X3ConsumeShaderPath(
+                            inputs.compactGeometry,
+                            inputs.onePathGeometry,
+                            inputs.neeCache,
+                            inputs.secondaryNeeOne,
+                            inputs.exactSecondaryMis,
+                            inputs.replayFreeSecondaryNee,
+                            inputs.compactMaterials,
+                            inputs.lambertDiagnostic,
+                            inputs.lambertBsdf),
                         x3Data, x3Size, x3Timestamp, x3Hash))
                 {
                     return false;
@@ -2743,6 +3809,47 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                     static_cast<unsigned long long>(x3Hash),
                     static_cast<long long>(x3Timestamp));
             }
+            if (inputs.q1Sibling)
+            {
+                void* q1Data = nullptr;
+                int q1Size = 0;
+                ID_TIME_T q1Timestamp = 0;
+                uint64_t q1Hash = 0;
+                if (!Upt04ReadShader(
+                        inputs.lambertBsdf
+                            ? (inputs.replayFreeSecondaryNee
+                                ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_resolved_lambertbsdf.bin"
+                                : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_lambertbsdf.bin")
+                            : (inputs.replayFreeSecondaryNee
+                            ? "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_resolved.bin"
+                            : "renderprogs2/spirv/builtin/pathtracing/slang_upt04/upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume.bin"),
+                        q1Data, q1Size, q1Timestamp, q1Hash))
+                    return false;
+                nvrhi::ShaderDesc q1Desc;
+                q1Desc.shaderType = nvrhi::ShaderType::Compute;
+                q1Desc.entryName = "main";
+                q1Desc.debugName = "PathTraceUnifiedPtQ1Sibling";
+                m_q1SiblingShader = inputs.device->createShader(
+                    q1Desc, q1Data, q1Size);
+                Mem_Free(q1Data);
+                if (!m_q1SiblingShader)
+                {
+                    common->Printf("PathTraceUnifiedPt: failed to create q1 sibling shader\n");
+                    return false;
+                }
+                pipelineDesc.CS = m_q1SiblingShader;
+                m_q1SiblingPipeline = inputs.device->createComputePipeline(pipelineDesc);
+                if (!m_q1SiblingPipeline)
+                {
+                    common->Printf("PathTraceUnifiedPt: failed to create q1 sibling pipeline\n");
+                    return false;
+                }
+                common->Printf(
+                    "PathTraceUnifiedPt: q1 sibling compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=64x1\n",
+                    q1Size,
+                    static_cast<unsigned long long>(q1Hash),
+                    static_cast<long long>(q1Timestamp));
+            }
         }
         common->Printf(
             "PathTraceUnifiedPt: pipeline backend=%s family=%s variant=%u compiler=%s blobBytes=%d hash=%016llx timestamp=%lld groups=%s bindlessSet=%d receiver=%s geometry=%s lights=%s materials=%s shading=%s split=%s continuation=%s lightTiles=%u payload=0 createUs=%llu deferredHost=0 driverCache=opaque\n",
@@ -2764,7 +3871,8 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
                     ? "frozen-factor-lambert"
                     : "frozen-factor-openpbr")
                 : (inputs.lambertDiagnostic
-                    ? "lambert-diagnostic" : "openpbr"),
+                    ? "lambert-diagnostic"
+                    : (inputs.lambertBsdf ? "lambert-bsdf" : "openpbr")),
             inputs.splitInitial ? "direct+indirect" : "monolithic",
             inputs.splitContinuation ? "split-hit32" : "inline",
             inputs.lightTiles ? 1u : 0u,
@@ -2772,10 +3880,22 @@ bool PathTraceUnifiedPtState::EnsurePipeline(const PathTraceUnifiedPtDispatchInp
         if (inputs.splitInitial)
         {
             common->Printf(
-                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=1 threeVertex=%d x3Nee=%d staticAnalyticOnly=%d emissiveCompact=%d threeVertexSplit=%d noSkinned=%d queuePolicy=sparse-mesh continuationRaysMax=%u visibilityRaysMax=%u totalRaysMax=%u rouletteQ=%.2f createUs=%llu\n",
+                "PathTraceUnifiedPt: split indirect compiler=slang blobBytes=%d hash=%016llx timestamp=%lld groups=8x8 intermediate=page0x64 exactM=%d nee1=%d resolvedNee=%d thin=%d thinRay=%d produceBody=%d q1sib=%d lambertBsdf=%d tiled=%d tex=%d primary-tex=%d neeCache=%d threeVertex=%d x3Nee=%d staticAnalyticOnly=%d emissiveCompact=%d threeVertexSplit=%d noSkinned=%d queuePolicy=sparse-mesh continuationRaysMax=%u visibilityRaysMax=%u totalRaysMax=%u rouletteQ=%.2f createUs=%llu\n",
                 splitIndirectSize,
                 static_cast<unsigned long long>(splitIndirectHash),
                 static_cast<long long>(splitIndirectTimestamp),
+                inputs.exactSecondaryMis ? 1 : 0,
+                inputs.secondaryNeeOne ? 1 : 0,
+                inputs.replayFreeSecondaryNee ? 1 : 0,
+                inputs.debugThinProduce ? 1 : 0,
+                inputs.debugThinProduceRay ? 1 : 0,
+                inputs.produceBodyProbe,
+                inputs.q1Sibling ? 1 : 0,
+                inputs.lambertBsdf ? 1 : 0,
+                inputs.tiledSurface ? 1 : 0,
+                inputs.reservoirTexture ? 1 : 0,
+                inputs.primaryTexture ? 1 : 0,
+                inputs.neeCache ? 1 : 0,
                 inputs.threeVertexInitial ? 1 : 0,
                 inputs.threeVertexInitial ? 1 : 0,
                 inputs.staticAnalyticOnly ? 1 : 0,
@@ -2965,7 +4085,12 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             m_compactRigidVertices,
             m_compactSkinnedVertices,
             m_compactLightsBuffer,
-            m_compactMaterialsBuffer);
+            m_compactMaterialsBuffer,
+            CurrentReservoirTex(),
+            HistoryReservoirTex(),
+            CurrentPrimaryTex(),
+            HistoryPrimaryTex(),
+            HistorySidecarTex());
     }
     else
     {
@@ -2988,7 +4113,20 @@ bool PathTraceUnifiedPtState::EnsureBindingSet(const PathTraceUnifiedPtDispatchI
             m_emissiveCompactDispatchArgs,
             m_x3Queue,
             m_x3Meta,
-            m_x3DispatchArgs);
+            m_x3DispatchArgs,
+            m_q1Queue,
+            m_q1Meta,
+            m_q1DispatchArgs,
+            CurrentReservoirTex(),
+            HistoryReservoirTex(),
+            CurrentPrimaryTex(),
+            HistoryPrimaryTex(),
+            HistorySidecarTex(),
+            m_onePathVertices,
+            m_onePathIndices,
+            m_onePathClasses,
+            m_onePathMaterials,
+            m_onePathInstances);
     }
     if (m_bindingSets[pageIndex] && m_bindingSetDescValid[pageIndex] &&
         m_bindingSetDescs[pageIndex] == desc)
@@ -3797,7 +4935,7 @@ bool PathTraceUnifiedPtState::EnsureX3SplitBuffers(
         return false;
     }
     const uint32_t count = static_cast<uint32_t>(count64);
-    static const uint32_t kUpt04X3TokenStride = 128u;
+    static const uint32_t kUpt04X3TokenStride = 96u;
     if (m_x3Queue && m_x3Meta && m_x3DispatchArgs && m_x3Capacity == count
         && m_x3TokenStride == kUpt04X3TokenStride)
     {
@@ -3838,11 +4976,66 @@ bool PathTraceUnifiedPtState::EnsureX3SplitBuffers(
     if (m_x3Capacity != 0u)
     {
         common->Printf(
-            "PathTraceUnifiedPt: x3 split queue pixels=%u bytes=%llu recordBytes=128 groups=64x1\n",
+            "PathTraceUnifiedPt: x3 split queue pixels=%u bytes=%llu recordBytes=96 groups=64x1\n",
             count,
             static_cast<unsigned long long>(queueDesc.byteSize));
     }
     return m_x3Capacity != 0u;
+}
+
+bool PathTraceUnifiedPtState::EnsureQ1SiblingBuffers(
+    const PathTraceUnifiedPtDispatchInputs& inputs)
+{
+    if (!inputs.q1Sibling)
+        return true;
+    const uint64_t count64 = uint64_t(inputs.width) * uint64_t(inputs.height);
+    if (count64 == 0u || count64 > UINT32_MAX)
+        return false;
+    const uint32_t count = static_cast<uint32_t>(count64);
+    static const uint32_t kStride = 112u;
+    if (m_q1Queue && m_q1Meta && m_q1DispatchArgs && m_q1Capacity == count
+        && m_q1TokenStride == kStride)
+        return true;
+    nvrhi::BufferDesc queueDesc;
+    queueDesc.debugName = "PathTraceUnifiedPtQ1Queue";
+    queueDesc.byteSize = count64 * kStride;
+    queueDesc.structStride = kStride;
+    queueDesc.canHaveUAVs = true;
+    queueDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    queueDesc.keepInitialState = true;
+    m_q1Queue = inputs.device->createBuffer(queueDesc);
+    nvrhi::BufferDesc metaDesc;
+    metaDesc.debugName = "PathTraceUnifiedPtQ1Meta";
+    metaDesc.byteSize = 2u * sizeof(uint32_t);
+    metaDesc.structStride = sizeof(uint32_t);
+    metaDesc.canHaveUAVs = true;
+    metaDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    metaDesc.keepInitialState = true;
+    m_q1Meta = inputs.device->createBuffer(metaDesc);
+    nvrhi::BufferDesc argsDesc;
+    argsDesc.debugName = "PathTraceUnifiedPtQ1DispatchArgs";
+    argsDesc.byteSize = 3u * sizeof(uint32_t);
+    argsDesc.structStride = sizeof(uint32_t);
+    argsDesc.canHaveUAVs = true;
+    argsDesc.isDrawIndirectArgs = true;
+    argsDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    argsDesc.keepInitialState = true;
+    m_q1DispatchArgs = inputs.device->createBuffer(argsDesc);
+    m_q1Capacity = (m_q1Queue && m_q1Meta && m_q1DispatchArgs) ? count : 0u;
+    m_q1TokenStride = (m_q1Capacity != 0u) ? kStride : 0u;
+    for (uint32_t page = 0u; page < 2u; ++page)
+    {
+        m_bindingSets[page] = nullptr;
+        m_bindingSetDescValid[page] = false;
+    }
+    if (m_q1Capacity != 0u)
+    {
+        common->Printf(
+            "PathTraceUnifiedPt: q1 sibling queue pixels=%u bytes=%llu recordBytes=112 groups=64x1\n",
+            count,
+            static_cast<unsigned long long>(queueDesc.byteSize));
+    }
+    return m_q1Capacity != 0u;
 }
 
 bool PathTraceUnifiedPtState::EnsureLightTileResources(
@@ -4903,6 +6096,12 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         return false;
     }
     if (inputs.threeVertexSplit && !EnsureX3SplitBuffers(inputs))
+        return false;
+    if (inputs.q1Sibling && !EnsureQ1SiblingBuffers(inputs))
+    {
+        return false;
+    }
+    if (inputs.onePathGeometry && !EnsureOnePathGeometry(inputs))
     {
         return false;
     }
@@ -4928,6 +6127,14 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         return false;
     }
     if (!ExecuteCompactMaterialPack(inputs))
+    {
+        return false;
+    }
+    if (!ExecutePrimaryImageCopy(inputs))
+    {
+        return false;
+    }
+    if (!ExecuteOnePathGeometryPack(inputs))
     {
         return false;
     }
@@ -5021,6 +6228,34 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
         }
         inputs.commandList->setBufferState(
             CurrentPage(), nvrhi::ResourceStates::UnorderedAccess);
+        if (CurrentReservoirTex())
+        {
+            inputs.commandList->setTextureState(
+                CurrentReservoirTex(),
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::UnorderedAccess);
+        }
+        if (CurrentPrimaryTex())
+        {
+            inputs.commandList->setTextureState(
+                CurrentPrimaryTex(),
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::ShaderResource);
+        }
+        if (HistoryPrimaryTex())
+        {
+            inputs.commandList->setTextureState(
+                HistoryPrimaryTex(),
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::ShaderResource);
+        }
+        if (HistorySidecarTex())
+        {
+            inputs.commandList->setTextureState(
+                HistorySidecarTex(),
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::ShaderResource);
+        }
         if (inputs.diagnostics)
         {
             inputs.commandList->setBufferState(
@@ -5215,6 +6450,21 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                     m_x3DispatchArgs,
                     nvrhi::ResourceStates::UnorderedAccess);
             }
+            if (inputs.q1Sibling && m_q1Meta && m_q1DispatchArgs)
+            {
+                const uint32_t q1Args[3] = { 0u, 1u, 1u };
+                const uint32_t q1MetaInit[2] = { 0u, m_q1Capacity };
+                inputs.commandList->writeBuffer(
+                    m_q1DispatchArgs, q1Args, sizeof(q1Args));
+                inputs.commandList->writeBuffer(
+                    m_q1Meta, q1MetaInit, sizeof(q1MetaInit));
+                inputs.commandList->setBufferState(
+                    m_q1Queue, nvrhi::ResourceStates::UnorderedAccess);
+                inputs.commandList->setBufferState(
+                    m_q1Meta, nvrhi::ResourceStates::UnorderedAccess);
+                inputs.commandList->setBufferState(
+                    m_q1DispatchArgs, nvrhi::ResourceStates::UnorderedAccess);
+            }
             inputs.commandList->commitBarriers();
             nvrhi::ComputeState state;
             state.pipeline = m_splitIndirectComputePipeline;
@@ -5292,6 +6542,31 @@ bool PathTraceUnifiedPtState::ExecuteInitial(const PathTraceUnifiedPtDispatchInp
                 m_emissiveCompactReadbackPending = true;
                 m_emissiveCompactReadbackDelayFrames = 2;
             }
+        }
+        if (inputs.q1Sibling && m_q1SiblingPipeline)
+        {
+            nvrhi::utils::BufferUavBarrier(inputs.commandList, CurrentPage());
+            nvrhi::utils::BufferUavBarrier(inputs.commandList, m_q1Queue);
+            nvrhi::utils::BufferUavBarrier(inputs.commandList, m_q1Meta);
+            nvrhi::utils::BufferUavBarrier(inputs.commandList, m_q1DispatchArgs);
+            if (m_x3Queue)
+                nvrhi::utils::BufferUavBarrier(inputs.commandList, m_x3Queue);
+            inputs.commandList->setBufferState(
+                m_q1DispatchArgs, nvrhi::ResourceStates::IndirectArgument);
+            inputs.commandList->commitBarriers();
+            Upt04MarkerScope q1Marker(
+                inputs.commandList,
+                "UPT.D0b Q1 Sibling 64x1",
+                inputs.nsightMarkers);
+            nvrhi::ComputeState q1State;
+            q1State.pipeline = m_q1SiblingPipeline;
+            q1State.bindings = { m_bindingSets[m_currentPageIndex] };
+            q1State.bindings.push_back(
+                inputs.sceneInputs->materials.textureDescriptorTable);
+            q1State.indirectParams = m_q1DispatchArgs;
+            inputs.commandList->setComputeState(q1State);
+            inputs.commandList->setPushConstants(&control, sizeof(control));
+            inputs.commandList->dispatchIndirect(0u);
         }
         if (inputs.threeVertexSplit && m_x3ConsumePipeline)
         {
@@ -7170,8 +8445,22 @@ bool PathTraceUnifiedPtState::ExecuteTemporal(
             nvrhi::ResourceStates::ShaderResource);
         inputs.commandList->setBufferState(
             CurrentPage(), nvrhi::ResourceStates::UnorderedAccess);
+        if (CurrentReservoirTex())
+        {
+            inputs.commandList->setTextureState(
+                CurrentReservoirTex(),
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::UnorderedAccess);
+        }
         inputs.commandList->setBufferState(
             HistoryPage(), nvrhi::ResourceStates::ShaderResource);
+        if (HistoryReservoirTex())
+        {
+            inputs.commandList->setTextureState(
+                HistoryReservoirTex(),
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::ShaderResource);
+        }
         if (inputs.duplication)
             inputs.commandList->setBufferState(
                 m_duplicationScores[m_historyPageIndex],
@@ -8764,6 +10053,8 @@ bool PathTraceUnifiedPtState::EnsureResolvePipeline(
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(3));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(4));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(5));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(
         0, UPT05_PUSH_CONSTANT_BYTES));
     m_resolveBindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -8836,6 +10127,8 @@ bool PathTraceUnifiedPtState::EnsureResolveBindingSet(
         2, inputs.primarySurfaceBuffer));
     desc.addItem(nvrhi::BindingSetItem::Texture_UAV(
         3, inputs.rrGuideSpecularAlbedo));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(4, ResolveReservoirTex()));
+    desc.addItem(nvrhi::BindingSetItem::Texture_SRV(5, CurrentPrimaryTex()));
     desc.addItem(nvrhi::BindingSetItem::PushConstants(
         0, UPT05_PUSH_CONSTANT_BYTES));
     if (m_resolveBindingSets[pageIndex] &&
@@ -8908,7 +10201,9 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
         static_cast<uint32_t>(surfaceCount64),
         view,
         {},
-        0u
+        (inputs.tiledSurface ? 1u : 0u)
+        | (inputs.reservoirTexture ? 2u : 0u)
+        | (inputs.primaryTexture ? 4u : 0u)
     };
     for (uint32_t axis = 0u; axis < 3u; ++axis)
         control.primaryCameraOrigin[axis] = inputs.primaryCameraOrigin[axis];
@@ -8919,6 +10214,20 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
             inputs.nsightMarkers);
         inputs.commandList->setBufferState(
             resolvePage, nvrhi::ResourceStates::ShaderResource);
+        if (ResolveReservoirTex())
+        {
+            inputs.commandList->setTextureState(
+                ResolveReservoirTex(),
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::ShaderResource);
+        }
+        if (CurrentPrimaryTex())
+        {
+            inputs.commandList->setTextureState(
+                CurrentPrimaryTex(),
+                nvrhi::AllSubresources,
+                nvrhi::ResourceStates::ShaderResource);
+        }
         inputs.commandList->setBufferState(
             inputs.primarySurfaceBuffer, nvrhi::ResourceStates::ShaderResource);
         inputs.commandList->setTextureState(
@@ -8991,7 +10300,13 @@ bool PathTraceUnifiedPtState::ExecuteResolve(
             previousProductionAvailable ? historyMetadata : resolveMetadata;
         const uint32_t probeX = inputs.width / 2u;
         const uint32_t probeY = inputs.height / 2u;
-        const uint64_t probeIndex = uint64_t(probeY) * inputs.width + probeX;
+        uint64_t probeIndex = uint64_t(probeY) * inputs.width + probeX;
+        if (inputs.tiledSurface && inputs.width > 0u)
+        {
+            const uint32_t tilesX = (inputs.width + 7u) / 8u;
+            probeIndex = (uint64_t(probeY / 8u) * tilesX + (probeX / 8u)) * 64ull
+                + uint64_t(probeY % 8u) * 8ull + (probeX % 8u);
+        }
         Upt04MarkerScope marker(
             inputs.commandList,
             "UPT.R0 Crosshair Reservoir Probe",
@@ -9739,6 +11054,10 @@ bool PathTraceUnifiedPtState::ExecuteGlassOpticalTransport(
         reflectionDispatch.compactMaterials = false;
         reflectionDispatch.splitInitial = false;
         reflectionDispatch.threeVertexInitial = false;
+        reflectionDispatch.threeVertexSplit = false;
+        reflectionDispatch.secondaryNeeOne = false;
+        reflectionDispatch.exactSecondaryMis = true;
+        reflectionDispatch.replayFreeSecondaryNee = false;
         reflectionDispatch.splitContinuation = false;
         reflectionDispatch.lambertDiagnostic = false;
         reflectionDispatch.frozenStaticDiagnostic = false;

@@ -76,7 +76,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #endif
     const Upt04IndirectHitTrialResult indirect =
         Upt04PrepareIndirectHitTrials<UPT_SELECTED_MATERIAL_SET>(
-            continuation, hit, pixel);
+            continuation, hit, pixel, Upt04EmptyLocalLightSelection());
     Upt04StreamInitialTraceWork(
         reservoir, indirect.endpointCandidate, pixel, 1u);
 

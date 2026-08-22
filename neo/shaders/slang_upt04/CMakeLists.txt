@@ -70,6 +70,9 @@ set(UPT04_UNIFIED_BACKEND_MODULES
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_replay_random.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_light_selection.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_previous_best.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_reservoir_image.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_primary_image.slang"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upt04_nee_cache.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect.slang"
     "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_multibounce.slang"
@@ -224,6 +227,17 @@ path_tracing_declare_slang_spirv_module(
 list(APPEND UPT04_BACKEND_OUTPUTS ${compact32_geometry48_rayquery_outputs})
 
 path_tracing_declare_slang_spirv_module(
+    NAME upt04_primary_image_copy
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_primary_image_copy.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/upt04_primary_image_copy.slang"
+    OUT_VAR primary_image_copy_outputs)
+list(APPEND UPT04_BACKEND_OUTPUTS ${primary_image_copy_outputs})
+
+path_tracing_declare_slang_spirv_module(
     NAME upt04_compact_geometry_pack
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_compact_geometry_pack.slang"
     ENTRY main
@@ -373,6 +387,57 @@ path_tracing_declare_slang_spirv_module(
 list(APPEND UPT04_BACKEND_OUTPUTS ${split_direct_light64_rayquery_outputs})
 
 path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_direct_rayquery_compact32_light64_resolved
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_DIRECT=1 UPT04_REPLAY_FREE_SECONDARY_NEE=1
+    OUT_VAR split_direct_light64_resolved_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${split_direct_light64_resolved_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_direct_rayquery_compact32_light64_lambertbsdf
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_DIRECT=1 UPT05_LAMBERT_BSDF=1
+    OUT_VAR split_direct_light64_lambertbsdf_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${split_direct_light64_lambertbsdf_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_direct_rayquery_compact32_light64_resolved_lambertbsdf
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_direct_only_rayquery.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_DIRECT=1 UPT04_REPLAY_FREE_SECONDARY_NEE=1 UPT05_LAMBERT_BSDF=1
+    OUT_VAR split_direct_light64_resolved_lambertbsdf_rayquery_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS ${split_direct_light64_resolved_lambertbsdf_rayquery_outputs})
+
+path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_split_indirect_rayquery_compact32_light64
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
     ENTRY main
@@ -482,6 +547,939 @@ path_tracing_declare_slang_spirv_module(
     RAY_QUERY)
 list(APPEND UPT04_BACKEND_OUTPUTS
     ${split_indirect_light64_x3_consume_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1
+    OUT_VAR split_indirect_light64_x3_produce_nee1_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_produce_nee1_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_SECONDARY_NEE_ONE=1
+    OUT_VAR split_indirect_light64_x3_consume_nee1_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_consume_nee1_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_noexactmis
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_EXACT_SECONDARY_MIS=0
+    OUT_VAR split_indirect_light64_x3_produce_noexactmis_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_produce_noexactmis_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_noexactmis
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_EXACT_SECONDARY_MIS=0
+    OUT_VAR split_indirect_light64_x3_consume_noexactmis_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_consume_noexactmis_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0
+    OUT_VAR split_indirect_light64_x3_produce_nee1_noexactmis_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_produce_nee1_noexactmis_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0
+    OUT_VAR split_indirect_light64_x3_consume_nee1_noexactmis_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_consume_nee1_noexactmis_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_ray
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_PRODUCE_BODY_PROBE=1
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_ray_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_ray_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_hit
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_PRODUCE_BODY_PROBE=2
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_hit_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_hit_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_nee
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_PRODUCE_BODY_PROBE=3
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_nee_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_nee_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_decode
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_PRODUCE_BODY_PROBE=4
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_decode_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_decode_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_shade
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_PRODUCE_BODY_PROBE=5
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_shade_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_shade_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_brdf
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_PRODUCE_BODY_PROBE=6
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_brdf_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_brdf_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_pick
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_PRODUCE_BODY_PROBE=7
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_pick_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_pick_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_eval
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_PRODUCE_BODY_PROBE=8
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_eval_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_body_eval_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_q1sib
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_Q1_SIBLING=1
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_q1sib_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_q1sib_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_sibling.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_sibling.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_multibounce.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_Q1_SIBLING_CONSUME=1
+    OUT_VAR split_indirect_light64_onepath_x3_q1sib_consume_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_q1sib_consume_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_resolved
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_sibling.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_sibling.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_multibounce.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_Q1_SIBLING_CONSUME=1 UPT04_REPLAY_FREE_SECONDARY_NEE=1
+    OUT_VAR split_indirect_light64_onepath_x3_q1sib_consume_resolved_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_q1sib_consume_resolved_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_q1sib_lambertbsdf
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_Q1_SIBLING=1 UPT05_LAMBERT_BSDF=1
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_q1sib_lambertbsdf_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_q1sib_lambertbsdf_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_lambertbsdf
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_sibling.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_sibling.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_multibounce.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_Q1_SIBLING_CONSUME=1 UPT05_LAMBERT_BSDF=1
+    OUT_VAR split_indirect_light64_onepath_x3_q1sib_consume_lambertbsdf_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_q1sib_consume_lambertbsdf_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_resolved_lambertbsdf
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_sibling.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_sibling.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_q1_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_multibounce.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_Q1_SIBLING_CONSUME=1 UPT04_REPLAY_FREE_SECONDARY_NEE=1 UPT05_LAMBERT_BSDF=1
+    OUT_VAR split_indirect_light64_onepath_x3_q1sib_consume_resolved_lambertbsdf_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_q1sib_consume_resolved_lambertbsdf_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_lambertbsdf
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT05_LAMBERT_BSDF=1
+    OUT_VAR split_indirect_light64_onepath_x3_consume_nee1_noexactmis_lambertbsdf_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_consume_nee1_noexactmis_lambertbsdf_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_resolved_lambertbsdf
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_REPLAY_FREE_SECONDARY_NEE=1 UPT05_LAMBERT_BSDF=1
+    OUT_VAR split_indirect_light64_onepath_x3_consume_nee1_noexactmis_resolved_lambertbsdf_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_consume_nee1_noexactmis_resolved_lambertbsdf_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1
+    OUT_VAR split_indirect_light64_onepath_x3_consume_nee1_noexactmis_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_consume_nee1_noexactmis_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_resolved
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_REPLAY_FREE_SECONDARY_NEE=1
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_resolved_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_resolved_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_resolved
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_REPLAY_FREE_SECONDARY_NEE=1
+    OUT_VAR split_indirect_light64_onepath_x3_consume_nee1_noexactmis_resolved_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_consume_nee1_noexactmis_resolved_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_noskinned
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_NO_SKINNED_GEOMETRY=1
+    OUT_VAR split_indirect_light64_onepath_x3_produce_noskinned_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_noskinned_outputs})
+
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_neecache
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_nee_cache.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_NEE_CACHE=1
+    OUT_VAR split_indirect_light64_onepath_x3_produce_nee1_noexactmis_neecache_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_produce_nee1_noexactmis_neecache_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_neecache
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_onepath.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_nee_cache.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_ONE_PATH_GEOMETRY=1 UPT04_NEE_CACHE=1
+    OUT_VAR split_indirect_light64_onepath_x3_consume_nee1_noexactmis_neecache_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_onepath_x3_consume_nee1_noexactmis_neecache_outputs})
+
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_onepath_instance_pack
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_onepath_instance_pack.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_onepath_instance_pack.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_geometry_contract.slang"
+    OUT_VAR onepath_instance_pack_outputs)
+list(APPEND UPT04_BACKEND_OUTPUTS ${onepath_instance_pack_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_resolved
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_REPLAY_FREE_SECONDARY_NEE=1
+    OUT_VAR split_indirect_light64_x3_produce_nee1_noexactmis_resolved_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_produce_nee1_noexactmis_resolved_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_resolved
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_REPLAY_FREE_SECONDARY_NEE=1
+    OUT_VAR split_indirect_light64_x3_consume_nee1_noexactmis_resolved_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_consume_nee1_noexactmis_resolved_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_material48
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_PACKED_MATERIAL_RECORD=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1
+    OUT_VAR split_indirect_light64_x3_produce_material48_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_produce_material48_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_material48
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_PACKED_MATERIAL_RECORD=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1
+    OUT_VAR split_indirect_light64_x3_consume_material48_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_consume_material48_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_material48
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_PACKED_MATERIAL_RECORD=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0
+    OUT_VAR split_indirect_light64_x3_produce_nee1_noexactmis_material48_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_produce_nee1_noexactmis_material48_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_material48
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_PACKED_MATERIAL_RECORD=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0
+    OUT_VAR split_indirect_light64_x3_consume_nee1_noexactmis_material48_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_consume_nee1_noexactmis_material48_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_resolved_material48
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_PACKED_MATERIAL_RECORD=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_REPLAY_FREE_SECONDARY_NEE=1
+    OUT_VAR split_indirect_light64_x3_produce_nee1_noexactmis_resolved_material48_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_produce_nee1_noexactmis_resolved_material48_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_resolved_material48
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_PACKED_MATERIAL_RECORD=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0 UPT04_REPLAY_FREE_SECONDARY_NEE=1
+    OUT_VAR split_indirect_light64_x3_consume_nee1_noexactmis_resolved_material48_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_consume_nee1_noexactmis_resolved_material48_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_lambert
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_lambert_diagnostic.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_set_lambert_diagnostic.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT_DIAGNOSTIC_LAMBERT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1
+    OUT_VAR split_indirect_light64_x3_produce_lambert_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_produce_lambert_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_lambert
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_lambert_diagnostic.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_set_lambert_diagnostic.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT_DIAGNOSTIC_LAMBERT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1
+    OUT_VAR split_indirect_light64_x3_consume_lambert_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_consume_lambert_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_lambert
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_lambert_diagnostic.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_set_lambert_diagnostic.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT_DIAGNOSTIC_LAMBERT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0
+    OUT_VAR split_indirect_light64_x3_produce_nee1_noexactmis_lambert_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_produce_nee1_noexactmis_lambert_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_lambert
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_lambert_diagnostic.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt05_material_set_lambert_diagnostic.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT_DIAGNOSTIC_LAMBERT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1 UPT04_SECONDARY_NEE_ONE=1 UPT04_EXACT_SECONDARY_MIS=0
+    OUT_VAR split_indirect_light64_x3_consume_nee1_noexactmis_lambert_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_consume_nee1_noexactmis_lambert_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_debug_thin
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_split_indirect_debug_thin.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_split_indirect_debug_thin.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1
+    OUT_VAR split_indirect_light64_x3_produce_debug_thin_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_produce_debug_thin_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_debug_thin_ray
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_split_indirect_debug_thin.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_split_indirect_debug_thin.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_DEBUG_THIN_RAY=1
+    OUT_VAR split_indirect_light64_x3_produce_debug_thin_ray_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_light64_x3_produce_debug_thin_ray_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_produce
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_GEOMETRY_VERTEX=1 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1
+    OUT_VAR split_indirect_geometry48_light64_x3_produce_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_geometry48_light64_x3_produce_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_produce_noskinned
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_GEOMETRY_VERTEX=1 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_THREE_VERTEX_SPLIT_PRODUCE=1 UPT04_NO_SKINNED_GEOMETRY=1
+    OUT_VAR split_indirect_geometry48_light64_x3_produce_noskinned_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_geometry48_light64_x3_produce_noskinned_outputs})
+
+path_tracing_declare_slang_spirv_module(
+    NAME upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_consume
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+    ENTRY main
+    STAGE compute
+    OUTPUT_DIR "${UPT04_OUTPUT_DIR}"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_LIST_DIR}/.."
+        "${CMAKE_CURRENT_LIST_DIR}/../slang_upt03"
+    DEPENDS ${UPT04_UNIFIED_BACKEND_MODULES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_initial_indirect_only_rayquery.slang"
+        "${CMAKE_CURRENT_SOURCE_DIR}/upt04_x3_split.slang"
+    DEFINES UPT04_PACKED_PRIMARY_RECEIVER=2 UPT04_PACKED_GEOMETRY_VERTEX=1 UPT04_PACKED_LIGHT_RECORD=1 UPT04_SPLIT_INITIAL_INDIRECT=1 UPT04_MULTI_BOUNCE_INITIAL=1 UPT04_THREE_VERTEX_SPLIT_CONSUME=1
+    OUT_VAR split_indirect_geometry48_light64_x3_consume_outputs
+    RAY_QUERY)
+list(APPEND UPT04_BACKEND_OUTPUTS
+    ${split_indirect_geometry48_light64_x3_consume_outputs})
 
 path_tracing_declare_slang_spirv_module(
     NAME upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex
@@ -1429,6 +2427,7 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_rayquery_compact32_light64
     upt04_initial_rayquery_compact32_unified_parity1
     upt04_initial_rayquery_compact32_geometry48
+    upt04_primary_image_copy
     upt04_compact_geometry_pack
     upt04_initial_rayquery_compact32_geometry48_light64
     upt04_compact_light_pack
@@ -1437,12 +2436,62 @@ set(UPT04_RUNTIME_MODULES
     upt04_initial_split_direct_rayquery_compact32
     upt04_initial_split_indirect_rayquery_compact32
     upt04_initial_split_direct_rayquery_compact32_light64
+    upt04_initial_split_direct_rayquery_compact32_light64_resolved
+    upt04_initial_split_direct_rayquery_compact32_light64_lambertbsdf
+    upt04_initial_split_direct_rayquery_compact32_light64_resolved_lambertbsdf
     upt04_initial_split_indirect_rayquery_compact32_light64
     upt04_initial_split_indirect_rayquery_compact32_light64_emissive_classify
     upt04_initial_split_indirect_rayquery_compact32_light64_emissive_classify_noskinned
     upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce
     upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_noskinned
     upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_ray
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_hit
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_nee
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_decode
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_shade
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_brdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_pick
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_eval
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_q1sib
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_resolved
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_q1sib_lambertbsdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_lambertbsdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_resolved_lambertbsdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_lambertbsdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_resolved_lambertbsdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_resolved
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_resolved
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_neecache
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_neecache
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_noskinned
+    upt04_onepath_instance_pack
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_resolved
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_resolved
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_resolved_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_resolved_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_lambert
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_lambert
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_lambert
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_lambert
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_debug_thin
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_debug_thin_ray
+    upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_produce
+    upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_produce_noskinned
+    upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_consume
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_analytic_only
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_classify
@@ -1506,13 +2555,64 @@ set(UPT04_PRODUCTION_RUNTIME_MODULES
     upt04_initial_rayquery_compact32_light64
     upt04_initial_rayquery_compact32_unified_parity1
     upt04_compact_light_pack
+    upt04_primary_image_copy
     upt04_initial_split_direct_rayquery_compact32_light64
+    upt04_initial_split_direct_rayquery_compact32_light64_resolved
+    upt04_initial_split_direct_rayquery_compact32_light64_lambertbsdf
+    upt04_initial_split_direct_rayquery_compact32_light64_resolved_lambertbsdf
     upt04_initial_split_indirect_rayquery_compact32_light64
     upt04_initial_split_indirect_rayquery_compact32_light64_emissive_classify
     upt04_initial_split_indirect_rayquery_compact32_light64_emissive_classify_noskinned
     upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce
     upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_noskinned
     upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_ray
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_hit
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_nee
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_decode
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_shade
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_brdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_pick
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_body_eval
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_q1sib
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_resolved
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_q1sib_lambertbsdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_lambertbsdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_q1sib_consume_resolved_lambertbsdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_lambertbsdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_resolved_lambertbsdf
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_resolved
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_resolved
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_nee1_noexactmis_neecache
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_consume_nee1_noexactmis_neecache
+    upt04_initial_split_indirect_rayquery_compact32_light64_onepath_x3_produce_noskinned
+    upt04_onepath_instance_pack
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_resolved
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_resolved
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_resolved_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_resolved_material48
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_lambert
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_lambert
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_nee1_noexactmis_lambert
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_consume_nee1_noexactmis_lambert
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_debug_thin
+    upt04_initial_split_indirect_rayquery_compact32_light64_x3_produce_debug_thin_ray
+    upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_produce
+    upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_produce_noskinned
+    upt04_initial_split_indirect_rayquery_compact32_geometry48_light64_x3_consume
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_analytic_only
     upt04_initial_split_indirect_rayquery_compact32_light64_three_vertex_emissive_classify
