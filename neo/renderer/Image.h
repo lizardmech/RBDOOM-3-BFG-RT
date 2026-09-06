@@ -269,6 +269,19 @@ typedef void ( *ImageGeneratorFunction )( idImage* image, nvrhi::ICommandList* c
 
 #define	MAX_IMAGE_NAME	256
 
+struct idPathTracingTextureBindingSnapshot
+{
+	nvrhi::TextureHandle texture;
+	uint32 width = 0;
+	uint32 height = 0;
+	uint64 epoch = 0;
+};
+
+uint64 GetPathTracingImageBindingEpoch();
+uint64 GetPathTracingImageBindingCreateCount();
+uint64 GetPathTracingImageBindingPurgeCount();
+bool PathTracingImageBindingPublicationSelfTest();
+
 class idImage
 {
 	friend class Framebuffer;
@@ -441,6 +454,8 @@ public:
 	{
 		return texture;
 	}
+
+	idPathTracingTextureBindingSnapshot GetPathTracingTextureBindingSnapshot() const;
 
 	void*		GetTextureID()
 	{

@@ -41,6 +41,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "RenderCommon.h"
 #include "Model_local.h"
 #include "NVRHI/PathTraceCVars.h"
+#include "NVRHI/PathTraceCpuProducerRewrite.h"
 
 idCVar r_skipStaticShadows( "r_skipStaticShadows", "0", CVAR_RENDERER | CVAR_BOOL, "skip static shadows" );
 idCVar r_skipDynamicShadows( "r_skipDynamicShadows", "0", CVAR_RENDERER | CVAR_BOOL, "skip dynamic shadows" );
@@ -339,6 +340,8 @@ void R_AddSingleModel( viewEntity_t* vEntity )
 {
 	// we will add all interaction surfs here, to be chained to the lights in later serial code
 	vEntity->drawSurfs = NULL;
+	vEntity->pathTraceDrawSurfs = NULL;
+	viewEntity_t* ptMaterialSpace = NULL;
 
 	// globals we really should pass in...
 	const viewDef_t* viewDef = tr.viewDef;
@@ -462,7 +465,7 @@ void R_AddSingleModel( viewEntity_t* vEntity )
 
 	// if we aren't visible and none of the shadows stretch into the view,
 	// we don't need to do anything else
-	if( !modelIsVisible && numContactedLights == 0 )
+	if( !modelIsVisible && numContactedLights == 0 && !vEntity->pathTraceResident )
 	{
 		return;
 	}
@@ -751,6 +754,36 @@ void R_AddSingleModel( viewEntity_t* vEntity )
 			}
 		}
 #endif // #if defined(USE_INTRINSICS_SSE)
+
+        // Resident PT inputs are independent of raster visibility. Carriers
+        // own evaluated frame registers/identity; they allocate no raster caches.
+        if (vEntity->pathTraceResident && shader->IsDrawn() && shader->Deform() == DFRM_NONE)
+        {
+            if (!gpuSkinned && shader->ReceivesLighting() && !tri->tangentsCalculated)
+                R_DeriveTangents(tri);
+            if (!ptMaterialSpace)
+            {
+                ptMaterialSpace = (viewEntity_t*)R_FrameAlloc(sizeof(*ptMaterialSpace), FRAME_ALLOC_VIEW_ENTITY);
+                *ptMaterialSpace = *vEntity;
+                ptMaterialSpace->pathTraceMaterialSnapshot = true;
+                ptMaterialSpace->pathTraceRenderDefIndex = entityDef->index;
+                ptMaterialSpace->pathTraceEntityNum = renderEntity->entityNum;
+                ptMaterialSpace->entityDef = NULL; // backend must not follow live entities
+                ptMaterialSpace->next = NULL;
+                ptMaterialSpace->drawSurfs = ptMaterialSpace->pathTraceDrawSurfs = NULL;
+            }
+            drawSurf_t* pt = (drawSurf_t*)R_ClearedFrameAlloc(sizeof(*pt), FRAME_ALLOC_DRAW_SURFACE);
+            pt->frontEndGeo = tri; // consumed only by the capture below, then cleared
+            pt->modelSurfaceIndex = surfaceNum;
+            pt->space = ptMaterialSpace;
+            pt->numIndexes = tri->numIndexes;
+            idVec3 center;
+            R_LocalPointToGlobal(vEntity->modelMatrix, tri->bounds.GetCenter(), center);
+            for (int c = 0; c < 3; ++c) pt->pathTraceSurfaceOrigin[c] = center[c];
+            R_SetupDrawSurfShader(pt, shader, renderEntity);
+            pt->nextOnLight = vEntity->pathTraceDrawSurfs;
+            vEntity->pathTraceDrawSurfs = pt;
+        }
 
 		//--------------------------
 		// base drawing surface
@@ -1183,6 +1216,9 @@ void R_AddSingleModel( viewEntity_t* vEntity )
 			// RB end
 		}
 	}
+    RtCpuProducerRewrite_CaptureAdmittedModel( vEntity, model );
+    for (drawSurf_t* pt = vEntity->pathTraceDrawSurfs; pt; pt = pt->nextOnLight)
+        pt->frontEndGeo = NULL; // all backend material inputs are now frame-owned
 }
 
 REGISTER_PARALLEL_JOB( R_AddSingleModel, "R_AddSingleModel" );
@@ -1262,11 +1298,22 @@ void R_AddModels()
 	// Move the draw surfs to the view.
 	//-------------------------------------------------
 
+    tr.viewDef->pathTraceRewriteSurfaces = NULL;
+    tr.viewDef->pathTraceRewriteSurfaceCount = 0;
 	tr.viewDef->numDrawSurfs = 0;	// clear the ambient surface list
 	tr.viewDef->maxDrawSurfs = 0;	// will be set to INITIAL_DRAWSURFS on R_LinkDrawSurfToView
 
 	for( viewEntity_t* vEntity = tr.viewDef->viewEntitys; vEntity != NULL; vEntity = vEntity->next )
 	{
+        for (drawSurf_t* pt = vEntity->pathTraceDrawSurfs; pt; )
+        {
+            drawSurf_t* next = pt->nextOnLight;
+            pt->nextOnLight = tr.viewDef->pathTraceRewriteSurfaces;
+            tr.viewDef->pathTraceRewriteSurfaces = pt;
+            ++tr.viewDef->pathTraceRewriteSurfaceCount;
+            pt = next;
+        }
+        vEntity->pathTraceDrawSurfs = NULL;
 		// RB
 		if( vEntity->drawSurfs != NULL )
 		{

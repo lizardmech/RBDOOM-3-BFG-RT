@@ -56,7 +56,7 @@ int SceneUniverseStaticWorldPortalArea(
 
 void DumpSceneUniverseResidencyStatsIfNeeded(const RtPathTraceSceneUniverseBuildStats& stats)
 {
-    if (r_pathTracingResidencyDump.GetInteger() == 0)
+    if (r_pathTracingResidencyDump.GetInteger() != 1)
     {
         return;
     }
@@ -723,7 +723,7 @@ void SceneUniverseAddDynamicMaterialEvalStatsForId(
     }
     if (r_pathTracingResidency.GetInteger() != 0 && r_pathTracingResidencyMaterial.GetInteger() != 0)
     {
-        const RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfo(materialId);
+        const RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfoReadOnly(materialId);
         if (info && SmokeMaterialTextureInfoHasMaterialMetadata(*info) && !info->isDynamic)
         {
             return;

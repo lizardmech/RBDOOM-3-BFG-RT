@@ -1,7 +1,11 @@
 #include "PathTraceAccelerationPlan.h"
+#include "PathTraceAccelCpuAllocation.h"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <limits>
+#include <new>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -37,38 +41,6 @@ int NormalizeSmokePlanRecordCap(int cap)
     return cap > 0 ? cap : 0;
 }
 
-enum RtSmokeRigidTlasObservationCategory : uint32_t
-{
-    RT_SMOKE_RIGID_TLAS_REJECT_NON_RIGID = 1,
-    RT_SMOKE_RIGID_TLAS_REJECT_MISSING_MESH = 2,
-    RT_SMOKE_RIGID_TLAS_REJECT_STALE_MESH = 3,
-    RT_SMOKE_RIGID_TLAS_REJECT_MISSING_BLAS = 4,
-    RT_SMOKE_RIGID_TLAS_ACCEPTED = 5
-};
-
-RtSmokeRigidTlasObservationCategory ClassifyRigidTlasObservation(
-    const RtSmokeRigidTlasObservation& observation,
-    uint32_t rigidSourceMask)
-{
-    if ((observation.sourceFlags & rigidSourceMask) == 0)
-    {
-        return RT_SMOKE_RIGID_TLAS_REJECT_NON_RIGID;
-    }
-    if (!observation.hasMeshRecord)
-    {
-        return RT_SMOKE_RIGID_TLAS_REJECT_MISSING_MESH;
-    }
-    if (!observation.meshSeenThisFrame && !observation.residencyEnabled)
-    {
-        return RT_SMOKE_RIGID_TLAS_REJECT_STALE_MESH;
-    }
-    if (!observation.hasBlas)
-    {
-        return RT_SMOKE_RIGID_TLAS_REJECT_MISSING_BLAS;
-    }
-    return RT_SMOKE_RIGID_TLAS_ACCEPTED;
-}
-
 RtSmokePlanStaticBlasSignatureDesc MakeSignatureDescFromSnapshot(
     const RtSmokeStaticBlasSignatureSnapshot& snapshot)
 {
@@ -102,6 +74,30 @@ RtSmokeRigidTlasPlanDesc MakeRigidTlasPlanDescFromSnapshot(
 }
 
 } // namespace
+
+RtSmokeRigidTlasObservationCategory ClassifyRigidTlasObservation(
+    const RtSmokeRigidTlasObservation& observation,
+    uint32_t rigidSourceMask)
+{
+    if ((observation.sourceFlags & rigidSourceMask) == 0)
+    {
+        return RT_SMOKE_RIGID_TLAS_REJECT_NON_RIGID;
+    }
+    if (!observation.hasMeshRecord)
+    {
+        return RT_SMOKE_RIGID_TLAS_REJECT_MISSING_MESH;
+    }
+    if (!observation.meshSeenThisFrame && !observation.residencyEnabled)
+    {
+        return RT_SMOKE_RIGID_TLAS_REJECT_STALE_MESH;
+    }
+    if (!observation.hasBlas)
+    {
+        return RT_SMOKE_RIGID_TLAS_REJECT_MISSING_BLAS;
+    }
+    return RT_SMOKE_RIGID_TLAS_ACCEPTED;
+}
+
 
 uint64_t HashSmokePlanBytes(uint64_t hash, const void* data, size_t size)
 {
@@ -209,6 +205,152 @@ RtSmokeAccelerationPlanSnapshot CaptureSmokeAccelerationPlanSnapshot(
     return snapshot;
 }
 
+bool CountSmokeAccelerationPlanSnapshot(
+    const RtSmokeAccelerationPlanInput& input,
+    RtSmokeAccelerationPlanSnapshotCounts& counts)
+{
+    counts = RtSmokeAccelerationPlanSnapshotCounts();
+    if (CanReuseSmokeStaticBlasSignature(input))
+    {
+        return true;
+    }
+    const RtSmokePlanStaticBlasSignatureDesc& desc = input.staticSignature;
+    if (!PlanRangeValid(desc.staticRange.vertexOffset,
+            desc.staticRange.vertexCount, desc.totalVertexCount) ||
+        !PlanRangeValid(desc.staticRange.indexOffset,
+            desc.staticRange.indexCount, desc.totalIndexCount) ||
+        !PlanRangeValid(desc.staticRange.triangleOffset,
+            desc.staticRange.triangleCount, desc.totalTriangleCount) ||
+        desc.vertexStride == 0 ||
+        (desc.staticRange.vertexCount > 0 && !desc.vertices) ||
+        (desc.staticRange.indexCount > 0 && !desc.indexes) ||
+        (desc.staticRange.triangleCount > 0 &&
+            (!desc.triangleClasses || !desc.triangleMaterials)))
+    {
+        return false;
+    }
+    const size_t vertexCount = static_cast<size_t>(desc.staticRange.vertexCount);
+    if (vertexCount > std::numeric_limits<size_t>::max() / desc.vertexStride)
+    {
+        return false;
+    }
+    counts.vertexBytes = vertexCount * desc.vertexStride;
+    counts.indexes = static_cast<size_t>(desc.staticRange.indexCount);
+    counts.triangleClasses = static_cast<size_t>(desc.staticRange.triangleCount);
+    counts.triangleMaterials = counts.triangleClasses;
+    return true;
+}
+
+bool FillSmokeAccelerationPlanSnapshotPreReserved(
+    const RtSmokeAccelerationPlanInput& input,
+    const RtSmokeAccelerationPlanSnapshotCounts& counts,
+    RtSmokeAccelerationPlanSnapshot& snapshot)
+{
+    snapshot = RtSmokeAccelerationPlanSnapshot();
+    RtSmokeAccelerationPlanSnapshotCounts actualCounts;
+    if (!CountSmokeAccelerationPlanSnapshot(input, actualCounts) ||
+        actualCounts.vertexBytes != counts.vertexBytes ||
+        actualCounts.indexes != counts.indexes ||
+        actualCounts.triangleClasses != counts.triangleClasses ||
+        actualCounts.triangleMaterials != counts.triangleMaterials)
+    {
+        return false;
+    }
+    try
+    {
+        if (counts.vertexBytes > 0)
+        {
+            PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+            snapshot.staticSignature.vertexBytes.reserve(counts.vertexBytes);
+            if (snapshot.staticSignature.vertexBytes.capacity() != counts.vertexBytes)
+            {
+                snapshot = RtSmokeAccelerationPlanSnapshot();
+                return false;
+            }
+        }
+        if (counts.indexes > 0)
+        {
+            PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+            snapshot.staticSignature.indexes.reserve(counts.indexes);
+            if (snapshot.staticSignature.indexes.capacity() != counts.indexes)
+            {
+                snapshot = RtSmokeAccelerationPlanSnapshot();
+                return false;
+            }
+        }
+        if (counts.triangleClasses > 0)
+        {
+            PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+            snapshot.staticSignature.triangleClasses.reserve(counts.triangleClasses);
+            if (snapshot.staticSignature.triangleClasses.capacity() != counts.triangleClasses)
+            {
+                snapshot = RtSmokeAccelerationPlanSnapshot();
+                return false;
+            }
+        }
+        if (counts.triangleMaterials > 0)
+        {
+            PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+            snapshot.staticSignature.triangleMaterials.reserve(counts.triangleMaterials);
+            if (snapshot.staticSignature.triangleMaterials.capacity() != counts.triangleMaterials)
+            {
+                snapshot = RtSmokeAccelerationPlanSnapshot();
+                return false;
+            }
+        }
+
+        snapshot.staticSignature.vertexStride = input.staticSignature.vertexStride;
+        snapshot.staticSignature.totalVertexCount = input.staticSignature.totalVertexCount;
+        snapshot.staticSignature.staticRange = input.staticSignature.staticRange;
+        if (!CanReuseSmokeStaticBlasSignature(input))
+        {
+            const RtSmokePlanStaticBlasSignatureDesc& desc = input.staticSignature;
+            const uint8_t* vertexBytes = static_cast<const uint8_t*>(desc.vertices) +
+                static_cast<size_t>(desc.staticRange.vertexOffset) * desc.vertexStride;
+            snapshot.staticSignature.vertexBytes.insert(
+                snapshot.staticSignature.vertexBytes.end(), vertexBytes,
+                vertexBytes + counts.vertexBytes);
+            snapshot.staticSignature.indexes.insert(
+                snapshot.staticSignature.indexes.end(),
+                desc.indexes + desc.staticRange.indexOffset,
+                desc.indexes + desc.staticRange.indexOffset + desc.staticRange.indexCount);
+            snapshot.staticSignature.triangleClasses.insert(
+                snapshot.staticSignature.triangleClasses.end(),
+                desc.triangleClasses + desc.staticRange.triangleOffset,
+                desc.triangleClasses + desc.staticRange.triangleOffset +
+                    desc.staticRange.triangleCount);
+            snapshot.staticSignature.triangleMaterials.insert(
+                snapshot.staticSignature.triangleMaterials.end(),
+                desc.triangleMaterials + desc.staticRange.triangleOffset,
+                desc.triangleMaterials + desc.staticRange.triangleOffset +
+                    desc.staticRange.triangleCount);
+            snapshot.staticSignature.totalVertexCount = desc.staticRange.vertexCount;
+            snapshot.staticSignature.staticRange.vertexOffset = 0;
+            snapshot.staticSignature.staticRange.indexOffset = 0;
+            snapshot.staticSignature.staticRange.triangleOffset = 0;
+        }
+        snapshot.staticCache = input.staticCache;
+        snapshot.staticVertexCount = input.staticVertexCount;
+        snapshot.staticIndexCount = input.staticIndexCount;
+        snapshot.dynamicVertexCount = input.dynamicVertexCount;
+        snapshot.dynamicIndexCount = input.dynamicIndexCount;
+        const bool complete = snapshot.staticSignature.vertexBytes.size() == counts.vertexBytes &&
+            snapshot.staticSignature.indexes.size() == counts.indexes &&
+            snapshot.staticSignature.triangleClasses.size() == counts.triangleClasses &&
+            snapshot.staticSignature.triangleMaterials.size() == counts.triangleMaterials;
+        if (!complete)
+        {
+            snapshot = RtSmokeAccelerationPlanSnapshot();
+            return false;
+        }
+        return true;
+    }
+    catch (const std::bad_alloc&) {}
+    catch (const std::length_error&) {}
+    snapshot = RtSmokeAccelerationPlanSnapshot();
+    return false;
+}
+
 uint64_t BuildSmokeAccelerationPlanInputToken(const RtSmokeAccelerationPlanInput& input)
 {
     uint64_t hash = 1469598103934665603ull;
@@ -313,6 +455,56 @@ RtSmokeAccelerationPlan BuildSmokeAccelerationPlan(const RtSmokeAccelerationPlan
     return plan;
 }
 
+void OverlaySmokeCurrentDynamicAccelerationPlan(
+    RtSmokeAccelerationPlan& plan,
+    int dynamicVertexCount,
+    int dynamicIndexCount)
+{
+    const int currentVertexCount = std::max(0, dynamicVertexCount);
+    const int currentIndexCount = std::max(0, dynamicIndexCount);
+    const bool enabled = currentVertexCount > 0 && currentIndexCount > 0;
+    plan.hasDynamicBlas = enabled;
+    plan.dynamicBlas.enabled = enabled;
+    plan.dynamicBlas.cacheHit = false;
+    plan.dynamicBlas.vertexCount = currentVertexCount;
+    plan.dynamicBlas.indexCount = currentIndexCount;
+    plan.dynamicBlas.debugName = "PathTraceSmokeDynamicCandidateBLAS";
+}
+
+RtSmokeBlasComponentPolicyState ApplySmokeBlasCreateStatus(
+    const RtSmokeBlasComponentPolicyState& current,
+    bool staticComponent,
+    RtSmokeBlasCreateStatus status)
+{
+    RtSmokeBlasComponentPolicyState result = current;
+    if (status == RtSmokeBlasCreateStatus::Success)
+        return result;
+    if (status != RtSmokeBlasCreateStatus::InvalidGeometryBufferRange)
+    {
+        result.continueFrame = false;
+        return result;
+    }
+    if (staticComponent)
+        result.hasStaticBlas = false;
+    else
+        result.hasDynamicBlas = false;
+    return result;
+}
+
+bool ValidateSmokeGeometryByteRange(
+    uint64_t byteOffset,
+    uint64_t elementCount,
+    uint64_t elementStride,
+    uint64_t bufferByteSize)
+{
+    if (elementCount == 0) return byteOffset <= bufferByteSize;
+    if (elementStride == 0 || byteOffset > bufferByteSize ||
+        elementCount > (std::numeric_limits<uint64_t>::max() - byteOffset) /
+            elementStride)
+        return false;
+    return byteOffset + elementCount * elementStride <= bufferByteSize;
+}
+
 RtSmokeAccelerationPlanResult BuildSmokeAccelerationPlanResult(
     const RtSmokeAccelerationPlanSnapshot& snapshot)
 {
@@ -338,6 +530,30 @@ RtSmokeAccelerationPlanTimedResult BuildSmokeAccelerationPlanTimedResult(
     timedResult.result = BuildSmokeAccelerationPlanResult(snapshot);
     const auto end = std::chrono::steady_clock::now();
     timedResult.workerExecutionMs = std::chrono::duration<double, std::milli>(end - start).count();
+    return timedResult;
+}
+
+RtSmokeAccelerationPlanTimedResult BuildSmokeAccelerationPlanTimedResult(
+    const RtSmokeAccelerationPlanSnapshot& residentSnapshot,
+    const RtSmokePlanStaticCacheInput& currentStaticCache,
+    int dynamicVertexCount,
+    int dynamicIndexCount)
+{
+    const auto start = std::chrono::steady_clock::now();
+    RtSmokeAccelerationPlanInput input;
+    input.staticSignature = MakeSignatureDescFromSnapshot(
+        residentSnapshot.staticSignature);
+    input.staticCache = currentStaticCache;
+    input.staticVertexCount = residentSnapshot.staticVertexCount;
+    input.staticIndexCount = residentSnapshot.staticIndexCount;
+    input.dynamicVertexCount = dynamicVertexCount;
+    input.dynamicIndexCount = dynamicIndexCount;
+    RtSmokeAccelerationPlanTimedResult timedResult;
+    timedResult.result.plan = BuildSmokeAccelerationPlan(input);
+    timedResult.result.valid = timedResult.result.plan.hasStaticBlas ||
+        timedResult.result.plan.hasDynamicBlas;
+    timedResult.workerExecutionMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - start).count();
     return timedResult;
 }
 
@@ -370,7 +586,7 @@ RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
 {
     RtSmokeAccelerationSubmitPlan plan;
     plan.buildStaticBlas = input.hasStaticBlas && !input.staticBlasCacheHit;
-    plan.buildDynamicBlas = input.hasDynamicBlas;
+    plan.buildDynamicBlas = input.hasDynamicBlas && !input.dynamicBlasCacheHit;
     plan.submitTlas =
         (input.hasStaticBlas && input.includeStaticBlasInTlas) ||
         input.hasDynamicBlas ||
@@ -495,19 +711,27 @@ int ResolveSmokeStaticBucketPortalSteps(
     return std::max(boundedPrimary, boundedReflection);
 }
 
-RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
-    const RtSmokeStaticBucketAssignmentPlanDesc& desc)
+bool BuildSmokeStaticBucketAssignmentPlanPreReserved(
+    const RtSmokeStaticBucketAssignmentPlanDesc& desc,
+    RtSmokeStaticBucketAssignmentPlan& plan,
+    std::vector<int>& sortedSurfaceIndices)
 {
-    RtSmokeStaticBucketAssignmentPlan plan;
+    plan.buckets.clear();
+    plan.assignments.clear();
+    plan.stats = RtSmokeStaticBucketAssignmentStats();
     plan.planSignature = 1469598103934665603ull;
+    plan.exactCoverage = false;
     if (!desc.surfaces || desc.surfaceCount <= 0)
     {
-        return plan;
+        return false;
     }
+    if (plan.buckets.capacity() < static_cast<size_t>(desc.surfaceCount) ||
+        plan.assignments.capacity() < static_cast<size_t>(desc.surfaceCount) ||
+        sortedSurfaceIndices.capacity() < static_cast<size_t>(desc.surfaceCount))
+        return false;
 
     plan.stats.inputSurfaces = desc.surfaceCount;
-    std::vector<int> sortedSurfaceIndices;
-    sortedSurfaceIndices.reserve(desc.surfaceCount);
+    sortedSurfaceIndices.clear();
     for (int surfaceIndex = 0; surfaceIndex < desc.surfaceCount; ++surfaceIndex)
     {
         sortedSurfaceIndices.push_back(surfaceIndex);
@@ -597,10 +821,6 @@ RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
             return key;
         };
 
-    std::unordered_set<uint64_t> assignedSurfaceKeys;
-    assignedSurfaceKeys.reserve(static_cast<size_t>(desc.surfaceCount));
-    std::unordered_map<uint64_t, size_t> bucketKeyOwners;
-    bucketKeyOwners.reserve(static_cast<size_t>(desc.surfaceCount));
     int currentArea = std::numeric_limits<int>::min();
     uint32_t nextSplitIndex = 0;
 
@@ -625,7 +845,16 @@ RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
             ++plan.stats.invalidRangeSurfaces;
             continue;
         }
-        if (!assignedSurfaceKeys.insert(surface.surfaceKey).second)
+        bool duplicateSurface = false;
+        for (const RtSmokeStaticBucketAssignment& assigned : plan.assignments)
+        {
+            if (assigned.surfaceKey == surface.surfaceKey)
+            {
+                duplicateSurface = true;
+                break;
+            }
+        }
+        if (duplicateSurface)
         {
             ++plan.stats.duplicateSurfaces;
             continue;
@@ -699,18 +928,14 @@ RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
                 ++plan.stats.fallbackBuckets;
             }
 
-            const auto inserted = bucketKeyOwners.emplace(
-                bucket.bucketKey,
-                plan.buckets.size());
-            if (!inserted.second)
+            for (const RtSmokeStaticBucketAssignmentBucket& owner : plan.buckets)
             {
-                const RtSmokeStaticBucketAssignmentBucket& owner =
-                    plan.buckets[inserted.first->second];
-                if (owner.worldGeneration != bucket.worldGeneration ||
+                if (owner.bucketKey == bucket.bucketKey &&
+                    (owner.worldGeneration != bucket.worldGeneration ||
                     owner.sourceGeneration != bucket.sourceGeneration ||
                     owner.storageGeneration != bucket.storageGeneration ||
                     owner.portalArea != bucket.portalArea ||
-                    owner.splitIndex != bucket.splitIndex)
+                    owner.splitIndex != bucket.splitIndex))
                 {
                     ++plan.stats.bucketKeyCollisions;
                 }
@@ -798,14 +1023,41 @@ RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
         plan.stats.duplicateSurfaces == 0 &&
         plan.stats.invalidRangeSurfaces == 0 &&
         plan.stats.bucketKeyCollisions == 0;
+    return true;
+}
+
+RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
+    const RtSmokeStaticBucketAssignmentPlanDesc& desc)
+{
+    RtSmokeStaticBucketAssignmentPlan plan;
+    std::vector<int> sortedSurfaceIndices;
+    if (desc.surfaceCount > 0)
+    {
+        plan.buckets.reserve(static_cast<size_t>(desc.surfaceCount));
+        plan.assignments.reserve(static_cast<size_t>(desc.surfaceCount));
+        sortedSurfaceIndices.reserve(static_cast<size_t>(desc.surfaceCount));
+    }
+    BuildSmokeStaticBucketAssignmentPlanPreReserved(
+        desc, plan, sortedSurfaceIndices);
     return plan;
 }
 
-RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
-    const RtSmokeStaticBucketGeometryPackDesc& desc)
+bool BuildSmokeStaticBucketGeometryPackPreReserved(
+    const RtSmokeStaticBucketGeometryPackDesc& desc,
+    RtSmokeStaticBucketGeometryPack& pack)
 {
-    RtSmokeStaticBucketGeometryPack pack;
+    pack.buckets.clear();
+    pack.vertexBytes.clear();
+    pack.indexes.clear();
+    pack.triangleClasses.clear();
+    pack.staticClassMetadataWords.clear();
+    pack.triangleMaterials.clear();
+    pack.surfaceRecords.clear();
+    pack.triangleIdentities.clear();
+    pack.surfaceRecordWordOffset = 0;
+    pack.stats = RtSmokeStaticBucketGeometryPackStats();
     pack.contentSignature = 1469598103934665603ull;
+    pack.exact = false;
     const RtSmokeStaticBucketAssignmentPlan* assignmentPlan =
         desc.assignmentPlan;
     if (!assignmentPlan ||
@@ -818,25 +1070,32 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
         !desc.triangleMaterials ||
         desc.totalTriangleCount <= 0)
     {
-        return pack;
+        return false;
     }
 
     pack.stats.inputBuckets =
         static_cast<int>(assignmentPlan->buckets.size());
     pack.stats.inputAssignments =
         static_cast<int>(assignmentPlan->assignments.size());
-    pack.buckets.reserve(assignmentPlan->buckets.size());
-    pack.indexes.reserve(
-        static_cast<size_t>(
-            assignmentPlan->stats.assignedPrimitives) * 3);
-    pack.triangleClasses.reserve(
-        assignmentPlan->stats.assignedPrimitives);
-    pack.triangleMaterials.reserve(
-        assignmentPlan->stats.assignedPrimitives);
-    pack.surfaceRecords.reserve(
-        assignmentPlan->stats.assignedSurfaces);
-    pack.triangleIdentities.reserve(
-        assignmentPlan->stats.assignedPrimitives);
+    const size_t triangleCapacity = static_cast<size_t>(
+        std::max(0, assignmentPlan->stats.assignedPrimitives));
+    const size_t surfaceCapacity = static_cast<size_t>(
+        std::max(0, assignmentPlan->stats.assignedSurfaces));
+    const size_t indexCapacity = triangleCapacity * 3u;
+    const size_t vertexByteCapacity = static_cast<size_t>(desc.totalVertexCount) *
+        desc.vertexStride;
+    const size_t classWordCapacity = triangleCapacity + surfaceCapacity * 4u;
+    if (pack.buckets.capacity() < assignmentPlan->buckets.size() ||
+        pack.vertexBytes.capacity() < vertexByteCapacity ||
+        pack.indexes.capacity() < indexCapacity ||
+        pack.triangleClasses.capacity() < triangleCapacity ||
+        pack.staticClassMetadataWords.capacity() < classWordCapacity ||
+        pack.triangleMaterials.capacity() < triangleCapacity ||
+        pack.surfaceRecords.capacity() < surfaceCapacity ||
+        pack.triangleIdentities.capacity() < triangleCapacity)
+    {
+        return false;
+    }
 
     const uint8_t* sourceVertexBytes =
         static_cast<const uint8_t*>(desc.vertices);
@@ -1150,9 +1409,6 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
     {
         pack.surfaceRecordWordOffset =
             static_cast<uint32_t>(pack.triangleClasses.size());
-        pack.staticClassMetadataWords.reserve(
-            pack.triangleClasses.size() +
-            pack.surfaceRecords.size() * 4u);
         pack.staticClassMetadataWords.insert(
             pack.staticClassMetadataWords.end(),
             pack.triangleClasses.begin(),
@@ -1276,6 +1532,32 @@ RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
         pack.stats.surfaceAddressContractErrors == 0 &&
         pack.stats.classMetadataLayoutErrors == 0 &&
         pack.stats.countMismatches == 0;
+    return true;
+}
+
+RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
+    const RtSmokeStaticBucketGeometryPackDesc& desc)
+{
+    RtSmokeStaticBucketGeometryPack pack;
+    const RtSmokeStaticBucketAssignmentPlan* assignmentPlan = desc.assignmentPlan;
+    if (assignmentPlan && desc.vertexStride > 0 && desc.totalVertexCount > 0)
+    {
+        const size_t triangleCapacity = static_cast<size_t>(
+            std::max(0, assignmentPlan->stats.assignedPrimitives));
+        const size_t surfaceCapacity = static_cast<size_t>(
+            std::max(0, assignmentPlan->stats.assignedSurfaces));
+        pack.buckets.reserve(assignmentPlan->buckets.size());
+        pack.vertexBytes.reserve(static_cast<size_t>(desc.totalVertexCount) *
+            desc.vertexStride);
+        pack.indexes.reserve(triangleCapacity * 3u);
+        pack.triangleClasses.reserve(triangleCapacity);
+        pack.staticClassMetadataWords.reserve(
+            triangleCapacity + surfaceCapacity * 4u);
+        pack.triangleMaterials.reserve(triangleCapacity);
+        pack.surfaceRecords.reserve(surfaceCapacity);
+        pack.triangleIdentities.reserve(triangleCapacity);
+    }
+    BuildSmokeStaticBucketGeometryPackPreReserved(desc, pack);
     return pack;
 }
 
@@ -3785,6 +4067,10 @@ bool AppendSmokeRigidTlasPlanObservation(
     instance.instanceMask = desc.instanceMask;
     instance.meshHash = observation.meshHash;
     instance.sourceInstanceId = observation.instanceId;
+    instance.worldToken = observation.worldToken;
+    instance.worldGeneration = observation.worldGeneration;
+    instance.renderDefIndex = observation.renderDefIndex;
+    instance.renderDefGeneration = observation.renderDefGeneration;
     instance.materialId = observation.materialId;
     instance.routeRecordIndex = observation.routeRecordIndex;
     instance.canonicalBlasRecordIndex =
@@ -3976,6 +4262,11 @@ RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& des
     {
         if (!AppendSmokeRigidTlasPlanObservation(plan, desc, desc.observations[observationIndex]))
         {
+            for (int truncatedIndex = observationIndex; truncatedIndex < desc.observationCount; ++truncatedIndex)
+            {
+                plan.planTruncatedInstanceIds.push_back(desc.observations[truncatedIndex].instanceId);
+            }
+            plan.truncatedByCapPlan = desc.observationCount - observationIndex;
             break;
         }
     }

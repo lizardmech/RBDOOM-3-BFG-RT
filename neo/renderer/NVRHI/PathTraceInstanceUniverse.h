@@ -8,12 +8,15 @@
 
 #include "PathTraceSceneCapture.h"
 #include "PathTraceGeometryLifecycle.h"
+#include "PathTraceUniversePlanningSnapshot.h"
 
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <type_traits>
 
 struct viewDef_t;
+struct RtPathTraceCommittedBaselineEpoch;
 class idMaterial;
 class idRenderEntityLocal;
 
@@ -67,6 +70,65 @@ inline RtPathTraceResidencyClass RtPathTraceResidencyClassForSourceFlags(uint32_
 inline bool RtPathTraceSourceFlagsAreDurableRigid(uint32_t sourceFlags)
 {
     return RtPathTraceResidencyClassForSourceFlags(sourceFlags) == RtPathTraceResidencyClass::DurableRigid;
+}
+
+struct RtPathTraceSourceFlagInput
+{
+    RtSmokeSurfaceClass surfaceClass = RtSmokeSurfaceClass::Unknown;
+    bool guiSurface = false;
+    bool hasJointCache = false;
+    bool hasStaticModelWithJoints = false;
+    bool hasRenderEntityJoints = false;
+    bool entityCallbackPresent = false;
+    bool entityForceUpdate = false;
+    bool dynamicModelPresent = false;
+    bool cachedDynamicModelPresent = false;
+    bool materialDeformed = false;
+    bool customShaderPresent = false;
+    bool customSkinPresent = false;
+};
+
+inline uint32_t RtPathTraceSourceFlagsFromPod(
+    const RtPathTraceSourceFlagInput& input)
+{
+    uint32_t flags = 0;
+    switch (input.surfaceClass)
+    {
+        case RtSmokeSurfaceClass::StaticWorld:
+            flags |= RT_PT_INSTANCE_SOURCE_STATIC_WORLD;
+            break;
+        case RtSmokeSurfaceClass::RigidEntity:
+            flags |= RT_PT_INSTANCE_SOURCE_RIGID;
+            break;
+        case RtSmokeSurfaceClass::SkinnedDeformed:
+            flags |= RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING;
+            break;
+        case RtSmokeSurfaceClass::ParticleAlpha:
+            flags |= RT_PT_INSTANCE_SOURCE_PARTICLE_OR_TRANSIENT;
+            break;
+        default:
+            break;
+    }
+    if (input.guiSurface)
+    {
+        flags |= RT_PT_INSTANCE_SOURCE_GUI;
+    }
+    if (input.hasJointCache || input.hasStaticModelWithJoints ||
+        input.hasRenderEntityJoints)
+    {
+        flags |= RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING;
+    }
+    if (input.entityCallbackPresent || input.entityForceUpdate ||
+        input.dynamicModelPresent || input.cachedDynamicModelPresent ||
+        input.materialDeformed)
+    {
+        flags |= RT_PT_INSTANCE_SOURCE_CALLBACK_OR_GENERATED;
+    }
+    if (input.customShaderPresent || input.customSkinPresent)
+    {
+        flags |= RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE;
+    }
+    return flags;
 }
 
 struct RtPathTraceMeshKey
@@ -217,23 +279,6 @@ struct RtPathTraceInstanceUniverseDiagnosticDesc
 
 class RtPathTraceInstanceUniverse
 {
-public:
-    void Clear();
-    void BeginFrame(uint64 frameIndex, const viewDef_t* viewDef);
-    void EndFrame();
-    void SetObservedDrawSurfCount(int drawSurfCount);
-    void RecordSkippedDrawSurf(const RtSmokeSurfaceSkipStats& skipStats);
-    void RecordObservation(
-        const RtPathTraceMeshObservation& meshObservation,
-        const RtPathTraceInstanceObservation& instanceObservation,
-        RtSmokeSurfaceClass surfaceClass,
-        int numVerts,
-        int numIndexes);
-    const RtPathTraceInstanceUniverseStats& GetFrameStats() const;
-    const std::vector<RtPathTraceInstanceObservation>& FrameInstances() const;
-    bool HasFrameInstance(uint64 instanceId) const;
-    void RunDiagnostics(const RtPathTraceInstanceUniverseDiagnosticDesc& desc);
-
 private:
     struct MeshRecord
     {
@@ -260,9 +305,132 @@ private:
         int changedTransformCount = 0;
     };
 
+public:
+    struct ObservationTxn
+    {
+    private:
+        friend class RtPathTraceInstanceUniverse;
+        std::vector<MeshRecord> meshRecords;
+        std::unordered_map<uint64, size_t> meshLookup;
+        std::vector<InstanceHistory> instanceHistories;
+        std::unordered_map<uint64, size_t> instanceHistoryLookup;
+        uint64 generation = 1;
+        const RtPathTraceInstanceUniverse* owner = nullptr;
+        uint64 lifecycleSerial = 0;
+        uint64 frameBeginSerial = 0;
+        uint64 frameIndex = 0;
+        uint64 baseGeneration = 0;
+        uint32_t stagedObservationCount = 0;
+        bool complete = false;
+    };
+
+    struct ObservationTxnAllocationTestSeam
+    {
+        size_t failAtClone = static_cast<size_t>(-1);
+        size_t cloneCalls = 0;
+        bool throwLengthError = false;
+    };
+
+    enum class ObservationReplayAllocationPhase : uint32_t
+    {
+        BeforePersistentMutation = 0,
+        AfterPersistentMutation,
+        AfterLiveFrameMeshMutation,
+        AfterLiveFrameInstanceMutation
+    };
+
+    struct ObservationReplayAllocationTestSeam
+    {
+        ObservationReplayAllocationPhase failAt =
+            ObservationReplayAllocationPhase::BeforePersistentMutation;
+        size_t phaseCalls = 0;
+        bool armed = false;
+        bool throwLengthError = false;
+    };
+
+    void Clear();
+    void BeginFrame(uint64 frameIndex, const viewDef_t* viewDef);
+    void EndFrame();
+    void SetObservedDrawSurfCount(int drawSurfCount);
+    void RecordSkippedDrawSurf(const RtSmokeSurfaceSkipStats& skipStats);
+    void RecordObservation(
+        const RtPathTraceMeshObservation& meshObservation,
+        const RtPathTraceInstanceObservation& instanceObservation,
+        RtSmokeSurfaceClass surfaceClass,
+        int numVerts,
+        int numIndexes);
+    bool BeginObservationTxn(
+        ObservationTxn& txn,
+        ObservationTxnAllocationTestSeam* allocationTestSeam = nullptr) const;
+    bool RecordObservationStaged(
+        ObservationTxn& txn,
+        const RtPathTraceMeshObservation& meshObservation,
+        const RtPathTraceInstanceObservation& instanceObservation,
+        RtSmokeSurfaceClass surfaceClass,
+        int numVerts,
+        int numIndexes,
+        ObservationReplayAllocationTestSeam* allocationTestSeam = nullptr);
+    bool CommitObservationTxn(ObservationTxn& txn) noexcept;
+    void AbortFrameObservations() noexcept;
+    bool ObservationApplyMayBeFirstTouch() const noexcept;
+    const RtPathTraceInstanceUniverseStats& GetFrameStats() const;
+    const std::vector<RtPathTraceInstanceObservation>& FrameInstances() const;
+    uint64 Generation() const noexcept { return m_generation; }
+    bool HasFrameInstance(uint64 instanceId) const;
+    bool CaptureInstanceUniverseSnapshot(
+        RtPathTraceInstanceUniverseSnapshot& snapshot,
+        const RtPathTracePlanningSnapshotEpoch& epoch,
+        size_t& captureProductSlotBytes) const;
+    bool CaptureCommittedInstanceUniverseSnapshot(
+        RtPathTraceInstanceUniverseSnapshot& snapshot,
+        const RtPathTraceCommittedBaselineEpoch& epoch,
+        size_t& captureProductSlotBytes) const;
+    bool CountInstanceUniverseSnapshot(
+        const RtPathTracePlanningSnapshotEpoch& epoch,
+        RtPathTraceInstanceUniverseSnapshotCounts& counts) const;
+    bool FillInstanceUniverseSnapshotPreReserved(
+        RtPathTraceInstanceUniverseSnapshot& snapshot,
+        const RtPathTracePlanningSnapshotEpoch& epoch,
+        const RtPathTraceInstanceUniverseSnapshotCounts& counts) const;
+    void RunDiagnostics(const RtPathTraceInstanceUniverseDiagnosticDesc& desc);
+
+#if defined(RT_PT_INSTANCE_UNIVERSE_HARNESS)
+    bool DebugPersistentStateEquals(const RtPathTraceInstanceUniverse& rhs) const;
+    bool DebugFrameStateEquals(const RtPathTraceInstanceUniverse& rhs) const;
+#endif
+
+private:
+    bool CaptureInstanceUniverseSnapshotInternal(
+        RtPathTraceInstanceUniverseSnapshot& snapshot,
+        const RtPathTracePlanningSnapshotEpoch& epoch,
+        size_t& captureProductSlotBytes,
+        bool committedAfterEndFrame) const;
     void ResetFrameStats();
-    MeshRecord* FindOrCreateMeshRecord(const RtPathTraceMeshObservation& observation, bool& cacheHit);
-    InstanceHistory* FindOrCreateInstanceHistory(uint64 instanceId);
+    void ResetFrameObservationAuthority() noexcept;
+    bool ObservationTxnMatchesLive(const ObservationTxn& txn) const noexcept;
+    void InvalidateObservationTxn(ObservationTxn& txn) const noexcept;
+    MeshRecord* FindOrCreateMeshRecord(
+        std::vector<MeshRecord>& meshRecords,
+        std::unordered_map<uint64, size_t>& meshLookup,
+        uint64& generation,
+        const RtPathTraceMeshObservation& observation,
+        bool& cacheHit);
+    InstanceHistory* FindOrCreateInstanceHistory(
+        std::vector<InstanceHistory>& instanceHistories,
+        std::unordered_map<uint64, size_t>& instanceHistoryLookup,
+        uint64 instanceId);
+    void RecordObservationImpl(
+        std::vector<MeshRecord>& meshRecords,
+        std::unordered_map<uint64, size_t>& meshLookup,
+        std::vector<InstanceHistory>& instanceHistories,
+        std::unordered_map<uint64, size_t>& instanceHistoryLookup,
+        uint64& generation,
+        const RtPathTraceMeshObservation& meshObservation,
+        const RtPathTraceInstanceObservation& instanceObservation,
+        RtSmokeSurfaceClass surfaceClass,
+        int numVerts,
+        int numIndexes,
+        ObservationReplayAllocationTestSeam* allocationTestSeam);
     void AddSample(
         const RtPathTraceMeshObservation& meshObservation,
         const RtPathTraceInstanceObservation& instanceObservation,
@@ -285,4 +453,9 @@ private:
     std::unordered_map<uint64, size_t> m_instanceHistoryLookup;
     std::vector<RtPathTraceInstanceObservation> m_frameInstances;
     RtPathTraceInstanceUniverseStats m_frameStats;
+    uint64 m_lifecycleSerial = 1;
+    uint64 m_frameBeginSerial = 0;
+    uint32_t m_frameObservedDrawSurfCountCalls = 0;
+    uint32_t m_frameSkippedDrawSurfCalls = 0;
+    uint32_t m_frameObservationCalls = 0;
 };

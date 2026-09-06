@@ -4,13 +4,47 @@
 #include "PathTraceAcceleration.h"
 #include "PathTraceTextureRegistry.h"
 #include "PathTraceAccelerationPlan.h"
+#include "PathTraceCpuProducerPublish.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <exception>
+#include <new>
 #include <nvrhi/utils.h>
 
 namespace
 {
+    std::atomic<uint32_t> g_smokeInvalidGeometryWarningCount{0};
+
+    bool ValidateSmokeAccelStructGeometryBufferRanges(
+        const nvrhi::rt::AccelStructDesc& desc)
+    {
+        if (desc.bottomLevelGeometries.empty()) return false;
+        for (const nvrhi::rt::GeometryDesc& geometry :
+             desc.bottomLevelGeometries)
+        {
+            if (geometry.geometryType == nvrhi::rt::GeometryType::Triangles &&
+                !ValidateSmokeTriangleGeometryBufferRanges(
+                    geometry.geometryData.triangles))
+                return false;
+        }
+        return true;
+    }
+
+    void NoteSmokeInvalidGeometryRange(const char* kind)
+    {
+        const uint32_t warningIndex =
+            g_smokeInvalidGeometryWarningCount.fetch_add(
+                1, std::memory_order_relaxed);
+        if (warningIndex < 8 && common)
+        {
+            common->Warning(
+                "PathTracePrimaryPass: rejected invalid %s BLAS geometry buffer range before GPU submission\n",
+                kind ? kind : "unknown");
+        }
+    }
+
     void MarkSmokeTlasBlasesForRayTracing(nvrhi::ICommandList* commandList, const std::vector<nvrhi::rt::InstanceDesc>& instanceDescs)
     {
         if (!commandList || instanceDescs.empty())
@@ -39,6 +73,26 @@ namespace
     }
 }
 
+bool ValidateSmokeTriangleGeometryBufferRanges(
+    const nvrhi::rt::GeometryTriangles& triangleGeometry)
+{
+    if (!triangleGeometry.vertexBuffer || !triangleGeometry.indexBuffer)
+        return false;
+    const uint64_t indexStride =
+        nvrhi::getFormatInfo(triangleGeometry.indexFormat).bytesPerBlock;
+    const uint64_t vertexStride = triangleGeometry.vertexStride;
+    return ValidateSmokeGeometryByteRange(
+               triangleGeometry.indexOffset,
+               triangleGeometry.indexCount,
+               indexStride,
+               triangleGeometry.indexBuffer->getDesc().byteSize) &&
+        ValidateSmokeGeometryByteRange(
+               triangleGeometry.vertexOffset,
+               triangleGeometry.vertexCount,
+               vertexStride,
+               triangleGeometry.vertexBuffer->getDesc().byteSize);
+}
+
 void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, nvrhi::IBuffer* vertexBuffer, nvrhi::IBuffer* indexBuffer, int totalVertexCount, int indexOffset, int indexCount)
 {
     triangleGeometry.indexBuffer = indexBuffer;
@@ -62,7 +116,7 @@ RtSmokeBlasCreateResult CreateSmokeBlas(const RtSmokeBlasCreateDesc& desc)
     }
 
     result.accelStructDesc = nvrhi::rt::AccelStructDesc()
-        .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
+        .setBuildFlags(desc.buildFlags)
         .setDebugName(desc.debugName);
 
     const int triangleCount = desc.indexCount / 3;
@@ -88,6 +142,15 @@ RtSmokeBlasCreateResult CreateSmokeBlas(const RtSmokeBlasCreateDesc& desc)
             desc.vertexCount,
             triangleOffset * 3,
             geometryTriangleCount * 3);
+        if (!ValidateSmokeTriangleGeometryBufferRanges(triangleGeometry))
+        {
+            result.status =
+                RtSmokeBlasCreateStatus::InvalidGeometryBufferRange;
+            result.errorMessage =
+                "RT smoke BLAS geometry exceeds input buffer range";
+            NoteSmokeInvalidGeometryRange(desc.debugName);
+            return result;
+        }
 
         bool hardwareOpaque =
             desc.enableOpaqueGeometry && partitionGeometry;
@@ -116,7 +179,12 @@ RtSmokeBlasCreateResult CreateSmokeBlas(const RtSmokeBlasCreateDesc& desc)
     result.accelStruct = desc.device->createAccelStruct(result.accelStructDesc);
     if (!result.accelStruct)
     {
+        result.status = RtSmokeBlasCreateStatus::DeviceCreationFailure;
         result.errorMessage = "failed to create RT smoke BLAS";
+    }
+    else
+    {
+        result.status = RtSmokeBlasCreateStatus::Success;
     }
     return result;
 }
@@ -190,7 +258,15 @@ int UploadSmokeAccelerationBuffers(const RtSmokeBufferUploadBatchDesc& desc)
             if (!item.skip && item.buffer && item.data && item.byteSize > 0)
             {
                 const byte* sourceBytes = static_cast<const byte*>(item.data) + item.sourceOffsetBytes;
-                desc.commandList->writeBuffer(item.buffer, sourceBytes, item.byteSize, item.destOffsetBytes);
+                if (item.profileName != nullptr)
+                {
+                    OPTICK_EVENT_DYNAMIC(item.profileName);
+                    desc.commandList->writeBuffer(item.buffer, sourceBytes, item.byteSize, item.destOffsetBytes);
+                }
+                else
+                {
+                    desc.commandList->writeBuffer(item.buffer, sourceBytes, item.byteSize, item.destOffsetBytes);
+                }
             }
         }
     }
@@ -229,9 +305,20 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     }
 
     RtSmokeAccelerationSubmitPlanInput submitPlanInput;
-    submitPlanInput.hasStaticBlas = desc.hasStaticBlas;
-    submitPlanInput.hasDynamicBlas = desc.hasDynamicBlas;
+    const bool staticGeometryValid = !desc.hasStaticBlas ||
+        (desc.staticBlas &&
+            ValidateSmokeAccelStructGeometryBufferRanges(desc.staticBlasDesc));
+    const bool dynamicGeometryValid = !desc.hasDynamicBlas ||
+        (desc.dynamicBlas &&
+            ValidateSmokeAccelStructGeometryBufferRanges(desc.dynamicBlasDesc));
+    if (desc.hasStaticBlas && !staticGeometryValid)
+        NoteSmokeInvalidGeometryRange("static submit");
+    if (desc.hasDynamicBlas && !dynamicGeometryValid)
+        NoteSmokeInvalidGeometryRange("dynamic submit");
+    submitPlanInput.hasStaticBlas = desc.hasStaticBlas && staticGeometryValid;
+    submitPlanInput.hasDynamicBlas = desc.hasDynamicBlas && dynamicGeometryValid;
     submitPlanInput.staticBlasCacheHit = desc.staticBlasCacheHit;
+    submitPlanInput.dynamicBlasCacheHit = desc.dynamicBlasCacheHit;
     submitPlanInput.includeStaticBlasInTlas =
         desc.includeStaticBlasInTlas;
     submitPlanInput.hasExtraTlasInstances =
@@ -248,8 +335,8 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     const auto accelSubmitStart =
         std::chrono::steady_clock::now();
     const auto blasSubmitStart = accelSubmitStart;
-    timing.staticBlasBuildSkipped = submitPlanInput.hasStaticBlas && !submitPlan.buildStaticBlas;
-    timing.dynamicBlasBuildSkipped = submitPlanInput.hasDynamicBlas && !submitPlan.buildDynamicBlas;
+    timing.staticBlasBuildSkipped = desc.hasStaticBlas && !submitPlan.buildStaticBlas;
+    timing.dynamicBlasBuildSkipped = desc.hasDynamicBlas && !submitPlan.buildDynamicBlas;
     if (submitPlan.buildStaticBlas)
     {
         OPTICK_GPU_EVENT("PT GPU Build Static BLAS");
@@ -268,6 +355,7 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
 
     if (submitPlan.buildDynamicBlas)
     {
+        OPTICK_EVENT("PT Merged Dynamic BLAS Build Submit");
         OPTICK_GPU_EVENT("PT GPU Build Dynamic BLAS");
         if (desc.diagnosticMarkers)
         {
@@ -302,28 +390,48 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
                 blasSubmitEnd - blasSubmitStart).count());
 
     std::vector<nvrhi::rt::InstanceDesc> instanceDescs;
-    instanceDescs.reserve(2 + (desc.extraTlasInstances ? desc.extraTlasInstances->size() : 0));
-    for (int plannedIndex = 0; plannedIndex < submitPlan.baseTlasPlan.instanceCount; ++plannedIndex)
+    try
     {
-        const RtSmokePlanTlasInstance& plannedInstance = submitPlan.baseTlasPlan.instances[plannedIndex];
-        nvrhi::rt::InstanceDesc instanceDesc;
-        instanceDesc
-            .setInstanceID(plannedInstance.instanceId)
-            .setInstanceMask(plannedInstance.instanceMask)
-            .setInstanceContributionToHitGroupIndex(plannedInstance.hitGroupContribution)
-            .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
-            .setBLAS(plannedInstance.kind == RT_SMOKE_PLAN_TLAS_STATIC_BLAS ? desc.staticBlas : desc.dynamicBlas);
-        instanceDescs.push_back(instanceDesc);
-    }
-    if (desc.extraTlasInstances)
-    {
-        for (const nvrhi::rt::InstanceDesc& instanceDesc : *desc.extraTlasInstances)
+        instanceDescs.reserve(2 + (desc.extraTlasInstances ? desc.extraTlasInstances->size() : 0));
+        for (int plannedIndex = 0; plannedIndex < submitPlan.baseTlasPlan.instanceCount; ++plannedIndex)
         {
-            if (instanceDesc.bottomLevelAS)
+            const RtSmokePlanTlasInstance& plannedInstance = submitPlan.baseTlasPlan.instances[plannedIndex];
+            nvrhi::rt::AccelStructHandle baseBlas =
+                plannedInstance.kind == RT_SMOKE_PLAN_TLAS_STATIC_BLAS
+                    ? desc.staticBlas
+                    : desc.dynamicBlas;
+            if (!cpu_producer_publish::SmokeTlasKeepExtraInstance(baseBlas != nullptr))
             {
-                instanceDescs.push_back(instanceDesc);
+                continue;
+            }
+            nvrhi::rt::InstanceDesc instanceDesc;
+            instanceDesc
+                .setInstanceID(plannedInstance.instanceId)
+                .setInstanceMask(plannedInstance.instanceMask)
+                .setInstanceContributionToHitGroupIndex(plannedInstance.hitGroupContribution)
+                .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
+                .setBLAS(baseBlas);
+            instanceDescs.push_back(instanceDesc);
+        }
+        if (desc.extraTlasInstances)
+        {
+            for (const nvrhi::rt::InstanceDesc& instanceDesc : *desc.extraTlasInstances)
+            {
+                if (cpu_producer_publish::SmokeTlasKeepExtraInstance(
+                        instanceDesc.bottomLevelAS != nullptr))
+                {
+                    instanceDescs.push_back(instanceDesc);
+                }
             }
         }
+    }
+    catch (const std::bad_alloc&)
+    {
+        return false;
+    }
+    catch (const std::exception&)
+    {
+        return false;
     }
 
     const int tlasSubmitStartMs = Sys_Milliseconds();
@@ -331,6 +439,24 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
         std::chrono::steady_clock::now();
     {
         OPTICK_GPU_EVENT("PT GPU Build TLAS");
+        if (!desc.tlas)
+        {
+            return false;
+        }
+        for (size_t instanceIndex = 0; instanceIndex < instanceDescs.size(); ++instanceIndex)
+        {
+            if (!cpu_producer_publish::SmokeTlasKeepExtraInstance(
+                    instanceDescs[instanceIndex].bottomLevelAS != nullptr))
+            {
+                return false;
+            }
+        }
+        if (!cpu_producer_publish::SmokeTlasSubmitAllowed(
+                static_cast<uint32_t>(instanceDescs.size()),
+                desc.tlasMaxInstances))
+        {
+            return false;
+        }
         if (desc.diagnosticMarkers)
         {
             desc.commandList->beginMarker(

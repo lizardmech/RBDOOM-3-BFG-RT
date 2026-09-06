@@ -138,6 +138,14 @@ struct PtSkinnedEmissiveAuditTriangle
     bool hasPrevious = false;
 };
 
+struct RtSmokeEmissiveMaterialFacts
+{
+    uint32_t materialId = 0, universeIndex = 0;
+    bool valid = false, hasEmissiveImage = false, hasSafeEmissiveTexture = false;
+};
+std::vector<RtSmokeEmissiveMaterialFacts> SnapshotSmokeEmissiveMaterialFacts(
+    const std::vector<uint32_t>& materialIds, const std::vector<PtSkinnedEmissiveAuditTriangle>& triangles);
+
 struct PtSkinnedEmissiveAuditInventory
 {
     std::vector<PathTraceSmokeEmissiveTriangle> current;
@@ -284,12 +292,49 @@ struct RtSmokeEmissiveInventoryStats
     int untexturedCandidateMaterials = 0;
 };
 
+struct RtSmokeEmissiveInventorySourceRange
+{
+    bool includeStatic = false;
+    bool includeDynamic = false;
+    size_t staticBegin = 0;
+    size_t staticEnd = 0;
+    size_t dynamicBegin = 0;
+    size_t dynamicEnd = 0;
+};
+
+struct RtSmokeEmissiveInventoryPartitionResult
+{
+    std::vector<PathTraceSmokeEmissiveTriangle> triangles;
+    std::vector<PathTraceUptEmissiveGeometry> geometry;
+    std::vector<float> areaContributions;
+    std::vector<float> weightedLuminanceContributions;
+    RtSmokeEmissiveInventoryStats stats;
+};
+
+struct RtSmokeRigidRouteEmissiveAppendResult
+{
+    std::vector<PathTraceSmokeEmissiveTriangle> triangles;
+    std::vector<PathTraceUptEmissiveGeometry> geometry;
+    std::vector<float> areaContributions;
+    std::vector<float> weightedLuminanceContributions;
+    RtSmokeEmissiveInventoryStats stats;
+    bool valid = false;
+};
+
+int BuildSmokeEmissiveInventoryPartitionRanges(
+    size_t staticSourceUnits,
+    size_t dynamicSourceUnits,
+    int requestedPartitions,
+    RtSmokeEmissiveInventorySourceRange* ranges,
+    int rangeCapacity);
+
 float SmokeMaterialEmissiveLuminance(const PathTraceSmokeMaterial& material);
 std::vector<PathTraceSmokeLightCandidate> BuildSmokeLightCandidateBufferRecords(
     const RtSmokeEmissiveInventoryStats& stats);
 RtSmokeEmissiveInventoryStats BuildSmokeEmissiveInventoryStatsForRecords(
     const std::vector<uint32_t>& materialIds,
-    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles);
+    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    const std::vector<RtSmokeEmissiveMaterialFacts>* ownedFacts = nullptr);
 void FinalizeSmokeEmissiveTriangleSamplingFields(
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     const RtSmokeEmissiveInventoryStats& stats);
@@ -302,7 +347,9 @@ PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory
     const std::vector<PathTraceSkinnedPreviousPosition>& previousPositions,
     const std::vector<PtSkinnedEmissiveAuditTriangle>& triangles,
     uint32_t emissiveMaterialFlag,
-    int maxRecords);
+    int maxRecords,
+    const std::vector<RtSmokeEmissiveMaterialFacts>* ownedFacts = nullptr,
+    RtSmokeEmissiveInventoryStats* currentStatsOut = nullptr, float ownedUniformMixture = -1.0f);
 std::vector<PathTraceEmissiveLightRemap> BuildSmokeCanonicalEmissiveLightRemap(
     const std::vector<PathTraceSmokeEmissiveTriangle>& currentTriangles,
     const std::vector<PathTraceSmokeEmissiveTriangle>& previousTriangles);
@@ -333,7 +380,58 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
     const std::vector<uint32_t>*
         triangleClassOverrides = nullptr,
     const std::vector<uint32_t>*
-        triangleMaterialIndexOverrides = nullptr);
+        triangleMaterialIndexOverrides = nullptr,
+    const std::vector<uint32_t>*
+        materialUniverseIndexes = nullptr,
+    std::vector<float>* areaContributions = nullptr,
+    std::vector<float>* weightedLuminanceContributions = nullptr,
+    size_t routeBegin = 0,
+    size_t routeEnd = SIZE_MAX);
+void BuildSmokeEmissiveTriangleInventoryPartition(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const std::vector<uint32_t>& materialUniverseIndexes,
+    const std::vector<PathTraceSmokeVertex>& staticVertices,
+    const std::vector<uint32_t>& staticIndexes,
+    const std::vector<uint32_t>& staticTriangleClasses,
+    const std::vector<uint32_t>& staticTriangleMaterialIndexes,
+    const RtSmokeStaticBucketGeometryPack* staticBucketGeometryPack,
+    const std::vector<uint32_t>* staticBucketTriangleMaterialIndexes,
+    const RtPathTraceStaticBucketActivePublication* staticBucketPublication,
+    const std::vector<PathTraceSmokeVertex>& dynamicVertices,
+    const std::vector<uint32_t>& dynamicIndexes,
+    const std::vector<uint32_t>& dynamicTriangleClasses,
+    const std::vector<uint32_t>& dynamicTriangleMaterialIndexes,
+    const std::vector<uint32_t>& dynamicTriangleInstanceIds,
+    const std::vector<uint32_t>& dynamicTriangleIdentityIds,
+    const RtSmokeEmissiveInventorySourceRange& sourceRange,
+    uint32_t emissiveMaterialFlag,
+    uint32_t triangleClassMask,
+    uint32_t skinnedSurfaceClassId,
+    int maxRecords,
+    RtSmokeEmissiveInventoryPartitionResult& result);
+bool MergeSmokeEmissiveInventoryPartitions(
+    const std::vector<uint32_t>& materialIds,
+    RtSmokeEmissiveInventoryPartitionResult* const* partitions,
+    size_t partitionCount,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
+    RtSmokeEmissiveInventoryStats& stats);
+bool BuildSmokeRigidRouteEmissiveTriangleInventorySnapshot(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const std::vector<uint32_t>& materialUniverseIndexes,
+    const RtPathTraceRigidRouteBuild& rigidRouteBuild,
+    uint32_t emissiveMaterialFlag,
+    int maxRecords,
+    RtSmokeRigidRouteEmissiveAppendResult& result);
+bool MergeSmokeRigidRouteEmissiveAppendResult(
+    const RtSmokeRigidRouteEmissiveAppendResult& result,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
+    RtSmokeEmissiveInventoryStats& stats);
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,

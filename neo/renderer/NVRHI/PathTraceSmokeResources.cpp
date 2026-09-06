@@ -21,6 +21,7 @@
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceSmokeDispatch.h"
 #include "PathTraceSmokeResources.h"
+#include "PathTraceCpuProducerPublish.h"
 #include "PathTraceTextureRegistry.h"
 #include "PathTraceUnifiedLight.h"
 #include "../RenderProgs.h"
@@ -216,7 +217,7 @@ static bool SmokeBufferHasCapacity(nvrhi::BufferHandle buffer, size_t byteSize, 
         (!unorderedAccess || buffer->getDesc().canHaveUAVs);
 }
 
-static nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput, bool unorderedAccess = false)
+static nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput, bool unorderedAccess = false, uint32_t* physicalCreateCount = nullptr)
 {
     if (!device)
     {
@@ -233,10 +234,12 @@ static nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, con
     desc.canHaveUAVs = unorderedAccess;
     desc.initialState = nvrhi::ResourceStates::Common;
     desc.keepInitialState = true;
-    return device->createBuffer(desc);
+    auto result = device->createBuffer(desc);
+    if (result && physicalCreateCount) ++*physicalCreateCount;
+    return result;
 }
 
-static nvrhi::BufferHandle ReuseOrCreateSmokeGeometryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput, bool unorderedAccess = false, bool shrinkWhenEmpty = false)
+static nvrhi::BufferHandle ReuseOrCreateSmokeGeometryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput, bool unorderedAccess = false, bool shrinkWhenEmpty = false, uint32_t* physicalCreateCount = nullptr)
 {
     if (SmokeBufferHasCapacity(existingBuffer, byteSize, structStride, unorderedAccess))
     {
@@ -250,68 +253,84 @@ static nvrhi::BufferHandle ReuseOrCreateSmokeGeometryBuffer(nvrhi::IDevice* devi
         }
     }
 
-    return CreateSmokeGeometryBuffer(device, debugName, byteSize, structStride, vertexBuffer, indexBuffer, accelStructInput, unorderedAccess);
+    return CreateSmokeGeometryBuffer(device, debugName, byteSize, structStride, vertexBuffer, indexBuffer, accelStructInput, unorderedAccess, physicalCreateCount);
 }
 
-static nvrhi::BufferHandle ReuseOrCreateOptionalSmokeGeometryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, size_t byteSize, uint32_t structStride, bool unorderedAccess = false)
+RtSmokeRigidRouteBufferResolveResult ResolveOrCreateSmokeRigidRouteBuffers(const RtSmokeRigidRouteBufferResolveDesc& desc)
 {
-    if (byteSize == 0)
-    {
-        return nullptr;
-    }
-    return ReuseOrCreateSmokeGeometryBuffer(device, existingBuffer, debugName, byteSize, structStride, false, false, false, unorderedAccess);
-}
-
-RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc)
-{
-    RtSmokeSceneBufferCreateResult result;
-    result.buffers.staticVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticVertexBuffer, "PathTraceSmokeStaticWorldVertices", desc.staticVertexBytes, sizeof(PathTraceSmokeVertex), true, false, true);
-    result.buffers.staticIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticIndexBuffer, "PathTraceSmokeStaticWorldIndices", desc.staticIndexBytes, sizeof(uint32_t), false, true, true);
-    result.buffers.staticTriangleClassBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticTriangleClassBuffer, "PathTraceSmokeStaticWorldTriangleClasses", desc.staticTriangleClassBytes, sizeof(uint32_t), false, false, false);
-    result.buffers.staticTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticTriangleMaterialBuffer, "PathTraceSmokeStaticWorldTriangleMaterials", desc.staticTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
-    result.buffers.staticTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticTriangleMaterialIndexBuffer, "PathTraceSmokeStaticWorldTriangleMaterialIndexes", desc.staticTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
-    result.buffers.previousStaticVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticVertexBuffer, "PathTraceSmokePreviousStaticWorldVertices", desc.previousStaticVertexBytes, sizeof(PathTraceSmokeVertex), false, false, false);
-    result.buffers.previousStaticIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticIndexBuffer, "PathTraceSmokePreviousStaticWorldIndices", desc.previousStaticIndexBytes, sizeof(uint32_t), false, false, false);
-    result.buffers.previousStaticTriangleClassBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticTriangleClassBuffer, "PathTraceSmokePreviousStaticWorldTriangleClasses", desc.previousStaticTriangleClassBytes, sizeof(uint32_t), false, false, false);
-    result.buffers.previousStaticTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticTriangleMaterialBuffer, "PathTraceSmokePreviousStaticWorldTriangleMaterials", desc.previousStaticTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
-    result.buffers.previousStaticTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticTriangleMaterialIndexBuffer, "PathTraceSmokePreviousStaticWorldTriangleMaterialIndexes", desc.previousStaticTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
-    result.buffers.dynamicVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicVertexBuffer, "PathTraceSmokeDynamicCandidateVertices", desc.dynamicVertexBytes, sizeof(PathTraceSmokeVertex), true, false, true, true, true);
-    result.buffers.dynamicIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicIndexBuffer, "PathTraceSmokeDynamicCandidateIndices", desc.dynamicIndexBytes, sizeof(uint32_t), false, true, true, false, true);
-    result.buffers.dynamicTriangleClassBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicTriangleClassBuffer, "PathTraceSmokeDynamicCandidateTriangleClasses", desc.dynamicTriangleClassBytes, sizeof(uint32_t), false, false, false, false, true);
-    result.buffers.dynamicTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicTriangleMaterialBuffer, "PathTraceSmokeDynamicCandidateTriangleMaterials", desc.dynamicTriangleMaterialBytes, sizeof(uint32_t), false, false, false, false, true);
-    result.buffers.dynamicTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicTriangleMaterialIndexBuffer, "PathTraceSmokeDynamicCandidateTriangleMaterialIndexes", desc.dynamicTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false, false, true);
-    result.buffers.materialTableBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialTableBuffer, "PathTraceSmokeMaterialTable", desc.materialTableBytes, sizeof(PathTraceSmokeMaterial), false, false, false);
-    result.buffers.materialFeatureBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialFeatureBuffer, "PathTraceMaterialFeatureRecords", desc.materialFeatureBytes, sizeof(RtPathTraceMaterialFeatureRecord), false, false, false);
-    result.buffers.materialFeatureParameterBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialFeatureParameterBuffer, "PathTraceMaterialFeatureParameters", desc.materialFeatureParameterBytes, sizeof(RtPathTraceMaterialFeatureParameterRecord), false, false, false);
-    result.buffers.dynamicMaterialBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicMaterialBuffer, "PathTraceDynamicMaterialRecords", desc.dynamicMaterialBytes, sizeof(PathTraceDynamicMaterialRecord));
-    result.buffers.emissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveTriangleBuffer, "PathTraceSmokeEmissiveTriangles", desc.emissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false, true);
-    result.buffers.previousEmissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousEmissiveTriangleBuffer, "PathTraceSmokePreviousEmissiveTriangles", desc.previousEmissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false, true);
-    result.buffers.emissiveRemapBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveRemapBuffer, "PathTraceSmokeEmissiveRemap", desc.emissiveRemapBytes, sizeof(PathTraceEmissiveLightRemap), false, false, false);
-    result.buffers.emissiveDistributionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveDistributionBuffer, "PathTraceEmissiveDistribution", desc.emissiveDistributionBytes, sizeof(PathTraceEmissiveDistributionEntry), false, false, false);
-    result.buffers.lightCandidateBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.lightCandidateBuffer, "PathTraceSmokeLightCandidates", desc.lightCandidateBytes, sizeof(PathTraceSmokeLightCandidate), false, false, false);
-    result.buffers.doomAnalyticLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticLightBuffer, "PathTraceDoomAnalyticLights", desc.doomAnalyticLightBytes, sizeof(PathTraceDoomAnalyticLightCandidate), false, false, false);
-    result.buffers.doomAnalyticPreviousLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticPreviousLightBuffer, "PathTraceDoomAnalyticPreviousLights", desc.doomAnalyticPreviousLightBytes, sizeof(PathTraceDoomAnalyticLightCandidate), false, false, false);
-    result.buffers.doomAnalyticCurrentIdentityBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticCurrentIdentityBuffer, "PathTraceDoomAnalyticCurrentIdentities", desc.doomAnalyticCurrentIdentityBytes, sizeof(PathTraceDoomAnalyticLightCandidateIdentity), false, false, false);
-    result.buffers.doomAnalyticPreviousIdentityBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticPreviousIdentityBuffer, "PathTraceDoomAnalyticPreviousIdentities", desc.doomAnalyticPreviousIdentityBytes, sizeof(PathTraceDoomAnalyticLightCandidateIdentity), false, false, false);
-    result.buffers.doomAnalyticRemapBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticRemapBuffer, "PathTraceDoomAnalyticRemap", desc.doomAnalyticRemapBytes, sizeof(PathTraceDoomAnalyticLightRemap), false, false, false);
-    result.buffers.unifiedLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedLightBuffer, "PathTraceUnifiedLights", desc.unifiedLightBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
-    result.buffers.unifiedPreviousLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedPreviousLightBuffer, "PathTraceUnifiedPreviousLights", desc.unifiedPreviousLightBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
-    result.buffers.unifiedLightRemapBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedLightRemapBuffer, "PathTraceUnifiedLightRemap", desc.unifiedLightRemapBytes, sizeof(uint32_t), false, false, false);
-    result.buffers.restirLightManagerCurrentToPreviousBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerCurrentToPreviousBuffer, "PathTraceRestirLightManagerCurrentToPrevious", desc.restirLightManagerCurrentToPreviousBytes, sizeof(uint32_t), false, false, false);
-    result.buffers.restirLightManagerPreviousToCurrentBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerPreviousToCurrentBuffer, "PathTraceRestirLightManagerPreviousToCurrent", desc.restirLightManagerPreviousToCurrentBytes, sizeof(uint32_t), false, false, false);
-    result.buffers.restirLightManagerCurrentPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerCurrentPayloadBuffer, "PathTraceRestirLightManagerCurrentPayload", desc.restirLightManagerCurrentPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
-    result.buffers.restirLightManagerPreviousPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerPreviousPayloadBuffer, "PathTraceRestirLightManagerPreviousPayload", desc.restirLightManagerPreviousPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true);
-    result.buffers.unifiedPtEmissiveLookupBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedPtEmissiveLookupBuffer, "PathTraceUnifiedPtEmissiveLookup", desc.unifiedPtEmissiveLookupBytes, sizeof(PathTraceUnifiedEmissiveLookupEntry));
-    result.buffers.unifiedPtEmissiveGeometryBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedPtEmissiveGeometryBuffer, "PathTraceUnifiedPtEmissiveGeometry", desc.unifiedPtEmissiveGeometryBytes, sizeof(PathTraceUptEmissiveGeometry), false, false, false, true);
+    RtSmokeRigidRouteBufferResolveResult result;
     result.buffers.rigidRouteVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteVertexBuffer, "PathTraceRigidRouteVertices", desc.rigidRouteVertexBytes, sizeof(PathTraceSmokeVertex), false, false, false);
     result.buffers.rigidRouteIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteIndexBuffer, "PathTraceRigidRouteIndices", desc.rigidRouteIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialBuffer, "PathTraceRigidRouteTriangleMaterials", desc.rigidRouteTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer, "PathTraceRigidRouteTriangleMaterialIndexes", desc.rigidRouteTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteInstanceBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteInstanceBuffer, "PathTraceRigidRouteInstances", desc.rigidRouteInstanceBytes, sizeof(PathTraceRigidRouteInstance), false, false, false);
-    result.buffers.skinnedHitRouteRecordBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedHitRouteRecordBuffer, "PathTraceSkinnedHitRouteRecords", desc.skinnedHitRouteRecordBytes, sizeof(PathTraceSkinnedHitRouteGpuRecord), false, false, false);
-    result.buffers.skinnedHitRouteTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedHitRouteTriangleBuffer, "PathTraceSkinnedHitRouteTriangles", desc.skinnedHitRouteTriangleBytes, sizeof(PathTraceSkinnedHitRouteGpuTriangle), false, false, false);
-    result.buffers.skinnedEmissiveWorkBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedEmissiveWorkBuffer, "PathTraceSkinnedEmissiveWork", desc.skinnedEmissiveWorkBytes, sizeof(PathTraceSkinnedEmissiveGpuWork), false, false, false);
-    result.buffers.skinnedSourceVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSourceVertexBuffer, "PathTraceSkinnedSourceVertices", desc.skinnedSourceVertexBytes, sizeof(PathTraceSkinnedSourceVertex));
+    result.rigidRoutePhysicalBufferCreateCount += result.buffers.rigidRouteVertexBuffer && result.buffers.rigidRouteVertexBuffer != desc.existingBuffers.rigidRouteVertexBuffer;
+    result.rigidRoutePhysicalBufferCreateCount += result.buffers.rigidRouteIndexBuffer && result.buffers.rigidRouteIndexBuffer != desc.existingBuffers.rigidRouteIndexBuffer;
+    result.rigidRoutePhysicalBufferCreateCount += result.buffers.rigidRouteTriangleMaterialBuffer && result.buffers.rigidRouteTriangleMaterialBuffer != desc.existingBuffers.rigidRouteTriangleMaterialBuffer;
+    result.rigidRoutePhysicalBufferCreateCount += result.buffers.rigidRouteTriangleMaterialIndexBuffer && result.buffers.rigidRouteTriangleMaterialIndexBuffer != desc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer;
+    result.rigidRoutePhysicalBufferCreateCount += result.buffers.rigidRouteInstanceBuffer && result.buffers.rigidRouteInstanceBuffer != desc.existingBuffers.rigidRouteInstanceBuffer;
+    return result;
+}
+
+static nvrhi::BufferHandle ReuseOrCreateOptionalSmokeGeometryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, size_t byteSize, uint32_t structStride, bool unorderedAccess = false, uint32_t* physicalCreateCount = nullptr)
+{
+    if (byteSize == 0)
+    {
+        return nullptr;
+    }
+    return ReuseOrCreateSmokeGeometryBuffer(device, existingBuffer, debugName, byteSize, structStride, false, false, false, unorderedAccess, false, physicalCreateCount);
+}
+
+RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc)
+{
+    RtSmokeSceneBufferCreateResult result;
+    result.buffers.staticVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticVertexBuffer, "PathTraceSmokeStaticWorldVertices", desc.staticVertexBytes, sizeof(PathTraceSmokeVertex), true, false, true, false, false, &result.physicalBufferCreateCount);
+    result.buffers.staticIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticIndexBuffer, "PathTraceSmokeStaticWorldIndices", desc.staticIndexBytes, sizeof(uint32_t), false, true, true, false, false, &result.physicalBufferCreateCount);
+    result.buffers.staticTriangleClassBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticTriangleClassBuffer, "PathTraceSmokeStaticWorldTriangleClasses", desc.staticTriangleClassBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.staticTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticTriangleMaterialBuffer, "PathTraceSmokeStaticWorldTriangleMaterials", desc.staticTriangleMaterialBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.staticTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticTriangleMaterialIndexBuffer, "PathTraceSmokeStaticWorldTriangleMaterialIndexes", desc.staticTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.previousStaticVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticVertexBuffer, "PathTraceSmokePreviousStaticWorldVertices", desc.previousStaticVertexBytes, sizeof(PathTraceSmokeVertex), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.previousStaticIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticIndexBuffer, "PathTraceSmokePreviousStaticWorldIndices", desc.previousStaticIndexBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.previousStaticTriangleClassBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticTriangleClassBuffer, "PathTraceSmokePreviousStaticWorldTriangleClasses", desc.previousStaticTriangleClassBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.previousStaticTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticTriangleMaterialBuffer, "PathTraceSmokePreviousStaticWorldTriangleMaterials", desc.previousStaticTriangleMaterialBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.previousStaticTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticTriangleMaterialIndexBuffer, "PathTraceSmokePreviousStaticWorldTriangleMaterialIndexes", desc.previousStaticTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.dynamicVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicVertexBuffer, "PathTraceSmokeDynamicCandidateVertices", desc.dynamicVertexBytes, sizeof(PathTraceSmokeVertex), true, false, true, true, true, &result.physicalBufferCreateCount);
+    result.buffers.dynamicIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicIndexBuffer, "PathTraceSmokeDynamicCandidateIndices", desc.dynamicIndexBytes, sizeof(uint32_t), false, true, true, false, true, &result.physicalBufferCreateCount);
+    result.buffers.dynamicTriangleClassBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicTriangleClassBuffer, "PathTraceSmokeDynamicCandidateTriangleClasses", desc.dynamicTriangleClassBytes, sizeof(uint32_t), false, false, false, false, true, &result.physicalBufferCreateCount);
+    result.buffers.dynamicTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicTriangleMaterialBuffer, "PathTraceSmokeDynamicCandidateTriangleMaterials", desc.dynamicTriangleMaterialBytes, sizeof(uint32_t), false, false, false, false, true, &result.physicalBufferCreateCount);
+    result.buffers.dynamicTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicTriangleMaterialIndexBuffer, "PathTraceSmokeDynamicCandidateTriangleMaterialIndexes", desc.dynamicTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false, false, true, &result.physicalBufferCreateCount);
+    result.buffers.materialTableBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialTableBuffer, "PathTraceSmokeMaterialTable", desc.materialTableBytes, sizeof(PathTraceSmokeMaterial), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.materialFeatureBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialFeatureBuffer, "PathTraceMaterialFeatureRecords", desc.materialFeatureBytes, sizeof(RtPathTraceMaterialFeatureRecord), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.materialFeatureParameterBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialFeatureParameterBuffer, "PathTraceMaterialFeatureParameters", desc.materialFeatureParameterBytes, sizeof(RtPathTraceMaterialFeatureParameterRecord), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.dynamicMaterialBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicMaterialBuffer, "PathTraceDynamicMaterialRecords", desc.dynamicMaterialBytes, sizeof(PathTraceDynamicMaterialRecord), false, &result.physicalBufferCreateCount);
+    result.buffers.emissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveTriangleBuffer, "PathTraceSmokeEmissiveTriangles", desc.emissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false, true, false, &result.physicalBufferCreateCount);
+    result.buffers.previousEmissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousEmissiveTriangleBuffer, "PathTraceSmokePreviousEmissiveTriangles", desc.previousEmissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false, true, false, &result.physicalBufferCreateCount);
+    result.buffers.emissiveRemapBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveRemapBuffer, "PathTraceSmokeEmissiveRemap", desc.emissiveRemapBytes, sizeof(PathTraceEmissiveLightRemap), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.emissiveDistributionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveDistributionBuffer, "PathTraceEmissiveDistribution", desc.emissiveDistributionBytes, sizeof(PathTraceEmissiveDistributionEntry), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.lightCandidateBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.lightCandidateBuffer, "PathTraceSmokeLightCandidates", desc.lightCandidateBytes, sizeof(PathTraceSmokeLightCandidate), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.doomAnalyticLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticLightBuffer, "PathTraceDoomAnalyticLights", desc.doomAnalyticLightBytes, sizeof(PathTraceDoomAnalyticLightCandidate), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.doomAnalyticPreviousLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticPreviousLightBuffer, "PathTraceDoomAnalyticPreviousLights", desc.doomAnalyticPreviousLightBytes, sizeof(PathTraceDoomAnalyticLightCandidate), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.doomAnalyticCurrentIdentityBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticCurrentIdentityBuffer, "PathTraceDoomAnalyticCurrentIdentities", desc.doomAnalyticCurrentIdentityBytes, sizeof(PathTraceDoomAnalyticLightCandidateIdentity), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.doomAnalyticPreviousIdentityBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticPreviousIdentityBuffer, "PathTraceDoomAnalyticPreviousIdentities", desc.doomAnalyticPreviousIdentityBytes, sizeof(PathTraceDoomAnalyticLightCandidateIdentity), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.doomAnalyticRemapBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticRemapBuffer, "PathTraceDoomAnalyticRemap", desc.doomAnalyticRemapBytes, sizeof(PathTraceDoomAnalyticLightRemap), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.unifiedLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedLightBuffer, "PathTraceUnifiedLights", desc.unifiedLightBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true, false, &result.physicalBufferCreateCount);
+    result.buffers.unifiedPreviousLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedPreviousLightBuffer, "PathTraceUnifiedPreviousLights", desc.unifiedPreviousLightBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true, false, &result.physicalBufferCreateCount);
+    result.buffers.unifiedLightRemapBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedLightRemapBuffer, "PathTraceUnifiedLightRemap", desc.unifiedLightRemapBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.restirLightManagerCurrentToPreviousBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerCurrentToPreviousBuffer, "PathTraceRestirLightManagerCurrentToPrevious", desc.restirLightManagerCurrentToPreviousBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.restirLightManagerPreviousToCurrentBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerPreviousToCurrentBuffer, "PathTraceRestirLightManagerPreviousToCurrent", desc.restirLightManagerPreviousToCurrentBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.restirLightManagerCurrentPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerCurrentPayloadBuffer, "PathTraceRestirLightManagerCurrentPayload", desc.restirLightManagerCurrentPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true, false, &result.physicalBufferCreateCount);
+    result.buffers.restirLightManagerPreviousPayloadBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.restirLightManagerPreviousPayloadBuffer, "PathTraceRestirLightManagerPreviousPayload", desc.restirLightManagerPreviousPayloadBytes, sizeof(PathTraceUnifiedLightRecord), false, false, false, true, false, &result.physicalBufferCreateCount);
+    result.buffers.unifiedPtEmissiveLookupBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedPtEmissiveLookupBuffer, "PathTraceUnifiedPtEmissiveLookup", desc.unifiedPtEmissiveLookupBytes, sizeof(PathTraceUnifiedEmissiveLookupEntry), false, &result.physicalBufferCreateCount);
+    result.buffers.unifiedPtEmissiveGeometryBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.unifiedPtEmissiveGeometryBuffer, "PathTraceUnifiedPtEmissiveGeometry", desc.unifiedPtEmissiveGeometryBytes, sizeof(PathTraceUptEmissiveGeometry), false, false, false, true, false, &result.physicalBufferCreateCount);
+    result.buffers.rigidRouteVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteVertexBuffer, "PathTraceRigidRouteVertices", desc.rigidRouteVertexBytes, sizeof(PathTraceSmokeVertex), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.rigidRouteIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteIndexBuffer, "PathTraceRigidRouteIndices", desc.rigidRouteIndexBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.rigidRouteTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialBuffer, "PathTraceRigidRouteTriangleMaterials", desc.rigidRouteTriangleMaterialBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.rigidRouteTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer, "PathTraceRigidRouteTriangleMaterialIndexes", desc.rigidRouteTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.rigidRouteInstanceBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteInstanceBuffer, "PathTraceRigidRouteInstances", desc.rigidRouteInstanceBytes, sizeof(PathTraceRigidRouteInstance), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.skinnedHitRouteRecordBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedHitRouteRecordBuffer, "PathTraceSkinnedHitRouteRecords", desc.skinnedHitRouteRecordBytes, sizeof(PathTraceSkinnedHitRouteGpuRecord), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.skinnedHitRouteTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedHitRouteTriangleBuffer, "PathTraceSkinnedHitRouteTriangles", desc.skinnedHitRouteTriangleBytes, sizeof(PathTraceSkinnedHitRouteGpuTriangle), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.skinnedEmissiveWorkBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedEmissiveWorkBuffer, "PathTraceSkinnedEmissiveWork", desc.skinnedEmissiveWorkBytes, sizeof(PathTraceSkinnedEmissiveGpuWork), false, false, false, false, false, &result.physicalBufferCreateCount);
+    result.buffers.skinnedSourceVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSourceVertexBuffer, "PathTraceSkinnedSourceVertices", desc.skinnedSourceVertexBytes, sizeof(PathTraceSkinnedSourceVertex), false, &result.physicalBufferCreateCount);
     nvrhi::BufferHandle existingSkinnedOutput =
         desc.existingBuffers.skinnedCurrentOutputVertexBuffer;
     if (desc.skinnedOutputStorageGeneration != 0)
@@ -357,18 +376,87 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
                 false,
                 false,
                 true,
-                true);
-    result.buffers.skinnedPreviousPositionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousPositionBuffer, "PathTraceSkinnedPreviousPositions", desc.skinnedPreviousPositionBytes, sizeof(PathTraceSkinnedPreviousPosition), false, false, false, true, true);
-    result.buffers.skinnedSurfaceDispatchBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSurfaceDispatchBuffer, "PathTraceSkinnedSurfaceDispatch", desc.skinnedSurfaceDispatchBytes, sizeof(PathTraceSkinnedSurfaceDispatchRecord), false, false, false, false, true);
-    result.buffers.skinnedTriangleDispatchIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedTriangleDispatchIndexBuffer, "PathTraceSkinnedTriangleDispatchIndex", desc.skinnedTriangleDispatchIndexBytes, sizeof(uint32_t), false, false, false, false, true);
-    result.buffers.skinnedCurrentJointMatrixBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentJointMatrixBuffer, "PathTraceSkinnedCurrentJointMatrices", desc.skinnedCurrentJointMatrixBytes, sizeof(PathTraceSkinnedJointMatrix));
-    result.buffers.skinnedPreviousJointMatrixBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousJointMatrixBuffer, "PathTraceSkinnedPreviousJointMatrices", desc.skinnedPreviousJointMatrixBytes, sizeof(PathTraceSkinnedJointMatrix));
+                true, false, &result.physicalBufferCreateCount);
+    result.buffers.skinnedPreviousPositionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousPositionBuffer, "PathTraceSkinnedPreviousPositions", desc.skinnedPreviousPositionBytes, sizeof(PathTraceSkinnedPreviousPosition), false, false, false, true, true, &result.physicalBufferCreateCount);
+    result.buffers.skinnedSurfaceDispatchBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSurfaceDispatchBuffer, "PathTraceSkinnedSurfaceDispatch", desc.skinnedSurfaceDispatchBytes, sizeof(PathTraceSkinnedSurfaceDispatchRecord), false, false, false, false, true, &result.physicalBufferCreateCount);
+    result.buffers.skinnedTriangleDispatchIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedTriangleDispatchIndexBuffer, "PathTraceSkinnedTriangleDispatchIndex", desc.skinnedTriangleDispatchIndexBytes, sizeof(uint32_t), false, false, false, false, true, &result.physicalBufferCreateCount);
+    result.buffers.skinnedCurrentJointMatrixBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentJointMatrixBuffer, "PathTraceSkinnedCurrentJointMatrices", desc.skinnedCurrentJointMatrixBytes, sizeof(PathTraceSkinnedJointMatrix), false, &result.physicalBufferCreateCount);
+    result.buffers.skinnedPreviousJointMatrixBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousJointMatrixBuffer, "PathTraceSkinnedPreviousJointMatrices", desc.skinnedPreviousJointMatrixBytes, sizeof(PathTraceSkinnedJointMatrix), false, &result.physicalBufferCreateCount);
 
     if (!result.buffers.IsValid())
     {
         result.errorMessage = "failed to create RT smoke geometry buffers";
     }
     return result;
+}
+
+RtSmokeDynamicGeometryBuffers ResizeOrCreateSmokeDynamicGeometryBuffers(
+    nvrhi::IDevice* device,
+    const RtSmokeDynamicGeometryBuffers& existing,
+    size_t vertexBytes,
+    size_t indexBytes,
+    size_t classBytes,
+    size_t materialBytes,
+    size_t materialIndexBytes,
+    uint32_t* physicalCreateCount)
+{
+    RtSmokeDynamicGeometryBuffers buffers;
+    buffers.vertexBuffer = ReuseOrCreateSmokeGeometryBuffer(
+        device,
+        existing.vertexBuffer,
+        "PathTraceSmokeDynamicCandidateVertices",
+        vertexBytes,
+        sizeof(PathTraceSmokeVertex),
+        true,
+        false,
+        true,
+        true,
+        true, physicalCreateCount);
+    buffers.indexBuffer = ReuseOrCreateSmokeGeometryBuffer(
+        device,
+        existing.indexBuffer,
+        "PathTraceSmokeDynamicCandidateIndices",
+        indexBytes,
+        sizeof(uint32_t),
+        false,
+        true,
+        true,
+        false,
+        true, physicalCreateCount);
+    buffers.triangleClassBuffer = ReuseOrCreateSmokeGeometryBuffer(
+        device,
+        existing.triangleClassBuffer,
+        "PathTraceSmokeDynamicCandidateTriangleClasses",
+        classBytes,
+        sizeof(uint32_t),
+        false,
+        false,
+        false,
+        false,
+        true, physicalCreateCount);
+    buffers.triangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(
+        device,
+        existing.triangleMaterialBuffer,
+        "PathTraceSmokeDynamicCandidateTriangleMaterials",
+        materialBytes,
+        sizeof(uint32_t),
+        false,
+        false,
+        false,
+        false,
+        true, physicalCreateCount);
+    buffers.triangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(
+        device,
+        existing.triangleMaterialIndexBuffer,
+        "PathTraceSmokeDynamicCandidateTriangleMaterialIndexes",
+        materialIndexBytes,
+        sizeof(uint32_t),
+        false,
+        false,
+        false,
+        false,
+        true, physicalCreateCount);
+    return buffers;
 }
 
 RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildDesc& desc, RtSmokeMaterialTableBuild& materialTable)
@@ -412,6 +500,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         {
             OPTICK_EVENT("PT Create Texture Descriptor Table");
             result.textureDescriptorTable = desc.device->createDescriptorTable(desc.textureBindlessLayout);
+            result.physicalDescriptorTableCreateCount += result.textureDescriptorTable != nullptr;
             result.textureDescriptorTableCreated = result.textureDescriptorTable != nullptr;
         }
         if (!result.textureDescriptorTable)
@@ -459,6 +548,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         {
             OPTICK_EVENT("PT Create Retired-Safe Texture Descriptor Table");
             result.textureDescriptorTable = desc.device->createDescriptorTable(desc.textureBindlessLayout);
+            result.physicalDescriptorTableCreateCount += result.textureDescriptorTable != nullptr;
             result.textureDescriptorTableCreated = result.textureDescriptorTable != nullptr;
             if (!result.textureDescriptorTable)
             {
@@ -529,6 +619,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
     {
         OPTICK_EVENT("PT Create Empty Texture Descriptor Table");
         result.textureDescriptorTable = desc.device->createDescriptorTable(desc.textureBindlessLayout);
+            result.physicalDescriptorTableCreateCount += result.textureDescriptorTable != nullptr;
         result.textureDescriptorTableCreated = result.textureDescriptorTable != nullptr;
     }
     if (!result.textureDescriptorTable)
@@ -630,8 +721,30 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
     }
 
     {
-        OPTICK_EVENT("PT Create Binding Set");
-        result.bindingSet = desc.device->createBindingSet(bindingSetDesc, desc.bindingLayout);
+        const auto* previousDesc = desc.existingBindingSet ? desc.existingBindingSet->getDesc() : nullptr;
+        if (desc.existingBindingReceipt)
+        {
+            result.bindingComparison = desc.existingBindingReceipt->Compare(
+                desc.device, desc.bindingLayout, bindingSetDesc);
+        }
+        if (desc.existingBindingReceipt && result.bindingComparison.reason == RtPathTraceBindingMismatch::Equal)
+        {
+            result.bindingSet = desc.existingBindingReceipt->bindingSet;
+            result.bindingReceipt = *desc.existingBindingReceipt;
+        }
+        else if (!desc.existingBindingReceipt && previousDesc && desc.existingBindingSet->getLayout() == desc.bindingLayout &&
+            previousDesc->trackLiveness == bindingSetDesc.trackLiveness && *previousDesc == bindingSetDesc)
+        {
+            result.bindingSet = desc.existingBindingSet;
+        }
+        else
+        {
+            OPTICK_EVENT("PT Create Binding Set");
+            result.bindingSet = desc.device->createBindingSet(bindingSetDesc, desc.bindingLayout);
+            result.physicalBindingCreateCount += result.bindingSet != nullptr;
+            if (result.bindingSet && desc.existingBindingReceipt)
+                result.bindingReceipt.Capture(desc.device, desc.bindingLayout, bindingSetDesc, result.bindingSet);
+        }
     }
     if (!result.bindingSet)
     {
@@ -650,6 +763,7 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.staticBlas = desc.staticBlas;
     commitDesc.dynamicBlas = desc.dynamicBlas;
     commitDesc.tlas = desc.tlas;
+    commitDesc.tlasMaxInstances = desc.tlasMaxInstances;
     commitDesc.hasStaticBlas = desc.hasStaticBlas;
     commitDesc.staticBlasSignature = desc.staticBlasSignature;
     commitDesc.staticBlasOpacitySignature = desc.staticBlasOpacitySignature;
@@ -882,7 +996,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     }
 
     m_smokeTlas = device->createAccelStruct(nvrhi::rt::AccelStructDesc()
-        .setTopLevelMaxInstances(512)
+        .setTopLevelMaxInstances(cpu_producer_publish::kPathTraceSmokeTlasMaxInstances)
         .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
         .setDebugName("PathTraceSmokeTLAS"));
 
@@ -891,6 +1005,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         common->Printf("PathTracePrimaryPass: failed to create RT smoke TLAS\n");
         return;
     }
+    m_smokeTlasMaxInstances = cpu_producer_publish::kPathTraceSmokeTlasMaxInstances;
 
     nvrhi::BufferDesc constantsDesc;
     constantsDesc.byteSize = GetPathTraceSmokeConstantsSize();
@@ -2631,9 +2746,13 @@ void PathTracePrimaryPass::OnGraphicsCommandListSubmitted()
 
 void PathTracePrimaryPass::ResetRayTracingSmokeAsyncCpuWork()
 {
+    ResetRigidTlasBackendJob();
     m_smokeAccelerationPlanFuture.Reset();
     m_smokeRigidTlasPlanFuture.Reset();
     m_smokeRigidRouteBuildFuture.Reset();
+    m_smokeProducerLaneBOwnershipActive = false;
+    m_smokeRigidTlasDedicatedWorkerDisabledForBackendPool = false;
+    m_smokeRigidRouteDedicatedWorkerDisabledForBackendV1 = false;
     m_smokeBvhFramePlanningFuture.Reset();
 
     m_smokeCpuWorkState = RtPathTraceCpuWorkState();
@@ -2680,6 +2799,11 @@ void PathTracePrimaryPass::ResetRayTracingSmokeAsyncCpuWork()
 
 void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
 {
+    // Producer-lane slots own their leases independently. Dropping the
+    // publisher references here invalidates this world's resident generation;
+    // any in-flight shared lease remains alive until its worker drains.
+    m_smokeAccelCpuResidentPublisher.Reset();
+    m_smokeProducerLaneBBootstrapComplete = false;
     if (r_pathTracingWaitForIdleOnPortalChange.GetInteger() != 0 &&
         (HasRetainableRayTracingSmokeScenePackage() ||
             !m_retiredSmokeScenePackages.empty() ||
@@ -3057,6 +3181,10 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeStaticBlas = desc.staticBlas;
     m_smokeDynamicBlas = desc.dynamicBlas;
     m_smokeTlas = desc.tlas;
+    if (desc.tlasMaxInstances != 0)
+    {
+        m_smokeTlasMaxInstances = desc.tlasMaxInstances;
+    }
     if (desc.hasStaticBlas)
     {
         m_smokeStaticBlasCacheValid = true;
@@ -3095,4 +3223,50 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
         desc.sceneInputs.diagnostics.lightUploadBytes;
     m_frameResources.RecordSceneResourceCommit(uploadBytes, desc.bindingSet != nullptr, desc.staticBlas != nullptr || desc.dynamicBlas != nullptr);
     m_smokeSceneBuilt = true;
+}
+
+bool PathTracePrimaryPass::EnsureSmokeTlasCapacity(
+    uint32_t neededInstances,
+    RtSmokeTlasCapacityCandidate& candidate)
+{
+    if (m_smokeTlas && m_smokeTlasMaxInstances >= neededInstances)
+    {
+        candidate.tlas = m_smokeTlas;
+        candidate.maxInstances = m_smokeTlasMaxInstances;
+        candidate.grew = false;
+        return true;
+    }
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        if (!candidate.tlas)
+        {
+            candidate.tlas = m_smokeTlas;
+            candidate.maxInstances = m_smokeTlasMaxInstances;
+        }
+        candidate.grew = false;
+        return false;
+    }
+    const uint32_t newMax = cpu_producer_publish::ChooseSmokeTlasGrowMax(
+        m_smokeTlasMaxInstances,
+        neededInstances);
+    nvrhi::rt::AccelStructHandle grown = device->createAccelStruct(
+        nvrhi::rt::AccelStructDesc()
+            .setTopLevelMaxInstances(newMax)
+            .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
+            .setDebugName("PathTraceSmokeTLAS"));
+    if (!grown)
+    {
+        if (!candidate.tlas)
+        {
+            candidate.tlas = m_smokeTlas;
+            candidate.maxInstances = m_smokeTlasMaxInstances;
+        }
+        candidate.grew = false;
+        return false;
+    }
+    candidate.tlas = grown;
+    candidate.maxInstances = newMax;
+    candidate.grew = true;
+    return true;
 }

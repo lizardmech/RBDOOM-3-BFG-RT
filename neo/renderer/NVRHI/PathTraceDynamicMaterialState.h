@@ -52,36 +52,7 @@ const uint32_t RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_DECAL = 0x00000100u;
 const uint32_t RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_GUI_RENDER = 0x00000200u;
 const uint32_t RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_PROGRAM = 0x00000400u;
 const uint32_t RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_FLIPBOOK = 0x00000800u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX = 0x00000008u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST = 0x00000010u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_DYNAMIC_IMAGE = 0x00000020u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_CINEMATIC = 0x00000040u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_GUI_RENDER_TARGET = 0x00000080u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_PROGRAM = 0x00000100u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE = 0x00000200u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_ORDERED_STAGE_VALUE = 0x00000400u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ORDERED_STAGE_VALUES = 0x00000800u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_SELECTED_STAGE_MASK = 0x000000ffu;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_COUNT_SHIFT = 8u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_COUNT_MASK = 0x00000f00u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OVERFLOW = 0x00001000u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OFFSET_SHIFT = 16u;
-const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OFFSET_MASK = 0xffff0000u;
-
-struct PathTraceDynamicMaterialRecord
-{
-    float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-    float texMatrix0[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
-    float texMatrix1[4] = { 0.0f, 1.0f, 0.0f, 0.0f };
-    uint32_t materialIndex = UINT32_MAX;
-    uint32_t materialId = 0;
-    uint32_t stageIndex = UINT32_MAX;
-    uint32_t flags = 0;
-};
-static_assert((sizeof(PathTraceDynamicMaterialRecord) % 16) == 0, "PathTraceDynamicMaterialRecord must stay 16-byte aligned for HLSL StructuredBuffer reads");
+#include "PathTraceDynamicMaterialRecord.h"
 
 struct RtSmokeMaterialTableBuild
 {
@@ -120,7 +91,126 @@ struct RtSmokeMaterialTableCacheStats
 {
     int hits = 0;
     int misses = 0;
+    uint64 telemetryCalls = 0;
+    uint64 telemetryHits = 0;
+    uint64 telemetryMisses = 0;
+    uint64 missDisabled = 0;
+    uint64 missNoEntry = 0;
+    uint64 missSignature = 0;
+    uint64 missRefresh = 0;
+    uint64 missRemap = 0;
+    uint64 signatureChangedMaterialSet = 0;
+    uint64 signatureChangedConfig = 0;
+    uint64 signatureChangedRegistrySize = 0;
+    uint64 signatureChangedRegistryGeneration = 0;
+    uint64 signatureChangedResidentFacts = 0;
+    uint64 signatureChangedOverrides = 0;
+    uint64 signatureChangedClassifier = 0;
+    uint64 signatureChangedUnknown = 0;
+    uint64 explicitClears = 0;
+    uint64 hitTotalMicroseconds = 0;
+    uint64 hitMaxMicroseconds = 0;
+    uint64 missTotalMicroseconds = 0;
+    uint64 missMaxMicroseconds = 0;
+    uint64 patchPathCalls = 0;
+    uint64 patchPathAppendedIds = 0;
+    uint64 patchPathConsideredRows = 0;
+    uint64 patchPathRebuiltRows = 0;
+    uint64 patchPathSkippedUnchangedRows = 0;
+    uint64 patchPathDynamicRows = 0;
+    uint64 patchPathOrderedStageConsideredRows = 0;
+    uint64 patchPathOrderedStageSkippedRows = 0;
+    uint64 patchPathOrderedStageRebuiltRows = 0;
+    uint64 patchPathOrderedStageEpochEligibleRows = 0;
+    uint64 patchPathOrderedStageScannedDueEpochRows = 0;
+    uint64 patchPathOrderedStageAvoidedSteadyRows = 0;
+    uint64 patchPathNonPrimaryGenerationWakeRows = 0;
+    uint64 patchPathCompletedCalls = 0;
+    uint64 patchPathActiveRows = 0;
+    uint64 patchPathClassifierFinds = 0;
+    uint64 patchPathTotalMicroseconds = 0;
+    uint64 patchPathTableCopyMicroseconds = 0;
+    uint64 patchPathTextureRefcountMicroseconds = 0;
+    uint64 patchPathClassifierLookupMicroseconds = 0;
+    uint64 patchPathOrderedFingerprintMicroseconds = 0;
+    uint64 patchPathRowResolveMicroseconds = 0;
+    uint64 patchPathRowRebuildMicroseconds = 0;
+    int patchPathClassifierRecords = 0;
+    uint64 patchPathTextureSlotsAppended = 0;
+    uint64 patchPathTextureSlotsReused = 0;
+    uint64 patchPathGenerationOnlyAvoidedMisses = 0;
+    uint64 patchPathEpochRetries = 0;
+    uint64 patchPathEpochFailClosed = 0;
+    uint64 fullBuildEpochRetries = 0;
+    uint64 fullBuildEpochStoreSkipped = 0;
+    uint64 epochTriggeredRefreshCalls = 0;
+    uint64 epochTriggeredRefreshVisitedIds = 0;
+    uint64 epochTriggeredRefreshChangedIds = 0;
+    uint64 epochTriggeredRefreshRetries = 0;
+    uint64 epochSecondDriftFailClosed = 0;
+    uint64 epochNextQuietCacheHits = 0;
+    uint64 epochForcedFullRefreshCalls = 0;
+    uint64 epochForcedInvalidCacheRefreshCalls = 0;
+    uint64 epochForcedFullRefreshVisitedIds = 0;
+    uint64 epochForcedFullRefreshChangedIds = 0;
+    uint64 epochFailClosedNoStore = 0;
+    struct DynamicPartition
+    {
+        uint64 rebuilt = 0;
+        uint64 compareIdentical = 0;
+        uint64 comparePartial = 0;
+        uint64 compareError = 0;
+        uint64 identicalDynamic = 0;
+        uint64 dynamicRebuilt = 0;
+        uint64 runtimeCoveredCandidate = 0;
+        uint64 wakeDynamic = 0;
+        uint64 wakeAppend = 0;
+        uint64 wakeNew = 0;
+        uint64 wakeSignature = 0;
+        uint64 wakeBinding = 0;
+        uint64 wakeOrdered = 0;
+        uint64 wakeOverride = 0;
+        uint64 wakeFacts = 0;
+        uint64 exclusiveDynamic = 0;
+        uint64 exclusiveAppend = 0;
+        uint64 exclusiveNew = 0;
+        uint64 exclusiveSignature = 0;
+        uint64 exclusiveBinding = 0;
+        uint64 exclusiveOrdered = 0;
+        uint64 exclusiveOverride = 0;
+        uint64 exclusiveFacts = 0;
+        uint64 exclusiveOther = 0;
+        uint64 subclassGui = 0;
+        uint64 subclassRegisters = 0;
+        uint64 subclassTextureMatrix = 0;
+        uint64 subclassSpectrum = 0;
+        uint64 subclassDecal = 0;
+        uint64 subclassVideo = 0;
+        uint64 subclassRenderTarget = 0;
+        uint64 subclassOther = 0;
+        uint64 productRow = 0;
+        uint64 productFacts = 0;
+        uint64 productFeature = 0;
+        uint64 productParameters = 0;
+        uint64 productBinding = 0;
+        uint64 invariantFailures = 0;
+    } dynamicPartition;
+    uint64 forcedFullStructural = 0;
+    uint64 forcedFullValidation = 0;
+    uint64 forcedFullCapacity = 0;
+    uint64 forcedFullPatch = 0;
+    bool patchSelfTestEvaluated = false;
+    bool patchSelfTestPassed = false;
 };
+
+// Owner-thread only. Mutates a private candidate; discard it on failure.
+// Existing rows and texture slots are never changed. Capacity-limited textures
+// remain unbound, so a full descriptor table does not stall geometry publication.
+bool AppendSmokeResidentMaterialRows(RtSmokeMaterialTableBuild& candidate,
+    const std::vector<uint32_t>& materialIds, uint32_t& textureCapacityMisses);
+uint64_t SmokeResidentMaterialConfigurationSignature();
+bool RefreshSmokeResidentMaterialRows(RtSmokeMaterialTableBuild& candidate,
+    std::vector<uint64_t>& sourceSignatures, uint32_t& textureCapacityMisses);
 
 struct RtSmokeMaterialTableBuildStats
 {
@@ -143,6 +233,10 @@ int GetSmokeTextureTableEffectiveLimitWithMinimum(int minimumLimit);
 uint32_t HashSmokeMaterialName(const char* materialName);
 uint32_t SmokeMaterialId(const idMaterial* material);
 bool ValidateSmokeMaterialIndexes(const RtSmokeMaterialTableBuild& table);
+void RebuildSmokeMaterialIndexesFromCachedTable(
+    RtSmokeMaterialTableBuild& table,
+    const std::vector<uint32_t>& staticMaterialIds,
+    const std::vector<uint32_t>& dynamicMaterialIds);
 bool SmokeMaterialTableIndexIsValid(const RtSmokeMaterialTableBuild& table, int tableIndex);
 bool BindSmokeMaterialRuntimeEmissiveTexture(RtSmokeMaterialTableBuild& table, int tableIndex, idImage* image, int minimumTextureTableLimit = 0);
 std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuild& table);
@@ -151,6 +245,7 @@ bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table,
 bool BuildSmokeMaterialTableCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, int minimumTextureTableLimit, uint64& signature, bool& cacheHit);
 RtSmokeMaterialTableBuildStats GetSmokeMaterialTableBuildStats();
 RtSmokeMaterialTableCacheStats GetSmokeMaterialTableCacheStats();
+void DumpSmokeMaterialTableCacheTelemetryIfNeeded();
 void ClearSmokeMaterialTableCache();
 void ArmSmokeCrosshairZeroRoughnessToggle();
 bool ConsumeSmokeCrosshairZeroRoughnessToggleRequest();

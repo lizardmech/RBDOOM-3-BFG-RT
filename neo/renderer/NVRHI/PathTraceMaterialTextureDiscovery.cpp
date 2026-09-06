@@ -50,13 +50,98 @@ struct RtSmokeMaterialHydrationSetCache
 {
     bool valid = false;
     uint64 signature = 0;
+    uint64 textureRegistryGeneration = 0;
+    uint64 residentFactsGeneration = 0;
     int materialCount = 0;
     std::vector<uint32_t> refreshMaterialIds;
+};
+
+struct RtSmokeMaterialHydrationOrderTelemetry
+{
+    bool currentPairEvaluated = false;
+    bool currentSequenceSameAsPrevious = false;
+    bool currentSetSameAsPrevious = false;
+    int frameNumber = -1;
+    uint64 orderedSignature = 0;
+    uint64 orderIndependentSignature = 0;
+    uint64 adjacentFramePairsEvaluated = 0;
+    uint64 sameSetDifferentOrderFrames = 0;
+    std::vector<uint32_t> previousSequence;
+    std::vector<uint32_t> previousSet;
+};
+
+enum class RtSmokeMaterialHydrationSetInvalidationReason
+{
+    None,
+    ResidentFactsClear,
+    InputUnavailable
+};
+
+enum class RtSmokeMaterialHydrationSetMissReason
+{
+    NoEntry,
+    MaterialCount,
+    Signature,
+    ExplicitResidentFactsClear,
+    ExplicitInputUnavailable,
+    ExplicitRefreshSubsetMissing
+};
+
+struct RtSmokeMaterialHydrationSetTelemetry
+{
+    int frameNumber = -1;
+    uint64 hitsThisFrame = 0;
+    uint64 missesThisFrame = 0;
+    uint64 missNoEntryThisFrame = 0;
+    uint64 missMaterialCountThisFrame = 0;
+    uint64 missSignatureThisFrame = 0;
+    uint64 missExplicitInvalidationThisFrame = 0;
+    uint64 missRefreshSubsetMissingThisFrame = 0;
+    uint64 membershipDeltaPassesThisFrame = 0;
+    uint64 membershipDeltaVisitedThisFrame = 0;
+    uint64 membershipDeltaRetainedSkippedThisFrame = 0;
+    uint64 membershipDeltaNewRegisteredThisFrame = 0;
+    uint64 membershipDeltaUniqueNonzeroThisFrame = 0;
+    uint64 membershipDeltaUnresolvedThisFrame = 0;
+    uint64 membershipDeltaCacheUpdatedThisFrame = 0;
+    uint64 membershipDeltaCompleteThisFrame = 0;
+    uint64 membershipDeltaGenerationBypassPassesThisFrame = 0;
+    uint64 membershipDeltaRegistryGenerationBypassThisFrame = 0;
+    uint64 membershipDeltaResidentFactsGenerationBypassThisFrame = 0;
+    uint64 hitsCumulative = 0;
+    uint64 missesCumulative = 0;
+    uint64 missNoEntryCumulative = 0;
+    uint64 missMaterialCountCumulative = 0;
+    uint64 missSignatureCumulative = 0;
+    uint64 missExplicitInvalidationCumulative = 0;
+    uint64 missResidentFactsClearCumulative = 0;
+    uint64 missInputUnavailableCumulative = 0;
+    uint64 missRefreshSubsetMissingCumulative = 0;
+    uint64 fullSetPassesCumulative = 0;
+    uint64 fullSetTotalMicroseconds = 0;
+    uint64 fullSetMaxMicroseconds = 0;
+    uint64 membershipDeltaPassesCumulative = 0;
+    uint64 membershipDeltaVisitedCumulative = 0;
+    uint64 membershipDeltaRetainedSkippedCumulative = 0;
+    uint64 membershipDeltaNewRegisteredCumulative = 0;
+    uint64 membershipDeltaUniqueNonzeroCumulative = 0;
+    uint64 membershipDeltaUnresolvedCumulative = 0;
+    uint64 membershipDeltaCacheUpdatedCumulative = 0;
+    uint64 membershipDeltaCompleteCumulative = 0;
+    uint64 membershipDeltaGenerationBypassPassesCumulative = 0;
+    uint64 membershipDeltaRegistryGenerationBypassCumulative = 0;
+    uint64 membershipDeltaResidentFactsGenerationBypassCumulative = 0;
+    uint64 membershipDeltaTotalMicroseconds = 0;
+    uint64 membershipDeltaMaxMicroseconds = 0;
+    RtSmokeMaterialHydrationSetInvalidationReason pendingInvalidation =
+        RtSmokeMaterialHydrationSetInvalidationReason::None;
 };
 
 std::unordered_map<uint32_t, RtResidentMaterialFacts> g_residentMaterialFacts;
 uint64 g_residentMaterialFactsGeneration = 1;
 RtSmokeMaterialHydrationSetCache g_smokeMaterialHydrationSetCache;
+RtSmokeMaterialHydrationOrderTelemetry g_smokeMaterialHydrationOrderTelemetry;
+RtSmokeMaterialHydrationSetTelemetry g_smokeMaterialHydrationSetTelemetry;
 
 bool PathTraceMaterialClassifierRequested()
 {
@@ -87,6 +172,181 @@ void CountSmokeResidentMaterialDynamicSplit(int& residentStatic, int& residentDy
     }
 }
 
+bool SmokeMaterialResidencyTelemetryEnabled()
+{
+    return r_pathTracingResidency.GetInteger() != 0 &&
+        r_pathTracingResidencyMaterial.GetInteger() != 0 &&
+        r_pathTracingResidencyDump.GetInteger() != 0;
+}
+
+void AdvanceSmokeMaterialHydrationSetTelemetryFrame()
+{
+    if (g_smokeMaterialHydrationSetTelemetry.frameNumber == tr.frameCount)
+    {
+        return;
+    }
+    g_smokeMaterialHydrationSetTelemetry.frameNumber = tr.frameCount;
+    g_smokeMaterialHydrationSetTelemetry.hitsThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.missesThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.missNoEntryThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.missMaterialCountThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.missSignatureThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.missExplicitInvalidationThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.missRefreshSubsetMissingThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaPassesThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaVisitedThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaRetainedSkippedThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaNewRegisteredThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaUniqueNonzeroThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaUnresolvedThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaCacheUpdatedThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaCompleteThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaGenerationBypassPassesThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaRegistryGenerationBypassThisFrame = 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaResidentFactsGenerationBypassThisFrame = 0;
+}
+
+void MarkSmokeMaterialHydrationSetCacheInvalidated(
+    RtSmokeMaterialHydrationSetInvalidationReason reason)
+{
+    if (!SmokeMaterialResidencyTelemetryEnabled() ||
+        !g_smokeMaterialHydrationSetCache.valid)
+    {
+        return;
+    }
+    g_smokeMaterialHydrationSetTelemetry.pendingInvalidation = reason;
+}
+
+void RecordSmokeMaterialHydrationSetCacheHit()
+{
+    if (!SmokeMaterialResidencyTelemetryEnabled())
+    {
+        return;
+    }
+    AdvanceSmokeMaterialHydrationSetTelemetryFrame();
+    ++g_smokeMaterialHydrationSetTelemetry.hitsThisFrame;
+    ++g_smokeMaterialHydrationSetTelemetry.hitsCumulative;
+    g_smokeMaterialHydrationSetTelemetry.pendingInvalidation =
+        RtSmokeMaterialHydrationSetInvalidationReason::None;
+}
+
+void RecordSmokeMaterialHydrationSetCacheMiss(
+    RtSmokeMaterialHydrationSetMissReason reason)
+{
+    if (!SmokeMaterialResidencyTelemetryEnabled())
+    {
+        return;
+    }
+    AdvanceSmokeMaterialHydrationSetTelemetryFrame();
+    ++g_smokeMaterialHydrationSetTelemetry.missesThisFrame;
+    ++g_smokeMaterialHydrationSetTelemetry.missesCumulative;
+    switch (reason)
+    {
+        case RtSmokeMaterialHydrationSetMissReason::NoEntry:
+            ++g_smokeMaterialHydrationSetTelemetry.missNoEntryThisFrame;
+            ++g_smokeMaterialHydrationSetTelemetry.missNoEntryCumulative;
+            break;
+        case RtSmokeMaterialHydrationSetMissReason::MaterialCount:
+            ++g_smokeMaterialHydrationSetTelemetry.missMaterialCountThisFrame;
+            ++g_smokeMaterialHydrationSetTelemetry.missMaterialCountCumulative;
+            break;
+        case RtSmokeMaterialHydrationSetMissReason::Signature:
+            ++g_smokeMaterialHydrationSetTelemetry.missSignatureThisFrame;
+            ++g_smokeMaterialHydrationSetTelemetry.missSignatureCumulative;
+            break;
+        case RtSmokeMaterialHydrationSetMissReason::ExplicitResidentFactsClear:
+            ++g_smokeMaterialHydrationSetTelemetry.missExplicitInvalidationThisFrame;
+            ++g_smokeMaterialHydrationSetTelemetry.missExplicitInvalidationCumulative;
+            ++g_smokeMaterialHydrationSetTelemetry.missResidentFactsClearCumulative;
+            break;
+        case RtSmokeMaterialHydrationSetMissReason::ExplicitInputUnavailable:
+            ++g_smokeMaterialHydrationSetTelemetry.missExplicitInvalidationThisFrame;
+            ++g_smokeMaterialHydrationSetTelemetry.missExplicitInvalidationCumulative;
+            ++g_smokeMaterialHydrationSetTelemetry.missInputUnavailableCumulative;
+            break;
+        case RtSmokeMaterialHydrationSetMissReason::ExplicitRefreshSubsetMissing:
+            ++g_smokeMaterialHydrationSetTelemetry.missExplicitInvalidationThisFrame;
+            ++g_smokeMaterialHydrationSetTelemetry.missRefreshSubsetMissingThisFrame;
+            ++g_smokeMaterialHydrationSetTelemetry.missExplicitInvalidationCumulative;
+            ++g_smokeMaterialHydrationSetTelemetry.missRefreshSubsetMissingCumulative;
+            break;
+    }
+    g_smokeMaterialHydrationSetTelemetry.pendingInvalidation =
+        RtSmokeMaterialHydrationSetInvalidationReason::None;
+}
+
+void RecordSmokeMaterialHydrationFullSetPass(uint64 startMicroseconds)
+{
+    if (!SmokeMaterialResidencyTelemetryEnabled())
+    {
+        return;
+    }
+    const uint64 elapsedMicroseconds = Sys_Microseconds() - startMicroseconds;
+    ++g_smokeMaterialHydrationSetTelemetry.fullSetPassesCumulative;
+    g_smokeMaterialHydrationSetTelemetry.fullSetTotalMicroseconds += elapsedMicroseconds;
+    g_smokeMaterialHydrationSetTelemetry.fullSetMaxMicroseconds = std::max(
+        g_smokeMaterialHydrationSetTelemetry.fullSetMaxMicroseconds,
+        elapsedMicroseconds);
+}
+
+void RecordSmokeMaterialHydrationMembershipDelta(
+    uint64 startMicroseconds,
+    uint64 uniqueNonzero,
+    uint64 visited,
+    uint64 retainedSkipped,
+    uint64 newRegistered,
+    uint64 unresolved,
+    bool cacheUpdated)
+{
+    if (!SmokeMaterialResidencyTelemetryEnabled())
+    {
+        return;
+    }
+    const uint64 elapsedMicroseconds = Sys_Microseconds() - startMicroseconds;
+    AdvanceSmokeMaterialHydrationSetTelemetryFrame();
+    ++g_smokeMaterialHydrationSetTelemetry.membershipDeltaPassesThisFrame;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaVisitedThisFrame += visited;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaRetainedSkippedThisFrame += retainedSkipped;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaNewRegisteredThisFrame += newRegistered;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaUniqueNonzeroThisFrame += uniqueNonzero;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaUnresolvedThisFrame += unresolved;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaCacheUpdatedThisFrame += cacheUpdated ? 1 : 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaCompleteThisFrame += unresolved == 0 ? 1 : 0;
+    ++g_smokeMaterialHydrationSetTelemetry.membershipDeltaPassesCumulative;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaVisitedCumulative += visited;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaRetainedSkippedCumulative += retainedSkipped;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaNewRegisteredCumulative += newRegistered;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaUniqueNonzeroCumulative += uniqueNonzero;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaUnresolvedCumulative += unresolved;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaCacheUpdatedCumulative += cacheUpdated ? 1 : 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaCompleteCumulative += unresolved == 0 ? 1 : 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaTotalMicroseconds += elapsedMicroseconds;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaMaxMicroseconds = std::max(
+        g_smokeMaterialHydrationSetTelemetry.membershipDeltaMaxMicroseconds,
+        elapsedMicroseconds);
+}
+
+void RecordSmokeMaterialHydrationMembershipDeltaBypass(
+    bool textureRegistryGenerationMismatch,
+    bool residentFactsGenerationMismatch)
+{
+    if (!SmokeMaterialResidencyTelemetryEnabled())
+    {
+        return;
+    }
+    AdvanceSmokeMaterialHydrationSetTelemetryFrame();
+    ++g_smokeMaterialHydrationSetTelemetry.membershipDeltaGenerationBypassPassesThisFrame;
+    ++g_smokeMaterialHydrationSetTelemetry.membershipDeltaGenerationBypassPassesCumulative;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaRegistryGenerationBypassThisFrame +=
+        textureRegistryGenerationMismatch ? 1 : 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaResidentFactsGenerationBypassThisFrame +=
+        residentFactsGenerationMismatch ? 1 : 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaRegistryGenerationBypassCumulative +=
+        textureRegistryGenerationMismatch ? 1 : 0;
+    g_smokeMaterialHydrationSetTelemetry.membershipDeltaResidentFactsGenerationBypassCumulative +=
+        residentFactsGenerationMismatch ? 1 : 0;
+}
+
 void DumpSmokeMaterialResidencyStatsIfNeeded()
 {
     if (r_pathTracingResidencyDump.GetInteger() == 0)
@@ -100,6 +360,10 @@ void DumpSmokeMaterialResidencyStatsIfNeeded()
         return;
     }
     lastDumpFrame = tr.frameCount;
+    if (SmokeMaterialResidencyTelemetryEnabled())
+    {
+        AdvanceSmokeMaterialHydrationSetTelemetryFrame();
+    }
     int residentStatic = 0;
     int residentDynamic = 0;
     CountSmokeResidentMaterialDynamicSplit(residentStatic, residentDynamic);
@@ -112,13 +376,121 @@ void DumpSmokeMaterialResidencyStatsIfNeeded()
         residentStatic,
         residentDynamic);
     common->Printf(
-        "PathTracePrimaryPass: RES materialHydration visited=%d derived=%d hits=%d misses=%d refresh/skip=%d/%d\n",
+        "PathTracePrimaryPass: RES materialHydration visited=%d derived=%d hits=%d misses=%d refresh/skip=%d/%d hitRatioEvaluated=%d hitRatio=%.6f\n",
         g_smokeMaterialMetadataFrameStats.idHydrationVisited,
         g_smokeMaterialMetadataFrameStats.idHydrationDerived,
         g_smokeMaterialMetadataFrameStats.idHydrationCacheHits,
         g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses,
         g_smokeMaterialMetadataFrameStats.idHydrationRefreshes,
-        g_smokeMaterialMetadataFrameStats.idHydrationRefreshSkips);
+        g_smokeMaterialMetadataFrameStats.idHydrationRefreshSkips,
+        g_smokeMaterialMetadataFrameStats.idHydrationVisited != 0 ? 1 : 0,
+        g_smokeMaterialMetadataFrameStats.idHydrationVisited != 0
+            ? static_cast<double>(g_smokeMaterialMetadataFrameStats.idHydrationCacheHits) /
+                static_cast<double>(g_smokeMaterialMetadataFrameStats.idHydrationVisited)
+            : 0.0);
+    common->Printf(
+        "PathTracePrimaryPass: RES materialHydrationOrder frame=%d pairEvaluated=%d sequenceSamePrevious=%d setSamePrevious=%d sameSetDifferentOrderFrames=%llu adjacentFramePairs=%llu orderedSignature=0x%016llx orderIndependentSignature=0x%016llx\n",
+        g_smokeMaterialHydrationOrderTelemetry.frameNumber,
+        g_smokeMaterialHydrationOrderTelemetry.currentPairEvaluated ? 1 : 0,
+        g_smokeMaterialHydrationOrderTelemetry.currentSequenceSameAsPrevious ? 1 : 0,
+        g_smokeMaterialHydrationOrderTelemetry.currentSetSameAsPrevious ? 1 : 0,
+        static_cast<unsigned long long>(g_smokeMaterialHydrationOrderTelemetry.sameSetDifferentOrderFrames),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationOrderTelemetry.adjacentFramePairsEvaluated),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationOrderTelemetry.orderedSignature),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationOrderTelemetry.orderIndependentSignature));
+    common->Printf(
+        "PathTracePrimaryPass: RES materialHydrationSetCache frame=%d hit=%llu/%llu miss=%llu/%llu missReasonThisFrame(noEntry/materialCount/signature/explicit/refreshSubsetMissing)=%llu/%llu/%llu/%llu/%llu missReasonCumulative(noEntry/materialCount/signature/explicit)=%llu/%llu/%llu/%llu explicitCumulative(residentFactsClear/inputUnavailable/refreshSubsetMissing)=%llu/%llu/%llu fullSetCumulative(passes/totalMs/maxMs)=%llu/%.3f/%.3f reconcile(reason/fullSet)=%d/%d basis=thisFrame/cumulative\n",
+        g_smokeMaterialHydrationSetTelemetry.frameNumber,
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.hitsThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.hitsCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missesThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missesCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missNoEntryThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missMaterialCountThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missSignatureThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missExplicitInvalidationThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missRefreshSubsetMissingThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missNoEntryCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missMaterialCountCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missSignatureCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missExplicitInvalidationCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missResidentFactsClearCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missInputUnavailableCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.missRefreshSubsetMissingCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.fullSetPassesCumulative),
+        static_cast<double>(g_smokeMaterialHydrationSetTelemetry.fullSetTotalMicroseconds) / 1000.0,
+        static_cast<double>(g_smokeMaterialHydrationSetTelemetry.fullSetMaxMicroseconds) / 1000.0,
+        g_smokeMaterialHydrationSetTelemetry.missesCumulative ==
+            g_smokeMaterialHydrationSetTelemetry.missNoEntryCumulative +
+                g_smokeMaterialHydrationSetTelemetry.missMaterialCountCumulative +
+                g_smokeMaterialHydrationSetTelemetry.missSignatureCumulative +
+                g_smokeMaterialHydrationSetTelemetry.missExplicitInvalidationCumulative
+            ? 1
+            : 0,
+        g_smokeMaterialHydrationSetTelemetry.missesCumulative ==
+            g_smokeMaterialHydrationSetTelemetry.fullSetPassesCumulative
+            ? 1
+            : 0);
+    common->Printf(
+        "PathTracePrimaryPass: RES materialHydrationMembershipDelta frame=%d thisFrame(passes/visited/retainedSkipped/newRegistered)=%llu/%llu/%llu/%llu cumulative(passes/visited/retainedSkipped/newRegistered/totalMs/maxMs)=%llu/%llu/%llu/%llu/%.3f/%.3f detailThisFrame(uniqueNonzero/unresolved/cacheUpdated/complete)=%llu/%llu/%llu/%llu detailCumulative(uniqueNonzero/unresolved/cacheUpdated/complete)=%llu/%llu/%llu/%llu bypassThisFrame(passes/textureRegistryGeneration/residentFactsGeneration)=%llu/%llu/%llu bypassCumulative(passes/textureRegistryGeneration/residentFactsGeneration)=%llu/%llu/%llu coverageReconcile=%d eligibilityReconcile=%d routeReconcile=%d\n",
+        g_smokeMaterialHydrationSetTelemetry.frameNumber,
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaPassesThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaVisitedThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaRetainedSkippedThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaNewRegisteredThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaPassesCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaVisitedCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaRetainedSkippedCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaNewRegisteredCumulative),
+        static_cast<double>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaTotalMicroseconds) / 1000.0,
+        static_cast<double>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaMaxMicroseconds) / 1000.0,
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaUniqueNonzeroThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaUnresolvedThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaCacheUpdatedThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaCompleteThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaUniqueNonzeroCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaUnresolvedCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaCacheUpdatedCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaCompleteCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaGenerationBypassPassesThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaRegistryGenerationBypassThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaResidentFactsGenerationBypassThisFrame),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaGenerationBypassPassesCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaRegistryGenerationBypassCumulative),
+        static_cast<unsigned long long>(g_smokeMaterialHydrationSetTelemetry.membershipDeltaResidentFactsGenerationBypassCumulative),
+        g_smokeMaterialHydrationSetTelemetry.membershipDeltaUniqueNonzeroCumulative ==
+            g_smokeMaterialHydrationSetTelemetry.membershipDeltaVisitedCumulative +
+                g_smokeMaterialHydrationSetTelemetry.membershipDeltaRetainedSkippedCumulative
+            ? 1
+            : 0,
+        g_smokeMaterialHydrationSetTelemetry.missMaterialCountCumulative ==
+            g_smokeMaterialHydrationSetTelemetry.membershipDeltaPassesCumulative +
+                g_smokeMaterialHydrationSetTelemetry.membershipDeltaGenerationBypassPassesCumulative
+            ? 1
+            : 0,
+        g_smokeMaterialHydrationSetTelemetry.missesCumulative ==
+            g_smokeMaterialHydrationSetTelemetry.fullSetPassesCumulative +
+                g_smokeMaterialHydrationSetTelemetry.membershipDeltaPassesCumulative
+            ? 1
+            : 0);
+    const RtSmokeMaterialTextureRegistryBumpStats bumpStats =
+        SmokeMaterialTextureRegistryBumpStats();
+    common->Printf(
+        "PathTracePrimaryPass: RES materialRegistryBumps enabled=%d frame=%d addMaterial=%llu/%llu updateVariantFacts=%llu/%llu addVariant=%llu/%llu clearVariants=%llu/%llu clearRegistry=%llu/%llu refreshTextureHandles=%llu/%llu basis=thisFrame/cumulative\n",
+        bumpStats.enabled ? 1 : 0,
+        bumpStats.frameNumber,
+        static_cast<unsigned long long>(bumpStats.thisFrame.addMaterial),
+        static_cast<unsigned long long>(bumpStats.cumulative.addMaterial),
+        static_cast<unsigned long long>(bumpStats.thisFrame.updateVariantFacts),
+        static_cast<unsigned long long>(bumpStats.cumulative.updateVariantFacts),
+        static_cast<unsigned long long>(bumpStats.thisFrame.addVariant),
+        static_cast<unsigned long long>(bumpStats.cumulative.addVariant),
+        static_cast<unsigned long long>(bumpStats.thisFrame.clearVariants),
+        static_cast<unsigned long long>(bumpStats.cumulative.clearVariants),
+        static_cast<unsigned long long>(bumpStats.thisFrame.clearRegistry),
+        static_cast<unsigned long long>(bumpStats.cumulative.clearRegistry),
+        static_cast<unsigned long long>(bumpStats.thisFrame.refreshTextureHandles),
+        static_cast<unsigned long long>(bumpStats.cumulative.refreshTextureHandles));
 }
 
 enum class RtSmokeTextureCodeHint
@@ -168,14 +540,70 @@ uint64 ComputeSmokeMaterialHydrationSetSignature(const std::vector<uint32_t>& ma
     return hash;
 }
 
+void ObserveSmokeMaterialHydrationOrder(
+    const std::vector<uint32_t>& materialIds,
+    uint64 orderedSignature)
+{
+    if (g_smokeMaterialHydrationOrderTelemetry.frameNumber == tr.frameCount)
+    {
+        return;
+    }
+
+    std::vector<uint32_t> materialSet = materialIds;
+    std::sort(materialSet.begin(), materialSet.end());
+
+    const bool adjacentFramePair =
+        g_smokeMaterialHydrationOrderTelemetry.frameNumber >= 0 &&
+        g_smokeMaterialHydrationOrderTelemetry.frameNumber + 1 == tr.frameCount;
+    g_smokeMaterialHydrationOrderTelemetry.currentPairEvaluated = adjacentFramePair;
+    g_smokeMaterialHydrationOrderTelemetry.currentSequenceSameAsPrevious = false;
+    g_smokeMaterialHydrationOrderTelemetry.currentSetSameAsPrevious = false;
+    if (adjacentFramePair)
+    {
+        ++g_smokeMaterialHydrationOrderTelemetry.adjacentFramePairsEvaluated;
+        g_smokeMaterialHydrationOrderTelemetry.currentSequenceSameAsPrevious =
+            g_smokeMaterialHydrationOrderTelemetry.previousSequence == materialIds;
+        g_smokeMaterialHydrationOrderTelemetry.currentSetSameAsPrevious =
+            g_smokeMaterialHydrationOrderTelemetry.previousSet == materialSet;
+        if (g_smokeMaterialHydrationOrderTelemetry.currentSetSameAsPrevious &&
+            !g_smokeMaterialHydrationOrderTelemetry.currentSequenceSameAsPrevious)
+        {
+            ++g_smokeMaterialHydrationOrderTelemetry.sameSetDifferentOrderFrames;
+        }
+    }
+
+    g_smokeMaterialHydrationOrderTelemetry.frameNumber = tr.frameCount;
+    g_smokeMaterialHydrationOrderTelemetry.orderedSignature = orderedSignature;
+    g_smokeMaterialHydrationOrderTelemetry.orderIndependentSignature =
+        ComputeSmokeMaterialHydrationSetSignature(materialSet);
+    g_smokeMaterialHydrationOrderTelemetry.previousSequence = materialIds;
+    g_smokeMaterialHydrationOrderTelemetry.previousSet.swap(materialSet);
+}
+
 void UpdateSmokeMaterialHydrationSetCache(
     const std::vector<uint32_t>& materialIds,
     const std::vector<uint32_t>& refreshMaterialIds)
 {
-    g_smokeMaterialHydrationSetCache.valid = true;
     g_smokeMaterialHydrationSetCache.signature = ComputeSmokeMaterialHydrationSetSignature(materialIds);
+    g_smokeMaterialHydrationSetCache.textureRegistryGeneration =
+        SmokeMaterialTextureRegistryGeneration();
+    g_smokeMaterialHydrationSetCache.residentFactsGeneration =
+        g_residentMaterialFactsGeneration;
     g_smokeMaterialHydrationSetCache.materialCount = static_cast<int>(materialIds.size());
     g_smokeMaterialHydrationSetCache.refreshMaterialIds = refreshMaterialIds;
+    g_smokeMaterialHydrationSetCache.valid = true;
+}
+
+bool CanUseSmokeMaterialHydrationMembershipDelta(
+    const RtSmokeMaterialHydrationSetCache& cache,
+    int currentMaterialCount,
+    uint64 entryTextureRegistryGeneration,
+    uint64 entryResidentFactsGeneration)
+{
+    return cache.valid &&
+        cache.materialCount != currentMaterialCount &&
+        cache.textureRegistryGeneration == entryTextureRegistryGeneration &&
+        cache.residentFactsGeneration == entryResidentFactsGeneration;
 }
 
 uint64 HashSmokeResidentMaterialString(uint64 hash, const char* value)
@@ -376,12 +804,12 @@ bool TryRegisterResidentMaterialFacts(const idMaterial* material, uint32_t mater
     if (!info)
     {
         ++g_smokeMaterialMetadataFrameStats.newEntries;
-        info = &AddSmokeMaterialTextureInfo(materialId, resident->second.info.materialName.c_str());
     }
 
-    *info = resident->second.info;
-    info->tableIndex = -1;
-    RefreshSmokeMaterialTextureHandleState(*info);
+    RtSmokeMaterialTextureInfo completeInfo = resident->second.info;
+    completeInfo.tableIndex = -1;
+    RefreshUnpublishedSmokeMaterialTextureHandleState(completeInfo);
+    info = &PublishCompleteSmokeMaterialTextureInfo(std::move(completeInfo));
     if (PathTraceMaterialClassifierRequested())
     {
         RegisterPathTraceMaterialRecord(material, *info);
@@ -1486,6 +1914,8 @@ int ClearSmokeResidentMaterialFacts()
 {
     const int removedCount = static_cast<int>(g_residentMaterialFacts.size());
     g_residentMaterialFacts.clear();
+    MarkSmokeMaterialHydrationSetCacheInvalidated(
+        RtSmokeMaterialHydrationSetInvalidationReason::ResidentFactsClear);
     g_smokeMaterialHydrationSetCache = RtSmokeMaterialHydrationSetCache();
     if (removedCount > 0)
     {
@@ -1543,8 +1973,12 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     if (!info)
     {
         ++g_smokeMaterialMetadataFrameStats.newEntries;
-        info = &AddSmokeMaterialTextureInfo(materialId, materialName);
     }
+    RtSmokeMaterialTextureInfo completeInfo = info
+        ? *info
+        : RtSmokeMaterialTextureInfo();
+    completeInfo.materialId = materialId;
+    info = &completeInfo;
 
     ++g_smokeMaterialMetadataFrameStats.fullDiscovers;
 
@@ -1734,7 +2168,7 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     {
         ForceSmokeAbsorbingBlackMaterialInfo(*info);
     }
-    RefreshSmokeMaterialTextureHandleState(*info);
+    RefreshUnpublishedSmokeMaterialTextureHandleState(*info);
     // Detail-decal diffuse rescue (splat16 case): some trigger-spawned decals
     // carry a gui-like mask (e.g. guis/assets/white) in their SL_DIFFUSE stage,
     // which the safety filter rejects, leaving no diffuse texture. The visible
@@ -1789,7 +2223,7 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
                 info->alphaReason = va("detail-decal makealpha coverage: stage %d", alphaStageIndex);
                 break;
             }
-            RefreshSmokeMaterialTextureHandleState(*info);
+            RefreshUnpublishedSmokeMaterialTextureHandleState(*info);
             break;
         }
     }
@@ -1814,6 +2248,7 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     // large metadata record or repeat string classification.
     info->hardwareOpaqueGeometry =
         ComputeSmokeMaterialHardwareOpaqueGeometry(*info);
+    info = &PublishCompleteSmokeMaterialTextureInfo(std::move(completeInfo));
     if (PathTraceMaterialClassifierRequested())
     {
         RegisterPathTraceMaterialRecord(material, *info);
@@ -1955,22 +2390,51 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
     const int metadataStartMs = Sys_Milliseconds();
     if (!enabled || !declManager || materialIds.empty())
     {
+        MarkSmokeMaterialHydrationSetCacheInvalidated(
+            RtSmokeMaterialHydrationSetInvalidationReason::InputUnavailable);
         g_smokeMaterialHydrationSetCache = RtSmokeMaterialHydrationSetCache();
+        if (!SmokeMaterialResidencyEnabled() ||
+            r_pathTracingResidencyDump.GetInteger() == 0)
+        {
+            g_smokeMaterialHydrationOrderTelemetry = RtSmokeMaterialHydrationOrderTelemetry();
+        }
         timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
         DumpSmokeMaterialResidencyStatsIfNeeded();
         return timing;
     }
     const bool residencyMaterialEnabled = SmokeMaterialResidencyEnabled();
+    bool useHydrationMembershipDelta = false;
+    uint64 entryTextureRegistryGeneration = 0;
+    uint64 entryResidentFactsGeneration = 0;
     if (!residencyMaterialEnabled)
     {
         g_smokeMaterialHydrationSetCache = RtSmokeMaterialHydrationSetCache();
+        g_smokeMaterialHydrationOrderTelemetry = RtSmokeMaterialHydrationOrderTelemetry();
     }
     else
     {
+        entryTextureRegistryGeneration =
+            SmokeMaterialTextureRegistryGeneration();
+        entryResidentFactsGeneration =
+            g_residentMaterialFactsGeneration;
         const uint64 hydrationSetSignature = ComputeSmokeMaterialHydrationSetSignature(materialIds);
-        if (g_smokeMaterialHydrationSetCache.valid &&
+        if (r_pathTracingResidencyDump.GetInteger() != 0)
+        {
+            ObserveSmokeMaterialHydrationOrder(materialIds, hydrationSetSignature);
+        }
+        else
+        {
+            g_smokeMaterialHydrationOrderTelemetry = RtSmokeMaterialHydrationOrderTelemetry();
+        }
+        const bool hydrationSetCacheMatches =
+            g_smokeMaterialHydrationSetCache.valid &&
             g_smokeMaterialHydrationSetCache.materialCount == static_cast<int>(materialIds.size()) &&
-            g_smokeMaterialHydrationSetCache.signature == hydrationSetSignature)
+            g_smokeMaterialHydrationSetCache.textureRegistryGeneration ==
+                entryTextureRegistryGeneration &&
+            g_smokeMaterialHydrationSetCache.residentFactsGeneration ==
+                entryResidentFactsGeneration &&
+            g_smokeMaterialHydrationSetCache.signature == hydrationSetSignature;
+        if (hydrationSetCacheMatches)
         {
             OPTICK_EVENT("PT Material Metadata Cached Refresh Subset");
             bool refreshSubsetValid = true;
@@ -2006,16 +2470,209 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
             }
             if (refreshSubsetValid)
             {
-                g_smokeMaterialHydrationSetCache.signature = ComputeSmokeMaterialHydrationSetSignature(materialIds);
-                g_smokeMaterialHydrationSetCache.refreshMaterialIds = nextRefreshMaterialIds;
+                UpdateSmokeMaterialHydrationSetCache(
+                    materialIds,
+                    nextRefreshMaterialIds);
+                RecordSmokeMaterialHydrationSetCacheHit();
                 timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
                 DumpSmokeMaterialResidencyStatsIfNeeded();
                 return timing;
             }
+            RecordSmokeMaterialHydrationSetCacheMiss(
+                RtSmokeMaterialHydrationSetMissReason::ExplicitRefreshSubsetMissing);
             g_smokeMaterialHydrationSetCache = RtSmokeMaterialHydrationSetCache();
+        }
+        else if (!g_smokeMaterialHydrationSetCache.valid)
+        {
+            switch (g_smokeMaterialHydrationSetTelemetry.pendingInvalidation)
+            {
+                case RtSmokeMaterialHydrationSetInvalidationReason::ResidentFactsClear:
+                    RecordSmokeMaterialHydrationSetCacheMiss(
+                        RtSmokeMaterialHydrationSetMissReason::ExplicitResidentFactsClear);
+                    break;
+                case RtSmokeMaterialHydrationSetInvalidationReason::InputUnavailable:
+                    RecordSmokeMaterialHydrationSetCacheMiss(
+                        RtSmokeMaterialHydrationSetMissReason::ExplicitInputUnavailable);
+                    break;
+                default:
+                    RecordSmokeMaterialHydrationSetCacheMiss(
+                        RtSmokeMaterialHydrationSetMissReason::NoEntry);
+                    break;
+            }
+        }
+        else if (g_smokeMaterialHydrationSetCache.materialCount !=
+            static_cast<int>(materialIds.size()))
+        {
+            RecordSmokeMaterialHydrationSetCacheMiss(
+                RtSmokeMaterialHydrationSetMissReason::MaterialCount);
+            useHydrationMembershipDelta =
+                CanUseSmokeMaterialHydrationMembershipDelta(
+                    g_smokeMaterialHydrationSetCache,
+                    static_cast<int>(materialIds.size()),
+                    entryTextureRegistryGeneration,
+                    entryResidentFactsGeneration);
+            if (!useHydrationMembershipDelta)
+            {
+                RecordSmokeMaterialHydrationMembershipDeltaBypass(
+                    g_smokeMaterialHydrationSetCache.textureRegistryGeneration !=
+                        entryTextureRegistryGeneration,
+                    g_smokeMaterialHydrationSetCache.residentFactsGeneration !=
+                        entryResidentFactsGeneration);
+            }
+        }
+        else
+        {
+            RecordSmokeMaterialHydrationSetCacheMiss(
+                RtSmokeMaterialHydrationSetMissReason::Signature);
         }
     }
 
+    if (useHydrationMembershipDelta)
+    {
+        OPTICK_EVENT("PT Material Metadata Membership Delta");
+        const uint64 membershipDeltaStartMicroseconds =
+            SmokeMaterialResidencyTelemetryEnabled() ? Sys_Microseconds() : 0;
+        uint64 deltaVisited = 0;
+        uint64 retainedSkipped = 0;
+        uint64 newRegistered = 0;
+        std::unordered_set<uint32_t> previousRefreshMaterialIds;
+        previousRefreshMaterialIds.reserve(
+            g_smokeMaterialHydrationSetCache.refreshMaterialIds.size());
+        for (uint32_t materialId : g_smokeMaterialHydrationSetCache.refreshMaterialIds)
+        {
+            if (materialId != 0u)
+            {
+                previousRefreshMaterialIds.insert(materialId);
+            }
+        }
+
+        std::unordered_set<uint32_t> visitedMaterialIds;
+        visitedMaterialIds.reserve(materialIds.size());
+        std::unordered_set<uint32_t> missingMaterialIds;
+        missingMaterialIds.reserve(materialIds.size());
+        std::vector<uint32_t> refreshMaterialIds;
+        refreshMaterialIds.reserve(
+            g_smokeMaterialHydrationSetCache.refreshMaterialIds.size());
+        for (uint32_t materialId : materialIds)
+        {
+            if (materialId == 0u || !visitedMaterialIds.insert(materialId).second)
+            {
+                continue;
+            }
+
+            RtSmokeMaterialTextureInfo* existing = FindSmokeMaterialTextureInfo(materialId);
+            if (!existing)
+            {
+                ++deltaVisited;
+                ++g_smokeMaterialMetadataFrameStats.idHydrationVisited;
+                ++g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses;
+                missingMaterialIds.insert(materialId);
+                continue;
+            }
+
+            const bool wasPendingRefresh =
+                previousRefreshMaterialIds.find(materialId) !=
+                previousRefreshMaterialIds.end();
+            const bool needsRefresh =
+                !SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*existing);
+            if (!wasPendingRefresh && !needsRefresh)
+            {
+                ++retainedSkipped;
+                continue;
+            }
+
+            ++deltaVisited;
+            ++g_smokeMaterialMetadataFrameStats.idHydrationVisited;
+            ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
+            const bool refreshed = needsRefresh
+                ? RefreshSmokeMaterialTextureHandleState(*existing)
+                : false;
+            if (refreshed || SmokeMaterialTextureInfoNeedsHydrationRefresh(*existing))
+            {
+                ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshes;
+            }
+            else
+            {
+                ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshSkips;
+            }
+            if (!SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*existing))
+            {
+                refreshMaterialIds.push_back(materialId);
+            }
+        }
+
+        const int declCount = declManager->GetNumDecls(DECL_MATERIAL);
+        for (int declIndex = 0;
+            declIndex < declCount && !missingMaterialIds.empty();
+            ++declIndex)
+        {
+            const idDecl* decl = declManager->DeclByIndex(
+                DECL_MATERIAL,
+                declIndex,
+                false);
+            const idMaterial* material = static_cast<const idMaterial*>(decl);
+            if (!material)
+            {
+                continue;
+            }
+
+            const uint32_t materialId = SmokeMaterialId(material);
+            std::unordered_set<uint32_t>::iterator missing =
+                missingMaterialIds.find(materialId);
+            if (missing == missingMaterialIds.end())
+            {
+                continue;
+            }
+
+            const int registrationStartMs = Sys_Milliseconds();
+            const bool fullDiscover = RegisterSmokeMaterialTextureInfo(material);
+            if (fullDiscover)
+            {
+                ++g_smokeMaterialMetadataFrameStats.idHydrationDerived;
+            }
+            RtSmokeMaterialTextureInfo* registered =
+                FindSmokeMaterialTextureInfo(materialId);
+            if (registered)
+            {
+                ++newRegistered;
+                if (!fullDiscover)
+                {
+                    ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
+                    if (g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses > 0)
+                    {
+                        --g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses;
+                    }
+                }
+                if (!SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*registered))
+                {
+                    refreshMaterialIds.push_back(materialId);
+                }
+                missingMaterialIds.erase(missing);
+            }
+            timing.registrationMs += Sys_Milliseconds() - registrationStartMs;
+        }
+
+        const uint64 unresolved = static_cast<uint64>(missingMaterialIds.size());
+        const bool cacheUpdated = unresolved == 0;
+        if (cacheUpdated)
+        {
+            UpdateSmokeMaterialHydrationSetCache(materialIds, refreshMaterialIds);
+        }
+        RecordSmokeMaterialHydrationMembershipDelta(
+            membershipDeltaStartMicroseconds,
+            static_cast<uint64>(visitedMaterialIds.size()),
+            deltaVisited,
+            retainedSkipped,
+            newRegistered,
+            unresolved,
+            cacheUpdated);
+        timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+        DumpSmokeMaterialResidencyStatsIfNeeded();
+        return timing;
+    }
+
+    const uint64 fullSetPassStartMicroseconds =
+        SmokeMaterialResidencyTelemetryEnabled() ? Sys_Microseconds() : 0;
     std::unordered_set<uint32_t> visitedMaterialIds;
     visitedMaterialIds.reserve(materialIds.size());
     std::unordered_set<uint32_t> missingMaterialIds;
@@ -2058,6 +2715,7 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
         {
             UpdateSmokeMaterialHydrationSetCache(materialIds, refreshMaterialIds);
         }
+        RecordSmokeMaterialHydrationFullSetPass(fullSetPassStartMicroseconds);
         timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
         DumpSmokeMaterialResidencyStatsIfNeeded();
         return timing;
@@ -2086,21 +2744,25 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
         {
             ++g_smokeMaterialMetadataFrameStats.idHydrationDerived;
         }
-        else
+        RtSmokeMaterialTextureInfo* registered =
+            FindSmokeMaterialTextureInfo(materialId);
+        if (registered)
         {
-            ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
-            if (g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses > 0)
+            if (!fullDiscover)
             {
-                --g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses;
+                ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
+                if (g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses > 0)
+                {
+                    --g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses;
+                }
             }
-            RtSmokeMaterialTextureInfo* existing = FindSmokeMaterialTextureInfo(materialId);
-            if (existing && !SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*existing))
+            if (!SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*registered))
             {
                 refreshMaterialIds.push_back(materialId);
             }
+            missingMaterialIds.erase(missing);
         }
         timing.registrationMs += Sys_Milliseconds() - registrationStartMs;
-        missingMaterialIds.erase(missing);
     }
 
     if (residencyMaterialEnabled && missingMaterialIds.empty())
@@ -2108,6 +2770,7 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
         UpdateSmokeMaterialHydrationSetCache(materialIds, refreshMaterialIds);
     }
 
+    RecordSmokeMaterialHydrationFullSetPass(fullSetPassStartMicroseconds);
     timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
     DumpSmokeMaterialResidencyStatsIfNeeded();
     return timing;

@@ -12,6 +12,13 @@ class idVec3;
 struct drawSurf_t;
 struct srfTriangles_t;
 
+struct SmokeRtSkinningJointSnapshot
+{
+    const idJointMat* jointsInverted = nullptr;
+    int numInvertedJoints = 0;
+};
+
+bool GetSmokeRtCpuSkinningJointSnapshot(const srfTriangles_t* tri, SmokeRtSkinningJointSnapshot& out);
 const idJointMat* GetSmokeRtCpuSkinningJoints(const srfTriangles_t* tri);
 idVec3 TransformSmokeSkinnedVertexPosition(const idDrawVert& base, const idJointMat* joints);
 idVec3 TransformSmokeSkinnedVertexNormal(const idDrawVert& base, const idJointMat* joints);

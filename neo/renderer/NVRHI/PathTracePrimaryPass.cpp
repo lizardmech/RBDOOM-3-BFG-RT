@@ -10,6 +10,7 @@
 #include "PathTraceCVars.h"
 #include "PathTraceDLSSRRBridge.h"
 #include "PathTracePrimaryPass.h"
+#include "PathTraceProducerLanes.h"
 #include "../RenderCommon.h"
 #include "../RenderBackend.h"
 #include "../Passes/CommonPasses.h"
@@ -153,12 +154,16 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
             device->queryFeatureSupport(nvrhi::Feature::RayTracingPipeline);
     }
 
+    m_smokeGeometryUniverse.BindAsRigidMeshPersistTarget();
+
     common->Printf("PathTracePrimaryPass: initialized, ray tracing %s\n",
         m_rayTracingSupported ? "available" : "unavailable");
 }
 
 PathTracePrimaryPass::~PathTracePrimaryPass()
 {
+    ShutdownPathTraceProducerLanes();
+    m_smokeGeometryUniverse.UnbindAsRigidMeshPersistTarget();
     ResetRayTracingSmokeSceneResources();
     m_frameResources.ResetOutputSizedResources(RT_FRAME_RESET_SCENE_RESOURCES);
     m_smokeConstantsBuffer = nullptr;
@@ -191,6 +196,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeCleanRtxdiDiBlueNoise.Release();
     m_unifiedPtState.Release();
     m_smokeTlas = nullptr;
+    m_smokeTlasMaxInstances = 0;
     m_smokePrimarySurfaceProducerShaderTable = nullptr;
     m_smokeUptLeanPrimarySurfaceProducerShaderTable = nullptr;
     m_smokeRestirPdfNeeRluCurrentShaderTable = nullptr;

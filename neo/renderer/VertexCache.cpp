@@ -396,26 +396,6 @@ byte* idVertexCache::MappedIndexBuffer( vertCacheHandle_t handle )
 
 /*
 ==============
-idVertexCache::CacheIsCurrent
-==============
-*/
-bool idVertexCache::CacheIsCurrent( const vertCacheHandle_t handle )
-{
-	const int isStatic = handle & VERTCACHE_STATIC;
-	if( isStatic )
-	{
-		return true;
-	}
-	const uint64 frameNum = ( int )( handle >> VERTCACHE_FRAME_SHIFT ) & VERTCACHE_FRAME_MASK;
-	if( frameNum != ( currentFrame & VERTCACHE_FRAME_MASK ) )
-	{
-		return false;
-	}
-	return true;
-}
-
-/*
-==============
 idVertexCache::GetVertexBuffer
 ==============
 */

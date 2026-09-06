@@ -9,20 +9,25 @@
 
 #include "PathTraceGeometry.h"
 #include "PathTraceAccelerationPlan.h"
+#include "PathTraceCanonicalIdentityS1.h"
 #include "PathTraceGeometryLifecycle.h"
 #include "PathTraceGeometryGpuPools.h"
 #include "PathTraceGeometryIdentityTransport.h"
 #include "PathTraceGeometryOffsetBlasProbe.h"
 #include "PathTraceGeometrySourceRegistry.h"
 #include "PathTraceGeometrySourceTransport.h"
+#include "PathTraceRigidPreparedPayload.h"
+#include "PathTraceUniversePlanningSnapshot.h"
 
 #include <nvrhi/nvrhi.h>
 
 #include <array>
 #include <limits>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <type_traits>
 
 const int RT_PT_RIGID_MESH_CANDIDATE_SAMPLES = 8;
 const int RT_PT_RIGID_BLAS_PLAN_SAMPLES = 8;
@@ -32,11 +37,16 @@ const int RT_PT_RIGID_TLAS_PLAN_SAMPLES = 8;
 const int RT_PT_RIGID_RESIDENCY_SAMPLES = 8;
 const int RT_PT_CANONICAL_RIGID_COMPARE_SAMPLES = 8;
 const int RT_PT_CANONICAL_RIGID_IDENTITY_SAMPLES = 8;
+const int RT_PT_RIGID_REGISTRY_IDENTITY_SAMPLES = 8;
+const int RT_PT_RIGID_REGISTRY_IDENTITY_SURFACES = 8;
 
 struct RtSmokeSurfaceClassStats;
 struct RtSmokeMaterialStats;
 struct srfTriangles_t;
 struct viewDef_t;
+struct RtPathTraceStaticBucketCpuSnapshot;
+struct RtPathTraceCommittedBaselineEpoch;
+class idRenderModel;
 class RtPathTraceInstanceUniverse;
 class idRenderWorldLocal;
 
@@ -603,6 +613,7 @@ struct RtPathTraceRigidRouteMeshSnapshot
 {
     uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
     uint64 meshHash = 0;
+    uint64 cpuMeshContentSignature = 0;
     uint64 gpuUploadSignature = 0;
     uint32_t materialId = 0;
     uint32_t surfaceClassId = 0;
@@ -617,12 +628,56 @@ struct RtPathTraceRigidRouteMeshSnapshot
     std::vector<uint32_t> indexes;
 };
 
+struct RtPathTraceRigidRouteInstanceEligibility
+{
+    bool transformUsable = false;
+    bool worldBoundsValid = false;
+};
+
 struct RtPathTraceRigidRouteBuildSnapshot
 {
     RtSmokeRigidTlasPlan plan;
     std::vector<uint32_t> materialTableIds;
     std::vector<RtPathTraceRigidRouteMeshSnapshot> meshes;
+    std::vector<RtPathTraceRigidRouteInstanceEligibility> instanceEligibility;
 };
+
+struct RtPathTraceRigidRouteBuildSnapshotCounts
+{
+    size_t planInstances = 0;
+    size_t planTruncatedInstanceIds = 0;
+    size_t materialTableIds = 0;
+    size_t meshes = 0;
+    size_t meshVertices = 0;
+    size_t meshIndexes = 0;
+    size_t instanceEligibility = 0;
+};
+
+// Heavy resident storage owns only immutable mesh metadata and CPU geometry.
+// The per-frame ticket is the sole authority for plans, material ordering,
+// transforms, and instance eligibility.
+struct RtPathTraceRigidRouteResidentMeshPayloadCounts
+{
+    size_t meshes = 0;
+    size_t meshVertices = 0;
+    size_t meshIndexes = 0;
+};
+
+struct RtPathTraceStaticBucketCpuSnapshotCounts
+{
+    size_t surfaces = 0;
+    size_t vertices = 0;
+    size_t indexes = 0;
+    size_t triangleClasses = 0;
+    size_t triangleMaterials = 0;
+};
+
+inline void AdvancePathTraceResidentPayloadGeneration(uint64& generation)
+{
+    ++generation;
+    if (generation == 0)
+        ++generation;
+}
 
 struct RtPathTraceRigidRouteBuildTimedResult
 {
@@ -743,24 +798,6 @@ struct RtPathTraceRigidRouteInstanceObservation
     float previousObjectToWorld[16] = {};
     idStr materialName;
     idStr modelName;
-};
-
-enum class RtSmokeGeometryBufferFormat : uint32_t
-{
-    LegacySmokeVertex = 0
-};
-
-struct RtSmokeGeometryElementRange
-{
-    int offset = -1;
-    int count = 0;
-};
-
-struct RtSmokeGeometryRangeRecord
-{
-    RtSmokeGeometryElementRange vertices;
-    RtSmokeGeometryElementRange indexes;
-    RtSmokeGeometryElementRange triangles;
 };
 
 struct RtSmokePersistentStaticSurfaceRecord
@@ -946,6 +983,27 @@ public:
         const PtGeometryIdentityTransportSnapshot* snapshot);
     const PtGeometryIdentityBinding* FindCanonicalIdentityBinding(
         const PtCanonicalInstanceKey& key) const;
+    const PtGeometryIdentityRegistryStats& CanonicalIdentityRegistryStats() const;
+    void RecordA8S1RouteObservation(
+        const PtRenderDefKey& renderDefKey,
+        int modelSurfaceIndex,
+        bool modelSurfaceIndexValid,
+        uint64 legacyMeshHash,
+        const char* modelName,
+        PtA8S1RouteProducer producer);
+    const std::vector<PtA8S1RouteObservation>& A8S1RouteObservations() const;
+    bool A8S1RouteObservationsAvailable() const;
+    const std::array<uint64, static_cast<size_t>(PtA8S1RouteProducer::Count)>&
+        A8S1ProducerOpportunities() const;
+    const std::array<uint64, static_cast<size_t>(PtA8S1RouteProducer::Count)>&
+        A8S1ProducerObserved() const;
+    const std::array<uint64, static_cast<size_t>(PtA8S1RouteProducer::Count)>&
+        A8S1ProducerSuppressedDiagnosticUnavailable() const;
+    PtA8S1AliasSidecar& A8S1AliasSidecar();
+    PtA8S1LegacyCandidateProbe ProbeA8S1LegacyCandidates(
+        const PtA8S1NormalizedRouteKey& route) const;
+    bool CaptureA8S1LegacyCandidateProduct(
+        std::vector<PtA8S1LegacyCandidateProductRecord>& out) const;
     const PtGeometrySourceRecord* FindCanonicalSourceRecord(
         const PtCanonicalMeshKey& key) const;
     const PtGeometryGpuPoolRecord* FindCanonicalSourceGpuRecord(
@@ -984,8 +1042,24 @@ public:
         const RtPathTraceCanonicalRigidTlasStats& stats) const;
     bool PruneMissingStaticSurfaces();
     void NotifyStaticCacheChanged();
+    uint64 StaticResidentPayloadGeneration() const;
     void ReserveStaticSurfaceRecords(size_t surfaceCount);
     bool HasStaticSurface(uint64 key) const;
+    bool CaptureGeometryUniversePlanningSnapshot(
+        RtSmokeGeometryUniverseSnapshot& snapshot,
+        const RtPathTracePlanningSnapshotEpoch& epoch,
+        size_t& captureProductSlotBytes) const;
+    bool CaptureCommittedGeometryUniverseSnapshot(
+        RtSmokeGeometryUniverseSnapshot& snapshot,
+        const RtPathTraceCommittedBaselineEpoch& epoch,
+        size_t& captureProductSlotBytes) const;
+    bool CountGeometryUniversePlanningSnapshot(
+        const RtPathTracePlanningSnapshotEpoch& epoch,
+        RtSmokeGeometryUniverseSnapshotCounts& counts) const;
+    bool FillGeometryUniversePlanningSnapshotPreReserved(
+        RtSmokeGeometryUniverseSnapshot& snapshot,
+        const RtPathTracePlanningSnapshotEpoch& epoch,
+        const RtSmokeGeometryUniverseSnapshotCounts& counts) const;
     RtSmokePersistentStaticSurfaceRecord* TouchStaticSurface(uint64 key);
     bool RefreshStaticSurfaceMaterial(uint64 key, uint32_t materialId);
     bool RefreshStaticSurfacePortalArea(uint64 key, int portalArea);
@@ -1004,6 +1078,27 @@ public:
 
     const RtSmokePersistentStaticSurfaceRecord* FindStaticSurface(uint64 key) const;
     const std::vector<RtSmokePersistentStaticSurfaceRecord>& StaticSurfaceRecords() const;
+    bool CaptureStaticBucketCpuSnapshot(
+        RtPathTraceStaticBucketCpuSnapshot& snapshot,
+        uint64 worldGeneration,
+        uint64 sourceGeneration,
+        int portalAreaCount,
+        int maxVerticesPerBucket,
+        int maxIndexesPerBucket,
+        int maxTrianglesPerBucket,
+        const std::vector<bool>* activePortalAreas = nullptr) const;
+    bool CountStaticBucketCpuSnapshot(
+        RtPathTraceStaticBucketCpuSnapshotCounts& counts) const;
+    bool FillStaticBucketCpuSnapshotPreReserved(
+        RtPathTraceStaticBucketCpuSnapshot& snapshot,
+        const RtPathTraceStaticBucketCpuSnapshotCounts& counts,
+        uint64 worldGeneration,
+        uint64 sourceGeneration,
+        int portalAreaCount,
+        int maxVerticesPerBucket,
+        int maxIndexesPerBucket,
+        int maxTrianglesPerBucket,
+        const std::vector<bool>* activePortalAreas = nullptr) const;
     void BuildStaticTlasBucketObservations(
         std::vector<RtSmokeStaticTlasBucketObservation>& buckets,
         bool hasStaticBlas,
@@ -1023,6 +1118,12 @@ public:
         GetOrBuildStaticBucketResidentGeometryPack(
             const RtSmokeStaticBucketAssignmentPlan& assignmentPlan,
             bool& cacheHit);
+    bool TryGetStaticBucketResidentCpuState(
+        RtSmokeStaticBucketAssignmentPlan& assignmentPlan,
+        const RtSmokeStaticBucketGeometryPack*& geometryPack) const;
+    void InstallStaticBucketResidentCpuState(
+        RtSmokeStaticBucketAssignmentPlan&& assignmentPlan,
+        RtSmokeStaticBucketGeometryPack&& geometryPack);
     bool GetOrBuildStaticBucketMaterialIndexes(
         const RtSmokeStaticBucketGeometryPack& geometryPack,
         const std::vector<uint32_t>& materialTableIds,
@@ -1115,6 +1216,20 @@ public:
     void LogStaticValidationFailures(int maxRecords) const;
     void LogStaticRangeHistory(int maxRecords) const;
     void RecordRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation);
+    void BindAsRigidMeshPersistTarget();
+    void UnbindAsRigidMeshPersistTarget();
+    static RtSmokeGeometryUniverse* ActiveRigidMeshPersistTarget();
+	static void NoteRigidMeshPersistFirstEntityAdd(bool targetBound);
+	static void NoteRigidMeshPersistCall();
+	static void NoteRigidMeshPersistedSurfaces(uint32 persistedSurfaces);
+    // A2: persist Mesh records from a loaded/presented MODEL. No drawSurf.
+    int PersistRigidMeshFromPresent(const idRenderModel* model, uint32_t modelEpoch);
+    // A3: complete ordered per-surface A2 hashes. No table insert.
+    static int ComputeRigidMeshHashesFromPresent(
+        const idRenderModel* model,
+        uint32_t modelEpoch,
+        std::vector<uint64>& outHashes,
+		int maxSurfaceCount = -1);
     const RtPathTraceRigidMeshCandidateStats& GetRigidMeshCandidateStats() const;
     void RunRigidMeshCandidateDiagnostics(bool dumpRequested, int sceneSource, const RtSmokeSurfaceClassStats* sourceClassStats = nullptr);
     RtPathTraceRigidMeshValidationStats ValidateRigidMeshCandidatesAgainstDynamicPayload(
@@ -1153,6 +1268,81 @@ public:
     RtPathTraceRigidTlasPlanStats BuildRigidTlasPlanStats(const RtPathTraceInstanceUniverse& instanceUniverse, const RtSmokeSurfaceClassStats* sourceClassStats = nullptr) const;
     void DumpRigidTlasPlanStats(const RtPathTraceRigidTlasPlanStats& stats, int sceneSource) const;
     bool IsRigidRouteReady(uint64 meshHash) const;
+    uint64 RigidMeshCandidateBlasToken(uint64 meshHash) const;
+    nvrhi::rt::AccelStructHandle RigidMeshCandidateBlas(uint64 meshHash) const;
+    bool RigidMeshCandidateBlasWasBuilt(uint64 meshHash) const;
+    struct RigidMeshRegistryLookupSnapshotEntry
+    {
+        bool ready = false;
+        bool pending = false;
+        bool pendingExpired = false;
+        bool built = false;
+        uint64 blasToken = 0;
+        nvrhi::rt::AccelStructHandle builtBlas;
+		uint64 refreshAttempts = 0;
+		uint64 refreshSuccesses = 0;
+		uint64 refreshFailures = 0;
+		uint8 diagnosticReason = 0;
+    };
+	struct RigidMeshRegistryIdentityDiagnosticInput
+	{
+		uint64 instanceId = 0;
+		const idRenderModel* model = nullptr;
+		uint32 modelEpoch = 0;
+		std::array<uint64, RT_PT_RIGID_REGISTRY_IDENTITY_SURFACES> storedMeshIds = {};
+		uint32 storedMeshIdCount = 0;
+	};
+	struct RigidMeshRegistryIdentityDiagnosticSample
+	{
+		uint64 instanceId = 0;
+		uint32 modelEpoch = 0;
+		bool recomputeAvailable = false;
+		std::array<uint64, RT_PT_RIGID_REGISTRY_IDENTITY_SURFACES> storedMeshIds = {};
+		std::array<uint8, RT_PT_RIGID_REGISTRY_IDENTITY_SURFACES> storedLookupMembership = {};
+		uint32 storedMeshIdCount = 0;
+		std::array<uint64, RT_PT_RIGID_REGISTRY_IDENTITY_SURFACES> recomputedMeshIds = {};
+		std::array<uint8, RT_PT_RIGID_REGISTRY_IDENTITY_SURFACES> recomputedLookupMembership = {};
+		uint32 recomputedMeshIdCount = 0;
+	};
+	struct RigidMeshRegistryLookupDiagnostics
+	{
+		bool earlyReturn = false;
+		bool available = false;
+		bool populationSnapshotAvailable = false;
+		uint32 candidateRecordCount = 0;
+		uint32 lookupTableSize = 0;
+		uint64 candidateRecordInsertTotal = 0;
+		uint64 candidateRecordInsertsThisFrame = 0;
+		int32 persistTargetBoundAtFirstEntityAdd = -1;
+		uint64 persistCallsTotal = 0;
+		uint64 persistedSurfacesTotal = 0;
+		uint32 uniqueMeshRequests = 0;
+		uint32 zeroHashSkipped = 0;
+		uint32 lookupHits = 0;
+		uint32 lookupMisses = 0;
+		uint32 ready = 0;
+		uint32 built = 0;
+		uint32 pending = 0;
+		uint32 blasTokens = 0;
+		std::array<uint64, 8> residentKeySample = {};
+		uint32 residentKeySampleCount = 0;
+		std::array<uint64, 8> presentRequestKeySample = {};
+		uint32 presentRequestKeySampleCount = 0;
+		bool identitySamplesAvailable = false;
+		std::array<RigidMeshRegistryIdentityDiagnosticSample,
+			RT_PT_RIGID_REGISTRY_IDENTITY_SAMPLES> identitySamples = {};
+		uint32 identitySampleCount = 0;
+	};
+    void SnapshotRigidMeshRegistryLookup(
+        const std::vector<uint64>& meshHashes,
+		std::unordered_map<uint64, RigidMeshRegistryLookupSnapshotEntry>& out,
+		RigidMeshRegistryLookupDiagnostics* diagnostics = nullptr,
+		const std::vector<RigidMeshRegistryIdentityDiagnosticInput>*
+			identityDiagnosticInputs = nullptr) const;
+    ~RtSmokeGeometryUniverse();
+    nvrhi::rt::AccelStructHandle RigidMeshCandidateBuiltBlas(uint64 meshHash) const;
+    void ClassifyRigidMeshForRegistry(uint64 meshHash, bool& ready, bool& pending) const;
+    bool FindRigidResidentSource(uint64 instanceId, PtRenderDefKey& key, uint64& meshHash) const;
     bool IsRigidRouteResidentReadyForEntityMaterial(int entityIndex, int renderEntityNum, uint32_t materialId) const;
     std::vector<uint32_t> CollectRigidRouteMaterialIds(const RtSmokeRigidTlasPlan& plan) const;
     std::vector<uint32_t> CollectRigidRouteMaterialIds(const RtPathTraceInstanceUniverse& instanceUniverse, int maxInstances) const;
@@ -1170,6 +1360,11 @@ public:
         const RtSmokeRigidTlasPlan& plan,
         std::vector<nvrhi::rt::InstanceDesc>& instanceDescs) const;
     int BuildRigidTlasInstanceDescs(
+        const RtSmokeRigidTlasPlan& plan,
+        std::vector<nvrhi::rt::InstanceDesc>& instanceDescs,
+        std::vector<RtSmokeRigidBuilderInstanceResult>* builderResults,
+        std::vector<cpu_producer_publish::RigidSubmitBoundaryRecord>* submitMetadata = nullptr) const;
+    int BuildRigidTlasInstanceDescs(
         const RtPathTraceInstanceUniverse& instanceUniverse,
         std::vector<nvrhi::rt::InstanceDesc>& instanceDescs,
         uint32_t firstInstanceId,
@@ -1186,6 +1381,26 @@ public:
         const RtSmokeRigidTlasPlan& plan,
         const std::vector<uint32_t>& materialTableIds,
         bool captureGeometryPayload = true) const;
+    bool CountRigidRouteBuildSnapshot(
+        const RtSmokeRigidTlasPlan& plan,
+        const std::vector<uint32_t>& materialTableIds,
+        bool captureGeometryPayload,
+        RtPathTraceRigidRouteBuildSnapshotCounts& counts) const;
+    bool FillRigidRouteBuildSnapshotPreReserved(
+        RtPathTraceRigidRouteBuildSnapshot& snapshot,
+        const RtSmokeRigidTlasPlan& plan,
+        const std::vector<uint32_t>& materialTableIds,
+        bool captureGeometryPayload,
+        const RtPathTraceRigidRouteBuildSnapshotCounts& counts) const;
+    bool CountRigidRouteResidentMeshPayload(
+        const RtSmokeRigidTlasPlan& plan,
+        bool captureGeometryPayload,
+        RtPathTraceRigidRouteResidentMeshPayloadCounts& counts) const;
+    bool FillRigidRouteResidentMeshPayloadPreReserved(
+        RtPathTraceRigidRouteBuildSnapshot& snapshot,
+        const RtSmokeRigidTlasPlan& plan,
+        bool captureGeometryPayload,
+        const RtPathTraceRigidRouteResidentMeshPayloadCounts& counts) const;
 
 public:
     struct RigidMeshCandidateRecord
@@ -1222,6 +1437,10 @@ public:
         nvrhi::rt::AccelStructHandle rigidBlas;
         uint64 cpuMeshContentSignature = 0;
         bool cachedRouteDataValid = false;
+		uint64 cpuCacheRefreshAttempts = 0;
+		uint64 cpuCacheRefreshSuccesses = 0;
+		uint64 cpuCacheRefreshFailures = 0;
+		uint8 lastCpuCacheDiagnosticReason = 0;
         uint64 gpuUploadSignature = 0;
         int gpuBlasVertexCount = 0;
         int gpuBlasIndexCount = 0;
@@ -1233,7 +1452,188 @@ public:
         idStr modelName;
     };
 
+    enum class RigidMeshCandidatePrepareFailurePoint : uint8_t
+    {
+        None,
+        AfterOffsideState,
+        AfterRecordReserve,
+        AfterLookupReserve,
+        AfterFrameHashReserve,
+        AfterAllReserves
+    };
+
+    struct RigidMeshCandidatePrepareTestSeam
+    {
+        RigidMeshCandidatePrepareFailurePoint failAt =
+            RigidMeshCandidatePrepareFailurePoint::None;
+        size_t retainedGrowthBytes = 0;
+        size_t predictedFinalOwnedBytes = 0;
+        size_t predictedRecordPeakBytes = 0;
+        size_t predictedLookupPeakBytes = 0;
+        size_t predictedFrameHashPeakBytes = 0;
+        size_t predictedLookupBucketTransientBytes = 0;
+        size_t predictedFrameHashBucketTransientBytes = 0;
+        size_t oldLookupBucketCount = 0;
+        size_t replacementLookupBucketCount = 0;
+        size_t oldFrameHashBucketCount = 0;
+        size_t replacementFrameHashBucketCount = 0;
+        int liveReserveCalls = 0;
+        size_t failAfterObservation = static_cast<size_t>(-1);
+        size_t stagedObservationCount = 0;
+    };
+
+    // MainThread-local only. The owner pointer and serials are provenance, not
+    // worker payload; this object must never cross the producer boundary.
+    struct RigidMeshCandidatePreparedDelta
+    {
+        RigidMeshCandidatePreparedDelta() = default;
+        RigidMeshCandidatePreparedDelta(RigidMeshCandidatePreparedDelta&&) noexcept = default;
+        RigidMeshCandidatePreparedDelta& operator=(RigidMeshCandidatePreparedDelta&&) noexcept = default;
+        RigidMeshCandidatePreparedDelta(const RigidMeshCandidatePreparedDelta&) = delete;
+        RigidMeshCandidatePreparedDelta& operator=(const RigidMeshCandidatePreparedDelta&) = delete;
+
+        size_t RetainedGrowthBytes() const noexcept { return retainedGrowthBytes; }
+        bool Complete() const noexcept { return complete; }
+
+    private:
+        friend class RtSmokeGeometryUniverse;
+        RtSmokeGeometryUniverse* owner = nullptr;
+        uint64 baseGeneration = 0;
+        uint64 baseRigidRevision = 0;
+        uint64 baseFrameBeginSerial = 0;
+        uint64 baseFrameIndex = 0;
+        uint64 baseInsertTotal = 0;
+        size_t baseRecordCount = 0;
+        size_t requiredRecordCapacity = 0;
+        size_t retainedGrowthBytes = 0;
+        bool complete = false;
+        bool hasObservations = false;
+        uint64 workingGeneration = 0;
+        uint64 workingInsertTotal = 0;
+        uint32 workingLookupHealth = 0;
+        uint32 workingLookupReason = 0;
+        uint32 workingLookupCanary = 0;
+        std::vector<RigidMeshCandidateRecord> workingRecords;
+        RtPathTraceRigidMeshCandidateStats workingStats;
+        std::unordered_map<uint64, size_t> workingLookup;
+        std::unordered_set<uint64> workingFrameHashes;
+    };
+
+    struct RigidPreparedApplyTouchedRecord
+    {
+        size_t liveIndex = static_cast<size_t>(-1);
+        bool newRecord = false;
+        bool replaceCpuCache = false;
+        uint32_t occurrenceCount = 0;
+        RigidMeshCandidateRecord staged;
+        std::vector<PathTraceSmokeVertex> retiredVertices;
+        std::vector<uint32_t> retiredIndexes;
+        idStr retiredMaterialName;
+        idStr retiredModelName;
+    };
+
+    // MainThread apply transaction for worker-owned prepared rigid payloads.
+    // Preparation may allocate and retain live topology growth; Commit performs
+    // only O(touched records) nothrow publication.
+    struct RigidPreparedApplyDelta
+    {
+        RigidPreparedApplyDelta() = default;
+        RigidPreparedApplyDelta(RigidPreparedApplyDelta&&) noexcept = default;
+        RigidPreparedApplyDelta& operator=(RigidPreparedApplyDelta&&) noexcept = default;
+        RigidPreparedApplyDelta(const RigidPreparedApplyDelta&) = delete;
+        RigidPreparedApplyDelta& operator=(const RigidPreparedApplyDelta&) = delete;
+
+        bool Complete() const noexcept { return complete; }
+
+    private:
+        friend class RtSmokeGeometryUniverse;
+        RtSmokeGeometryUniverse* owner = nullptr;
+        uint64 baseGeneration = 0;
+        uint64 baseRigidRevision = 0;
+        uint64 baseFrameBeginSerial = 0;
+        uint64 baseFrameIndex = 0;
+        uint64 baseInsertTotal = 0;
+        size_t baseRecordCount = 0;
+        size_t baseRecordCapacity = 0;
+        size_t baseLookupSize = 0;
+        size_t baseLookupBucketCount = 0;
+        size_t baseFrameHashSize = 0;
+        size_t baseFrameHashBucketCount = 0;
+        float baseLookupMaxLoadFactor = 1.0f;
+        float baseFrameHashMaxLoadFactor = 1.0f;
+        size_t targetLookupBucketCount = 0;
+        size_t targetFrameHashBucketCount = 0;
+        uint64 finalGeneration = 0;
+        uint64 finalInsertTotal = 0;
+        std::vector<RigidPreparedApplyTouchedRecord> touched;
+        std::unordered_map<uint64, size_t> stagedLookupNodes;
+        std::unordered_set<uint64> stagedFrameHashNodes;
+        RtPathTraceRigidMeshCandidateStats statsDelta;
+        bool complete = false;
+    };
+
+    bool PrepareRigidPreparedPayloadApply(
+        std::vector<RtPathTraceRigidPreparedPayload>& payloads,
+        const std::vector<RtPathTraceRigidMeshCandidateObservation>& observations,
+        size_t alreadyOwnedBytes,
+        size_t maxOwnedBytes,
+        RigidPreparedApplyDelta& delta,
+        RigidMeshCandidatePrepareTestSeam* seam = nullptr) noexcept;
+    bool CommitRigidPreparedPayloadApply(
+        RigidPreparedApplyDelta& delta) noexcept;
+    void AbortRigidPreparedPayloadApply(
+        RigidPreparedApplyDelta& delta) noexcept;
+
+    bool PrepareRigidMeshCandidateBatch(
+        const RtPathTraceRigidMeshCandidateObservation* observations,
+        size_t observationCount,
+        size_t alreadyOwnedBytes,
+        size_t maxOwnedBytes,
+        RigidMeshCandidatePreparedDelta& delta,
+        RigidMeshCandidatePrepareTestSeam* seam = nullptr) noexcept;
+
+    bool PrepareRigidMeshCandidateDelta(
+        const RtPathTraceRigidMeshCandidateObservation& observation,
+        size_t alreadyOwnedBytes,
+        size_t maxOwnedBytes,
+        RigidMeshCandidatePreparedDelta& delta,
+        RigidMeshCandidatePrepareTestSeam* seam = nullptr) noexcept;
+    bool CommitRigidMeshCandidateDelta(
+        RigidMeshCandidatePreparedDelta& delta) noexcept;
+    void AbortRigidMeshCandidateDelta(
+        RigidMeshCandidatePreparedDelta& delta) noexcept;
+    size_t RigidMeshCandidateRetainedStorageBytes() const noexcept;
+#if defined(RT_PT_RIGID_PREPARED_DELTA_HARNESS)
+    uint64 RigidMeshCandidateSemanticFingerprintForTest() const noexcept;
+    size_t RigidMeshCandidateRecordCountForTest() const noexcept;
+    size_t RigidMeshCandidateLookupCountForTest() const noexcept;
+    size_t RigidMeshCandidateFrameHashCountForTest() const noexcept;
+    bool RigidMeshCandidateHasRecordForTest(uint64 meshHash) const noexcept;
+    void RigidMeshCandidatePoisonLookupForTest(uint64 meshHash, size_t index);
+    void RigidMeshCandidateAdvanceGenerationForTest() noexcept;
+    void RigidMeshCandidateBeginFrameForTest(uint64 frameIndex) noexcept;
+    void RigidMeshCandidateEndFrameForTest() noexcept;
+    void RigidMeshCandidateResetForTest() noexcept;
+    void RigidMeshCandidateAdvanceSemanticRevisionForTest() noexcept;
+    void RigidMeshCandidateSetGpuSignatureForTest(
+        uint64 meshHash, uint64 signature) noexcept;
+    uint64 RigidMeshCandidateGpuSignatureForTest(uint64 meshHash) const noexcept;
+    void RigidMeshCandidateSetFrameBeginSerialForTest(uint64 serial) noexcept;
+    uint64 RigidMeshCandidateFrameBeginSerialForTest() const noexcept;
+    uint64 RigidMeshCandidateGenerationForTest() const noexcept { return m_generation; }
+#endif
+
 private:
+    // Caller must already own m_rigidMeshCandidateLookupMutex.
+    size_t RigidMeshCandidateRetainedStorageBytesUnlocked() const noexcept;
+    void AdvanceRigidMeshCandidateSemanticRevisionUnlocked() const noexcept;
+    void AdvanceRigidMeshCandidateFrameBeginSerialUnlocked() noexcept;
+    void InvalidateRigidMeshCandidateLifecycleUnlocked() noexcept;
+    bool CaptureGeometryUniversePlanningSnapshotInternal(
+        RtSmokeGeometryUniverseSnapshot& snapshot,
+        const RtPathTracePlanningSnapshotEpoch& epoch,
+        size_t& captureProductSlotBytes,
+        bool committedAfterEndFrame) const;
     struct RigidResidentInstanceRecord
     {
         RtPathTraceRigidRouteInstanceObservation observation;
@@ -1297,7 +1697,18 @@ private:
     };
 
     RtSmokePersistentStaticSurfaceRecord* FindStaticSurfaceMutable(uint64 key);
-    RigidMeshCandidateRecord* FindOrCreateRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation, bool& cacheHit);
+    bool EnsureRigidMeshCandidateLookupLive(uint64 meshHash) const;
+    bool RigidMeshCandidateLookupFind(uint64 meshHash, size_t& recordIndex) const;
+    bool RigidMeshCandidateLookupBind(uint64 meshHash, size_t recordIndex);
+    bool RigidMeshCandidateLookupFindUnlocked(uint64 meshHash, size_t& recordIndex) const;
+    bool RigidMeshCandidateLookupBindUnlocked(uint64 meshHash, size_t recordIndex);
+    void QuarantineRigidMeshCandidateLookup(
+        const char* reason,
+        uint64 meshHash,
+        uint64 mapSize,
+        uint64 mapBuckets) const;
+    bool RebuildRigidMeshCandidateLookupFromRecords();
+    bool RebuildRigidMeshCandidateLookupFromRecordsUnlocked();
     void RetireRigidBlas(RigidMeshCandidateRecord& record);
     void RetireRigidBuffer(nvrhi::BufferHandle& buffer);
     void RetireRigidMeshGpuResources(RigidMeshCandidateRecord& record);
@@ -1332,6 +1743,7 @@ private:
     uint64 m_generation = 1;
     uint64 m_staticGeometryGeneration = 1;
     uint64 m_staticMaterialGeneration = 1;
+    uint64 m_staticResidentPayloadGeneration = 1;
     uint64 m_previousStaticSnapshotGeneration = 1;
     uint64 m_previousStaticSnapshotMaterialGeneration = 1;
     int m_staticMaterialDirtyTriangleOffset = -1;
@@ -1351,7 +1763,15 @@ private:
     LegacyRigidAdmissionIntervalStats
         m_legacyRigidAdmissionIntervalStats;
     RtSmokeRetiredRigidGpuResources m_retiredRigidGpuResources;
+    mutable std::mutex m_rigidMeshCandidateLookupMutex;
     std::unordered_map<uint64, size_t> m_rigidMeshCandidateLookup;
+	uint64 m_rigidMeshCandidateRecordInsertTotal = 0;
+	uint64 m_rigidMeshCandidateRecordInsertFrameStart = 0;
+	mutable uint64 m_rigidMeshCandidateSemanticRevision = 1;
+	uint64 m_rigidMeshCandidateFrameBeginSerial = 1;
+    mutable uint32_t m_rigidMeshCandidateLookupHealth = 0;
+    mutable uint32_t m_rigidMeshCandidateLookupReason = 0;
+    mutable uint32_t m_rigidMeshCandidateLookupCanary = 0xA41104CAu;
     std::unordered_set<uint64> m_frameRigidMeshCandidateHashes;
     std::vector<RigidResidentInstanceRecord> m_rigidResidentRecords;
     std::unordered_map<uint64, size_t> m_rigidResidentLookup;
@@ -1365,6 +1785,15 @@ private:
     int m_rigidResidencyAreaWalkEligibleSurfacesThisFrame = 0;
     PtGeometrySourceRegistry m_canonicalSourceRegistry;
     PtGeometryIdentityRegistry m_canonicalIdentityRegistry;
+    std::vector<PtA8S1RouteObservation> m_a8S1RouteObservations;
+    PtA8S1AliasSidecar m_a8S1AliasSidecar;
+    bool m_a8S1RouteObservationsAvailable = true;
+    std::array<uint64, static_cast<size_t>(PtA8S1RouteProducer::Count)>
+        m_a8S1ProducerOpportunities = {};
+    std::array<uint64, static_cast<size_t>(PtA8S1RouteProducer::Count)>
+        m_a8S1ProducerObserved = {};
+    std::array<uint64, static_cast<size_t>(PtA8S1RouteProducer::Count)>
+        m_a8S1ProducerSuppressedDiagnosticUnavailable = {};
     PtGeometryGpuPoolSet m_canonicalSourceGpuPools;
     PtGeometryGpuPoolStats m_canonicalSourceGpuPoolStats;
     PtGeometryOffsetBlasProbe m_canonicalOffsetBlasProbe;
@@ -1400,6 +1829,8 @@ private:
     RtSmokeStaticBucketGeometryPack
         m_staticBucketResidentGeometryPack;
     RtSmokeStaticBucketAssignmentPlan
+        m_staticBucketResidentAssignmentPlan;
+    RtSmokeStaticBucketAssignmentPlan
         m_staticBucketAssignmentPlanCache;
     uint64 m_staticBucketAssignmentWorldGeneration = 0;
     uint64 m_staticBucketAssignmentSourceGeneration = 0;
@@ -1422,8 +1853,35 @@ private:
     bool m_staticBucketMaterialIndexCacheValid = false;
 };
 
+bool RtPathTraceRigidPreparedPayloadsCompatible(
+    const std::vector<RtPathTraceRigidPreparedPayload>& payloads,
+    const std::vector<RtPathTraceRigidMeshCandidateObservation>& observations) noexcept;
+
+size_t ReplayPathTraceDeferredRigidCandidates(
+    RtSmokeGeometryUniverse& geometryUniverse,
+    bool deferralActive,
+    bool compactApplied,
+    const std::vector<RtPathTraceRigidMeshCandidateObservation>& observations,
+    size_t observationBegin = 0,
+    size_t alreadyReplayedCount = 0);
+
 RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(
     const RtPathTraceRigidRouteBuildSnapshot& snapshot);
+bool BuildRigidRouteBuffersFromSnapshotPreReserved(
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot,
+    RtPathTraceRigidRouteBuild& build,
+    std::vector<uint64_t>& emittedMeshScratch);
+bool BuildRigidRouteBuffersFromResidentPayloadPreReserved(
+    const std::vector<RtPathTraceRigidRouteMeshSnapshot>& meshes,
+    const RtSmokeRigidTlasPlan& plan,
+    const std::vector<uint32_t>& materialTableIds,
+    const std::vector<RtPathTraceRigidRouteInstanceEligibility>& instanceEligibility,
+    RtPathTraceRigidRouteBuild& build,
+    std::vector<uint64_t>& emittedMeshScratch);
+RtPathTraceRigidRouteInstanceEligibility
+BuildRigidRouteInstanceEligibilityFromPod(
+    const RtSmokePlanTlasInstance& plannedInstance,
+    const RtPathTraceRigidRouteMeshSnapshot& mesh);
 
 bool UpdateRigidRouteGeometryFromSnapshot(
     RtPathTraceRigidRouteBuild& build,
@@ -1435,7 +1893,9 @@ bool RigidRouteGeometrySnapshotCovered(
 
 bool RemapRigidRouteMaterialIndexes(
     RtPathTraceRigidRouteBuild& build,
-    const std::vector<uint32_t>& materialTableIds);
+    const std::vector<uint32_t>& materialTableIds,
+    bool* geometryChangedOut = nullptr,
+    bool* instanceChangedOut = nullptr);
 
 void RebuildRigidRouteInstancesFromSnapshot(
     RtPathTraceRigidRouteBuild& build,

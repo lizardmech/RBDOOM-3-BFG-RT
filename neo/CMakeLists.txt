@@ -530,7 +530,18 @@ file(GLOB RENDERER_PASSES_SOURCES renderer/Passes/*.cpp)
 
 set(PATH_TRACE_CPU_WORKER_NO_PCH_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceAccelerationPlan.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceAccelCpuAllocation.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceAccelCpuPack.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceAccelCpuResident.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceRigidRouteCpuBuild.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCacheGate.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCaptureProductTransaction.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCommittedBaseline.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCommittedProposalProduct.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCommittedReferencedSetReceipt.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCommittedSemanticFacts.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCommittedSemanticFinalize.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceCpuWork.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryGpuPools.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometryAdmissionPlan.cpp
@@ -542,6 +553,10 @@ set(PATH_TRACE_CPU_WORKER_NO_PCH_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometrySourceRegistry.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceGeometrySourceTransport.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceJointCacheCopyPlan.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceOwnerSemanticKernel.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceR1Ledger.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceProducerLanes.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceRigidIdentity.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceSkinnedBlasState.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceSkinnedConsumerAudit.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/PathTraceSkinnedHitRoute.cpp
@@ -1123,7 +1138,7 @@ if(MSVC)
 		include_directories(${DirectX_INCLUDE_DIR})
 	endif()
 	
-	if(USE_DX12)
+	if(USE_DX12 OR USE_VULKAN)
 		list(APPEND RBDOOM3_INCLUDES ${RENDERER_NVRHI_INCLUDES})
 		list(APPEND RBDOOM3_SOURCES ${RENDERER_NVRHI_SOURCES})
 	endif()
@@ -1518,12 +1533,239 @@ target_link_libraries(${APP_NAME} ShaderMakeBlob ${MASKED_OCCLUSION_LIBRARY} ${I
 add_executable(PathTraceCpuPlanningHarness
 	tests/pathtrace_cpu_planning_harness.cpp
 	renderer/NVRHI/PathTraceAccelerationPlan.cpp
+	renderer/NVRHI/PathTraceAccelCpuAllocation.cpp
 	renderer/NVRHI/PathTraceCpuWork.cpp
 	renderer/NVRHI/PathTraceGeometryAdmissionPlan.cpp
 	)
 target_include_directories(PathTraceCpuPlanningHarness PRIVATE renderer/NVRHI)
 if(BUILD_TESTING)
 	add_test(NAME PathTraceCpuPlanningHarness COMMAND $<TARGET_FILE:PathTraceCpuPlanningHarness>)
+endif()
+
+add_executable(PathTraceCpuProducerHarness
+tests/pathtrace_cpu_producer_harness.cpp
+renderer/NVRHI/PathTraceProducerLanes.cpp
+renderer/NVRHI/PathTraceCommittedBaseline.cpp
+)
+target_include_directories(PathTraceCpuProducerHarness PRIVATE renderer/NVRHI)
+target_compile_definitions(PathTraceCpuProducerHarness PRIVATE
+	RT_PT_PRODUCER_LANES_HARNESS=1)
+if(BUILD_TESTING)
+add_test(NAME PathTraceCpuProducerHarness COMMAND $<TARGET_FILE:PathTraceCpuProducerHarness> --self-test)
+endif()
+
+add_executable(PathTraceCpuProducerRewriteHarness
+	tests/pathtrace_cpu_producer_rewrite_harness.cpp
+	renderer/NVRHI/PathTraceCpuProducerRewrite.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	renderer/NVRHI/PathTraceSkinnedHitRoute.cpp
+	)
+target_include_directories(PathTraceCpuProducerRewriteHarness PRIVATE renderer/NVRHI)
+target_compile_definitions(PathTraceCpuProducerRewriteHarness PRIVATE
+	RT_PT_CPU_PRODUCER_REWRITE_HARNESS=1)
+set_source_files_properties(renderer/NVRHI/PathTraceCpuProducerRewrite.cpp
+	PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceCpuProducerRewriteHarness
+		COMMAND $<TARGET_FILE:PathTraceCpuProducerRewriteHarness>)
+endif()
+
+# Compile the exact production sources through test wrappers: their direct source
+# properties request the renderer PCH, which this standalone target does not own.
+foreach(light_source PathTraceRemixLightManager PathTraceUnifiedLight)
+    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${light_source}HarnessSource.cpp"
+        CONTENT "#include \"${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/${light_source}.cpp\"\n")
+endforeach()
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/PathTraceLightMathHarnessSource.cpp"
+    CONTENT "#include \"${CMAKE_CURRENT_SOURCE_DIR}/idlib/math/Math.cpp\"\n")
+add_executable(PathTraceRemixLightManagerHarness
+    tests/pathtrace_remix_light_manager_harness.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/PathTraceRemixLightManagerHarnessSource.cpp"
+    "${CMAKE_CURRENT_BINARY_DIR}/PathTraceUnifiedLightHarnessSource.cpp"
+    "${CMAKE_CURRENT_BINARY_DIR}/PathTraceLightMathHarnessSource.cpp")
+target_include_directories(PathTraceRemixLightManagerHarness PRIVATE renderer/NVRHI)
+target_compile_definitions(PathTraceRemixLightManagerHarness PRIVATE USE_OPTICK=0)
+target_link_libraries(PathTraceRemixLightManagerHarness nvrhi)
+if(BUILD_TESTING)
+    add_test(NAME PathTraceRemixLightManagerHarness COMMAND $<TARGET_FILE:PathTraceRemixLightManagerHarness>)
+endif()
+
+add_executable(PathTraceBindingReuseHarness tests/pathtrace_binding_reuse_harness.cpp)
+target_include_directories(PathTraceBindingReuseHarness PRIVATE renderer/NVRHI extern/nvrhi/include)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceBindingReuseHarness COMMAND $<TARGET_FILE:PathTraceBindingReuseHarness>)
+endif()
+
+add_executable(PathTraceCaptureProductTransactionHarness
+	tests/pathtrace_capture_product_transaction_harness.cpp
+	renderer/NVRHI/PathTraceCaptureProduct.cpp
+	renderer/NVRHI/PathTraceCaptureProductTransaction.cpp
+	renderer/NVRHI/PathTracePureSemanticWorkerPipeline.cpp
+	renderer/NVRHI/PathTraceCommittedProposalProduct.cpp
+	renderer/NVRHI/PathTraceCommittedSemanticFacts.cpp
+	renderer/NVRHI/PathTraceOwnerSemanticKernel.cpp
+	renderer/NVRHI/PathTraceGeometryAdmissionPlan.cpp
+	renderer/NVRHI/PathTraceRigidIdentity.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	idlib/Str.cpp
+)
+set_source_files_properties(
+	renderer/NVRHI/PathTraceCaptureProduct.cpp
+	renderer/NVRHI/PathTracePureSemanticWorkerPipeline.cpp
+	PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+target_include_directories(PathTraceCaptureProductTransactionHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceCaptureProductTransactionHarness
+		COMMAND $<TARGET_FILE:PathTraceCaptureProductTransactionHarness>)
+endif()
+
+add_executable(PathTraceOwnerSemanticKernelHarness
+	tests/pathtrace_owner_semantic_kernel_harness.cpp
+	renderer/NVRHI/PathTraceOwnerSemanticKernel.cpp
+	renderer/NVRHI/PathTraceRigidIdentity.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	idlib/Str.cpp
+)
+target_include_directories(PathTraceOwnerSemanticKernelHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceOwnerSemanticKernelHarness
+		COMMAND $<TARGET_FILE:PathTraceOwnerSemanticKernelHarness>)
+endif()
+
+add_executable(PathTraceCommittedSemanticFactsHarness
+	tests/pathtrace_committed_semantic_facts_harness.cpp
+	renderer/NVRHI/PathTraceCommittedSemanticFacts.cpp
+)
+target_include_directories(PathTraceCommittedSemanticFactsHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceCommittedSemanticFactsHarness
+		COMMAND $<TARGET_FILE:PathTraceCommittedSemanticFactsHarness>)
+endif()
+
+add_executable(PathTraceCommittedBaselineHarness
+	tests/pathtrace_committed_baseline_harness.cpp
+	renderer/NVRHI/PathTraceCommittedBaseline.cpp
+)
+target_include_directories(PathTraceCommittedBaselineHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceCommittedBaselineHarness
+		COMMAND $<TARGET_FILE:PathTraceCommittedBaselineHarness>)
+endif()
+
+add_executable(PathTraceCommittedSemanticFinalizeHarness
+	tests/pathtrace_committed_semantic_finalize_harness.cpp
+	renderer/NVRHI/PathTraceCommittedSemanticFinalize.cpp
+	renderer/NVRHI/PathTraceCommittedSemanticFacts.cpp
+	renderer/NVRHI/PathTraceOwnerSemanticKernel.cpp
+	renderer/NVRHI/PathTraceRigidIdentity.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	idlib/Str.cpp
+)
+target_include_directories(PathTraceCommittedSemanticFinalizeHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceCommittedSemanticFinalizeHarness
+		COMMAND $<TARGET_FILE:PathTraceCommittedSemanticFinalizeHarness>)
+endif()
+
+add_executable(PathTraceCommittedProposalProductHarness
+	tests/pathtrace_committed_proposal_product_harness.cpp
+	renderer/NVRHI/PathTraceCommittedProposalProduct.cpp
+	renderer/NVRHI/PathTraceCommittedReferencedSetReceipt.cpp
+	renderer/NVRHI/PathTraceCommittedSemanticFacts.cpp
+	renderer/NVRHI/PathTraceRigidIdentity.cpp
+	renderer/NVRHI/PathTraceCanonicalGeometryIdentity.cpp
+	idlib/Str.cpp
+)
+target_include_directories(PathTraceCommittedProposalProductHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceCommittedProposalProductHarness
+		COMMAND $<TARGET_FILE:PathTraceCommittedProposalProductHarness>)
+endif()
+
+add_executable(PathTraceCommittedReferencedSetReceiptHarness
+	tests/pathtrace_committed_referenced_set_receipt_harness.cpp
+	renderer/NVRHI/PathTraceCommittedReferencedSetReceipt.cpp
+)
+target_include_directories(PathTraceCommittedReferencedSetReceiptHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceCommittedReferencedSetReceiptHarness
+		COMMAND $<TARGET_FILE:PathTraceCommittedReferencedSetReceiptHarness>)
+endif()
+
+add_executable(PathTraceInstanceObservationTxnHarness
+	tests/pathtrace_instance_observation_txn_harness.cpp
+	tests/pathtrace_instance_observation_txn_production.cpp
+	idlib/Str.cpp
+	idlib/math/Math.cpp
+	idlib/math/Vector.cpp
+)
+target_include_directories(PathTraceInstanceObservationTxnHarness PRIVATE renderer/NVRHI)
+target_compile_definitions(PathTraceInstanceObservationTxnHarness PRIVATE
+	RT_PT_INSTANCE_UNIVERSE_HARNESS=1)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceInstanceObservationTxnHarness
+		COMMAND $<TARGET_FILE:PathTraceInstanceObservationTxnHarness>)
+endif()
+
+add_executable(PathTraceTextureRegistryAtomicHarness
+	tests/pathtrace_texture_registry_atomic_harness.cpp
+	renderer/NVRHI/PathTraceTextureRegistry.cpp
+	idlib/Str.cpp
+)
+set_source_files_properties(renderer/NVRHI/PathTraceTextureRegistry.cpp
+	PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+target_include_directories(PathTraceTextureRegistryAtomicHarness PRIVATE renderer/NVRHI)
+target_compile_definitions(PathTraceTextureRegistryAtomicHarness PRIVATE
+	RT_PT_TEXTURE_REGISTRY_HARNESS=1)
+target_link_libraries(PathTraceTextureRegistryAtomicHarness nvrhi)
+target_link_options(PathTraceTextureRegistryAtomicHarness PRIVATE /OPT:REF)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceTextureRegistryAtomicHarness
+		COMMAND $<TARGET_FILE:PathTraceTextureRegistryAtomicHarness>)
+endif()
+
+add_executable(PathTraceRigidCandidatePreparedDeltaHarness
+	tests/pathtrace_rigid_candidate_prepared_delta_harness.cpp
+	renderer/NVRHI/PathTraceRigidCandidatePreparedDelta.cpp
+	renderer/NVRHI/PathTraceGeometry.cpp
+	idlib/Str.cpp
+	idlib/math/Math.cpp
+	idlib/math/Vector.cpp
+)
+target_include_directories(PathTraceRigidCandidatePreparedDeltaHarness PRIVATE renderer/NVRHI)
+target_compile_definitions(PathTraceRigidCandidatePreparedDeltaHarness PRIVATE
+	RT_PT_RIGID_PREPARED_DELTA_HARNESS=1)
+set_source_files_properties(
+	renderer/NVRHI/PathTraceRigidCandidatePreparedDelta.cpp
+	renderer/NVRHI/PathTraceGeometry.cpp
+	PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+target_link_libraries(PathTraceRigidCandidatePreparedDeltaHarness nvrhi)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceRigidCandidatePreparedDeltaHarness
+		COMMAND $<TARGET_FILE:PathTraceRigidCandidatePreparedDeltaHarness>)
+endif()
+
+add_executable(PathTraceAccelCpuPackHarness
+	tests/pathtrace_accel_cpu_pack_harness.cpp
+	renderer/NVRHI/PathTraceAccelCpuAllocation.cpp
+	renderer/NVRHI/PathTraceAccelCpuPack.cpp
+	renderer/NVRHI/PathTraceAccelerationPlan.cpp
+	renderer/NVRHI/PathTraceRigidRouteCpuBuild.cpp
+)
+target_include_directories(PathTraceAccelCpuPackHarness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceAccelCpuPackHarness
+		COMMAND $<TARGET_FILE:PathTraceAccelCpuPackHarness>)
+endif()
+
+add_executable(PathTraceR1Harness
+	tests/pathtrace_r1_harness.cpp
+	renderer/NVRHI/PathTraceCacheGate.cpp
+	renderer/NVRHI/PathTraceR1Ledger.cpp
+)
+target_include_directories(PathTraceR1Harness PRIVATE renderer/NVRHI)
+if(BUILD_TESTING)
+	add_test(NAME PathTraceR1Harness COMMAND $<TARGET_FILE:PathTraceR1Harness>)
 endif()
 
 add_executable(PathTraceCanonicalIdentityHarness

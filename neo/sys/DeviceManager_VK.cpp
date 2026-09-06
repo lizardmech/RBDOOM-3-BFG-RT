@@ -1634,7 +1634,19 @@ void DeviceManager_VK::Present()
 		OPTICK_CATEGORY( "Vulkan_Sync3", Optick::Category::Wait );
 
 		// SRS - For triple buffering, sync on previous frame's command queue completion
-		m_NvrhiDevice->waitEventQuery( m_FrameWaitQuery );
+		try
+		{
+			m_NvrhiDevice->waitEventQuery( m_FrameWaitQuery );
+		}
+		catch( const vk::SystemError& e )
+		{
+			// vulkan.hpp throws (typically vk::DeviceLostError) when the GPU faulted
+			// while executing the previous frame. Left uncaught this becomes an
+			// anonymous CRT fast-fail (0xC0000409); report it where it happened.
+			common->FatalError( "Vulkan device error while waiting for the previous frame: %s\n"
+								"The GPU faulted during submitted work (invalid acceleration structure or buffer references are the usual cause).",
+								e.what() );
+		}
 	}
 
 	m_NvrhiDevice->resetEventQuery( m_FrameWaitQuery );
@@ -1645,7 +1657,16 @@ void DeviceManager_VK::Present()
 		OPTICK_CATEGORY( "Vulkan_Sync2", Optick::Category::Wait );
 
 		// SRS - For double buffering, sync on current frame's command queue completion
-		m_NvrhiDevice->waitEventQuery( m_FrameWaitQuery );
+		try
+		{
+			m_NvrhiDevice->waitEventQuery( m_FrameWaitQuery );
+		}
+		catch( const vk::SystemError& e )
+		{
+			common->FatalError( "Vulkan device error while waiting for the current frame: %s\n"
+								"The GPU faulted during submitted work (invalid acceleration structure or buffer references are the usual cause).",
+								e.what() );
+		}
 	}
 
 #if defined(__APPLE__) && defined( USE_MoltenVK )

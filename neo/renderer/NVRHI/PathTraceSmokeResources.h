@@ -9,6 +9,7 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceRestirPTReservoirs.h"
 #include "PathTraceSceneInputs.h"
+#include "PathTraceBindingReuse.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -136,14 +137,43 @@ struct RtSmokeSceneBufferCreateDesc
 
 struct RtSmokeSceneBufferCreateResult
 {
+    uint32_t physicalBufferCreateCount = 0;
     RtSmokeSceneBufferHandles buffers;
     const char* errorMessage = nullptr;
 
     bool Succeeded() const { return buffers.IsValid() && errorMessage == nullptr; }
 };
 
+struct RtSmokeRigidRouteBufferHandles
+{
+    nvrhi::BufferHandle rigidRouteVertexBuffer;
+    nvrhi::BufferHandle rigidRouteIndexBuffer;
+    nvrhi::BufferHandle rigidRouteTriangleMaterialBuffer;
+    nvrhi::BufferHandle rigidRouteTriangleMaterialIndexBuffer;
+    nvrhi::BufferHandle rigidRouteInstanceBuffer;
+};
+
+struct RtSmokeRigidRouteBufferResolveDesc
+{
+    nvrhi::IDevice* device = nullptr;
+    RtSmokeRigidRouteBufferHandles existingBuffers;
+    size_t rigidRouteVertexBytes = 0;
+    size_t rigidRouteIndexBytes = 0;
+    size_t rigidRouteTriangleMaterialBytes = 0;
+    size_t rigidRouteTriangleMaterialIndexBytes = 0;
+    size_t rigidRouteInstanceBytes = 0;
+};
+
+struct RtSmokeRigidRouteBufferResolveResult
+{
+    RtSmokeRigidRouteBufferHandles buffers;
+    uint32_t rigidRoutePhysicalBufferCreateCount = 0;
+};
+
 struct RtSmokeBindingBuildDesc
 {
+    const RtPathTraceBindingReuseReceipt* existingBindingReceipt = nullptr;
+    nvrhi::BindingSetHandle existingBindingSet;
     nvrhi::IDevice* device = nullptr;
     nvrhi::rt::AccelStructHandle tlas;
     nvrhi::TextureHandle outputTexture;
@@ -184,6 +214,10 @@ struct RtSmokeBindingBuildDesc
 
 struct RtSmokeBindingBuildResult
 {
+    RtPathTraceBindingReuseReceipt bindingReceipt;
+    RtPathTraceBindingComparison bindingComparison;
+    uint32_t physicalBindingCreateCount = 0;
+    uint32_t physicalDescriptorTableCreateCount = 0;
     nvrhi::BindingSetHandle bindingSet;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     std::vector<nvrhi::TextureHandle> activeTextureTable;
@@ -196,6 +230,13 @@ struct RtSmokeBindingBuildResult
     bool Succeeded() const { return bindingSet && textureDescriptorTable && errorMessage == nullptr; }
 };
 
+struct RtSmokeTlasCapacityCandidate
+{
+    nvrhi::rt::AccelStructHandle tlas;
+    uint32_t maxInstances = 0;
+    bool grew = false;
+};
+
 struct RtSmokeSceneResourceCommitDesc
 {
     RtPathTraceSceneInputs sceneInputs;
@@ -204,6 +245,7 @@ struct RtSmokeSceneResourceCommitDesc
     nvrhi::rt::AccelStructHandle staticBlas;
     nvrhi::rt::AccelStructHandle dynamicBlas;
     nvrhi::rt::AccelStructHandle tlas;
+    uint32_t tlasMaxInstances = 0;
     bool hasStaticBlas = false;
     uint64 staticBlasSignature = 0;
     uint64 staticBlasOpacitySignature = 0;
@@ -243,6 +285,7 @@ struct RtSmokeSceneResourceCommitBuildDesc
     nvrhi::rt::AccelStructHandle staticBlas;
     nvrhi::rt::AccelStructHandle dynamicBlas;
     nvrhi::rt::AccelStructHandle tlas;
+    uint32_t tlasMaxInstances = 0;
     bool hasStaticBlas = false;
     uint64 staticBlasSignature = 0;
     uint64 staticBlasOpacitySignature = 0;
@@ -274,6 +317,34 @@ struct RtSmokeSceneResourceCommitBuildDesc
     int unifiedPtEmissiveLookupCount = 0;
 };
 
+struct RtSmokeDynamicGeometryBuffers
+{
+	nvrhi::BufferHandle vertexBuffer;
+	nvrhi::BufferHandle indexBuffer;
+	nvrhi::BufferHandle triangleClassBuffer;
+	nvrhi::BufferHandle triangleMaterialBuffer;
+	nvrhi::BufferHandle triangleMaterialIndexBuffer;
+
+	bool IsValid() const
+	{
+		return vertexBuffer && indexBuffer && triangleClassBuffer &&
+			triangleMaterialBuffer && triangleMaterialIndexBuffer;
+	}
+};
+
+// Grow-or-reuse the five dynamic capture buffers (vertex/index/class/material
+// plus the parallel triangle material-index buffer).
+RtSmokeDynamicGeometryBuffers ResizeOrCreateSmokeDynamicGeometryBuffers(
+	nvrhi::IDevice* device,
+	const RtSmokeDynamicGeometryBuffers& existing,
+	size_t vertexBytes,
+	size_t indexBytes,
+	size_t classBytes,
+	size_t materialBytes,
+	size_t materialIndexBytes,
+    uint32_t* physicalCreateCount = nullptr);
+
 RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc);
+RtSmokeRigidRouteBufferResolveResult ResolveOrCreateSmokeRigidRouteBuffers(const RtSmokeRigidRouteBufferResolveDesc& desc);
 RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildDesc& desc, RtSmokeMaterialTableBuild& materialTable);
 RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeSceneResourceCommitBuildDesc& desc);

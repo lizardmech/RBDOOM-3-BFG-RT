@@ -8,7 +8,9 @@
 
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceAccelerationPlan.h"
+#include "PathTraceAccelCpuPack.h"
 #include "PathTraceDrawSurfCapture.h"
+#include "PathTraceDoomLights.h"
 #include "PathTraceCpuWork.h"
 #include "PathTraceEmissiveCandidates.h"
 #include "PathTraceFrameResources.h"
@@ -27,6 +29,7 @@
 #include "PathTraceSkinnedHitRoute.h"
 #include "PathTraceSkinnedOutputAllocator.h"
 #include "PathTraceSmokeResources.h"
+#include "PathTraceCpuProducerRewrite.h"
 #include "PathTraceUnifiedPt.h"
 
 #include <nvrhi/nvrhi.h>
@@ -41,6 +44,7 @@
 #include <vector>
 
 class idRenderBackend;
+class idParallelJobList;
 class TonemapPass;
 struct viewDef_t;
 
@@ -292,6 +296,13 @@ struct RtSmokeRigidRouteSideBufferSlot
     bool instanceUploadSignatureValid = false;
 };
 
+struct RtPathTraceRigidTlasBackendJob
+{
+    idParallelJobList* jobList = nullptr;
+    RtSmokeRigidTlasPlanSnapshot snapshot;
+    RtSmokeRigidTlasPlanTimedResult result;
+};
+
 class PathTracePrimaryPass {
 public:
     explicit PathTracePrimaryPass(idRenderBackend* backend);
@@ -308,9 +319,15 @@ public:
 
 private:
     void InitRayTracingSmokeTest();
+    bool EnsureSmokeTlasCapacity(uint32_t neededInstances, RtSmokeTlasCapacityCandidate& candidate);
     bool InitRayTracingSmokeRestirPipeline(int restirLibraryKind);
     bool ResizeRayTracingSmokeOutput(int width, int height, int outputWidth, int outputHeight);
     void ResetRayTracingSmokeAsyncCpuWork();
+    void ResetRigidTlasBackendJob();
+    bool EnsureBackendParallelV1JobList();
+    void ResetBackendParallelV1JobList();
+    bool EnsureRigidRouteAppendJobList();
+    void ResetRigidRouteAppendJobList();
     void ResetRayTracingSmokeSceneResources();
     void CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc);
     bool HasRetainableRayTracingSmokeScenePackage() const;
@@ -329,6 +346,18 @@ private:
         uint64 currentFrame);
     int ReleaseCompletedRetiredSmokeSkinnedComparisonBlases(uint64 currentFrame);
     void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
+    bool TryBuildCpuProducerRewriteScene(const viewDef_t* viewDef, nvrhi::IDevice* device, nvrhi::ICommandList* commandList);
+    struct RtCpuRewriteSkinnedTransaction;
+    bool CommitRewriteSkinnedGpuSkinAndHitRoute(
+        nvrhi::IDevice* device,
+        nvrhi::ICommandList* commandList,
+        const RtCpuRewriteFrozenProductView* view,
+        const RtCpuRewriteJoinResult& join,
+        uint32_t rigidExtraCount,
+        int selectedSlot,
+        RtCpuRewriteSkinnedTransaction& transaction,
+        std::vector<nvrhi::rt::InstanceDesc>& extraTlas);
+    void FinalizeRewriteSkinnedTransaction(RtCpuRewriteSkinnedTransaction& transaction);
     void ExecuteRayTracingSmokeTest(const viewDef_t* viewDef);
     void ReadBackRayTracingSmokeTest();
     void ReadBackSkyCubeProbe();
@@ -470,6 +499,20 @@ private:
     RtPathTraceCpuWorkTiming m_smokeRigidTlasPlanAsyncTiming;
     RtSmokeRigidTlasPlan m_smokeRigidTlasPlanAsyncCachedPlan;
     RtPathTraceAsyncWorker<RtSmokeRigidTlasPlanTimedResult> m_smokeRigidTlasPlanFuture;
+    RtPathTraceRigidTlasBackendJob m_smokeRigidTlasBackendJob;
+    bool m_smokeRigidTlasDedicatedWorkerDisabledForBackendPool = false;
+    idParallelJobList* m_backendParallelV1JobList = nullptr;
+    RtPathTraceBackendJobListPhaseState m_backendParallelV1PhaseState =
+        RtPathTraceBackendJobListPhaseState::Idle;
+    idParallelJobList* m_rigidRouteAppendJobList = nullptr;
+    RtPathTraceBackendJobListPhaseState m_rigidRouteAppendJobPhaseState =
+        RtPathTraceBackendJobListPhaseState::Idle;
+    bool m_backendParallelV1RigidTlasPending = false;
+    bool m_backendParallelV1RigidTlasReady = false;
+    bool m_smokeRigidRouteDedicatedWorkerDisabledForBackendV1 = false;
+    bool m_smokeProducerLaneBOwnershipActive = false;
+    RtPathTraceAccelCpuResidentPublisher m_smokeAccelCpuResidentPublisher;
+    bool m_smokeProducerLaneBBootstrapComplete = false;
     int m_smokeRigidTlasPlanAsyncLaunchMs = 0;
     bool m_smokeRigidTlasPlanAsyncGenerationValid = false;
     bool m_smokeRigidTlasPlanAsyncCachedPlanValid = false;
@@ -800,10 +843,248 @@ private:
     float m_smokeBoundsOverlayProjectionMatrix[16] = {};
     RtPathTraceFrameResources m_frameResources;
     RtPathTraceSceneInputs m_sceneInputs;
+
+    struct RtCpuRewriteRetainedDedicatedMesh
+    {
+        uint64_t sourceAssetId = 0;
+        uint64_t sourceAssetGeneration = 0;
+        uint64_t topologySignature = 0;
+        uint64_t worldGeneration = 0;
+        uint64_t contentSignature = 0;
+        uint32_t modelSurfaceIndex = 0;
+        uint32_t vertexCount = 0;
+        uint32_t indexCount = 0;
+        uint32_t packedVertexOffset = 0;
+        uint32_t packedIndexOffset = 0;
+        uint32_t packedTriangleOffset = 0;
+        uint64_t bytes = 0;
+        bool referenced = false;
+        nvrhi::BufferHandle vertexBuffer;
+        nvrhi::BufferHandle indexBuffer;
+        nvrhi::rt::AccelStructHandle blas;
+    };
+    std::vector<RtCpuRewriteRetainedDedicatedMesh> m_rewriteDedicatedMeshes;
+    // GPU geometry whose last CPU reference was dropped while a committed TLAS
+    // may still hold its BLAS device address. NVRHI does not pin BLASes for the
+    // lifetime of a TLAS, so release waits for a newer TLAS commit plus frames.
+    struct RtCpuRewriteRetiredGpuGeometry
+    {
+        uint64_t retireSerial = 0;
+        uint64_t releaseFrame = 0;
+        nvrhi::rt::AccelStructHandle blas;
+        nvrhi::BufferHandle vertexBuffer;
+        nvrhi::BufferHandle indexBuffer;
+        uint64_t bytes = 0;
+        bool skinnedPair = false;
+    };
+    enum class RtCpuRewriteRetirementKind : uint32_t
+    {
+        Static = 0,
+        Dedicated,
+        Skinned
+    };
+    struct RtCpuRewriteRetirementCandidate
+    {
+        uint64_t retireSerial = 0;
+        nvrhi::rt::AccelStructHandle blas;
+        nvrhi::BufferHandle vertexBuffer;
+        nvrhi::BufferHandle indexBuffer;
+        uint64_t logicalBytes = 0;
+        RtCpuRewriteRetirementKind kind = RtCpuRewriteRetirementKind::Dedicated;
+    };
+    std::vector<RtCpuRewriteRetiredGpuGeometry> m_rewriteRetiredGeometry;
+    bool TryRetireRewriteGpuGeometryBatch(
+        const std::vector<RtCpuRewriteRetirementCandidate>& batch,
+        bool forceDrain,
+        RtCpuRewriteRetirementDecision* decision = nullptr);
+    bool PreflightRewriteGpuGeometryBatch(
+        const std::vector<RtCpuRewriteRetirementCandidate>& batch,
+        RtCpuRewriteRetirementDecision* decision = nullptr);
+    void EnqueuePreflightedRewriteGpuGeometryBatch(
+        const std::vector<RtCpuRewriteRetirementCandidate>& batch);
+    void PublishRewriteRetirementTelemetry();
+    void PublishRewriteSkinnedTelemetry();
+    void ReleaseExpiredRewriteGpuGeometry(uint64_t currentFrame, bool forceSchedule);
+    nvrhi::BufferHandle m_rewriteEmptySkinnedHitRouteBuffer;
+    nvrhi::BufferHandle m_rewriteEmptySkinnedHitRouteTriangleBuffer;
+    nvrhi::BufferHandle m_rewriteLastBindingSkinnedRecordBuffer;
+    nvrhi::BufferHandle m_rewriteLastBindingSkinnedIndexBuffer;
+    nvrhi::BufferHandle m_rewriteLastBindingSkinnedOutputBuffer;
+    nvrhi::BufferHandle m_rewritePackedRouteVertexBuffer;
+    nvrhi::BufferHandle m_rewritePackedRouteIndexBuffer;
+    nvrhi::BufferHandle m_rewritePackedRouteTriMatBuffer;
+    nvrhi::BufferHandle m_rewritePackedRouteTriMatIndexBuffer;
+    nvrhi::BufferHandle m_rewritePackedRouteInstanceBuffer;
+    RtSmokeDynamicGeometryBuffers m_rewriteStaticDynamic;
+    nvrhi::rt::AccelStructHandle m_rewriteStaticBlas;
+    nvrhi::rt::AccelStructDesc m_rewriteStaticBlasDesc;
+    uint64_t m_rewriteStaticLogicalBytes = 0;
+    RtCpuRewriteRetirementLedger m_rewriteRetirementLedger;
+    bool m_rewriteRetirementWarningLatched = false;
+    bool m_rewriteRetirementRejectedThisAttempt = false;
+    uint64_t m_rewriteGpuRigidRetainBytes = 0;
+    bool m_rewriteHasRetainedPackage = false;
+    struct RtCpuRewriteIsolatedTlasSlot
+    {
+        nvrhi::rt::AccelStructHandle tlas;
+        RtPathTraceBindingReuseReceipt sceneBindingReceipt;
+        uint32_t maxInstances = 0;
+        uint64_t lastCommittedSerial = 0;
+    };
+    RtCpuRewriteIsolatedTlasSlot m_rewriteTlasSlots[3];
+    uint64_t m_rewriteTlasCommitSerial = 0;
+    uint64_t m_rewriteLastStaticSignature = 0;
+    uint64_t m_rewriteStaticMaterialSignature = 0;
+    std::vector<uint64_t> m_rewriteStaticSurfaceMaterialSignatures;
+    uint64_t m_rewriteMaterialConfiguration = 0;
+    std::vector<uint64_t> m_rewriteMaterialRowSignatures;
+    struct RtCpuRewriteMaterialGpuSlot
+    {
+        nvrhi::BufferHandle buffers[4];
+        std::vector<uint8_t> contents[4];
+    };
+    RtCpuRewriteMaterialGpuSlot m_rewriteMaterialGpuSlots[3];
+    struct RtCpuRewriteLightGpuSlot
+    {
+        nvrhi::BufferHandle buffers[19];
+    };
+    struct RtCpuRewriteLightCandidate
+    {
+        RtCpuRewriteLightGpuSlot gpu;
+        RtPathTraceSceneInputLights inputs;
+        std::vector<PathTraceSmokeEmissiveTriangle> emissives;
+        PathTraceRemixLightManagerPrepareResult manager;
+        PathTraceRemixFramePrepare frame;
+        uint64_t uploadBytes = 0;
+        int portalAnalyticCount = 0;
+    };
+    RtCpuRewriteLightGpuSlot m_rewriteLightGpuSlots[3];
+    std::vector<PathTraceSmokeEmissiveTriangle> m_rewritePreviousEmissives;
+    bool m_rewriteLightHistoryValid = false;
+    uint64_t m_rewriteLightWorld = 0, m_rewriteLightMap = 0;
+    struct RtCpuRewriteLightWork;
+    bool PrepareRewriteAnalyticLighting(const viewDef_t* viewDef,
+        const RtCpuRewriteFrozenProductView& product, const RtCpuRewriteOverlayView* overlay,
+        bool allowHistory, uint64_t frameIndex, std::shared_ptr<RtCpuRewriteLightWork>& work);
+    bool BeginRewriteLighting(const viewDef_t* viewDef, const RtCpuRewriteFrozenProductView& product,
+        const RtCpuRewriteOverlayView* overlay, const RtCpuRewriteJoinResult& join,
+        const std::vector<uint32_t>& staticMaterialIds,
+        const std::vector<RtCpuRewriteTextureMatrices>& staticMatrices,
+        const std::vector<RtCpuRewriteMaterialBinding>& materialBindings,
+        const RtSmokeMaterialTableBuild& materialTable, bool haveSkinned, int idleSlot,
+        uint64_t frameIndex, RtCpuProducerRewriteService& service, std::shared_ptr<RtCpuRewriteLightWork>& work);
+    bool FinishRewriteLighting(nvrhi::IDevice* device, nvrhi::ICommandList* commandList,
+        int idleSlot, uint64_t rootFrame, RtCpuProducerRewriteService& service,
+        const std::shared_ptr<RtCpuRewriteLightWork>& work, RtCpuRewriteLightCandidate& candidate);
+    uint32_t m_rewriteLastPackedVertexCount = 0;
+    uint32_t m_rewriteLastPackedIndexCount = 0;
+    uint32_t m_rewriteLastPackedTriangleCount = 0;
+    using RtCpuRewritePackedLayoutRecord = RtCpuRewritePackedRangeWitness;
+    std::vector<RtCpuRewriteMaterialBinding> m_rewriteMaterialBindings;
+    nvrhi::BufferHandle m_rewriteMaterialTableOwner;
+    uint64_t m_rewriteMaterialWorld = 0;
+    uint64_t m_rewriteMaterialMap = 0;
+    std::vector<RtCpuRewritePackedLayoutRecord> m_rewriteLastPackedLayout;
+    nvrhi::BufferHandle m_rewriteLastCommittedPackedVertexBuffer;
+    nvrhi::BufferHandle m_rewriteLastCommittedPackedIndexBuffer;
+    nvrhi::BufferHandle m_rewriteLastCommittedPackedTriMatBuffer;
+    nvrhi::BufferHandle m_rewriteLastCommittedPackedTriMatIndexBuffer;
+    nvrhi::BufferHandle m_rewriteLastCommittedPackedInstanceBuffer;
+    std::vector<uint64_t> m_rewriteLastCommittedBlasTokens;
+    nvrhi::BufferHandle m_rewritePlaceholderStaticVertex;
+    nvrhi::BindingSetHandle m_rewriteLastBindingSet;
+    nvrhi::DescriptorTableHandle m_rewriteLastTextureDescriptorTable;
+    nvrhi::rt::AccelStructHandle m_rewriteLastBindingTlas;
+    bool m_rewriteLastTextureTableCreated = false;
+    bool m_rewriteLastTextureTableWritten = false;
+    RtSmokeMaterialTableBuild m_rewriteLastMaterialTable;
+    RtSmokeMaterialTableBuild m_rewriteFrameMaterialTable;
+    uint64_t m_rewriteFrameMaterialConfiguration = 0;
+    struct RtCpuRewriteRetainedSkinnedJoints
+    {
+        PtCanonicalInstanceKey instanceKey;
+        RtCpuRewriteSkinnedLayoutRow layout;
+        float objectToWorld[16] = {};
+        uint64_t rootFrame = 0;
+        uint64_t epoch = 0;
+        std::vector<PathTraceSkinnedJointMatrix> joints;
+    };
+    std::vector<RtCpuRewriteRetainedSkinnedJoints> m_rewritePreviousSkinnedJoints;
+    nvrhi::BufferHandle m_rewriteSkinnedSourceVertexBuffer;
+    nvrhi::BufferHandle m_rewriteSkinnedIndexBuffer;
+    nvrhi::BufferHandle m_rewriteSkinnedOutputVertexBuffer;
+    nvrhi::BufferHandle m_rewriteSkinnedDispatchBuffer;
+    nvrhi::BufferHandle m_rewriteSkinnedJointBuffer;
+    nvrhi::BufferHandle m_rewriteSkinnedPreviousPositionBuffer;
+    nvrhi::BufferHandle m_rewriteSkinnedHitRouteRecordBuffer;
+    nvrhi::BufferHandle m_rewriteSkinnedHitRouteTriangleBuffer;
+    nvrhi::BindingSetHandle m_rewriteSkinnedGpuSkinningBindingSet;
+    struct RtCpuRewriteSkinnedGpuSlot
+    {
+        nvrhi::rt::AccelStructHandle blas;
+        nvrhi::BufferHandle indexBuffer;
+        nvrhi::rt::AccelStructDesc desc;
+        uint64_t bytes = 0;
+        uint64_t allocationVertexCapacity = 0;
+    };
+    struct RtCpuRewriteSkinnedPackage
+    {
+        nvrhi::BufferHandle source, indexes, output, dispatch, joints, previous, records, triangles;
+        nvrhi::BindingSetHandle computeBinding;
+        std::vector<RtCpuRewriteSkinnedGpuSlot> meshes;
+        RtCpuRewriteSkinnedLayout layout;
+        uint64_t sourceGeneration = 0, outputGeneration = 0;
+        uint64_t normalTextureSignature = 0;
+        uint64_t logicalBytes = 0, cpuBytes = 0, lastCommittedSerial = 0;
+        uint32_t usesSinceFullBuild = 0;
+        uint32_t recordCount = 0, triangleCount = 0, sourceIndexCount = 0, outputCount = 0;
+        bool contentsValid = true;
+    };
+    struct RtCpuRewriteSkinnedTransaction
+    {
+        RtCpuRewriteSkinnedPackage replacement;
+        RtCpuRewriteSkinnedPackage* package = nullptr;
+        std::vector<RtCpuRewriteRetainedSkinnedJoints> history;
+        std::vector<RtCpuRewriteRetirementCandidate> retirement;
+        int selectedSlot = -1;
+        bool zero = false, replace = false, refresh = false, recorded = false, layoutMiss = false;
+        RtCpuRewriteSkinnedLayoutComparison layoutComparison;
+        uint64_t historyCpuBytes = 0, gpuPeak = 0, cpuPeak = 0;
+        uint64_t stableUploadBytes = 0, exactUploadBytes = 0;
+        uint64_t normalTextureSignature = 0;
+        uint32_t bufferCreates = 0, bindingCreates = 0, blasCreates = 0;
+        uint32_t blasReuses = 0;
+        uint64_t allocationVertexCapacity = 0;
+        uint32_t fullBuilds = 0, updates = 0, outcome = 0;
+    };
+    RtCpuRewriteSkinnedPackage m_rewriteSkinnedPackages[3];
+    int m_rewriteCurrentSkinnedSlot = -1;
+    uint64_t m_rewriteNextSkinnedGeneration = 1;
+    uint64_t m_rewriteSkinnedHistoryCpuBytes = 0;
+    int m_rewriteSkinnedHitRouteRecordCount = 0;
+    int m_rewriteSkinnedHitRouteTriangleCount = 0;
+    int m_rewriteSkinnedSourceIndexCount = 0;
+    int m_rewriteSkinnedOutputVertexCount = 0;
+    uint64_t m_rewriteSkinnedSourceIndexGeneration = 1;
+    uint64_t m_rewriteSkinnedOutputStorageGeneration = 1;
+    bool m_rewriteSkinnedGpuComputeDispatched = false;
+    uint64_t m_rewriteSkinnedGpuBytes = 0;
+    uint64_t m_rewriteSkinnedRetiredPairCount = 0;
+    uint64_t m_rewriteSkinnedRetiredPairBytes = 0;
+    uint64_t m_rewriteSkinnedRetiredPairHighWater = 0;
+    uint64_t m_rewriteSkinnedRetiredPairBytesHighWater = 0;
+    uint32_t m_rewriteSkinnedLastJoinCount = 0;
+    uint32_t m_rewriteSkinnedKeepLastStreak = 0;
+    uint32_t m_rewriteConsecutiveRejectedFrames = 0;
+    RtCpuRewriteKeepLastFamily m_rewriteKeepLastFamily = RtCpuRewriteKeepLastFamily::None;
+    bool m_rewriteKeepLastWarned = false;
+    uint32_t m_rewriteSkinnedLastRejectReason = 0;
+    uint64_t m_rewriteSkinnedDegradedCommits = 0;
     nvrhi::rt::AccelStructDesc m_smokeStaticBlasDesc;
     nvrhi::rt::AccelStructHandle m_smokeStaticBlas;
     nvrhi::rt::AccelStructHandle m_smokeDynamicBlas;
     nvrhi::rt::AccelStructHandle m_smokeTlas;
+    uint32_t m_smokeTlasMaxInstances = 0;
     nvrhi::BindingLayoutHandle m_smokeBindingLayout;
     nvrhi::BindingLayoutHandle m_smokePdfNeeVerifierBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeCleanRtxdiDiSentinelBindingLayout;

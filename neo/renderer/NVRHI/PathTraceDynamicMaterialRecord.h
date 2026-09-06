@@ -1,0 +1,35 @@
+#pragma once
+#include <cstdint>
+
+// Shared CPU/HLSL record ABI, extracted without layout or flag changes.
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX = 0x00000008u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST = 0x00000010u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_DYNAMIC_IMAGE = 0x00000020u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_CINEMATIC = 0x00000040u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_GUI_RENDER_TARGET = 0x00000080u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_PROGRAM = 0x00000100u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE = 0x00000200u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_ORDERED_STAGE_VALUE = 0x00000400u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ORDERED_STAGE_VALUES = 0x00000800u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_SELECTED_STAGE_MASK = 0x000000ffu;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_COUNT_SHIFT = 8u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_COUNT_MASK = 0x00000f00u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OVERFLOW = 0x00001000u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OFFSET_SHIFT = 16u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OFFSET_MASK = 0xffff0000u;
+
+struct PathTraceDynamicMaterialRecord
+{
+    float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    float texMatrix0[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
+    float texMatrix1[4] = { 0.0f, 1.0f, 0.0f, 0.0f };
+    uint32_t materialIndex = UINT32_MAX;
+    uint32_t materialId = 0;
+    uint32_t stageIndex = UINT32_MAX;
+    uint32_t flags = 0;
+};
+static_assert((sizeof(PathTraceDynamicMaterialRecord) % 16) == 0, "PathTraceDynamicMaterialRecord must stay 16-byte aligned for HLSL StructuredBuffer reads");
+

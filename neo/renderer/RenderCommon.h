@@ -76,7 +76,11 @@ class MaskedOcclusionCulling;
 class idRenderWorldLocal;
 struct viewEntity_t;
 struct RtPathTraceEntityFeedFrameSnapshot;
+struct RtPathTraceMaterialClassifyProduct;
+struct RtPathTraceCommittedGeometryProduct;
+struct RtPathTraceCommittedCaptureTelemetry;
 struct PtGeometryIdentityTransportSnapshot;
+struct PtGeometryPresentIdentitySnapshot;
 struct PtGeometrySourceTransportSnapshot;
 struct viewLight_t;
 struct viewEnvprobe_t;
@@ -91,6 +95,7 @@ struct viewEnvprobe_t;
 
 struct drawSurf_t
 {
+	float pathTraceSurfaceOrigin[3]; // valid only with space->pathTraceMaterialSnapshot
 	const srfTriangles_t* 	frontEndGeo;		// don't use on the back end, it may be updated by the front end!
 	int						modelSurfaceIndex;	// source model surface index when known, otherwise -1
 	int						numIndexes;
@@ -400,6 +405,11 @@ struct viewLight_t
 // A single entityDef can generate multiple viewEntity_t in a single frame, as when seen in a mirror
 struct viewEntity_t
 {
+    bool pathTraceResident;
+    bool pathTraceMaterialSnapshot;
+    int pathTraceRenderDefIndex;
+    int pathTraceEntityNum;
+    drawSurf_t* pathTraceDrawSurfs; // PT-only frame carriers, never linked to raster
 	viewEntity_t* 			next;
 
 	// back end should NOT reference the entityDef, because it can change when running SMP
@@ -601,10 +611,36 @@ struct viewDef_t
 	// Immutable frontend-owned PT entity-feed snapshot. The backend must not
 	// walk renderWorld entityDefs or portal entityRefs while SMP is active.
 	const RtPathTraceEntityFeedFrameSnapshot* pathTraceEntityFeedSnapshot;
+	// Exact-frame classifier product. The frontend joins its read-only derive
+	// before publishing this frame-owned pointer to the backend command.
+	const RtPathTraceMaterialClassifyProduct* pathTraceMaterialClassifyProduct;
+	// Exact-frame, frontend-joined shadow geometry conversion product. The
+	// backend only compares it against the authoritative serial append.
+	const RtPathTraceCommittedGeometryProduct* pathTraceCommittedGeometryProduct;
+	uint64 pathTraceCommittedGeometryCaptureToken;
+	// Independent exact-frame diagnostic carrier. It is published even when
+	// every committed-geometry view falls back before a worker product exists.
+	RtPathTraceCommittedCaptureTelemetry* pathTraceCommittedCaptureTelemetry;
+	// Phase-1 primary-view authority.  These are immutable after the frontend
+	// seal and contain no backend-derived latch state.
+	uint64 pathTraceSealedPrimaryViewToken;
+	uint64 pathTraceSealedPredecessorViewToken;
+	uint64 pathTraceSealedPrimaryViewFrameIndex;
+	uint64 pathTraceWorldLifecycleGeneration;
+	uint64 pathTraceRewriteRootFrame; // 0 = absent overlay carrier
+    drawSurf_t* pathTraceRewriteSurfaces;
+    uint32 pathTraceRewriteSurfaceCount;
+	uint64 pathTraceSealedMapLoadSerial;
+	ID_TIME_T pathTraceSealedMapTimeStamp;
+	uint64 pathTraceSealedBarrierGeneration;
+	char pathTraceSealedMapName[256];
 	// Immutable primary-view source delta for GEO-06 frontend/backend transport.
 	const PtGeometrySourceTransportSnapshot* pathTraceGeometrySourceSnapshot;
 	// Revisioned canonical instance-to-mesh identity delta for GEO-06.
 	const PtGeometryIdentityTransportSnapshot* pathTraceGeometryIdentitySnapshot;
+	// A8-S1 always-present immutable Present witness. Frame-owned POD plus
+	// frame-owned exact model-name bytes; never a live registry pointer.
+	const PtGeometryPresentIdentitySnapshot* pathTraceGeometryPresentIdentitySnapshot;
 	// we use viewEntities as a check to see if a given view consists solely
 	// of 2D rendering, which we can optimize in certain ways.  A 2D view will
 	// not have any viewEntities
@@ -1068,6 +1104,7 @@ public:
 	drawSurf_t				testImageSurface_;
 
 	idParallelJobList* 		frontEndJobList;
+	class RtCpuProducerRewriteService* cpuProducerRewriteService;
 
 	// RB irradiance and GGX background jobs
 	idParallelJobList* 					envprobeJobList;

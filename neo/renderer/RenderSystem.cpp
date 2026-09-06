@@ -32,6 +32,8 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 
 #include "RenderCommon.h"
+#include "NVRHI/PathTraceCVars.h"
+#include "NVRHI/PathTraceSourceOriginCensus.h"
 #include "../framework/Common_local.h"
 #include "../imgui/BFGimgui.h"
 
@@ -717,6 +719,10 @@ const emptyCommand_t* idRenderSystemLocal::SwapCommandBuffers_FinishCommandBuffe
 	// close any gui drawing
 	guiModel->EmitFullScreen();
 	guiModel->Clear();
+	if( r_pathTracingCaptureSourceOriginCensusP0.GetInteger() != 0 )
+	{
+		RunPathTraceSourceOriginCensusP0();
+	}
 
 	// unmap the buffer objects so they can be used by the GPU
 	vertexCache.BeginBackEnd();

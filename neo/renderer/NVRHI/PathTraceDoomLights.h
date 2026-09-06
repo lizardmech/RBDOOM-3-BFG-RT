@@ -7,6 +7,7 @@
 // not add light meshes to the BVH.
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 struct viewDef_t;
@@ -84,6 +85,38 @@ struct PathTraceDoomAnalyticLightBuildOptions
     bool ignoreConfiguredCandidateCap = false;
     bool requireProvenContinuity = false;
 };
+
+PathTraceDoomAnalyticLightBuildOptions BuildCurrentDoomAnalyticLightOptions(bool unifiedPtScenePublicationRequested);
+
+// Opaque, owning transport for the owner-thread Doom light capture.  The
+// snapshot owns every string/value referenced by the pool job; neither the
+// snapshot collector nor its result dereferences renderer or game objects.
+struct PathTraceDoomAnalyticLightSnapshotData;
+struct PathTraceDoomAnalyticLightCollectionData;
+
+struct PathTraceDoomAnalyticLightSnapshot
+{
+    std::shared_ptr<const PathTraceDoomAnalyticLightSnapshotData> data;
+
+    bool IsValid() const { return data != nullptr; }
+};
+
+struct PathTraceDoomAnalyticLightCollectionResult
+{
+    std::shared_ptr<PathTraceDoomAnalyticLightCollectionData> data;
+
+    bool IsValid() const { return data != nullptr; }
+};
+
+bool CapturePathTraceDoomAnalyticLightSnapshot(
+    const viewDef_t* viewDef,
+    const PathTraceDoomAnalyticLightBuildOptions& options,
+    PathTraceDoomAnalyticLightSnapshot& snapshot, bool frontendOwned = false);
+PathTraceDoomAnalyticLightCollectionResult CollectPathTraceDoomAnalyticLightsFromSnapshot(
+    const PathTraceDoomAnalyticLightSnapshot& snapshot);
+std::vector<PathTraceDoomAnalyticLightCandidate> PublishPathTraceDoomAnalyticLightsFromCollection(
+    const viewDef_t* viewDef,
+    PathTraceDoomAnalyticLightCollectionResult&& collection);
 
 std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, const PathTraceDoomAnalyticLightBuildOptions& options = PathTraceDoomAnalyticLightBuildOptions());
 std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, bool forceEnable);

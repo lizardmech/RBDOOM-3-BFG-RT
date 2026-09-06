@@ -1,7 +1,12 @@
 #include "precompiled.h"
 #pragma hdrstop
+#include "PathTraceCpuProducerApplyGate.h"
 
 #include "PathTraceAcceleration.h"
+#include "PathTraceAccelerationPlan.h"
+#include "PathTraceCaptureDeriveRing.h"
+#include "PathTraceCaptureProduct.h"
+#include "PathTraceCommittedCapture.h"
 #include "PathTraceCVars.h"
 #include "PathTraceDrawSurfCapture.h"
 #include "PathTraceDoomMaterialClassifier.h"
@@ -12,6 +17,7 @@
 #include "PathTraceParticleCapture.h"
 #include "PathTraceDebugModes.h"
 #include "PathTraceRigidIdentity.h"
+#include "PathTraceR1Ledger.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSkinnedHitRoute.h"
@@ -21,6 +27,7 @@
 #include "../RenderCommon.h"
 
 #include <algorithm>
+#include <new>
 #include <unordered_set>
 
 namespace {
@@ -133,58 +140,32 @@ void BuildRigidNormalTexMatrix(const idMaterial* material, const float* register
 
 uint32_t PtSourceFlagsForDrawSurf(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass)
 {
-    uint32_t flags = 0;
-    switch (surfaceClass)
-    {
-        case RtSmokeSurfaceClass::StaticWorld:
-            flags |= RT_PT_INSTANCE_SOURCE_STATIC_WORLD;
-            break;
-        case RtSmokeSurfaceClass::RigidEntity:
-            flags |= RT_PT_INSTANCE_SOURCE_RIGID;
-            break;
-        case RtSmokeSurfaceClass::SkinnedDeformed:
-            flags |= RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING;
-            break;
-        case RtSmokeSurfaceClass::ParticleAlpha:
-            flags |= RT_PT_INSTANCE_SOURCE_PARTICLE_OR_TRANSIENT;
-            break;
-        default:
-            break;
-    }
-
     const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
     const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
     const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
     const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
-
-    if (IsSmokeGuiDrawSurface(drawSurf))
-    {
-        flags |= RT_PT_INSTANCE_SOURCE_GUI;
-    }
-    if (surfaceClass == RtSmokeSurfaceClass::ParticleAlpha)
-    {
-        flags |= RT_PT_INSTANCE_SOURCE_PARTICLE_OR_TRANSIENT;
-    }
-    if ((drawSurf && drawSurf->jointCache != 0) ||
-        (tri && tri->staticModelWithJoints != nullptr) ||
-        (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0))
-    {
-        flags |= RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING;
-    }
-    if ((renderEntity && (renderEntity->callback != nullptr || renderEntity->forceUpdate != 0)) ||
-        (entity && (entity->dynamicModel != nullptr || entity->cachedDynamicModel != nullptr)) ||
-        (material && material->Deform() != DFRM_NONE))
-    {
-        flags |= RT_PT_INSTANCE_SOURCE_CALLBACK_OR_GENERATED;
-    }
-    if (renderEntity && (renderEntity->customShader != nullptr || renderEntity->customSkin != nullptr))
-    {
-        flags |= RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE;
-    }
-    return flags;
+    RtPathTraceSourceFlagInput input;
+    input.surfaceClass = surfaceClass;
+    input.guiSurface = IsSmokeGuiDrawSurface(drawSurf);
+    input.hasJointCache = drawSurf && drawSurf->jointCache != 0;
+    input.hasStaticModelWithJoints = tri && tri->staticModelWithJoints != nullptr;
+    input.hasRenderEntityJoints = renderEntity && renderEntity->joints != nullptr &&
+        renderEntity->numJoints > 0;
+    input.entityCallbackPresent = renderEntity && renderEntity->callback != nullptr;
+    input.entityForceUpdate = renderEntity && renderEntity->forceUpdate != 0;
+    input.dynamicModelPresent = entity && entity->dynamicModel != nullptr;
+    input.cachedDynamicModelPresent = entity && entity->cachedDynamicModel != nullptr;
+    input.materialDeformed = material && material->Deform() != DFRM_NONE;
+    input.customShaderPresent = renderEntity && renderEntity->customShader != nullptr;
+    input.customSkinPresent = renderEntity && renderEntity->customSkin != nullptr;
+    return RtPathTraceSourceFlagsFromPod(input);
 }
 
-bool PtMirrorCanPromoteRigidEmissiveCard(const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass)
+bool PtMirrorCanPromoteRigidEmissiveCard(
+    const drawSurf_t* drawSurf,
+    const srfTriangles_t* tri,
+    RtSmokeSurfaceClass surfaceClass,
+    const RtSmokeTranslucentClassifierInfo* classifier = nullptr)
 {
     if (r_pathTracingRigidRouteEmissiveCards.GetInteger() == 0 ||
         surfaceClass != RtSmokeSurfaceClass::ParticleAlpha ||
@@ -213,7 +194,9 @@ bool PtMirrorCanPromoteRigidEmissiveCard(const drawSurf_t* drawSurf, const srfTr
         return false;
     }
 
-    return SmokeMaterialCanPromoteRigidEmissiveCard(material);
+    return classifier
+        ? SmokeMaterialCanPromoteRigidEmissiveCard(material, *classifier)
+        : SmokeMaterialCanPromoteRigidEmissiveCard(material);
 }
 
 bool PtMirrorCanPromoteRigidLiquidPoolCard(const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass)
@@ -251,9 +234,14 @@ bool PtMirrorCanPromoteRigidLiquidPoolCard(const drawSurf_t* drawSurf, const srf
     return info.detailDecalLiquidPool;
 }
 
-RtSmokeSurfaceClass PtMirrorEffectiveSurfaceClass(const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass)
+RtSmokeSurfaceClass PtMirrorEffectiveSurfaceClass(
+    const drawSurf_t* drawSurf,
+    const srfTriangles_t* tri,
+    RtSmokeSurfaceClass surfaceClass,
+    const RtSmokeTranslucentClassifierInfo* classifier = nullptr)
 {
-    return (PtMirrorCanPromoteRigidEmissiveCard(drawSurf, tri, surfaceClass) ||
+    return (PtMirrorCanPromoteRigidEmissiveCard(
+                drawSurf, tri, surfaceClass, classifier) ||
         PtMirrorCanPromoteRigidLiquidPoolCard(drawSurf, tri, surfaceClass))
         ? RtSmokeSurfaceClass::RigidEntity
         : surfaceClass;
@@ -274,6 +262,128 @@ void BuildSceneUniverseLegacyKeySet(const RtPathTraceSceneUniverse* sceneUnivers
         if (surface.legacyDrawSurfKey != 0)
         {
             keys.insert(surface.legacyDrawSurfKey);
+        }
+    }
+}
+
+struct RtPathTraceMaterialClassifyParityStats
+{
+    uint64_t mapped = 0;
+    uint64_t compared = 0;
+    uint64_t mismatched = 0;
+    uint64_t particles = 0;
+    uint64_t particleMismatches = 0;
+    uint64_t mappingMismatches = 0;
+    uint64_t classifierMismatches = 0;
+    uint64_t surfaceClassMismatches = 0;
+    uint64_t subtypeMismatches = 0;
+    uint64_t emissiveMismatches = 0;
+    uint64_t signatureMismatches = 0;
+    int mismatchOrdinals[4] = { -1, -1, -1, -1 };
+    int mismatchSampleCount = 0;
+};
+
+void RecordPathTraceMaterialClassifyMappingParity(
+    RtPathTraceMaterialClassifyParityStats& stats,
+    const RtPathTraceMaterialClassifyProduct& product,
+    const viewDef_t* viewDef)
+{
+    for (int surfaceIndex = 0;
+         surfaceIndex < viewDef->numDrawSurfs;
+         ++surfaceIndex)
+    {
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+        const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+        const uint64_t materialIdentity = static_cast<uint64_t>(
+            reinterpret_cast<uintptr_t>(material));
+        const RtPathTraceMaterialClassifySurface& productSurface =
+            product.surfaces[surfaceIndex];
+        const bool nullMappingMatches = !material &&
+            productSurface.materialIdentity == 0 &&
+            productSurface.materialSlot == 0 &&
+            product.materialIdentities[0] == 0;
+        const bool materialMappingMatches = material &&
+            productSurface.materialIdentity == materialIdentity &&
+            productSurface.materialSlot < product.classifierCount &&
+            product.materialIdentities[productSurface.materialSlot] ==
+                materialIdentity;
+        const bool mappingMatches =
+            nullMappingMatches || materialMappingMatches;
+        bool classifierMatches = true;
+        if (mappingMatches)
+        {
+            const RtSmokeTranslucentClassifierInfo serialClassifier =
+                BuildSmokeTranslucentClassifierInfo(material);
+            classifierMatches = RtSmokeTranslucentClassifierInfoEqual(
+                product.classifiers[productSurface.materialSlot],
+                serialClassifier);
+        }
+
+        ++stats.mapped;
+        stats.mappingMismatches += mappingMatches ? 0 : 1;
+        stats.classifierMismatches += classifierMatches ? 0 : 1;
+        if ((!mappingMatches || !classifierMatches) &&
+            stats.mismatchSampleCount < 4)
+        {
+            stats.mismatchOrdinals[stats.mismatchSampleCount++] =
+                surfaceIndex;
+        }
+    }
+}
+
+void RecordPathTraceMaterialClassifyParity(
+    RtPathTraceMaterialClassifyParityStats& stats,
+    int surfaceIndex,
+    const drawSurf_t* drawSurf,
+    const srfTriangles_t* tri,
+    RtSmokeSurfaceClass classifiedSurfaceClass,
+    RtSmokeSurfaceClass productSurfaceClass,
+    RtSmokeTranslucentSubtype productSubtype,
+    uint32_t productSignature,
+    const RtSmokeTranslucentClassifierInfo& productClassifier)
+{
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    const RtSmokeTranslucentClassifierInfo serialClassifier =
+        BuildSmokeTranslucentClassifierInfo(material);
+    const RtSmokeSurfaceClass serialSurfaceClass =
+        PtMirrorEffectiveSurfaceClass(
+            drawSurf, tri, classifiedSurfaceClass, &serialClassifier);
+    const RtSmokeTranslucentSubtype serialSubtype =
+        serialSurfaceClass == RtSmokeSurfaceClass::ParticleAlpha
+            ? ClassifySmokeTranslucentSubtype(drawSurf, serialClassifier)
+            : RtSmokeTranslucentSubtype::Unknown;
+    const bool productEmissive =
+        SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf, productClassifier);
+    const bool serialEmissive =
+        SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf, serialClassifier);
+    const uint32_t serialSignature = SmokeMaterialRouteClassSignature(
+        material, serialSurfaceClass, serialSubtype, serialClassifier);
+
+    const bool surfaceClassMatches =
+        productSurfaceClass == serialSurfaceClass;
+    const bool subtypeMatches = productSubtype == serialSubtype;
+    const bool emissiveMatches = productEmissive == serialEmissive;
+    const bool signatureMatches = productSignature == serialSignature;
+    const bool particle =
+        productSurfaceClass == RtSmokeSurfaceClass::ParticleAlpha ||
+        serialSurfaceClass == RtSmokeSurfaceClass::ParticleAlpha;
+    const bool matches = surfaceClassMatches && subtypeMatches &&
+        emissiveMatches && signatureMatches;
+
+    ++stats.compared;
+    stats.particles += particle ? 1 : 0;
+    stats.surfaceClassMismatches += surfaceClassMatches ? 0 : 1;
+    stats.subtypeMismatches += subtypeMatches ? 0 : 1;
+    stats.emissiveMismatches += emissiveMatches ? 0 : 1;
+    stats.signatureMismatches += signatureMatches ? 0 : 1;
+    if (!matches)
+    {
+        ++stats.mismatched;
+        stats.particleMismatches += particle ? 1 : 0;
+        if (stats.mismatchSampleCount < 4)
+        {
+            stats.mismatchOrdinals[stats.mismatchSampleCount++] =
+                surfaceIndex;
         }
     }
 }
@@ -551,28 +661,22 @@ void RecordPathTraceDrawSurfMirrorObservation(
     uint32_t sourceFlags,
     uint32_t surfaceClassId,
     uint32_t surfaceClassAndFlags,
-    uint32_t materialClassSignature)
+    uint32_t materialClassSignature,
+    std::vector<RtPathTraceRigidMeshCandidateObservation>*
+        deferredRigidCandidates)
 {
     const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
     const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
     const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
     const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
-    const char* modelName = renderModel ? "<live render model>" : "<none>";
+    const char* modelName = renderModel ? renderModel->Name() : "<none>";
     const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
     const uint32_t modelEpoch = (renderDefKey.world && renderDefKey.index >= 0)
         ? PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index)
         : 0;
 
     RtPathTraceMeshKey meshKey;
-    meshKey.tri = tri;
-    meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri ? tri->ambientCache : 0);
-    meshKey.indexBufferIdentity = static_cast<uintptr_t>(tri ? tri->indexCache : 0);
-    meshKey.numVerts = tri ? tri->numVerts : 0;
-    meshKey.numIndexes = tri ? tri->numIndexes : 0;
-    meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
-    meshKey.materialId = materialId;
-    meshKey.materialClassSignature = materialClassSignature;
-    meshKey.sourceKind = sourceKind;
+    FillPathTraceRigidRouteMeshKey(meshKey, tri, materialId, materialClassSignature, sourceKind);
     RtPathTraceRigidInstanceSnapshot rigidSnapshot;
     {
         OPTICK_EVENT("PT DrawSurf Observation Identity");
@@ -586,6 +690,16 @@ void RecordPathTraceDrawSurfMirrorObservation(
             renderEntity ? renderEntity->entityNum : -1,
             drawSurf ? drawSurf->modelSurfaceIndex : -1,
             sourceFlags);
+    }
+    if (geometryUniverse != nullptr)
+    {
+        geometryUniverse->RecordA8S1RouteObservation(
+            rigidSnapshot.renderDefKey,
+            rigidSnapshot.modelSurfaceIndex,
+            rigidSnapshot.modelSurfaceIndexValid,
+            rigidSnapshot.meshHash,
+            modelName,
+            PtA8S1RouteProducer::VisibleDrawSurf);
     }
 
     RtPathTraceMeshObservation meshObservation;
@@ -627,6 +741,11 @@ void RecordPathTraceDrawSurfMirrorObservation(
             tri->numVerts,
             tri->numIndexes);
     }
+    NotePathTraceCaptureSerialInstanceObservation(
+        static_cast<std::uint32_t>(surfaceIndex),
+        instanceObservation.instanceId,
+        instanceObservation.meshHash,
+        instanceObservation.objectToWorld);
     const bool eligibleRigid = PtMirrorIsEligibleRigidCandidate(meshObservation, instanceObservation);
     if ((boundsOverlayMode == 1 || boundsOverlayMode == 2) && boundsOverlayDrawn < boundsOverlayMax)
     {
@@ -668,8 +787,21 @@ void RecordPathTraceDrawSurfMirrorObservation(
         candidateObservation.modelName = meshObservation.modelName;
         {
             OPTICK_EVENT("PT DrawSurf Rigid Candidate");
-            geometryUniverse->RecordRigidMeshCandidate(
-                candidateObservation);
+            if (deferredRigidCandidates != nullptr)
+            {
+                OPTICK_EVENT("PT Lane A Rigid Deferred Capture");
+                deferredRigidCandidates->push_back(candidateObservation);
+            }
+            else
+            {
+                geometryUniverse->RecordRigidMeshCandidate(
+                    candidateObservation);
+            }
+            NotePathTraceCaptureSerialRigidCandidate(
+                static_cast<std::uint32_t>(surfaceIndex),
+                candidateObservation.meshHash,
+                candidateObservation.instanceId,
+                candidateObservation.materialId);
         }
     }
 }
@@ -711,6 +843,8 @@ void CapturePathTraceDrawSurfMirror(
         OPTICK_EVENT("PT DrawSurf Mirror Visible Loop");
         for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
         {
+            SetPathTraceCaptureSerialOracleSurface(
+                static_cast<std::uint32_t>(surfaceIndex));
             const RtPathTraceDrawSurfMirrorSurfaceCache* cachedSurface =
                 useSurfaceCache ? &(*surfaceCache)[surfaceIndex] : nullptr;
             const drawSurf_t* drawSurf = cachedSurface ? cachedSurface->drawSurf : viewDef->drawSurfs[surfaceIndex];
@@ -803,7 +937,8 @@ void CapturePathTraceDrawSurfMirror(
                 sourceFlags,
                 surfaceClassId,
                 surfaceClassAndFlags,
-                materialClassSignature);
+                materialClassSignature,
+                nullptr);
         }
     }
 
@@ -914,6 +1049,58 @@ uint64 BuildPathTraceSkinnedCaptureViewSignature(
     return hash;
 }
 
+RtPathTraceRigidInstanceSnapshot BuildAndRecordPathTraceCaptureWalkObservation(
+    RtSmokeGeometryUniverse* geometryUniverse,
+    const RtPathTraceMeshKey& meshKey,
+    const idRenderModel* renderModel,
+    const srfTriangles_t* tri,
+    const PtRenderDefKey& renderDefKey,
+    std::uint32_t modelEpoch,
+    int entityIndex,
+    int entityNum,
+    int requestedSurfaceIndex,
+    std::uint32_t sourceFlags)
+{
+    const RtPathTraceRigidInstanceSnapshot snapshot =
+        BuildPathTraceRigidInstanceSnapshot(meshKey, renderModel, tri,
+            renderDefKey, modelEpoch, entityIndex, entityNum,
+            requestedSurfaceIndex, sourceFlags);
+    geometryUniverse->RecordA8S1RouteObservation(
+        snapshot.renderDefKey,
+        snapshot.modelSurfaceIndex,
+        snapshot.modelSurfaceIndexValid,
+        snapshot.meshHash,
+        renderModel ? renderModel->Name() : "<none>",
+        PtA8S1RouteProducer::CaptureWalkProduct);
+    return snapshot;
+}
+
+RtPathTraceRigidInstanceSnapshot BuildAndRecordPathTraceMergedCompanionObservation(
+    RtSmokeGeometryUniverse* geometryUniverse,
+    const RtPathTraceMeshKey& meshKey,
+    const idRenderModel* renderModel,
+    const srfTriangles_t* tri,
+    const PtRenderDefKey& renderDefKey,
+    std::uint32_t modelEpoch,
+    int entityIndex,
+    int entityNum,
+    int requestedSurfaceIndex,
+    std::uint32_t sourceFlags)
+{
+    const RtPathTraceRigidInstanceSnapshot snapshot =
+        BuildPathTraceRigidInstanceSnapshot(meshKey, renderModel, tri,
+            renderDefKey, modelEpoch, entityIndex, entityNum,
+            requestedSurfaceIndex, sourceFlags);
+    geometryUniverse->RecordA8S1RouteObservation(
+        snapshot.renderDefKey,
+        snapshot.modelSurfaceIndex,
+        snapshot.modelSurfaceIndexValid,
+        snapshot.meshHash,
+        renderModel ? renderModel->Name() : "<none>",
+        PtA8S1RouteProducer::MergedCompanion);
+    return snapshot;
+}
+
 bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     const viewDef_t* viewDef,
     const RtPathTraceSceneUniverse* sceneUniverse,
@@ -941,9 +1128,22 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines,
     bool recordAllInstanceClasses,
     const std::vector<PtSkinnedHitRouteRecord>*
-        skinnedCaptureAdmissionRoutes)
+        skinnedCaptureAdmissionRoutes,
+    std::vector<RtSmokeRigidCaptureSkipRecord>* rigidCaptureSkips,
+    std::vector<uint64_t>* rigidCaptureWalked,
+    std::vector<uint32_t>* rigidCaptureWalkedTriangles,
+    std::vector<RtSmokeMergedWalkedRange>* mergedWalkedRanges,
+    RtPathTraceOwnerHarvest* ownerHarvest,
+    std::vector<RtPathTraceRigidMeshCandidateObservation>*
+        deferredRigidCandidates)
 {
     OPTICK_EVENT("PT Capture Dynamic Frame From DrawSurf Mirror");
+    const uint64_t ownerHarvestStartUs = ownerHarvest ? Sys_Microseconds() : 0;
+    if (ownerHarvest)
+    {
+        ownerHarvest->Clear();
+    }
+    const bool r1Requested = r_pathTracingCaptureFixNObserveR1.GetInteger() != 0;
 
     sourceSurfaces = 0;
     sourceVerts = 0;
@@ -962,6 +1162,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     if (capturedSurfaceRecords)
     {
         capturedSurfaceRecords->clear();
+    }
+    if (mergedWalkedRanges)
+    {
+        mergedWalkedRanges->clear();
     }
 
     {
@@ -986,6 +1190,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
 
     if (!viewDef || !viewDef->drawSurfs)
     {
+        FinalizePathTraceCommittedCaptureTelemetry(viewDef);
         return false;
     }
     if (surfaceCache)
@@ -1051,43 +1256,199 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuBuild.GetInteger() != 0;
-    const bool skinnedCpuReferenceAuditRequested =
-        r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0 ||
-        r_pathTracingGeometrySkinnedHitAudit.GetInteger() != 0 ||
-        r_pathTracingGeometrySkinnedEmissiveAudit.GetInteger() != 0 ||
-        r_pathTracingGeometrySkinnedAttributeDeriveDump.GetInteger() != 0;
     const bool skinnedCaptureSplitGate =
-        r_pathTracingGeometrySkinnedCaptureSplit.GetInteger() != 0 &&
-        r_pathTracingGeometrySkinnedTlasCompare.GetInteger() != 0 &&
-        r_pathTracingGpuSkinning.GetInteger() == 1 &&
-        r_pathTracingGeometryAuthoritativeGpuSkinning.
-            GetInteger() != 0 &&
-        r_pathTracingGeometryShadowRegistry.GetInteger() != 0 &&
-        skinnedCaptureAdmissionRoutes != nullptr &&
-        !skinnedCpuReferenceAuditRequested;
+        SmokeSkinnedCaptureSplitGateEnabled(
+            skinnedCaptureAdmissionRoutes != nullptr);
     captureTiming.skinnedCaptureAdmissionRoutes =
         skinnedCaptureAdmissionRoutes != nullptr
             ? static_cast<int>(
                 skinnedCaptureAdmissionRoutes->size())
             : 0;
 
+    alignas(RtSmokeR1Audit) byte r1AuditStorage[sizeof(RtSmokeR1Audit)];
+    RtSmokeR1Audit* r1Audit = nullptr;
+#if USE_OPTICK
+    alignas(Optick::Event) byte r1ScopeStorage[sizeof(Optick::Event)];
+    Optick::Event* r1Scope = nullptr;
+#endif
+    if (r1Requested && !viewDef->isSubview)
+    {
+        r1Audit = new (r1AuditStorage) RtSmokeR1Audit{};
+        r1Audit->available = viewDef->numDrawSurfs >= 0 ? 1 : 0;
+        r1Audit->frameCount = tr.frameCount;
+        r1Audit->vertexCacheFrame = vertexCache.currentFrame;
+        r1Audit->surfaceCount = viewDef->numDrawSurfs;
+        r1Audit->startUs = Sys_Microseconds();
+#if USE_OPTICK
+        static Optick::EventDescription* r1Description = nullptr;
+        if (r1Description == nullptr)
+        {
+            r1Description = Optick::CreateDescription(
+                __FUNCTION__, __FILE__, __LINE__, "PT Capture Fix-N-Observe R1");
+        }
+        r1Scope = new (r1ScopeStorage) Optick::Event(*r1Description);
+#endif
+    }
+    if (ownerHarvest)
+    {
+        ownerHarvest->surfaces.assign(
+            static_cast<std::size_t>(viewDef->numDrawSurfs),
+            RtPathTraceOwnerHarvestSurface{});
+    }
+
+    const auto captureTerminalForR1 = [](RtSmokeR1Terminal terminal)
+    {
+        switch (terminal)
+        {
+            case RtSmokeR1Terminal::ApplyGateSkip:
+                return RtPathTraceCaptureTerminal::ApplyGateSkip;
+            case RtSmokeR1Terminal::StaticWorld:
+            case RtSmokeR1Terminal::StaticMatch:
+                return RtPathTraceCaptureTerminal::StaticMatched;
+            case RtSmokeR1Terminal::RigidRouteReadyRemoved:
+                return RtPathTraceCaptureTerminal::RoutedRigidReady;
+            case RtSmokeR1Terminal::SkinnedCaptureOmitted:
+            case RtSmokeR1Terminal::AdmissionRejectedPreAppend:
+                return RtPathTraceCaptureTerminal::AdmissionRejected;
+            case RtSmokeR1Terminal::AppendEmpty:
+            case RtSmokeR1Terminal::AdmissionRollbackPostAppend:
+                return RtPathTraceCaptureTerminal::RolledBack;
+            case RtSmokeR1Terminal::Accepted:
+                return RtPathTraceCaptureTerminal::Accepted;
+            default:
+                return RtPathTraceCaptureTerminal::SemanticRejected;
+        }
+    };
+
+#define RT_SMOKE_R1_FINALIZE(terminalValue) \
+    do { \
+        const RtSmokeR1Terminal rtSmokeR1TerminalValue = (terminalValue); \
+        serialCaptureDecision.terminal = \
+            captureTerminalForR1(rtSmokeR1TerminalValue); \
+        FinalizePathTraceCaptureSurfaceDecision(serialCaptureDecision); \
+        NotePathTraceCaptureSerialDecision( \
+            static_cast<std::uint32_t>(surfaceIndex), \
+            serialCaptureDecision, serialCaptureDecision.decisionPresence); \
+        if (ownerHarvest) { \
+            RtPathTraceOwnerHarvestSurface& harvestSurface = \
+                ownerHarvest->surfaces[static_cast<std::size_t>(surfaceIndex)]; \
+            harvestSurface.decision = serialCaptureDecision; \
+            harvestSurface.finalized = true; \
+        } \
+        if (r1Audit) { RtSmokeR1Finalize(*r1Audit, surfaceIndex, rtSmokeR1TerminalValue); } \
+    } while (0)
+
+    const RtPathTraceMaterialClassifyProduct* materialClassifyProduct = nullptr;
+    bool useMaterialClassifyProduct = false;
+    {
+        OPTICK_EVENT("PT Material Classify Consume");
+        materialClassifyProduct = viewDef->pathTraceMaterialClassifyProduct;
+        useMaterialClassifyProduct =
+            RtPathTraceMaterialClassifyProductShapeValid(
+                materialClassifyProduct, viewDef, viewDef->numDrawSurfs);
+    }
+    RtPathTraceMaterialClassifyParityStats materialClassifyParity;
+    const bool compareMaterialClassifyParity =
+        useMaterialClassifyProduct &&
+        materialClassifyProduct->parityRequested;
+    if (compareMaterialClassifyParity)
+    {
+        RecordPathTraceMaterialClassifyMappingParity(
+            materialClassifyParity,
+            *materialClassifyProduct,
+            viewDef);
+    }
     {
         OPTICK_EVENT("PT Capture Dynamic Surface Loop");
         for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
         {
+            RtPathTraceCaptureSurfaceProduct serialCaptureDecision;
+            serialCaptureDecision.ordinal =
+                static_cast<std::uint32_t>(surfaceIndex);
+            serialCaptureDecision.sourceState =
+                PathTraceCaptureSerialOracleSourceState(
+                    static_cast<std::uint32_t>(surfaceIndex));
+            SetPathTraceCaptureSerialOracleSurface(
+                static_cast<std::uint32_t>(surfaceIndex));
+            serialCaptureDecision.decisionPresence =
+                RT_PT_CAPTURE_DECISION_FILTER;
             RtPathTraceDrawSurfMirrorSurfaceCache* cachedSurface =
                 surfaceCache ? &(*surfaceCache)[surfaceIndex] : nullptr;
             const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+            const srfTriangles_t* tri = nullptr;
+            RtPathTraceOwnerHarvestSurface* harvestSurface = ownerHarvest
+                ? &ownerHarvest->surfaces[static_cast<std::size_t>(surfaceIndex)]
+                : nullptr;
+            if (harvestSurface)
+            {
+                harvestSurface->drawSurf = drawSurf;
+            }
+            {
+                OPTICK_EVENT("PT Dynamic Validate And Filter");
             if (cachedSurface)
             {
                 cachedSurface->drawSurf = drawSurf;
             }
-            const srfTriangles_t* tri = nullptr;
+            if (PtCpuProducerApplyGate::ShouldSkipDrawSurf(drawSurf))
+            {
+                serialCaptureDecision.applyGateSkip = true;
+                RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::ApplyGateSkip);
+                continue;
+            }
             const int validationStartMs = Sys_Milliseconds();
             RtSmokeSurfaceSkipStats surfaceSkipStats;
             RtSmokeSurfaceSkipStats* validationSkipStats = (cachedSurface || instanceUniverse) ? &surfaceSkipStats : &skipStats;
-            if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, validationSkipStats))
+            RtSmokeR1CacheValidationObservation* r1ValidationObservationPtr =
+                r1Audit ? &r1Audit->rowObservation : nullptr;
+            if (!ValidateSmokeDrawSurface(
+                    viewDef, drawSurf, tri, validationSkipStats,
+                    r1ValidationObservationPtr))
             {
+                serialCaptureDecision.terminal =
+                    RtPathTraceCaptureTerminal::SafetyRejected;
+                FinalizePathTraceCaptureSurfaceDecision(serialCaptureDecision);
+                NotePathTraceCaptureSerialDecision(
+                    static_cast<std::uint32_t>(surfaceIndex),
+                    serialCaptureDecision,
+                    serialCaptureDecision.decisionPresence);
+                if (harvestSurface)
+                {
+                    harvestSurface->tri = tri;
+                    harvestSurface->decision = serialCaptureDecision;
+                    harvestSurface->finalized = true;
+                }
+                if (r1Audit)
+                {
+                    RtSmokeR1ObserveCacheSample(
+                        *r1Audit, surfaceIndex, *r1ValidationObservationPtr);
+                    if (r1ValidationObservationPtr->disposition ==
+                        RtSmokeR1ValidationDisposition::ConditionedOff)
+                    {
+                        const srfTriangles_t* conditionedTri =
+                            drawSurf ? drawSurf->frontEndGeo : nullptr;
+                        if (conditionedTri)
+                        {
+                            const RtSmokeCacheHandle selectedAmbient =
+                                SelectSmokeDiagnosticCacheHandle(
+                                    drawSurf->ambientCache,
+                                    conditionedTri->ambientCache);
+                            const RtSmokeCacheHandle selectedIndex =
+                                SelectSmokeDiagnosticCacheHandle(
+                                    drawSurf->indexCache,
+                                    conditionedTri->indexCache);
+                            RtSmokeR1ObserveConditionedOff(
+                                *r1Audit,
+                                surfaceIndex,
+                                selectedAmbient,
+                                selectedIndex);
+                        }
+                    }
+                    RtSmokeR1Finalize(
+                        *r1Audit,
+                        surfaceIndex,
+                        RtSmokeR1TerminalForValidation(
+                            r1ValidationObservationPtr->disposition));
+                }
                 captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
                 if (cachedSurface || instanceUniverse)
                 {
@@ -1104,29 +1465,128 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 continue;
             }
             captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
-
-            if (PathTraceParticleCompositeSurfaceRoute(viewDef, drawSurf, tri) == RtPathTraceParticleSurfaceRoute::CompositeOnly)
+            if (harvestSurface)
             {
+                harvestSurface->tri = tri;
+            }
+            // Harvest publishes source cardinality before any semantic terminal;
+            // Lane A later owns only emitted geometry/cardinality.
+            serialCaptureDecision.vertexCount = static_cast<std::uint32_t>(
+                Max(0, tri->numVerts));
+            serialCaptureDecision.indexCount = static_cast<std::uint32_t>(
+                Max(0, drawSurf->numIndexes));
+            serialCaptureDecision.triangleCount =
+                serialCaptureDecision.indexCount / 3u;
+            if (r1Audit)
+            {
+                RtSmokeR1ObserveCacheSample(
+                    *r1Audit, surfaceIndex, *r1ValidationObservationPtr);
+            }
+
+            const RtPathTraceParticleSurfaceRoute compositeRoute =
+                PathTraceParticleCompositeSurfaceRoute(viewDef, drawSurf, tri);
+            serialCaptureDecision.compositeRoute =
+                static_cast<std::uint32_t>(compositeRoute);
+            if (compositeRoute == RtPathTraceParticleSurfaceRoute::CompositeOnly)
+            {
+                RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::CompositeOnly);
                 continue;
             }
             if (UnifiedPtDiagnosticRemovesAlphaClipSurface(drawSurf->material))
             {
+                serialCaptureDecision.alphaDiagnosticRejected = true;
                 ++skipStats.alphaClipDiagnostic;
+                RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::AlphaClipDiagnostic);
                 continue;
+            }
             }
 
             const int classifyStartMs = Sys_Milliseconds();
-            const RtSmokeSurfaceClass classifiedSurfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
-            const RtSmokeSurfaceClass surfaceClass = PtMirrorEffectiveSurfaceClass(drawSurf, tri, classifiedSurfaceClass);
+            RtSmokeSurfaceClass classifiedSurfaceClass;
+            {
+                OPTICK_EVENT("PT Merged Dynamic Classify Surface");
+                classifiedSurfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+            }
+            RtSmokeSurfaceClass surfaceClass;
+            const idMaterial* material;
+            RtSmokeTranslucentSubtype translucentSubtype;
+            uint32_t surfaceClassId;
+            uint32_t baseMaterialId;
+            uint32_t materialId;
+            uint32_t materialClassSignature;
+            uint64 legacyStaticKey;
+            uint32_t sourceFlags;
+            {
+                OPTICK_EVENT("PT Dynamic Route Identity");
+            const RtSmokeTranslucentClassifierInfo* routeClassifier;
+            {
+                OPTICK_EVENT("PT Dynamic Identity Scalar Derive");
+            routeClassifier =
+                PathTraceMaterialClassifierForSurface(
+                    materialClassifyProduct, surfaceIndex);
+            surfaceClass = PtMirrorEffectiveSurfaceClass(
+                drawSurf, tri, classifiedSurfaceClass, routeClassifier);
+            serialCaptureDecision.liquidPoolPromoted =
+                PtMirrorCanPromoteRigidLiquidPoolCard(
+                    drawSurf, tri, classifiedSurfaceClass);
             captureTiming.dynamicPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
-            const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
-            const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
-            const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
-            const uint32_t baseMaterialId = SmokeMaterialId(material);
-            const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
-            const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, surfaceClass, translucentSubtype);
-            const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
-            uint32_t sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
+            material = drawSurf ? drawSurf->material : nullptr;
+            translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha
+                ? (useMaterialClassifyProduct
+                    ? ClassifySmokeTranslucentSubtype(
+                        drawSurf, *routeClassifier)
+                    : ClassifySmokeTranslucentSubtype(drawSurf))
+                : RtSmokeTranslucentSubtype::Unknown;
+            surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
+            baseMaterialId = SmokeMaterialId(material);
+            materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
+            materialClassSignature = useMaterialClassifyProduct
+                ? SmokeMaterialRouteClassSignature(
+                    material,
+                    surfaceClass,
+                    translucentSubtype,
+                    *routeClassifier)
+                : SmokeMaterialRouteClassSignature(
+                    material, surfaceClass, translucentSubtype);
+            if (compareMaterialClassifyParity)
+            {
+                RecordPathTraceMaterialClassifyParity(
+                    materialClassifyParity,
+                    surfaceIndex,
+                    drawSurf,
+                    tri,
+                    classifiedSurfaceClass,
+                    surfaceClass,
+                    translucentSubtype,
+                    materialClassSignature,
+                    *routeClassifier);
+            }
+            legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
+            sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
+            NotePathTraceCaptureSerialDerivedSurface(
+                static_cast<std::uint32_t>(surfaceIndex),
+                surfaceClass,
+                translucentSubtype,
+                surfaceClassId,
+                materialId,
+                materialClassSignature);
+            serialCaptureDecision.decisionPresence |=
+                RT_PT_CAPTURE_DECISION_ROUTE |
+                RT_PT_CAPTURE_DECISION_IDENTITY;
+            serialCaptureDecision.surfaceClass = surfaceClass;
+            serialCaptureDecision.translucentSubtype = translucentSubtype;
+            serialCaptureDecision.surfaceClassId = surfaceClassId;
+            serialCaptureDecision.materialId = materialId;
+            serialCaptureDecision.materialClassSignature =
+                materialClassSignature;
+            if (harvestSurface)
+            {
+                harvestSurface->baseMaterialId = baseMaterialId;
+                harvestSurface->legacyStaticKey = legacyStaticKey;
+            }
+            }
+            {
+                OPTICK_EVENT("PT Dynamic Identity Static Membership");
             if (!sceneUniverseLegacyKeys.empty() && sceneUniverseLegacyKeys.find(legacyStaticKey) != sceneUniverseLegacyKeys.end())
             {
                 sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH;
@@ -1135,6 +1595,13 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             {
                 sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH;
             }
+            serialCaptureDecision.sourceFlags = sourceFlags;
+            serialCaptureDecision.staticMatch =
+                (sourceFlags & (RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH |
+                    RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH)) != 0;
+            }
+            {
+                OPTICK_EVENT("PT Dynamic Identity Cache Record");
             if (cachedSurface)
             {
                 cachedSurface->valid = true;
@@ -1149,9 +1616,17 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 cachedSurface->sourceFlags = sourceFlags;
                 cachedSurface->surfaceClassId = surfaceClassId;
                 cachedSurface->surfaceClassAndFlags = surfaceClassId |
-                    (SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf) ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
+                    ((useMaterialClassifyProduct
+                        ? SmokeDrawSurfaceHasActiveEmissiveStage(
+                            drawSurf, *routeClassifier)
+                        : SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf))
+                        ? 0u
+                        : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
                 cachedSurface->materialClassSignature = materialClassSignature;
             }
+            }
+            {
+                OPTICK_EVENT("PT Dynamic Identity Instance Observation");
             const bool recordInstanceObservation =
                 instanceUniverse &&
                 (recordAllInstanceClasses || RtPathTraceSourceFlagsAreDurableRigid(sourceFlags));
@@ -1176,18 +1651,35 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                     surfaceClassId,
                     cachedSurface
                         ? cachedSurface->surfaceClassAndFlags
-                        : (surfaceClassId | (SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf) ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF)),
-                    materialClassSignature);
+                        : (surfaceClassId |
+                            ((useMaterialClassifyProduct
+                                ? SmokeDrawSurfaceHasActiveEmissiveStage(
+                                    drawSurf, *routeClassifier)
+                                : SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf))
+                                ? 0u
+                                : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF)),
+                    materialClassSignature,
+                    deferredRigidCandidates);
             }
+            }
+            {
+                OPTICK_EVENT("PT Dynamic Identity Static Decision");
             if (surfaceClass == RtSmokeSurfaceClass::StaticWorld)
             {
+                RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::StaticWorld);
                 continue;
             }
 
             if (DrawSurfMirrorIsStaticMatch(geometryUniverse, sceneUniverseLegacyKeys, legacyStaticKey))
             {
+                NotePathTraceCaptureSerialStaticMembership(
+                    static_cast<std::uint32_t>(surfaceIndex));
+                RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::StaticMatch);
                 continue;
             }
+            }
+            {
+                OPTICK_EVENT("PT Dynamic Identity Rigid Route Probe");
             if (removeRoutedRigidDynamic && surfaceClass == RtSmokeSurfaceClass::RigidEntity && geometryUniverse)
             {
                 ++routedRigidDynamicTested;
@@ -1201,15 +1693,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                     : 0;
 
                 RtPathTraceMeshKey meshKey;
-                meshKey.tri = tri;
-                meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri ? tri->ambientCache : 0);
-                meshKey.indexBufferIdentity = static_cast<uintptr_t>(tri ? tri->indexCache : 0);
-                meshKey.numVerts = tri ? tri->numVerts : 0;
-                meshKey.numIndexes = tri ? tri->numIndexes : 0;
-                meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
-                meshKey.materialId = materialId;
-                meshKey.materialClassSignature = materialClassSignature;
-                meshKey.sourceKind = SmokeSurfaceClassId(surfaceClass);
+                FillPathTraceRigidRouteMeshKey(
+                    meshKey, tri, materialId, materialClassSignature, SmokeSurfaceClassId(surfaceClass));
                 const RtPathTraceRigidInstanceSnapshot rigidSnapshot = BuildPathTraceRigidInstanceSnapshot(
                     meshKey,
                     renderModel,
@@ -1220,9 +1705,24 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                     renderEntity ? renderEntity->entityNum : -1,
                     drawSurf ? drawSurf->modelSurfaceIndex : -1,
                     sourceFlags);
+                serialCaptureDecision.meshHash = rigidSnapshot.meshHash;
+                serialCaptureDecision.instanceId = rigidSnapshot.instanceId;
+                geometryUniverse->RecordA8S1RouteObservation(
+                    rigidSnapshot.renderDefKey,
+                    rigidSnapshot.modelSurfaceIndex,
+                    rigidSnapshot.modelSurfaceIndexValid,
+                    rigidSnapshot.meshHash,
+                    renderModel ? renderModel->Name() : "<none>",
+                    PtA8S1RouteProducer::RoutedReadyProbe);
                 const uint64 meshHash = rigidSnapshot.meshHash;
                 const bool routeReadyByMesh = geometryUniverse->IsRigidRouteReady(meshHash);
-                const bool promotedEmissive = PtMirrorCanPromoteRigidEmissiveCard(drawSurf, tri, classifiedSurfaceClass);
+                serialCaptureDecision.rigidReadyByMesh = routeReadyByMesh;
+                const bool promotedEmissive =
+                    PtMirrorCanPromoteRigidEmissiveCard(
+                        drawSurf,
+                        tri,
+                        classifiedSurfaceClass,
+                        routeClassifier);
                 if (promotedEmissive)
                 {
                     ++routedRigidDynamicPromotedEmissive;
@@ -1234,8 +1734,13 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                         entity ? entity->index : -1,
                         renderEntity ? renderEntity->entityNum : -1,
                         materialId);
+                serialCaptureDecision.rigidReadyByResident = routeReadyByResident;
                 if (routeReadyByMesh || routeReadyByResident)
                 {
+                    NotePathTraceCaptureSerialRoutedReady(
+                        static_cast<std::uint32_t>(surfaceIndex),
+                        static_cast<std::uint32_t>(Max(0, tri->numVerts)),
+                        static_cast<std::uint32_t>(Max(0, tri->numIndexes)));
                     if (routeReadyByMesh)
                     {
                         ++routedRigidDynamicReadyByMesh;
@@ -1250,11 +1755,27 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                     {
                         ++skippedRoutedRigidDynamicByInstance;
                     }
+                    if (rigidCaptureSkips)
+                    {
+                        RtSmokeRigidCaptureSkipRecord skip;
+                        skip.instanceId = rigidSnapshot.instanceId;
+                        skip.entityIndex = entity ? entity->index : -1;
+                        skip.modelSurfaceIndex = drawSurf ? drawSurf->modelSurfaceIndex : -1;
+                        skip.materialId = materialId;
+                        skip.meshHash = meshHash;
+                        skip.surfaceClassId = surfaceClassId;
+                        rigidCaptureSkips->push_back(skip);
+                    }
                     AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, drawSurf, tri->numIndexes, materialId);
+                    RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::RigidRouteReadyRemoved);
                     continue;
                 }
             }
+            }
+            }
 
+            {
+                OPTICK_EVENT("PT Dynamic Skinned Admission");
             if (surfaceClass ==
                     RtSmokeSurfaceClass::SkinnedDeformed &&
                 skinnedSurfaceRecords != nullptr)
@@ -1342,6 +1863,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                         admissionResult =
                             PtPlanSkinnedCaptureAdmission(
                                 admission);
+                    serialCaptureDecision.decisionPresence |=
+                        RT_PT_CAPTURE_DECISION_SKINNED;
+                    serialCaptureDecision.skinnedAdmission =
+                        static_cast<std::uint32_t>(admissionResult);
                     if (admissionResult ==
                         PtSkinnedCaptureAdmissionResult::
                             OmitCpuCapture)
@@ -1361,6 +1886,16 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                         provisional.bucketIndex = -1;
                         skinnedSurfaceRecords->push_back(
                             provisional);
+                        serialCaptureDecision.skinnedCaptureOmitted = true;
+                        serialCaptureDecision.decisionPresence |=
+                            RT_PT_CAPTURE_DECISION_SKINNED_RECORD;
+                        serialCaptureDecision.skinnedRecordPresent = true;
+                        serialCaptureDecision.skinnedRecordVertexCount =
+                            static_cast<std::uint32_t>(Max(0, provisional.vertexCount));
+                        serialCaptureDecision.skinnedRecordIndexCount =
+                            static_cast<std::uint32_t>(Max(0, provisional.indexCount));
+                        serialCaptureDecision.skinnedRecordTriangleCount =
+                            static_cast<std::uint32_t>(Max(0, provisional.triangleCount));
 
                         const int sourceIndexCount =
                             provisional.indexCount;
@@ -1397,6 +1932,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                         captureTiming.
                             skinnedCaptureOmittedIndexes +=
                                 sourceIndexCount;
+                        RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::SkinnedCaptureOmitted);
                         continue;
                     }
 
@@ -1434,11 +1970,162 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                     dynamicAdmissionSurfaces,
                     tri->numVerts,
                     tri->numIndexes);
+            serialCaptureDecision.decisionPresence |=
+                RT_PT_CAPTURE_DECISION_ADMISSION;
+            serialCaptureDecision.admissionPrecheckPassed =
+                admissionPlan.Admitted();
             if (!admissionPlan.Admitted())
             {
                 RecordSmokeGeometryAdmissionRejection(
                     skipStats, admissionPlan);
+                RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::AdmissionRejectedPreAppend);
                 continue;
+            }
+            if (ownerHarvest)
+            {
+                dynamicAdmissionBytes = admissionPlan.totalBytes;
+                dynamicAdmissionSurfaces = admissionPlan.totalSurfaces;
+                const int harvestBucketIndex = idMath::ClampInt(
+                    0, RT_SMOKE_CLASS_COUNT - 1,
+                    static_cast<int>(surfaceClassId &
+                        RT_SMOKE_TRIANGLE_CLASS_MASK));
+                serialCaptureDecision.decisionPresence |=
+                    RT_PT_CAPTURE_DECISION_APPEND |
+                    RT_PT_CAPTURE_DECISION_CAPTURED_RECORD |
+                    RT_PT_CAPTURE_DECISION_BUCKET_PUBLICATION;
+                serialCaptureDecision.appendAttempted = true;
+                serialCaptureDecision.bucketIndex = harvestBucketIndex;
+                serialCaptureDecision.vertexCount =
+                    static_cast<std::uint32_t>(Max(0, tri->numVerts));
+                serialCaptureDecision.indexCount =
+                    static_cast<std::uint32_t>(Max(0, drawSurf->numIndexes));
+                serialCaptureDecision.triangleCount =
+                    serialCaptureDecision.indexCount / 3u;
+                serialCaptureDecision.capturedRecordPresent =
+                    capturedSurfaceRecords != nullptr;
+                serialCaptureDecision.capturedRecordVertexCount =
+                    serialCaptureDecision.vertexCount;
+                serialCaptureDecision.capturedRecordIndexCount =
+                    serialCaptureDecision.indexCount;
+                serialCaptureDecision.capturedRecordTriangleCount =
+                    serialCaptureDecision.triangleCount;
+                serialCaptureDecision.bucketRangePublished = true;
+                if (surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed)
+                {
+                    serialCaptureDecision.decisionPresence |=
+                        RT_PT_CAPTURE_DECISION_SKINNED_RECORD;
+                    serialCaptureDecision.skinnedRecordPresent = true;
+                    serialCaptureDecision.skinnedRecordVertexCount =
+                        serialCaptureDecision.vertexCount;
+                    serialCaptureDecision.skinnedRecordIndexCount =
+                        serialCaptureDecision.indexCount;
+                    serialCaptureDecision.skinnedRecordTriangleCount =
+                        serialCaptureDecision.triangleCount;
+                }
+                harvestSurface->appendEligible = true;
+                harvestSurface->decision = serialCaptureDecision;
+                if (rigidCaptureWalked &&
+                    surfaceClass == RtSmokeSurfaceClass::RigidEntity &&
+                    geometryUniverse)
+                {
+                    const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
+                    const idRenderEntityLocal* entity =
+                        space ? space->entityDef : nullptr;
+                    const renderEntity_t* renderEntity =
+                        entity ? &entity->parms : nullptr;
+                    const idRenderModel* renderModel =
+                        renderEntity ? renderEntity->hModel : nullptr;
+                    const PtRenderDefKey renderDefKey =
+                        PtGeometryLifecycle::MakeEntityKey(entity);
+                    const uint32_t modelEpoch =
+                        (renderDefKey.world && renderDefKey.index >= 0)
+                            ? PtGeometryLifecycle::EntityModelEpoch(
+                                renderDefKey.world, renderDefKey.index)
+                            : 0;
+                    RtPathTraceMeshKey meshKey;
+                    FillPathTraceRigidRouteMeshKey(meshKey, tri, materialId,
+                        materialClassSignature, SmokeSurfaceClassId(surfaceClass));
+                    const RtPathTraceRigidInstanceSnapshot walkedSnap =
+                        BuildAndRecordPathTraceCaptureWalkObservation(
+                            geometryUniverse, meshKey, renderModel, tri,
+                            renderDefKey, modelEpoch,
+                            entity ? entity->index : -1,
+                            renderEntity ? renderEntity->entityNum : -1,
+                            drawSurf ? drawSurf->modelSurfaceIndex : -1,
+                            sourceFlags);
+                    harvestSurface->rigidWalkInstanceId = walkedSnap.instanceId;
+                }
+                if (mergedWalkedRanges && harvestBucketIndex >= 1)
+                {
+                    const viewEntity_t* mergedSpace =
+                        drawSurf ? drawSurf->space : nullptr;
+                    const idRenderEntityLocal* mergedEntity =
+                        mergedSpace ? mergedSpace->entityDef : nullptr;
+                    const idRenderModel* mergedModel =
+                        (mergedEntity && mergedEntity->parms.hModel)
+                            ? mergedEntity->parms.hModel : nullptr;
+                    const modelSurface_t* mergedModelSurface = nullptr;
+                    if (mergedModel && drawSurf->modelSurfaceIndex >= 0 &&
+                        drawSurf->modelSurfaceIndex < mergedModel->NumSurfaces())
+                    {
+                        mergedModelSurface = mergedModel->Surface(
+                            drawSurf->modelSurfaceIndex);
+                    }
+                    const RtPtFeedClass feedClass = ClassifyEntityFeedSurface(
+                        mergedEntity, mergedModel, mergedModelSurface);
+                    const uintptr_t triAddr = reinterpret_cast<uintptr_t>(tri);
+                    uint64 mergedKey = 14695981039346656037ull;
+                    mergedKey ^= static_cast<uint64>(
+                        (mergedEntity ? mergedEntity->index : -1) + 1);
+                    mergedKey *= 1099511628211ull;
+                    mergedKey ^= static_cast<uint64>(
+                        (drawSurf ? drawSurf->modelSurfaceIndex : -1) + 1);
+                    mergedKey *= 1099511628211ull;
+                    mergedKey ^= static_cast<uint64>(materialId);
+                    mergedKey *= 1099511628211ull;
+                    mergedKey ^= static_cast<uint64>(triAddr);
+                    mergedKey *= 1099511628211ull;
+                    mergedKey ^= 0x4d4552474544ull;
+                    mergedKey |= (2ull << 62);
+                    harvestSurface->mergedRangeId = mergedKey == 0 ? 1 : mergedKey;
+                    harvestSurface->feedClass = static_cast<uint32_t>(feedClass);
+                    harvestSurface->particle = surfaceClass ==
+                        RtSmokeSurfaceClass::ParticleAlpha;
+                    harvestSurface->trueDeform =
+                        feedClass == RtPtFeedClass::TrueDeform;
+                    if (surfaceClass == RtSmokeSurfaceClass::RigidEntity &&
+                        geometryUniverse)
+                    {
+                        const PtRenderDefKey renderDefKey =
+                            PtGeometryLifecycle::MakeEntityKey(mergedEntity);
+                        const uint32_t modelEpoch =
+                            (renderDefKey.world && renderDefKey.index >= 0)
+                                ? PtGeometryLifecycle::EntityModelEpoch(
+                                    renderDefKey.world, renderDefKey.index)
+                                : 0;
+                        RtPathTraceMeshKey meshKey;
+                        FillPathTraceRigidRouteMeshKey(meshKey, tri, materialId,
+                            materialClassSignature,
+                            SmokeSurfaceClassId(surfaceClass));
+                        const RtPathTraceRigidInstanceSnapshot companionSnap =
+                            BuildAndRecordPathTraceMergedCompanionObservation(
+                                geometryUniverse, meshKey, mergedModel, tri,
+                                renderDefKey, modelEpoch,
+                                mergedEntity ? mergedEntity->index : -1,
+                                mergedEntity ? mergedEntity->parms.entityNum : -1,
+                                drawSurf ? drawSurf->modelSurfaceIndex : -1,
+                                sourceFlags);
+                        harvestSurface->mergedCompanionRigidId =
+                            companionSnap.instanceId;
+                    }
+                    serialCaptureDecision.decisionPresence |=
+                        RT_PT_CAPTURE_DECISION_MERGED_WALK;
+                    serialCaptureDecision.mergedWalkRecordPresent = true;
+                    harvestSurface->decision = serialCaptureDecision;
+                }
+                RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::Accepted);
+                continue;
+            }
             }
 
             const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
@@ -1453,6 +2140,23 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             const int bucketVertexStart = static_cast<int>(bucketVertices.size());
             const int bucketIndexStart = static_cast<int>(bucketIndexes.size());
             const int bucketTriangleStart = static_cast<int>(bucketClasses.size());
+            serialCaptureDecision.decisionPresence |=
+                RT_PT_CAPTURE_DECISION_APPEND;
+            serialCaptureDecision.appendAttempted = true;
+            serialCaptureDecision.bucketIndex = bucketIndex;
+            serialCaptureDecision.preAppendVertexOffset =
+                static_cast<std::uint32_t>(Max(0, bucketVertexStart));
+            serialCaptureDecision.preAppendIndexOffset =
+                static_cast<std::uint32_t>(Max(0, bucketIndexStart));
+            serialCaptureDecision.preAppendTriangleOffset =
+                static_cast<std::uint32_t>(Max(0, bucketTriangleStart));
+            const int attributeClassIndex = idMath::ClampInt(
+                0, RT_SMOKE_CLASS_COUNT - 1,
+                static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
+            const RtSmokeAttributeClassStats committedAttributeBefore =
+                attributeStats.classes[attributeClassIndex];
+            const int committedInvalidIndexBefore = skipStats.invalidIndexCount;
+            const int committedZeroAreaBefore = skipStats.zeroAreaOnly;
             const int appendStartMs = Sys_Milliseconds();
             const uint64 appendStartUs = Sys_Microseconds();
             const int emittedIndexes = AppendSmokeSurfaceGeometry(
@@ -1475,6 +2179,66 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 Sys_Microseconds() - appendStartUs;
             captureTiming.dynamicAppendMs += appendMs;
             captureTiming.appendMs += appendMs;
+            NotePathTraceCaptureSerialAppend(
+                static_cast<std::uint32_t>(surfaceIndex),
+                skipStats.invalidIndexCount - committedInvalidIndexBefore,
+                skipStats.zeroAreaOnly - committedZeroAreaBefore,
+                emittedIndexes > 0
+                    ? static_cast<std::uint32_t>(emittedIndexes) : 0u);
+            serialCaptureDecision.invalidIndexCount =
+                skipStats.invalidIndexCount - committedInvalidIndexBefore;
+            serialCaptureDecision.zeroAreaTriangleCount =
+                skipStats.zeroAreaOnly - committedZeroAreaBefore;
+            serialCaptureDecision.indexCount = emittedIndexes > 0
+                ? static_cast<std::uint32_t>(emittedIndexes) : 0u;
+            serialCaptureDecision.triangleCount =
+                serialCaptureDecision.indexCount / 3;
+            if (viewDef->pathTraceCommittedGeometryProduct)
+            {
+                const RtSmokeAttributeClassStats& committedAttributeAfter =
+                    attributeStats.classes[attributeClassIndex];
+                RtPathTraceCommittedGeometryCounters committedCounters;
+                committedCounters.invalidNormalVerts =
+                    committedAttributeAfter.invalidNormalVerts -
+                    committedAttributeBefore.invalidNormalVerts;
+                committedCounters.invalidUvVerts =
+                    committedAttributeAfter.invalidUvVerts -
+                    committedAttributeBefore.invalidUvVerts;
+                committedCounters.invalidNormalTriangles =
+                    committedAttributeAfter.invalidNormalTriangles -
+                    committedAttributeBefore.invalidNormalTriangles;
+                committedCounters.invalidUvTriangles =
+                    committedAttributeAfter.invalidUvTriangles -
+                    committedAttributeBefore.invalidUvTriangles;
+                committedCounters.forcedGeometricNormalTriangles =
+                    committedAttributeAfter.forcedGeometricNormalTriangles -
+                    committedAttributeBefore.forcedGeometricNormalTriangles;
+                committedCounters.invalidIndexCount =
+                    skipStats.invalidIndexCount - committedInvalidIndexBefore;
+                committedCounters.zeroAreaOnly =
+                    skipStats.zeroAreaOnly - committedZeroAreaBefore;
+                const std::uint32_t serialVertexCount =
+                    static_cast<std::uint32_t>(
+                        bucketVertices.size() - bucketVertexStart);
+                const std::uint32_t serialIndexCount =
+                    static_cast<std::uint32_t>(
+                        bucketIndexes.size() - bucketIndexStart);
+                ComparePathTraceCommittedDynamicGeometry(
+                    viewDef,
+                    surfaceIndex,
+                    drawSurf,
+                    tri,
+                    serialVertexCount > 0
+                        ? bucketVertices.data() + bucketVertexStart
+                        : nullptr,
+                    serialVertexCount,
+                    serialIndexCount > 0
+                        ? bucketIndexes.data() + bucketIndexStart
+                        : nullptr,
+                    serialIndexCount,
+                    static_cast<std::uint32_t>(bucketVertexStart),
+                    committedCounters);
+            }
             if (usesRtCpuSkinning)
             {
                 captureTiming.rtCpuSkinningAppendMs += appendMs;
@@ -1482,7 +2246,44 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             }
             if (emittedIndexes <= 0)
             {
+                serialCaptureDecision.rollbackApplied = true;
+                RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::AppendEmpty);
                 continue;
+            }
+            {
+                OPTICK_EVENT("PT Dynamic Post Append Publish");
+            if (rigidCaptureWalked &&
+                surfaceClass == RtSmokeSurfaceClass::RigidEntity &&
+                geometryUniverse)
+            {
+                const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
+                const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
+                const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+                const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
+                const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
+                const uint32_t modelEpoch = (renderDefKey.world && renderDefKey.index >= 0)
+                    ? PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index)
+                    : 0;
+                RtPathTraceMeshKey meshKey;
+                FillPathTraceRigidRouteMeshKey(
+                    meshKey, tri, materialId, materialClassSignature, SmokeSurfaceClassId(surfaceClass));
+                const RtPathTraceRigidInstanceSnapshot walkedSnap =
+                    BuildAndRecordPathTraceCaptureWalkObservation(
+                        geometryUniverse, meshKey, renderModel, tri,
+                        renderDefKey, modelEpoch,
+                        entity ? entity->index : -1,
+                        renderEntity ? renderEntity->entityNum : -1,
+                        drawSurf ? drawSurf->modelSurfaceIndex : -1,
+                        sourceFlags);
+                if (walkedSnap.instanceId != 0)
+                {
+                    rigidCaptureWalked->push_back(walkedSnap.instanceId);
+                    if (rigidCaptureWalkedTriangles)
+                    {
+                        rigidCaptureWalkedTriangles->push_back(
+                            static_cast<uint32_t>(emittedIndexes / 3));
+                    }
+                }
             }
             const int emittedVertices =
                 static_cast<int>(bucketVertices.size()) -
@@ -1502,11 +2303,42 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 bucketIndexes.resize(bucketIndexStart);
                 bucketClasses.resize(bucketTriangleStart);
                 bucketMaterials.resize(bucketTriangleStart);
+                NotePathTraceCaptureSerialAppend(
+                    static_cast<std::uint32_t>(surfaceIndex),
+                    skipStats.invalidIndexCount - committedInvalidIndexBefore,
+                    skipStats.zeroAreaOnly - committedZeroAreaBefore,
+                    0u);
+                serialCaptureDecision.rollbackApplied = true;
+                RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::AdmissionRollbackPostAppend);
                 continue;
             }
             dynamicAdmissionBytes = actualAdmissionPlan.totalBytes;
             dynamicAdmissionSurfaces =
                 actualAdmissionPlan.totalSurfaces;
+            serialCaptureDecision.vertexOffset =
+                static_cast<std::uint32_t>(Max(0, bucketVertexStart));
+            serialCaptureDecision.vertexCount =
+                static_cast<std::uint32_t>(Max(0, emittedVertices));
+            serialCaptureDecision.indexOffset =
+                static_cast<std::uint32_t>(Max(0, bucketIndexStart));
+            serialCaptureDecision.indexCount =
+                static_cast<std::uint32_t>(Max(0, emittedIndexes));
+            serialCaptureDecision.triangleOffset =
+                static_cast<std::uint32_t>(Max(0, bucketTriangleStart));
+            serialCaptureDecision.triangleCount =
+                static_cast<std::uint32_t>(Max(0, emittedIndexes / 3));
+            serialCaptureDecision.decisionPresence |=
+                RT_PT_CAPTURE_DECISION_CAPTURED_RECORD |
+                RT_PT_CAPTURE_DECISION_BUCKET_PUBLICATION;
+            serialCaptureDecision.capturedRecordPresent =
+                capturedSurfaceRecords != nullptr;
+            serialCaptureDecision.capturedRecordVertexCount =
+                serialCaptureDecision.vertexCount;
+            serialCaptureDecision.capturedRecordIndexCount =
+                serialCaptureDecision.indexCount;
+            serialCaptureDecision.capturedRecordTriangleCount =
+                serialCaptureDecision.triangleCount;
+            serialCaptureDecision.bucketRangePublished = true;
             const int entityIndex = (drawSurf->space && drawSurf->space->entityDef) ? drawSurf->space->entityDef->index : -1;
             const uint32_t dynamicInstanceId = static_cast<uint32_t>(Max(1, entityIndex + 1));
             const int emittedTriangles = emittedIndexes / 3;
@@ -1531,6 +2363,16 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                     static_cast<int>(bucketVertices.size()) - bucketVertexStart,
                     emittedIndexes,
                     emittedIndexes / 3);
+                serialCaptureDecision.decisionPresence |=
+                    RT_PT_CAPTURE_DECISION_SKINNED_RECORD;
+                serialCaptureDecision.skinnedRecordPresent =
+                    skinnedSurfaceRecords != nullptr;
+                serialCaptureDecision.skinnedRecordVertexCount =
+                    serialCaptureDecision.vertexCount;
+                serialCaptureDecision.skinnedRecordIndexCount =
+                    serialCaptureDecision.indexCount;
+                serialCaptureDecision.skinnedRecordTriangleCount =
+                    serialCaptureDecision.triangleCount;
             }
             AddSmokeCapturedSurfaceRecord(
                 capturedSurfaceRecords,
@@ -1546,6 +2388,105 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                     bucketVertexStart,
                 emittedIndexes,
                 emittedIndexes / 3);
+            if (mergedWalkedRanges && bucketIndex >= 1)
+            {
+                const viewEntity_t* mergedSpace = drawSurf ? drawSurf->space : nullptr;
+                const idRenderEntityLocal* mergedEntity =
+                    mergedSpace ? mergedSpace->entityDef : nullptr;
+                const idRenderModel* mergedModel =
+                    (mergedEntity && mergedEntity->parms.hModel)
+                        ? mergedEntity->parms.hModel
+                        : nullptr;
+                const modelSurface_t* mergedModelSurface = nullptr;
+                if (mergedModel &&
+                    drawSurf &&
+                    drawSurf->modelSurfaceIndex >= 0 &&
+                    drawSurf->modelSurfaceIndex < mergedModel->NumSurfaces())
+                {
+                    mergedModelSurface = mergedModel->Surface(drawSurf->modelSurfaceIndex);
+                }
+                const RtPtFeedClass feedClass =
+                    ClassifyEntityFeedSurface(mergedEntity, mergedModel, mergedModelSurface);
+                uint64 mergedKey = 14695981039346656037ull;
+                const int entityIndex = mergedEntity ? mergedEntity->index : -1;
+                const int modelSurfaceIndex = drawSurf ? drawSurf->modelSurfaceIndex : -1;
+                const uintptr_t triAddr = reinterpret_cast<uintptr_t>(tri);
+                mergedKey ^= static_cast<uint64>(entityIndex + 1) + 0x9e3779b97f4a7c15ull;
+                mergedKey *= 1099511628211ull;
+                mergedKey ^= static_cast<uint64>(modelSurfaceIndex + 1);
+                mergedKey *= 1099511628211ull;
+                mergedKey ^= static_cast<uint64>(materialId);
+                mergedKey *= 1099511628211ull;
+                mergedKey ^= static_cast<uint64>(triAddr);
+                mergedKey *= 1099511628211ull;
+                mergedKey ^= 0x4d4552474544ull;
+                mergedKey |= (2ull << 62);
+                if (mergedKey == 0)
+                {
+                    mergedKey = 1;
+                }
+                RtSmokeMergedWalkedRange walked;
+                walked.id = mergedKey;
+                walked.bucketIndex = bucketIndex;
+                walked.vertexBegin = bucketVertexStart;
+                walked.vertexCount =
+                    static_cast<int>(bucketVertices.size()) - bucketVertexStart;
+                walked.indexBegin = bucketIndexStart;
+                walked.indexCount = emittedIndexes;
+                walked.triangleBegin = bucketTriangleStart;
+                walked.triangleCount = emittedIndexes / 3;
+                walked.surfaceClassId = surfaceClassId;
+                walked.feedClass = static_cast<uint32_t>(feedClass);
+                walked.materialId = materialId;
+                walked.particle = (surfaceClass == RtSmokeSurfaceClass::ParticleAlpha);
+                walked.trueDeform = (feedClass == RtPtFeedClass::TrueDeform);
+                if (surfaceClass == RtSmokeSurfaceClass::RigidEntity &&
+                    geometryUniverse)
+                {
+                    const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
+                    const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
+                    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+                    const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
+                    const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
+                    const uint32_t modelEpoch = (renderDefKey.world && renderDefKey.index >= 0)
+                        ? PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index)
+                        : 0;
+                    RtPathTraceMeshKey meshKey;
+                    FillPathTraceRigidRouteMeshKey(
+                        meshKey, tri, materialId, materialClassSignature, SmokeSurfaceClassId(surfaceClass));
+                    const RtPathTraceRigidInstanceSnapshot companionSnap =
+                        BuildAndRecordPathTraceMergedCompanionObservation(
+                            geometryUniverse, meshKey, renderModel, tri,
+                            renderDefKey, modelEpoch,
+                            entity ? entity->index : -1,
+                            renderEntity ? renderEntity->entityNum : -1,
+                            drawSurf ? drawSurf->modelSurfaceIndex : -1,
+                            sourceFlags);
+                    walked.companionRigidId = companionSnap.instanceId;
+                }
+                if (surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed &&
+                    skinnedSurfaceRecords &&
+                    !skinnedSurfaceRecords->empty())
+                {
+                    const RtSmokeSkinnedSurfaceRecord& rec = skinnedSurfaceRecords->back();
+                    walked.companionSkinnedId =
+                        PtHashCanonicalInstanceKey(rec.canonicalInstance) | (1ull << 63);
+                }
+                serialCaptureDecision.decisionPresence |=
+                    RT_PT_CAPTURE_DECISION_MERGED_WALK;
+                serialCaptureDecision.mergedWalkRecordPresent = true;
+                serialCaptureDecision.mergedWalkVertexCount =
+                    static_cast<std::uint32_t>(Max(0, walked.vertexCount));
+                serialCaptureDecision.mergedWalkIndexCount =
+                    static_cast<std::uint32_t>(Max(0, walked.indexCount));
+                serialCaptureDecision.mergedWalkTriangleCount =
+                    static_cast<std::uint32_t>(Max(0, walked.triangleCount));
+                serialCaptureDecision.mergedCompanionRigidId =
+                    walked.companionRigidId;
+                serialCaptureDecision.mergedCompanionSkinnedId =
+                    walked.companionSkinnedId;
+                mergedWalkedRanges->push_back(walked);
+            }
 
             AddMirrorMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
             AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, drawSurf, emittedIndexes, materialId);
@@ -1555,7 +2496,66 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             AddMirrorSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
             AddMirrorDynamicGeometryStats(dynamicStats, surfaceClass, drawSurf, tri, emittedIndexes);
             ++bucketRanges.buckets[bucketIndex].surfaceCount;
+            RT_SMOKE_R1_FINALIZE(RtSmokeR1Terminal::Accepted);
+            }
         }
+    }
+    if (ownerHarvest)
+    {
+        RtPathTraceCaptureMembershipReceipt receipt;
+        bool complete = true;
+        for (const RtPathTraceOwnerHarvestSurface& surface :
+            ownerHarvest->surfaces)
+        {
+            complete = complete && surface.finalized;
+            AppendPathTraceCaptureMembershipReceipt(
+                receipt, surface.decision);
+        }
+        receipt.complete = complete;
+        ownerHarvest->membershipReceipt = receipt;
+        ownerHarvest->complete = complete;
+        ownerHarvest->harvestUs = Sys_Microseconds() - ownerHarvestStartUs;
+        return complete;
+    }
+    if (compareMaterialClassifyParity)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: materialClassifySameFrame mapped=%llu routeCompared=%llu routeMismatch=%llu particle=%llu particleMismatch=%llu mappingMismatch=%llu classifierMismatch=%llu surfaceClass=%llu subtype=%llu emissive=%llu signature=%llu samples=%d,%d,%d,%d\n",
+            static_cast<unsigned long long>(materialClassifyParity.mapped),
+            static_cast<unsigned long long>(materialClassifyParity.compared),
+            static_cast<unsigned long long>(materialClassifyParity.mismatched),
+            static_cast<unsigned long long>(materialClassifyParity.particles),
+            static_cast<unsigned long long>(materialClassifyParity.particleMismatches),
+            static_cast<unsigned long long>(materialClassifyParity.mappingMismatches),
+            static_cast<unsigned long long>(materialClassifyParity.classifierMismatches),
+            static_cast<unsigned long long>(materialClassifyParity.surfaceClassMismatches),
+            static_cast<unsigned long long>(materialClassifyParity.subtypeMismatches),
+            static_cast<unsigned long long>(materialClassifyParity.emissiveMismatches),
+            static_cast<unsigned long long>(materialClassifyParity.signatureMismatches),
+            materialClassifyParity.mismatchOrdinals[0],
+            materialClassifyParity.mismatchOrdinals[1],
+            materialClassifyParity.mismatchOrdinals[2],
+            materialClassifyParity.mismatchOrdinals[3]);
+    }
+
+#undef RT_SMOKE_R1_FINALIZE
+
+    if (r1Audit)
+    {
+        char r1Line[RT_SMOKE_R1_OUTPUT_CAP];
+        r1Line[0] = '\0';
+        const uint64_t auditPreLogUs =
+            Sys_Microseconds() - r1Audit->startUs;
+        RtSmokeR1FormatLine(
+            *r1Audit,
+            auditPreLogUs,
+            r1Line,
+            sizeof(r1Line));
+        common->Printf("%s", r1Line);
+#if USE_OPTICK
+        r1Scope->~Event();
+#endif
+        r1Audit->~RtSmokeR1Audit();
     }
 
     const int bucketMergeStartMs = Sys_Milliseconds();
@@ -1576,6 +2576,19 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             range.indexCount = static_cast<int>(bucketIndexData[bucketIndex].size());
             range.triangleCount = static_cast<int>(bucketTriangleClassData[bucketIndex].size());
             FinalizeSmokeSkinnedSurfaceRecordOffsets(skinnedSurfaceRecords, bucketIndex, range);
+            if (mergedWalkedRanges)
+            {
+                for (RtSmokeMergedWalkedRange& walked : *mergedWalkedRanges)
+                {
+                    if (walked.bucketIndex != bucketIndex)
+                    {
+                        continue;
+                    }
+                    walked.vertexBegin += range.vertexOffset;
+                    walked.indexBegin += range.indexOffset;
+                    walked.triangleBegin += range.triangleOffset;
+                }
+            }
             FinalizeSmokeCapturedSurfaceRecordOffsets(capturedSurfaceRecords, bucketIndex, range);
 
             const uint32_t vertexOffset = static_cast<uint32_t>(range.vertexOffset);
@@ -1636,5 +2649,553 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     }
 
     const bool hasDynamicGeometry = !vertexData.empty() && !indexData.empty() && !triangleClassData.empty() && !triangleMaterialData.empty();
+    FinalizePathTraceCommittedCaptureTelemetry(viewDef);
     return sourceSurfaces > 0 && hasDynamicGeometry;
+}
+
+bool CopyPathTraceOwnerHarvestDecisionsToSnapshot(
+    const RtPathTraceOwnerHarvest& harvest,
+    RtPathTraceCaptureOwnerSnapshot& snapshot)
+{
+    if (!harvest.complete || harvest.surfaces.size() != snapshot.surfaces.size() ||
+        harvest.surfaces.size() > snapshot.ownerDecisions.capacity())
+    {
+        return false;
+    }
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+    try
+    {
+#endif
+        snapshot.ownerDecisions.resize(harvest.surfaces.size());
+        for (std::size_t index = 0; index < harvest.surfaces.size(); ++index)
+        {
+            const RtPathTraceOwnerHarvestSurface& surface =
+                harvest.surfaces[index];
+            if (!surface.finalized || surface.decision.ordinal != index)
+            {
+                snapshot.ownerDecisions.clear();
+                return false;
+            }
+            snapshot.ownerDecisions[index] = surface.decision;
+        }
+        return AttachPathTraceOwnerDecisionTable(snapshot,
+            snapshot.ownerDecisions.data(), snapshot.ownerDecisions.size(),
+            harvest.membershipReceipt);
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+    }
+    catch (const std::bad_alloc&)
+    {
+        snapshot.ownerDecisions.clear();
+        return false;
+    }
+    catch (const std::length_error&)
+    {
+        snapshot.ownerDecisions.clear();
+        return false;
+    }
+#endif
+}
+
+bool AppendPathTraceOwnerHarvestGeometry(
+    const RtPathTraceOwnerHarvest& harvest,
+    std::vector<PathTraceSmokeVertex>& vertexData,
+    std::vector<uint32_t>& indexData,
+    std::vector<uint32_t>& triangleClassData,
+    std::vector<uint32_t>& triangleMaterialData,
+    std::vector<uint32_t>* triangleInstanceData,
+    std::vector<uint32_t>* triangleIdentityData,
+    int& sourceSurfaces,
+    int& sourceVerts,
+    int& sourceIndexes,
+    RtSmokeSurfaceClassStats& classStats,
+    RtSmokeSurfaceSkipStats& skipStats,
+    RtSmokeDynamicGeometryStats& dynamicStats,
+    RtSmokeAttributeStats& attributeStats,
+    RtSmokeMaterialStats& materialStats,
+    RtSmokeBucketRanges& bucketRanges,
+    RtSmokeSceneCaptureTiming& captureTiming,
+    std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords,
+    std::vector<RtSmokeCapturedSurfaceRecord>* capturedSurfaceRecords,
+    std::vector<uint64_t>* rigidCaptureWalked,
+    std::vector<uint32_t>* rigidCaptureWalkedTriangles,
+    std::vector<RtSmokeMergedWalkedRange>* mergedWalkedRanges)
+{
+    OPTICK_EVENT("PT Owner Harvest Geometry Append");
+    if (!harvest.complete)
+    {
+        return false;
+    }
+    vertexData.clear();
+    indexData.clear();
+    triangleClassData.clear();
+    triangleMaterialData.clear();
+    if (triangleInstanceData) triangleInstanceData->clear();
+    if (triangleIdentityData) triangleIdentityData->clear();
+
+    std::vector<PathTraceSmokeVertex> bucketVertices[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketIndexes[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketClasses[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketMaterials[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketInstances[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketIdentities[RT_SMOKE_CLASS_COUNT];
+    const RtSmokeGeometryAdmissionBudget admissionBudget =
+        BuildSmokeDynamicGeometryAdmissionBudget();
+    uint64 admissionBytes = 0;
+    uint64 admissionSurfaces = 0;
+
+    for (const RtPathTraceOwnerHarvestSurface& harvested : harvest.surfaces)
+    {
+        if (!harvested.finalized || !harvested.appendEligible ||
+            !harvested.drawSurf || !harvested.tri)
+        {
+            continue;
+        }
+        const drawSurf_t* drawSurf = harvested.drawSurf;
+        const srfTriangles_t* tri = harvested.tri;
+        const RtPathTraceCaptureSurfaceProduct& decision = harvested.decision;
+        RtPathTraceCaptureSurfaceProduct appliedDecision = decision;
+        const int bucketIndex = idMath::ClampInt(0,
+            RT_SMOKE_CLASS_COUNT - 1, decision.bucketIndex);
+        const int vertexStart = static_cast<int>(bucketVertices[bucketIndex].size());
+        const int indexStart = static_cast<int>(bucketIndexes[bucketIndex].size());
+        const int triangleStart = static_cast<int>(bucketClasses[bucketIndex].size());
+        const int invalidIndexBefore = skipStats.invalidIndexCount;
+        const int zeroAreaBefore = skipStats.zeroAreaOnly;
+        const int appendStartMs = Sys_Milliseconds();
+        const uint64 appendStartUs = Sys_Microseconds();
+        const int emittedIndexes = AppendSmokeSurfaceGeometry(
+            drawSurf, tri, decision.surfaceClassId, decision.materialId,
+            RT_SMOKE_CLASS_COUNT, RT_SMOKE_TRIANGLE_CLASS_MASK,
+            static_cast<uint32_t>(RtSmokeSurfaceClass::ParticleAlpha),
+            RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL,
+            bucketVertices[bucketIndex], bucketIndexes[bucketIndex],
+            bucketClasses[bucketIndex], bucketMaterials[bucketIndex],
+            skipStats, attributeStats);
+        const int appendMs = Sys_Milliseconds() - appendStartMs;
+        captureTiming.dynamicAppendMs += appendMs;
+        captureTiming.appendMs += appendMs;
+        if (GetSmokeRtCpuSkinningJoints(tri) != nullptr)
+        {
+            captureTiming.rtCpuSkinningAppendMs += appendMs;
+            captureTiming.rtCpuSkinningAppendUs +=
+                Sys_Microseconds() - appendStartUs;
+        }
+        if (emittedIndexes <= 0)
+        {
+            appliedDecision.terminal = RtPathTraceCaptureTerminal::RolledBack;
+            appliedDecision.vertexCount = 0;
+            appliedDecision.indexCount = 0;
+            appliedDecision.triangleCount = 0;
+            appliedDecision.invalidIndexCount =
+                skipStats.invalidIndexCount - invalidIndexBefore;
+            appliedDecision.zeroAreaTriangleCount =
+                skipStats.zeroAreaOnly - zeroAreaBefore;
+            appliedDecision.rollbackApplied = true;
+            appliedDecision.capturedRecordPresent = false;
+            appliedDecision.skinnedRecordPresent = false;
+            appliedDecision.mergedWalkRecordPresent = false;
+            appliedDecision.bucketRangePublished = false;
+            FinalizePathTraceCaptureSurfaceDecision(appliedDecision);
+            NotePathTraceCaptureSerialDecision(appliedDecision.ordinal,
+                appliedDecision, appliedDecision.decisionPresence);
+            continue;
+        }
+        const int emittedVertices = static_cast<int>(
+            bucketVertices[bucketIndex].size()) - vertexStart;
+        const RtSmokeGeometryAdmissionPlan actualAdmission =
+            PlanSmokeDynamicGeometryAdmission(admissionBudget,
+                admissionBytes, admissionSurfaces,
+                emittedVertices, emittedIndexes);
+        if (!actualAdmission.Admitted())
+        {
+            RecordSmokeGeometryAdmissionRejection(skipStats, actualAdmission);
+            bucketVertices[bucketIndex].resize(vertexStart);
+            bucketIndexes[bucketIndex].resize(indexStart);
+            bucketClasses[bucketIndex].resize(triangleStart);
+            bucketMaterials[bucketIndex].resize(triangleStart);
+            appliedDecision.terminal = RtPathTraceCaptureTerminal::RolledBack;
+            appliedDecision.vertexCount = 0;
+            appliedDecision.indexCount = 0;
+            appliedDecision.triangleCount = 0;
+            appliedDecision.invalidIndexCount =
+                skipStats.invalidIndexCount - invalidIndexBefore;
+            appliedDecision.zeroAreaTriangleCount =
+                skipStats.zeroAreaOnly - zeroAreaBefore;
+            appliedDecision.rollbackApplied = true;
+            appliedDecision.capturedRecordPresent = false;
+            appliedDecision.skinnedRecordPresent = false;
+            appliedDecision.mergedWalkRecordPresent = false;
+            appliedDecision.bucketRangePublished = false;
+            FinalizePathTraceCaptureSurfaceDecision(appliedDecision);
+            NotePathTraceCaptureSerialDecision(appliedDecision.ordinal,
+                appliedDecision, appliedDecision.decisionPresence);
+            continue;
+        }
+        admissionBytes = actualAdmission.totalBytes;
+        admissionSurfaces = actualAdmission.totalSurfaces;
+        const int entityIndex = drawSurf->space && drawSurf->space->entityDef
+            ? drawSurf->space->entityDef->index : -1;
+        const uint32_t dynamicInstanceId = static_cast<uint32_t>(
+            Max(1, entityIndex + 1));
+        const int emittedTriangles = emittedIndexes / 3;
+        appliedDecision.terminal = RtPathTraceCaptureTerminal::Accepted;
+        appliedDecision.vertexOffset = static_cast<std::uint32_t>(vertexStart);
+        appliedDecision.vertexCount = static_cast<std::uint32_t>(emittedVertices);
+        appliedDecision.indexOffset = static_cast<std::uint32_t>(indexStart);
+        appliedDecision.indexCount = static_cast<std::uint32_t>(emittedIndexes);
+        appliedDecision.triangleOffset = static_cast<std::uint32_t>(triangleStart);
+        appliedDecision.triangleCount = static_cast<std::uint32_t>(emittedTriangles);
+        appliedDecision.invalidIndexCount =
+            skipStats.invalidIndexCount - invalidIndexBefore;
+        appliedDecision.zeroAreaTriangleCount =
+            skipStats.zeroAreaOnly - zeroAreaBefore;
+        appliedDecision.rollbackApplied = false;
+        appliedDecision.capturedRecordPresent = capturedSurfaceRecords != nullptr;
+        appliedDecision.capturedRecordVertexCount = appliedDecision.vertexCount;
+        appliedDecision.capturedRecordIndexCount = appliedDecision.indexCount;
+        appliedDecision.capturedRecordTriangleCount = appliedDecision.triangleCount;
+        appliedDecision.bucketRangePublished = true;
+        bucketInstances[bucketIndex].insert(
+            bucketInstances[bucketIndex].end(), emittedTriangles,
+            dynamicInstanceId);
+        for (int triangle = 0; triangle < emittedTriangles; ++triangle)
+        {
+            bucketIdentities[bucketIndex].push_back(
+                PtDynamicTriangleIdentitySeed(drawSurf, tri,
+                    harvested.baseMaterialId,
+                    static_cast<uint32_t>(triangle)));
+        }
+        if (decision.surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed)
+        {
+            AddSmokeSkinnedSurfaceRecord(skinnedSurfaceRecords, drawSurf, tri,
+                decision.surfaceClassId, decision.materialId,
+                static_cast<int>(decision.ordinal), bucketIndex,
+                vertexStart, indexStart, triangleStart,
+                emittedVertices, emittedIndexes, emittedTriangles);
+            appliedDecision.skinnedRecordPresent =
+                skinnedSurfaceRecords != nullptr;
+            appliedDecision.skinnedRecordVertexCount =
+                appliedDecision.vertexCount;
+            appliedDecision.skinnedRecordIndexCount =
+                appliedDecision.indexCount;
+            appliedDecision.skinnedRecordTriangleCount =
+                appliedDecision.triangleCount;
+        }
+        AddSmokeCapturedSurfaceRecord(capturedSurfaceRecords, drawSurf,
+            decision.surfaceClassId, decision.materialId,
+            static_cast<int>(decision.ordinal), bucketIndex,
+            vertexStart, indexStart, triangleStart,
+            emittedVertices, emittedIndexes, emittedTriangles);
+        if (rigidCaptureWalked && harvested.rigidWalkInstanceId != 0)
+        {
+            rigidCaptureWalked->push_back(harvested.rigidWalkInstanceId);
+            if (rigidCaptureWalkedTriangles)
+            {
+                rigidCaptureWalkedTriangles->push_back(
+                    static_cast<uint32_t>(emittedTriangles));
+            }
+        }
+        if (mergedWalkedRanges && harvested.mergedRangeId != 0)
+        {
+            RtSmokeMergedWalkedRange walked;
+            walked.id = harvested.mergedRangeId;
+            walked.bucketIndex = bucketIndex;
+            walked.vertexBegin = vertexStart;
+            walked.vertexCount = emittedVertices;
+            walked.indexBegin = indexStart;
+            walked.indexCount = emittedIndexes;
+            walked.triangleBegin = triangleStart;
+            walked.triangleCount = emittedTriangles;
+            walked.surfaceClassId = decision.surfaceClassId;
+            walked.feedClass = harvested.feedClass;
+            walked.materialId = decision.materialId;
+            walked.particle = harvested.particle;
+            walked.trueDeform = harvested.trueDeform;
+            walked.companionRigidId = harvested.mergedCompanionRigidId;
+            if (decision.surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed &&
+                skinnedSurfaceRecords && !skinnedSurfaceRecords->empty())
+            {
+                walked.companionSkinnedId = PtHashCanonicalInstanceKey(
+                    skinnedSurfaceRecords->back().canonicalInstance) |
+                    (1ull << 63);
+            }
+            mergedWalkedRanges->push_back(walked);
+            appliedDecision.mergedWalkRecordPresent = true;
+            appliedDecision.mergedWalkVertexCount = appliedDecision.vertexCount;
+            appliedDecision.mergedWalkIndexCount = appliedDecision.indexCount;
+            appliedDecision.mergedWalkTriangleCount =
+                appliedDecision.triangleCount;
+        }
+        FinalizePathTraceCaptureSurfaceDecision(appliedDecision);
+        NotePathTraceCaptureSerialDecision(appliedDecision.ordinal,
+            appliedDecision, appliedDecision.decisionPresence);
+        AddMirrorMaterialStats(materialStats, drawSurf->material,
+            emittedIndexes, decision.surfaceClass,
+            decision.translucentSubtype);
+        AddSmokeDynamicMaterialEvalStatsForMaterialId(
+            materialStats, drawSurf, emittedIndexes, decision.materialId);
+        ++sourceSurfaces;
+        sourceVerts += tri->numVerts;
+        sourceIndexes += emittedIndexes;
+        AddMirrorSurfaceClassStats(classStats, decision.surfaceClass,
+            tri->numVerts, emittedIndexes);
+        AddMirrorDynamicGeometryStats(dynamicStats, decision.surfaceClass,
+            drawSurf, tri, emittedIndexes);
+        ++bucketRanges.buckets[bucketIndex].surfaceCount;
+        (void)invalidIndexBefore;
+        (void)zeroAreaBefore;
+    }
+
+    const int mergeStartMs = Sys_Milliseconds();
+    for (int bucketIndex = 1; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
+    {
+        RtSmokeBucketRange& range = bucketRanges.buckets[bucketIndex];
+        range.vertexOffset = static_cast<int>(vertexData.size());
+        range.indexOffset = static_cast<int>(indexData.size());
+        range.triangleOffset = static_cast<int>(triangleClassData.size());
+        range.vertexCount = static_cast<int>(bucketVertices[bucketIndex].size());
+        range.indexCount = static_cast<int>(bucketIndexes[bucketIndex].size());
+        range.triangleCount = static_cast<int>(bucketClasses[bucketIndex].size());
+        FinalizeSmokeSkinnedSurfaceRecordOffsets(
+            skinnedSurfaceRecords, bucketIndex, range);
+        FinalizeSmokeCapturedSurfaceRecordOffsets(
+            capturedSurfaceRecords, bucketIndex, range);
+        if (mergedWalkedRanges)
+        {
+            for (RtSmokeMergedWalkedRange& walked : *mergedWalkedRanges)
+            {
+                if (walked.bucketIndex == bucketIndex)
+                {
+                    walked.vertexBegin += range.vertexOffset;
+                    walked.indexBegin += range.indexOffset;
+                    walked.triangleBegin += range.triangleOffset;
+                }
+            }
+        }
+        const uint32_t vertexOffset = static_cast<uint32_t>(range.vertexOffset);
+        vertexData.insert(vertexData.end(), bucketVertices[bucketIndex].begin(),
+            bucketVertices[bucketIndex].end());
+        for (uint32_t localIndex : bucketIndexes[bucketIndex])
+        {
+            indexData.push_back(vertexOffset + localIndex);
+        }
+        triangleClassData.insert(triangleClassData.end(),
+            bucketClasses[bucketIndex].begin(), bucketClasses[bucketIndex].end());
+        triangleMaterialData.insert(triangleMaterialData.end(),
+            bucketMaterials[bucketIndex].begin(), bucketMaterials[bucketIndex].end());
+        if (triangleInstanceData)
+        {
+            triangleInstanceData->insert(triangleInstanceData->end(),
+                bucketInstances[bucketIndex].begin(),
+                bucketInstances[bucketIndex].end());
+        }
+        if (triangleIdentityData)
+        {
+            triangleIdentityData->insert(triangleIdentityData->end(),
+                bucketIdentities[bucketIndex].begin(),
+                bucketIdentities[bucketIndex].end());
+        }
+    }
+    captureTiming.bucketMergeMs += Sys_Milliseconds() - mergeStartMs;
+    skipStats.geometryAdmittedBytes = admissionBytes;
+    skipStats.geometryAdmittedSurfaces = admissionSurfaces;
+    if (triangleClassData.empty() || triangleMaterialData.empty())
+    {
+        ++skipStats.emptyClassBuffer;
+    }
+    return sourceSurfaces > 0 && !vertexData.empty() && !indexData.empty() &&
+        !triangleClassData.empty() && !triangleMaterialData.empty();
+}
+
+bool PathTraceOwnerHarvestProductEligible(
+    const RtPathTraceOwnerHarvest& harvest,
+    const RtPathTraceCaptureProduct& product)
+{
+    if (!harvest.complete || !product.complete ||
+        product.membershipReceipt.cpuSkinnedAcceptedCount != 0 ||
+        !PathTraceCaptureMembershipReceiptsMatch(
+            product.membershipReceipt, harvest.membershipReceipt))
+    {
+        return false;
+    }
+    const RtSmokeGeometryAdmissionBudget admissionBudget =
+        BuildSmokeDynamicGeometryAdmissionBudget();
+    uint64 admissionBytes = 0;
+    uint64 admissionSurfaces = 0;
+    for (const RtPathTraceCaptureSurfaceProduct& decision : product.surfaces)
+    {
+        if (decision.ordinal >= harvest.surfaces.size())
+        {
+            return false;
+        }
+        const RtPathTraceOwnerHarvestSurface& harvested =
+            harvest.surfaces[decision.ordinal];
+        if (!harvested.finalized)
+        {
+            return false;
+        }
+        if (decision.terminal == RtPathTraceCaptureTerminal::Accepted &&
+            (!harvested.drawSurf || !harvested.tri ||
+                decision.indexCount == 0 ||
+                (decision.indexCount % 3u) != 0u ||
+                decision.surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed))
+        {
+            return false;
+        }
+        if (decision.terminal == RtPathTraceCaptureTerminal::Accepted)
+        {
+            const RtSmokeGeometryAdmissionPlan admission =
+                PlanSmokeDynamicGeometryAdmission(admissionBudget,
+                    admissionBytes, admissionSurfaces,
+                    decision.vertexCount, decision.indexCount);
+            if (!admission.Admitted())
+            {
+                return false;
+            }
+            admissionBytes = admission.totalBytes;
+            admissionSurfaces = admission.totalSurfaces;
+        }
+    }
+    return true;
+}
+
+bool FinalizePathTraceOwnerHarvestWithProduct(
+    const RtPathTraceOwnerHarvest& harvest,
+    const RtPathTraceCaptureProduct& product,
+    int& sourceSurfaces,
+    int& sourceVerts,
+    int& sourceIndexes,
+    RtSmokeSurfaceClassStats& classStats,
+    RtSmokeSurfaceSkipStats& skipStats,
+    RtSmokeDynamicGeometryStats& dynamicStats,
+    RtSmokeMaterialStats& materialStats,
+    RtSmokeBucketRanges& bucketRanges,
+    RtSmokeSceneCaptureTiming& captureTiming,
+    std::vector<uint64_t>* rigidCaptureWalked,
+    std::vector<uint32_t>* rigidCaptureWalkedTriangles,
+    std::vector<RtSmokeMergedWalkedRange>* mergedWalkedRanges)
+{
+    OPTICK_EVENT("PT Owner Harvest Product Finalize");
+    if (!PathTraceOwnerHarvestProductEligible(harvest, product))
+    {
+        return false;
+    }
+    const RtSmokeGeometryAdmissionBudget admissionBudget =
+        BuildSmokeDynamicGeometryAdmissionBudget();
+    uint64 admissionBytes = 0;
+    uint64 admissionSurfaces = 0;
+    for (const RtPathTraceCaptureSurfaceProduct& decision : product.surfaces)
+    {
+        if (decision.ordinal >= harvest.surfaces.size())
+        {
+            return false;
+        }
+        const RtPathTraceOwnerHarvestSurface& harvested =
+            harvest.surfaces[decision.ordinal];
+        if (!harvested.finalized ||
+            decision.terminal != RtPathTraceCaptureTerminal::Accepted)
+        {
+            continue;
+        }
+        if (!harvested.drawSurf || !harvested.tri ||
+            decision.indexCount == 0 || (decision.indexCount % 3u) != 0u)
+        {
+            return false;
+        }
+        const int emittedIndexes = static_cast<int>(decision.indexCount);
+        const int emittedVertices = static_cast<int>(decision.vertexCount);
+        const RtSmokeGeometryAdmissionPlan admission =
+            PlanSmokeDynamicGeometryAdmission(admissionBudget,
+                admissionBytes, admissionSurfaces,
+                emittedVertices, emittedIndexes);
+        if (!admission.Admitted())
+        {
+            return false;
+        }
+        admissionBytes = admission.totalBytes;
+        admissionSurfaces = admission.totalSurfaces;
+        skipStats.invalidIndexCount += decision.invalidIndexCount;
+        skipStats.zeroAreaOnly += decision.zeroAreaTriangleCount;
+        AddMirrorMaterialStats(materialStats,
+            harvested.drawSurf->material, emittedIndexes,
+            decision.surfaceClass, decision.translucentSubtype);
+        AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats,
+            harvested.drawSurf, emittedIndexes, decision.materialId);
+        AddMirrorSurfaceClassStats(classStats, decision.surfaceClass,
+            emittedVertices, emittedIndexes);
+        AddMirrorDynamicGeometryStats(dynamicStats, decision.surfaceClass,
+            harvested.drawSurf, harvested.tri, emittedIndexes);
+        const int bucketIndex = idMath::ClampInt(0,
+            RT_SMOKE_CLASS_COUNT - 1, decision.bucketIndex);
+        if (rigidCaptureWalked && harvested.rigidWalkInstanceId != 0)
+        {
+            rigidCaptureWalked->push_back(harvested.rigidWalkInstanceId);
+            if (rigidCaptureWalkedTriangles)
+            {
+                rigidCaptureWalkedTriangles->push_back(
+                    decision.indexCount / 3u);
+            }
+        }
+        if (mergedWalkedRanges && harvested.mergedRangeId != 0)
+        {
+            RtSmokeMergedWalkedRange walked;
+            walked.id = harvested.mergedRangeId;
+            walked.bucketIndex = bucketIndex;
+            walked.vertexBegin = static_cast<int>(decision.vertexOffset);
+            walked.vertexCount = emittedVertices;
+            walked.indexBegin = static_cast<int>(decision.indexOffset);
+            walked.indexCount = emittedIndexes;
+            walked.triangleBegin = static_cast<int>(decision.triangleOffset);
+            walked.triangleCount = emittedIndexes / 3;
+            walked.surfaceClassId = decision.surfaceClassId;
+            walked.feedClass = harvested.feedClass;
+            walked.materialId = decision.materialId;
+            walked.particle = harvested.particle;
+            walked.trueDeform = harvested.trueDeform;
+            walked.companionRigidId = harvested.mergedCompanionRigidId;
+            mergedWalkedRanges->push_back(walked);
+        }
+    }
+    (void)sourceSurfaces;
+    (void)sourceVerts;
+    (void)sourceIndexes;
+    (void)bucketRanges;
+    skipStats.geometryAdmittedBytes = admissionBytes;
+    skipStats.geometryAdmittedSurfaces = admissionSurfaces;
+    captureTiming.bucketMergeMs += 0;
+    return true;
+}
+
+void BuildSmokeSurfaceTextureMatrices(const drawSurf_t* surface, int selectedStage,
+    float primary[6], float normal[6])
+{
+    const float identity[6] = { 1, 0, 0, 0, 1, 0 };
+    std::copy(identity, identity + 6, primary);
+    const idMaterial* material = surface ? surface->material : nullptr;
+    const float* registers = !material ? nullptr :
+        (surface->shaderRegisters ? surface->shaderRegisters : material->ConstantRegisters());
+    BuildRigidNormalTexMatrix(material, registers, normal);
+    if (!material || !registers) return;
+    const shaderStage_t* chosen = selectedStage >= 0 && selectedStage < material->GetNumStages()
+        ? material->GetStage(selectedStage) : nullptr;
+    if (!chosen || !chosen->texture.hasMatrix)
+    {
+        chosen = nullptr;
+        const auto* info = FindSmokeMaterialTextureInfoReadOnly(SmokeMaterialId(material));
+        for (int i = 0; i < material->GetNumStages(); ++i)
+        {
+            const auto* stage = material->GetStage(i);
+            if (!stage) continue;
+            if (stage->lighting == SL_DIFFUSE) { chosen = stage; break; }
+            if (!chosen && stage->lighting == SL_AMBIENT && info &&
+                stage->texture.image == info->diffuseImage) chosen = stage;
+        }
+    }
+    if (!chosen || !chosen->texture.hasMatrix) return;
+    for (int row = 0; row < 2; ++row)
+        for (int column = 0; column < 3; ++column)
+        {
+            const int index = chosen->texture.matrix[row][column];
+            if (index >= 0 && index < material->GetNumRegisters()) primary[row * 3 + column] = registers[index];
+        }
 }

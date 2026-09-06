@@ -880,7 +880,7 @@ void EnsureDoomResidentLightCacheForWorld(const viewDef_t* viewDef)
 
 void DumpDoomResidentLightStatsIfNeeded()
 {
-    if (r_pathTracingResidencyDump.GetInteger() == 0)
+    if (r_pathTracingResidencyDump.GetInteger() != 1)
     {
         return;
     }
@@ -1118,23 +1118,20 @@ std::vector<DoomLightRecord> CollectDoomLightRecordsResident(
 
 bool DoomLightContinuityProvenForTask01(const DoomLightRecord& record);
 
-std::vector<DoomLightRecord> BuildAnalyticDoomLightRecords(
+std::vector<DoomLightRecord> BuildAnalyticDoomLightRecordsFromImmutableValues(
     const std::vector<DoomLightRecord>& records,
     bool preserveZeroRadianceSlots,
     bool stableReservoirOrder,
     bool includeOutOfSelectedArea,
-    bool requireProvenContinuity)
+    bool requireProvenContinuity,
+    float radiusScale,
+    float radiusMin,
+    float radiusMax,
+    bool unifiedPtFixedEmitter,
+    float unifiedPtEmitterRadius)
 {
     std::vector<DoomLightRecord> candidates;
     candidates.reserve(records.size());
-    const float radiusScale = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingAnalyticSphereLightRadiusScale.GetFloat());
-    const float radiusMin = Max(0.0f, r_pathTracingAnalyticSphereLightRadiusMin.GetFloat());
-    const float radiusMax = Max(radiusMin, r_pathTracingAnalyticSphereLightRadiusMax.GetFloat());
-    const bool unifiedPtFixedEmitter = r_pathTracingUnifiedPtEnable.GetInteger() != 0;
-    const float unifiedPtEmitterRadius = idMath::ClampFloat(
-        0.01f,
-        64.0f,
-        r_pathTracingUnifiedPtAnalyticEmitterRadius.GetFloat());
     for (DoomLightRecord record : records)
     {
         const bool areaEligible = includeOutOfSelectedArea || record.selectedArea;
@@ -1175,6 +1172,35 @@ std::vector<DoomLightRecord> BuildAnalyticDoomLightRecords(
     });
 
     return candidates;
+}
+
+std::vector<DoomLightRecord> BuildAnalyticDoomLightRecords(
+    const std::vector<DoomLightRecord>& records,
+    bool preserveZeroRadianceSlots,
+    bool stableReservoirOrder,
+    bool includeOutOfSelectedArea,
+    bool requireProvenContinuity)
+{
+    const float radiusScale = idMath::ClampFloat(
+        0.0f, 1.0f,
+        r_pathTracingAnalyticSphereLightRadiusScale.GetFloat());
+    const float radiusMin = Max(
+        0.0f,
+        r_pathTracingAnalyticSphereLightRadiusMin.GetFloat());
+    const float radiusMax = Max(
+        radiusMin,
+        r_pathTracingAnalyticSphereLightRadiusMax.GetFloat());
+    return BuildAnalyticDoomLightRecordsFromImmutableValues(
+        records,
+        preserveZeroRadianceSlots,
+        stableReservoirOrder,
+        includeOutOfSelectedArea,
+        requireProvenContinuity,
+        radiusScale,
+        radiusMin,
+        radiusMax,
+        r_pathTracingUnifiedPtEnable.GetInteger() != 0,
+        idMath::ClampFloat(0.01f, 64.0f, r_pathTracingUnifiedPtAnalyticEmitterRadius.GetFloat()));
 }
 
 uint32_t DoomLightEntityNumberForUniverse(const DoomLightRecord& record)
@@ -1908,6 +1934,230 @@ void BuildDoomAnalyticLightGpuRemap(DoomAnalyticLightUniverseState& state, int u
 
 }
 
+PathTraceDoomAnalyticLightBuildOptions BuildCurrentDoomAnalyticLightOptions(
+    bool unifiedPtScenePublicationRequested)
+{
+    PathTraceDoomAnalyticLightBuildOptions options;
+    const int cleanRtxdiDiView = r_pathTracingCleanRtxdiDiView.GetInteger();
+    const int cleanRtxdiDiResolveView =
+        cleanRtxdiDiView >= 18 && cleanRtxdiDiView <= 23
+            ? 16
+            : cleanRtxdiDiView;
+    const bool cleanRtxdiDiRealAnalyticRoute =
+        r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
+        r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
+        (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12 ||
+            cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 ||
+            cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16);
+    if (cleanRtxdiDiRealAnalyticRoute)
+    {
+        options.forceBuild = true;
+        options.requireProvenContinuity =
+            r_pathTracingCleanRtxdiDiRequireProvenDoomLights.GetInteger() != 0;
+    }
+    const int regirSceneLightDomain = idMath::ClampInt(
+        0, 2, r_pathTracingReGIRLightDomain.GetInteger());
+    const bool regirAnalyticLightUniverseRequested =
+        r_pathTracingReGIREnable.GetInteger() != 0 &&
+        r_pathTracingReGIRMode.GetInteger() != 0 &&
+        (regirSceneLightDomain == 0 || regirSceneLightDomain == 2);
+    if (regirAnalyticLightUniverseRequested ||
+        unifiedPtScenePublicationRequested)
+    {
+        options.forceBuild = true;
+        options.stableReservoirOrder = true;
+        options.includeOutOfSelectedArea = true;
+        options.ignoreConfiguredCandidateCap = true;
+    }
+    return options;
+}
+
+struct PathTraceDoomAnalyticLightSnapshotData
+{
+    struct OwnedRecord
+    {
+        DoomLightRecord record;
+        uint64_t worldGeneration = 0;
+        int renderLightIndex = -1;
+        uint32_t renderLightGeneration = 0;
+        uint32_t lightGeneration = 0;
+        idMat3 axis = mat3_identity;
+        idStr shaderName;
+        idStr entityName;
+        idStr entityClassname;
+        idStr entityDefName;
+        idStr spawnTexture;
+        idStr spawnModel;
+
+        void BindOwnedStrings()
+        {
+            record.shaderName = shaderName.c_str();
+            record.entityName = entityName.c_str();
+            record.entityClassname = entityClassname.c_str();
+            record.entityDefName = entityDefName.c_str();
+            record.spawnTexture = spawnTexture.c_str();
+            record.spawnModel = spawnModel.c_str();
+        }
+    };
+
+    PathTraceDoomAnalyticLightBuildOptions options;
+    int configuredMaxGpuCandidates = 0;
+    float radiusScale = 0.0f;
+    float radiusMin = 0.0f;
+    float radiusMax = 0.0f;
+    // Owner-captured emitter policy; the collection worker never reads CVars.
+    bool unifiedPtFixedEmitter = false;
+    float unifiedPtEmitterRadius = 0.0f;
+    uint64_t mapLoadSerial = 0;
+    ID_TIME_T mapTimeStamp = 0;
+    bool enabled = false;
+    std::vector<OwnedRecord> records;
+};
+
+struct PathTraceDoomAnalyticLightCollectionData
+{
+    std::shared_ptr<const PathTraceDoomAnalyticLightSnapshotData> snapshot;
+    std::vector<DoomLightRecord> records;
+    std::vector<DoomLightRecord> candidates;
+};
+
+bool CapturePathTraceDoomAnalyticLightSnapshot(
+    const viewDef_t* viewDef,
+    const PathTraceDoomAnalyticLightBuildOptions& options,
+    PathTraceDoomAnalyticLightSnapshot& snapshot, bool frontendOwned)
+{
+    snapshot = PathTraceDoomAnalyticLightSnapshot();
+    if (!viewDef || !viewDef->renderWorld || !IsDoomLightGameStateActive())
+    {
+        return false;
+    }
+
+    // Bound both temporary collection and the final owning transport.
+    if (viewDef->renderWorld->lightDefs.Num() > 16384) return false;
+    std::shared_ptr<PathTraceDoomAnalyticLightSnapshotData> data =
+        std::make_shared<PathTraceDoomAnalyticLightSnapshotData>();
+    data->options = options;
+    data->configuredMaxGpuCandidates = idMath::ClampInt(
+        0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger());
+    data->radiusScale = idMath::ClampFloat(
+        0.0f, 1.0f,
+        r_pathTracingAnalyticSphereLightRadiusScale.GetFloat());
+    data->radiusMin = Max(
+        0.0f,
+        r_pathTracingAnalyticSphereLightRadiusMin.GetFloat());
+    data->radiusMax = Max(
+        data->radiusMin,
+        r_pathTracingAnalyticSphereLightRadiusMax.GetFloat());
+    data->unifiedPtFixedEmitter = r_pathTracingUnifiedPtEnable.GetInteger() != 0;
+    data->unifiedPtEmitterRadius = idMath::ClampFloat(
+        0.01f, 64.0f, r_pathTracingUnifiedPtAnalyticEmitterRadius.GetFloat());
+    data->mapLoadSerial = viewDef->renderWorld->mapLoadSerial;
+    data->mapTimeStamp = viewDef->renderWorld->mapTimeStamp;
+    data->enabled = options.forceBuild ||
+        r_pathTracingAnalyticLightCandidates.GetInteger() != 0;
+
+    if (data->enabled)
+    {
+        const DoomLightPortalSelection selection = [&]() {
+            OPTICK_EVENT("PT Doom Light Snapshot Portal Selection");
+            return BuildDoomLightPortalSelection(
+                viewDef,
+                idMath::ClampInt(
+                    0, 8, r_pathTracingLightAreaPortalSteps.GetInteger()));
+        }();
+        const std::vector<DoomLightRecord> records = [&]() {
+            OPTICK_EVENT("PT Doom Light Snapshot Capture");
+            return !frontendOwned && DoomLightResidencyEnabled()
+                ? CollectDoomLightRecordsResident(viewDef, selection)
+                : CollectDoomLightRecords(
+                    viewDef,
+                    selection,
+                    BuildDoomLightGameMetadataByHandle());
+        }();
+
+        data->records.reserve(records.size());
+        size_t ownedBytes = sizeof(*data) + records.size() * sizeof(PathTraceDoomAnalyticLightSnapshotData::OwnedRecord);
+        for (const DoomLightRecord& record : records)
+        {
+            PathTraceDoomAnalyticLightSnapshotData::OwnedRecord owned;
+            owned.record = record;
+            const idRenderLightLocal* sourceLight =
+                record.index >= 0 &&
+                    record.index < viewDef->renderWorld->lightDefs.Num()
+                ? viewDef->renderWorld->lightDefs[record.index]
+                : nullptr;
+            if (sourceLight)
+            {
+                const PtRenderDefKey stableKey =
+                    PtGeometryLifecycle::MakeLightKey(sourceLight);
+                owned.worldGeneration = stableKey.worldGeneration;
+                owned.renderLightIndex = stableKey.index;
+                owned.renderLightGeneration = stableKey.generation;
+                owned.lightGeneration = PtGeometryLifecycle::LightGeneration(
+                    sourceLight->world,
+                    sourceLight->index);
+                owned.axis = sourceLight->parms.axis;
+            }
+            owned.shaderName = record.shaderName ? record.shaderName : "<none>";
+            owned.entityName = record.entityName ? record.entityName : "<unavailable>";
+            owned.entityClassname = record.entityClassname ? record.entityClassname : "<unavailable>";
+            owned.entityDefName = record.entityDefName ? record.entityDefName : "<unavailable>";
+            owned.spawnTexture = record.spawnTexture ? record.spawnTexture : "<unavailable>";
+            owned.spawnModel = record.spawnModel ? record.spawnModel : "<unavailable>";
+            ownedBytes += owned.shaderName.Length() + owned.entityName.Length() + owned.entityClassname.Length() +
+                owned.entityDefName.Length() + owned.spawnTexture.Length() + owned.spawnModel.Length() + 6;
+            if (ownedBytes > 16u * 1024u * 1024u) return false;
+            data->records.push_back(std::move(owned));
+        }
+        // Bind only after the vector has reached its final storage: idStr may
+        // move inline storage while the owner-thread snapshot grows.
+        for (PathTraceDoomAnalyticLightSnapshotData::OwnedRecord& owned : data->records)
+        {
+            owned.BindOwnedStrings();
+        }
+    }
+
+    snapshot.data = std::move(data);
+    return true;
+}
+
+PathTraceDoomAnalyticLightCollectionResult CollectPathTraceDoomAnalyticLightsFromSnapshot(
+    const PathTraceDoomAnalyticLightSnapshot& snapshot)
+{
+    OPTICK_EVENT("PT Doom Light Collect From Snapshot");
+    PathTraceDoomAnalyticLightCollectionResult result;
+    if (!snapshot.data)
+    {
+        return result;
+    }
+
+    std::shared_ptr<PathTraceDoomAnalyticLightCollectionData> data =
+        std::make_shared<PathTraceDoomAnalyticLightCollectionData>();
+    data->snapshot = snapshot.data;
+    data->records.reserve(snapshot.data->records.size());
+    for (const PathTraceDoomAnalyticLightSnapshotData::OwnedRecord& owned :
+        snapshot.data->records)
+    {
+        data->records.push_back(owned.record);
+    }
+    if (snapshot.data->enabled)
+    {
+        data->candidates = BuildAnalyticDoomLightRecordsFromImmutableValues(
+            data->records,
+            snapshot.data->options.preserveZeroRadianceSlots,
+            snapshot.data->options.stableReservoirOrder,
+            snapshot.data->options.includeOutOfSelectedArea,
+            snapshot.data->options.requireProvenContinuity,
+            snapshot.data->radiusScale,
+            snapshot.data->radiusMin,
+            snapshot.data->radiusMax,
+            snapshot.data->unifiedPtFixedEmitter,
+            snapshot.data->unifiedPtEmitterRadius);
+    }
+    result.data = std::move(data);
+    return result;
+}
+
 std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, bool forceEnable)
 {
     PathTraceDoomAnalyticLightBuildOptions options;
@@ -1919,61 +2169,50 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
     return BuildPathTraceDoomAnalyticLightCandidates(viewDef, options);
 }
 
-std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, const PathTraceDoomAnalyticLightBuildOptions& options)
+std::vector<PathTraceDoomAnalyticLightCandidate> PublishPathTraceDoomAnalyticLightsFromCollection(
+    const viewDef_t* viewDef,
+    PathTraceDoomAnalyticLightCollectionResult&& collection)
 {
     std::vector<PathTraceDoomAnalyticLightCandidate> gpuCandidates;
-    if (!viewDef || !viewDef->renderWorld || !IsDoomLightGameStateActive() || (!options.forceBuild && r_pathTracingAnalyticLightCandidates.GetInteger() == 0))
+    if (!collection.data || !collection.data->snapshot)
+    {
+        return gpuCandidates;
+    }
+
+    const PathTraceDoomAnalyticLightSnapshotData& snapshot =
+        *collection.data->snapshot;
+    if (!snapshot.enabled)
     {
         g_doomAnalyticLightGpuRemap = PathTraceDoomAnalyticLightGpuRemap();
         return gpuCandidates;
     }
 
-    const DoomLightPortalSelection selection = [&]() {
-        OPTICK_EVENT("PT Doom Light Portal Selection");
-        return BuildDoomLightPortalSelection(
-            viewDef,
-            idMath::ClampInt(0, 8, r_pathTracingLightAreaPortalSteps.GetInteger()));
-    }();
-    const std::vector<DoomLightRecord> records = [&]() {
-        OPTICK_EVENT("PT Doom Light Collect Records");
-        return DoomLightResidencyEnabled()
-            ? CollectDoomLightRecordsResident(viewDef, selection)
-            : CollectDoomLightRecords(viewDef, selection, BuildDoomLightGameMetadataByHandle());
-    }();
-    const std::vector<DoomLightRecord> candidates = [&]() {
-        OPTICK_EVENT("PT Doom Light Build Candidates");
-        return BuildAnalyticDoomLightRecords(
-            records,
-            options.preserveZeroRadianceSlots,
-            options.stableReservoirOrder,
-            options.includeOutOfSelectedArea,
-            options.requireProvenContinuity);
-    }();
-    const int configuredMaxGpuCandidates = idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger());
-    const int maxGpuCandidates = options.ignoreConfiguredCandidateCap ? static_cast<int>(candidates.size()) : configuredMaxGpuCandidates;
+    const int maxGpuCandidates = snapshot.options.ignoreConfiguredCandidateCap
+        ? static_cast<int>(collection.data->candidates.size())
+        : snapshot.configuredMaxGpuCandidates;
     {
         OPTICK_EVENT("PT Doom Light Universe Update");
-        UpdateDoomAnalyticLightUniverse(viewDef, records, candidates, maxGpuCandidates);
+        UpdateDoomAnalyticLightUniverse(
+            viewDef,
+            collection.data->records,
+            collection.data->candidates,
+            maxGpuCandidates);
     }
-    const int uploadedCandidateCount = (options.forceBuild || r_pathTracingAnalyticLightCandidates.GetInteger() != 0)
-        ? Min(maxGpuCandidates, static_cast<int>(candidates.size()))
-        : 0;
+    const int uploadedCandidateCount = Min(
+        maxGpuCandidates,
+        static_cast<int>(collection.data->candidates.size()));
     {
         OPTICK_EVENT("PT Doom Light Remap Build");
         BuildDoomAnalyticLightGpuRemap(g_doomAnalyticLightUniverse, uploadedCandidateCount);
     }
-    if (!options.forceBuild && r_pathTracingAnalyticLightCandidates.GetInteger() == 0)
-    {
-        return gpuCandidates;
-    }
 
     {
         OPTICK_EVENT("PT Doom Light GPU Candidate Pack");
-        gpuCandidates.reserve(Min(maxGpuCandidates, static_cast<int>(candidates.size())));
+        gpuCandidates.reserve(uploadedCandidateCount);
 
-        for (int i = 0; i < maxGpuCandidates && i < static_cast<int>(candidates.size()); ++i)
+        for (int i = 0; i < uploadedCandidateCount; ++i)
         {
-            const DoomLightRecord& light = candidates[i];
+            const DoomLightRecord& light = collection.data->candidates[i];
             PathTraceDoomAnalyticLightCandidate gpuLight = {};
             const float sphereRadius = FinitePositiveOrZero(light.sphereRadius);
             const float doomRadius = FinitePositiveOrZero(light.radiusMax);
@@ -2007,6 +2246,122 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
         }
     }
 
+    return gpuCandidates;
+}
+
+std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(
+    const viewDef_t* viewDef,
+    const PathTraceDoomAnalyticLightBuildOptions& options)
+{
+    std::vector<PathTraceDoomAnalyticLightCandidate> gpuCandidates;
+    if (!viewDef || !viewDef->renderWorld || !IsDoomLightGameStateActive() ||
+        (!options.forceBuild &&
+            r_pathTracingAnalyticLightCandidates.GetInteger() == 0))
+    {
+        g_doomAnalyticLightGpuRemap = PathTraceDoomAnalyticLightGpuRemap();
+        return gpuCandidates;
+    }
+
+    const DoomLightPortalSelection selection = [&]() {
+        OPTICK_EVENT("PT Doom Light Portal Selection");
+        return BuildDoomLightPortalSelection(
+            viewDef,
+            idMath::ClampInt(
+                0, 8, r_pathTracingLightAreaPortalSteps.GetInteger()));
+    }();
+    const std::vector<DoomLightRecord> records = [&]() {
+        OPTICK_EVENT("PT Doom Light Collect Records");
+        return DoomLightResidencyEnabled()
+            ? CollectDoomLightRecordsResident(viewDef, selection)
+            : CollectDoomLightRecords(
+                viewDef,
+                selection,
+                BuildDoomLightGameMetadataByHandle());
+    }();
+    const std::vector<DoomLightRecord> candidates = [&]() {
+        OPTICK_EVENT("PT Doom Light Build Candidates");
+        return BuildAnalyticDoomLightRecords(
+            records,
+            options.preserveZeroRadianceSlots,
+            options.stableReservoirOrder,
+            options.includeOutOfSelectedArea,
+            options.requireProvenContinuity);
+    }();
+    const int configuredMaxGpuCandidates = idMath::ClampInt(
+        0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger());
+    const int maxGpuCandidates = options.ignoreConfiguredCandidateCap
+        ? static_cast<int>(candidates.size())
+        : configuredMaxGpuCandidates;
+    {
+        OPTICK_EVENT("PT Doom Light Universe Update");
+        UpdateDoomAnalyticLightUniverse(
+            viewDef, records, candidates, maxGpuCandidates);
+    }
+    const int uploadedCandidateCount =
+        (options.forceBuild ||
+            r_pathTracingAnalyticLightCandidates.GetInteger() != 0)
+        ? Min(maxGpuCandidates, static_cast<int>(candidates.size()))
+        : 0;
+    {
+        OPTICK_EVENT("PT Doom Light Remap Build");
+        BuildDoomAnalyticLightGpuRemap(
+            g_doomAnalyticLightUniverse,
+            uploadedCandidateCount);
+    }
+    if (!options.forceBuild &&
+        r_pathTracingAnalyticLightCandidates.GetInteger() == 0)
+    {
+        return gpuCandidates;
+    }
+
+    {
+        OPTICK_EVENT("PT Doom Light GPU Candidate Pack");
+        gpuCandidates.reserve(Min(
+            maxGpuCandidates,
+            static_cast<int>(candidates.size())));
+        for (int i = 0;
+            i < maxGpuCandidates && i < static_cast<int>(candidates.size());
+            ++i)
+        {
+            const DoomLightRecord& light = candidates[i];
+            PathTraceDoomAnalyticLightCandidate gpuLight = {};
+            const float sphereRadius = FinitePositiveOrZero(light.sphereRadius);
+            const float doomRadius = FinitePositiveOrZero(light.radiusMax);
+            gpuLight.originAndRadius[0] = light.origin.x;
+            gpuLight.originAndRadius[1] = light.origin.y;
+            gpuLight.originAndRadius[2] = light.origin.z;
+            gpuLight.originAndRadius[3] = sphereRadius;
+            PackDoomAnalyticRadiance(
+                light.color,
+                doomRadius,
+                gpuLight.colorAndIntensity);
+            gpuLight.doomRadiusAndArea[0] = doomRadius;
+            gpuLight.doomRadiusAndArea[1] =
+                12.56637061f * sphereRadius * sphereRadius;
+            gpuLight.doomRadiusAndArea[2] =
+                static_cast<float>(light.portalDepth);
+            gpuLight.doomRadiusAndArea[3] = static_cast<float>(
+                light.selectionArea >= 0 ? light.selectionArea : light.area);
+            if (light.castsShadows)
+            {
+                gpuLight.flags |= RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS;
+            }
+            if (light.gameLinked)
+            {
+                gpuLight.flags |= RT_DOOM_ANALYTIC_LIGHT_GAME_LINKED;
+            }
+            if (light.crosshairBehind)
+            {
+                gpuLight.flags |= RT_DOOM_ANALYTIC_LIGHT_BEHIND_CAMERA;
+            }
+            gpuLight.renderLightIndex =
+                static_cast<uint32_t>(Max(light.index, 0));
+            gpuLight.entityNumber = light.entityNumber >= 0
+                ? static_cast<uint32_t>(light.entityNumber)
+                : RT_PT_DOOM_LIGHT_INVALID_ENTITY_NUMBER;
+            gpuCandidates.push_back(gpuLight);
+        }
+    }
     return gpuCandidates;
 }
 

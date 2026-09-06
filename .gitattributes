@@ -8,3 +8,6 @@ neo/libs/* linguist-vendored
 
 # Make sure script files always have CRLF line endings for save file checksum portability
 *.script text eol=crlf
+
+# Preserve the accepted producer implementation's protected raw-byte hash.
+neo/renderer/NVRHI/PathTraceMaterialTextureDiscovery.cpp -text

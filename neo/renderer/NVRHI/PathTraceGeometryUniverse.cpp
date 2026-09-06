@@ -2,6 +2,8 @@
 #pragma hdrstop
 
 #include "PathTraceGeometryUniverse.h"
+#include "PathTraceCommittedBaseline.h"
+#include "PathTraceAccelCpuPack.h"
 #include "PathTraceInstanceUniverse.h"
 #include "PathTraceGeometryLifecycle.h"
 #include "PathTraceCVars.h"
@@ -10,6 +12,8 @@
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceRigidIdentity.h"
+#include "PathTraceRigidCandidateSubsystem.h"
+#include "PathTraceCpuProducerPublish.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSurfaceClassification.h"
@@ -17,12 +21,51 @@
 #include "../RenderWorld_local.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <mutex>
+#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 #include <nvrhi/utils.h>
 
 namespace {
+
+void InsertRigidRegistryDiagnosticKeySample(
+	std::array<uint64, 8>& sample,
+	uint32& count,
+	uint64 key) noexcept
+{
+	if (key == 0)
+	{
+		return;
+	}
+	for (uint32 index = 0; index < count; ++index)
+	{
+		if (sample[index] == key)
+		{
+			return;
+		}
+	}
+	if (count < sample.size())
+	{
+		sample[count++] = key;
+	}
+	else if (key < sample[count - 1])
+	{
+		sample[count - 1] = key;
+	}
+	else
+	{
+		return;
+	}
+	for (uint32 index = count - 1;
+		index > 0 && sample[index] < sample[index - 1];
+		--index)
+	{
+		std::swap(sample[index], sample[index - 1]);
+	}
+}
 
 struct OffsetBlasTimingDistribution
 {
@@ -781,102 +824,6 @@ void PrintSmokeGeometryRange(const char* label, const RtSmokeGeometryRangeRecord
         range.triangles.count);
 }
 
-uint32_t BuildRigidMeshCandidateRejectFlags(const RtPathTraceRigidMeshCandidateObservation& observation)
-{
-    uint32_t rejectFlags = 0;
-    const RtPathTraceResidencyClass residencyClass = RtPathTraceResidencyClassForSourceFlags(observation.sourceFlags);
-    if (residencyClass != RtPathTraceResidencyClass::DurableRigid &&
-        (observation.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
-    {
-        rejectFlags |= RT_PT_RIGID_MESH_REJECT_NOT_RIGID;
-    }
-    if (observation.numVerts <= 0 || observation.numIndexes <= 0 || (observation.numIndexes % 3) != 0 || observation.meshHash == 0)
-    {
-        rejectFlags |= RT_PT_RIGID_MESH_REJECT_INVALID_GEOMETRY;
-    }
-    if (observation.tri == nullptr)
-    {
-        rejectFlags |= RT_PT_RIGID_MESH_REJECT_INVALID_GEOMETRY;
-    }
-    if (observation.materialId == 0 || observation.materialName.IsEmpty() || observation.materialName.Icmp("<none>") == 0)
-    {
-        rejectFlags |= RT_PT_RIGID_MESH_REJECT_MISSING_MATERIAL;
-    }
-    if (!observation.localSpaceValid)
-    {
-        rejectFlags |= RT_PT_RIGID_MESH_REJECT_NO_LOCAL_SPACE;
-    }
-    if ((observation.sourceFlags & RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING) != 0)
-    {
-        rejectFlags |= RT_PT_RIGID_MESH_REJECT_SKINNED_OR_DEFORMING;
-    }
-    if ((observation.sourceFlags & RT_PT_INSTANCE_SOURCE_PARTICLE_OR_TRANSIENT) != 0)
-    {
-        rejectFlags |= RT_PT_RIGID_MESH_REJECT_PARTICLE_OR_TRANSIENT;
-    }
-    if ((observation.sourceFlags & RT_PT_INSTANCE_SOURCE_GUI) != 0)
-    {
-        rejectFlags |= RT_PT_RIGID_MESH_REJECT_GUI;
-    }
-    if ((observation.sourceFlags & RT_PT_INSTANCE_SOURCE_CALLBACK_OR_GENERATED) != 0)
-    {
-        rejectFlags |= RT_PT_RIGID_MESH_REJECT_CALLBACK_OR_GENERATED;
-    }
-    if ((observation.sourceFlags & RT_PT_INSTANCE_SOURCE_STATIC_WORLD) != 0)
-    {
-        rejectFlags |= RT_PT_RIGID_MESH_REJECT_STATIC_WORLD;
-    }
-    if ((observation.sourceFlags & (RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH | RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH)) != 0)
-    {
-        rejectFlags |= RT_PT_RIGID_MESH_REJECT_STATIC_CACHE_MATCH;
-    }
-    return rejectFlags;
-}
-
-void AccumulateRigidMeshCandidateRejectStats(RtPathTraceRigidMeshCandidateStats& stats, uint32_t rejectFlags)
-{
-    if ((rejectFlags & RT_PT_RIGID_MESH_REJECT_NOT_RIGID) != 0)
-    {
-        ++stats.rejectNotRigid;
-    }
-    if ((rejectFlags & RT_PT_RIGID_MESH_REJECT_INVALID_GEOMETRY) != 0)
-    {
-        ++stats.rejectInvalidGeometry;
-    }
-    if ((rejectFlags & RT_PT_RIGID_MESH_REJECT_MISSING_MATERIAL) != 0)
-    {
-        ++stats.rejectMissingMaterial;
-    }
-    if ((rejectFlags & RT_PT_RIGID_MESH_REJECT_NO_LOCAL_SPACE) != 0)
-    {
-        ++stats.rejectNoLocalSpace;
-    }
-    if ((rejectFlags & RT_PT_RIGID_MESH_REJECT_SKINNED_OR_DEFORMING) != 0)
-    {
-        ++stats.rejectSkinnedOrDeforming;
-    }
-    if ((rejectFlags & RT_PT_RIGID_MESH_REJECT_PARTICLE_OR_TRANSIENT) != 0)
-    {
-        ++stats.rejectParticleOrTransient;
-    }
-    if ((rejectFlags & RT_PT_RIGID_MESH_REJECT_GUI) != 0)
-    {
-        ++stats.rejectGui;
-    }
-    if ((rejectFlags & RT_PT_RIGID_MESH_REJECT_CALLBACK_OR_GENERATED) != 0)
-    {
-        ++stats.rejectCallbackOrGenerated;
-    }
-    if ((rejectFlags & RT_PT_RIGID_MESH_REJECT_STATIC_WORLD) != 0)
-    {
-        ++stats.rejectStaticWorld;
-    }
-    if ((rejectFlags & RT_PT_RIGID_MESH_REJECT_STATIC_CACHE_MATCH) != 0)
-    {
-        ++stats.rejectStaticCacheMatch;
-    }
-}
-
 const char* RigidMeshCandidateRejectSummary(uint32_t rejectFlags)
 {
     if ((rejectFlags & RT_PT_RIGID_MESH_REJECT_NOT_RIGID) != 0)
@@ -960,6 +907,7 @@ nvrhi::BufferHandle CreateRigidSmokeBuffer(
 
 uint64 BuildRigidGpuUploadSignature(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
 {
+    OPTICK_EVENT("PT Rigid Upload Signature Hash");
     uint64 hash = 14695981039346656037ull;
     hash = HashSmokeBytes(hash, &record.meshHash, sizeof(record.meshHash));
     hash = HashSmokeBytes(
@@ -1068,14 +1016,13 @@ uint64 BuildStaticBucketBlasInputSignature(
     return hash != 0 ? hash : 1;
 }
 
+bool RigidMeshHasCachedRouteData(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record);
+
 uint32_t ValidateRigidBlasInputRecord(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
 {
     const uint32_t expectedVertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
     uint32_t invalidFlags = 0;
-    const bool hasCachedMesh =
-        static_cast<int>(record.cachedLocalVertices.size()) == record.sourceRange.vertices.count &&
-        static_cast<int>(record.cachedLocalIndexes.size()) == record.sourceRange.indexes.count;
-    if (record.tri == nullptr && !hasCachedMesh)
+    if (!RigidMeshHasCachedRouteData(record))
     {
         invalidFlags |= RT_PT_RIGID_BLAS_INPUT_INVALID_NULL_TRI;
     }
@@ -1103,38 +1050,16 @@ uint32_t ValidateRigidBlasInputRecord(const RtSmokeGeometryUniverse::RigidMeshCa
     {
         invalidFlags |= RT_PT_RIGID_BLAS_INPUT_INVALID_MATERIAL;
     }
-    if (record.tri)
-    {
-        if (!record.tri->verts || record.tri->numVerts < record.sourceRange.vertices.count)
-        {
-            invalidFlags |= RT_PT_RIGID_BLAS_INPUT_INVALID_VERTEX_COUNT;
-        }
-        if (!record.tri->indexes || record.tri->numIndexes < record.sourceRange.indexes.count)
-        {
-            invalidFlags |= RT_PT_RIGID_BLAS_INPUT_INVALID_INDEX_COUNT;
-        }
-    }
     return invalidFlags;
 }
 
 bool RigidMeshHasCachedRouteData(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
 {
-    return
-        record.valid &&
-        record.cachedRouteDataValid &&
-        record.cpuMeshContentSignature != 0 &&
-        record.sourceRange.vertices.count > 0 &&
-        record.sourceRange.indexes.count > 0 &&
-        (record.sourceRange.indexes.count % 3) == 0 &&
-        record.sourceRange.triangles.count > 0 &&
-        record.sourceRange.triangles.count * 3 == record.sourceRange.indexes.count &&
-        static_cast<int>(record.cachedLocalVertices.size()) == record.sourceRange.vertices.count &&
-        static_cast<int>(record.cachedLocalIndexes.size()) == record.sourceRange.indexes.count &&
-        record.localBoundsValid &&
-        !record.localBounds.IsCleared();
+	return RtPathTraceRigidMeshHasCachedRouteData(record);
 }
 
-bool RigidMeshHasCachedRouteGpuReady(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
+bool RigidMeshHasCachedRouteGpuReady(
+    const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
 {
     return
         RigidMeshHasCachedRouteData(record) &&
@@ -1148,6 +1073,104 @@ bool RigidMeshHasCachedRouteGpuReady(const RtSmokeGeometryUniverse::RigidMeshCan
             BuildRigidGpuUploadSignature(record) &&
         record.gpuBlasVertexCount == static_cast<int>(record.cachedLocalVertices.size()) &&
         record.gpuBlasIndexCount == static_cast<int>(record.cachedLocalIndexes.size());
+}
+
+cpu_producer_publish::RigidCpuMeshDiagnosticReason
+RigidMeshRegistryDiagnosticReason(
+	const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
+{
+	using cpu_producer_publish::RigidCpuMeshDiagnosticReason;
+	if (!record.valid)
+	{
+		return RigidCpuMeshDiagnosticReason::RecordInvalid;
+	}
+	if (record.cpuCacheRefreshAttempts == 0)
+	{
+		return RigidCpuMeshDiagnosticReason::NeverRefreshed;
+	}
+	if (!record.cachedRouteDataValid)
+	{
+		const RigidCpuMeshDiagnosticReason lastReason =
+			static_cast<RigidCpuMeshDiagnosticReason>(
+				record.lastCpuCacheDiagnosticReason);
+		if (lastReason !=
+				RigidCpuMeshDiagnosticReason::None &&
+			lastReason !=
+				RigidCpuMeshDiagnosticReason::NeverRefreshed)
+		{
+			return lastReason;
+		}
+		return RigidCpuMeshDiagnosticReason::CacheInvalid;
+	}
+	if (record.cpuMeshContentSignature == 0)
+	{
+		return RigidCpuMeshDiagnosticReason::SignatureInvalid;
+	}
+	if (record.sourceRange.vertices.count <= 0 ||
+		record.sourceRange.indexes.count <= 0)
+	{
+		return RigidCpuMeshDiagnosticReason::InvalidSourceCounts;
+	}
+	if ((record.sourceRange.indexes.count % 3) != 0 ||
+		record.sourceRange.triangles.count <= 0 ||
+		record.sourceRange.triangles.count * 3 !=
+			record.sourceRange.indexes.count)
+	{
+		return RigidCpuMeshDiagnosticReason::TriangleCountInvalid;
+	}
+	if (static_cast<int>(record.cachedLocalVertices.size()) !=
+		record.sourceRange.vertices.count)
+	{
+		return RigidCpuMeshDiagnosticReason::VertexCountMismatch;
+	}
+	if (static_cast<int>(record.cachedLocalIndexes.size()) !=
+		record.sourceRange.indexes.count)
+	{
+		return RigidCpuMeshDiagnosticReason::IndexCountMismatch;
+	}
+	if (!record.localBoundsValid || record.localBounds.IsCleared())
+	{
+		return RigidCpuMeshDiagnosticReason::BoundsInvalid;
+	}
+	if (!record.rigidVertexBuffer)
+	{
+		return RigidCpuMeshDiagnosticReason::MissingVertexBuffer;
+	}
+	if (!record.rigidIndexBuffer)
+	{
+		return RigidCpuMeshDiagnosticReason::MissingIndexBuffer;
+	}
+	if (!record.rigidBlas)
+	{
+		return RigidCpuMeshDiagnosticReason::MissingBlas;
+	}
+	if (!record.gpuBuffersUploaded)
+	{
+		return RigidCpuMeshDiagnosticReason::BuffersNotUploaded;
+	}
+	if (!record.gpuBlasCreated)
+	{
+		return RigidCpuMeshDiagnosticReason::BlasNotCreated;
+	}
+	if (!record.gpuBlasBuildSubmitted)
+	{
+		return RigidCpuMeshDiagnosticReason::BlasNotSubmitted;
+	}
+	if (record.gpuUploadSignature != BuildRigidGpuUploadSignature(record))
+	{
+		return RigidCpuMeshDiagnosticReason::GpuSignatureMismatch;
+	}
+	if (record.gpuBlasVertexCount !=
+		static_cast<int>(record.cachedLocalVertices.size()))
+	{
+		return RigidCpuMeshDiagnosticReason::GpuVertexCountMismatch;
+	}
+	if (record.gpuBlasIndexCount !=
+		static_cast<int>(record.cachedLocalIndexes.size()))
+	{
+		return RigidCpuMeshDiagnosticReason::GpuIndexCountMismatch;
+	}
+	return RigidCpuMeshDiagnosticReason::None;
 }
 
 bool RigidPlanInstanceMatchesRecord(
@@ -1250,94 +1273,15 @@ void AppendRigidRoutePlaceholder(
     build.instanceObjectToWorld.push_back(objectToWorld);
 }
 
-PathTraceSmokeVertex BuildRigidLocalSmokeVertex(const idDrawVert& drawVert, const float normalTexMatrix[6])
-{
-    idVec3 localNormal = drawVert.GetNormal();
-    if (localNormal.Normalize() == 0.0f)
-    {
-        localNormal.Set(0.0f, 0.0f, 1.0f);
-    }
-    idVec3 localTangent = drawVert.GetTangent();
-    if (localTangent.Normalize() == 0.0f)
-    {
-        localTangent.Set(1.0f, 0.0f, 0.0f);
-    }
-    const float bitangentSign = drawVert.GetBiTangentSign();
-    idVec3 localBitangent = drawVert.GetBiTangent();
-    if (localBitangent.Normalize() == 0.0f)
-    {
-        localBitangent.Cross(localNormal, localTangent);
-        localBitangent *= bitangentSign;
-        localBitangent.Normalize();
-    }
-
-    const idVec2 texCoord = drawVert.GetTexCoord();
-    PathTraceSmokeVertex vertex = {};
-    vertex.position[0] = drawVert.xyz.x;
-    vertex.position[1] = drawVert.xyz.y;
-    vertex.position[2] = drawVert.xyz.z;
-    vertex.position[3] = 1.0f;
-    vertex.normal[0] = localNormal.x;
-    vertex.normal[1] = localNormal.y;
-    vertex.normal[2] = localNormal.z;
-    vertex.normal[3] = 0.0f;
-    vertex.texCoord[0] = texCoord.x;
-    vertex.texCoord[1] = texCoord.y;
-    vertex.texCoord[2] = normalTexMatrix[0] * texCoord.x + normalTexMatrix[1] * texCoord.y + normalTexMatrix[2];
-    vertex.texCoord[3] = normalTexMatrix[3] * texCoord.x + normalTexMatrix[4] * texCoord.y + normalTexMatrix[5];
-    vertex.color[0] = drawVert.color[0] * (1.0f / 255.0f);
-    vertex.color[1] = drawVert.color[1] * (1.0f / 255.0f);
-    vertex.color[2] = drawVert.color[2] * (1.0f / 255.0f);
-    vertex.color[3] = drawVert.color[3] * (1.0f / 255.0f);
-    vertex.color2[0] = drawVert.color2[0] * (1.0f / 255.0f);
-    vertex.color2[1] = drawVert.color2[1] * (1.0f / 255.0f);
-    vertex.color2[2] = drawVert.color2[2] * (1.0f / 255.0f);
-    vertex.color2[3] = drawVert.color2[3] * (1.0f / 255.0f);
-    vertex.tangent[0] = localTangent.x;
-    vertex.tangent[1] = localTangent.y;
-    vertex.tangent[2] = localTangent.z;
-    vertex.tangent[3] = bitangentSign;
-    vertex.bitangent[0] = localBitangent.x;
-    vertex.bitangent[1] = localBitangent.y;
-    vertex.bitangent[2] = localBitangent.z;
-    vertex.bitangent[3] = 0.0f;
-    return vertex;
-}
 
 bool BuildRigidLocalMeshData(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record, std::vector<PathTraceSmokeVertex>& vertices, std::vector<uint32_t>& indexes)
 {
-    if (record.tri == nullptr)
-    {
-        if (RigidMeshHasCachedRouteData(record))
-        {
-            vertices = record.cachedLocalVertices;
-            indexes = record.cachedLocalIndexes;
-            return true;
-        }
-        return false;
-    }
-
-    if (ValidateRigidBlasInputRecord(record) != 0)
+    if (!RigidMeshHasCachedRouteData(record))
     {
         return false;
     }
-
-    vertices.resize(record.sourceRange.vertices.count);
-    for (int vertexIndex = 0; vertexIndex < record.sourceRange.vertices.count; ++vertexIndex)
-    {
-        vertices[vertexIndex] = BuildRigidLocalSmokeVertex(record.tri->verts[vertexIndex], record.normalTexMatrix);
-    }
-
-    indexes.resize(record.sourceRange.indexes.count);
-    for (int indexIndex = 0; indexIndex < record.sourceRange.indexes.count; ++indexIndex)
-    {
-        const int sourceIndex = static_cast<int>(record.tri->indexes[indexIndex]);
-        if (sourceIndex < 0 || sourceIndex >= record.sourceRange.vertices.count)
-        {
-            return false;
-        }
-        indexes[indexIndex] = static_cast<uint32_t>(sourceIndex);
-    }
+    vertices = record.cachedLocalVertices;
+    indexes = record.cachedLocalIndexes;
     return true;
 }
 
@@ -1498,76 +1442,6 @@ bool CanonicalCompareEndpointsMatch(
             sizeof(PtGeometrySourceTriangle)) == 0;
 }
 
-void RefreshRigidMeshCandidateCpuCache(RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
-{
-    record.cpuMeshContentSignature = 0;
-    record.cachedRouteDataValid = false;
-    if (!record.tri ||
-        !record.tri->verts ||
-        !record.tri->indexes ||
-        record.sourceRange.vertices.count <= 0 ||
-        record.sourceRange.indexes.count <= 0 ||
-        record.tri->numVerts < record.sourceRange.vertices.count ||
-        record.tri->numIndexes < record.sourceRange.indexes.count)
-    {
-        return;
-    }
-
-    record.cachedLocalVertices.resize(record.sourceRange.vertices.count);
-    for (int vertexIndex = 0; vertexIndex < record.sourceRange.vertices.count; ++vertexIndex)
-    {
-        record.cachedLocalVertices[vertexIndex] = BuildRigidLocalSmokeVertex(record.tri->verts[vertexIndex], record.normalTexMatrix);
-        const idVec3 position =
-            SmokeVertexPosition(record.cachedLocalVertices[vertexIndex]);
-        if (!SmokeVec3IsFinite(position) ||
-            idMath::Fabs(position.x) >= 100000.0f ||
-            idMath::Fabs(position.y) >= 100000.0f ||
-            idMath::Fabs(position.z) >= 100000.0f)
-        {
-            record.cachedLocalVertices.clear();
-            return;
-        }
-    }
-
-    record.cachedLocalIndexes.resize(record.sourceRange.indexes.count);
-    for (int indexIndex = 0; indexIndex < record.sourceRange.indexes.count; ++indexIndex)
-    {
-        const int sourceIndex = static_cast<int>(record.tri->indexes[indexIndex]);
-        if (sourceIndex < 0 || sourceIndex >= record.sourceRange.vertices.count)
-        {
-            record.cachedLocalIndexes.clear();
-            return;
-        }
-        record.cachedLocalIndexes[indexIndex] = static_cast<uint32_t>(sourceIndex);
-    }
-
-    record.localBounds = record.tri->bounds;
-    record.localBoundsValid = !record.localBounds.IsCleared();
-    uint64 contentSignature = 14695981039346656037ull;
-    if (!record.cachedLocalVertices.empty())
-    {
-        contentSignature = HashSmokeBytes(
-            contentSignature,
-            record.cachedLocalVertices.data(),
-            record.cachedLocalVertices.size() *
-                sizeof(record.cachedLocalVertices[0]));
-    }
-    if (!record.cachedLocalIndexes.empty())
-    {
-        contentSignature = HashSmokeBytes(
-            contentSignature,
-            record.cachedLocalIndexes.data(),
-            record.cachedLocalIndexes.size() *
-                sizeof(record.cachedLocalIndexes[0]));
-    }
-    record.cpuMeshContentSignature =
-        contentSignature != 0 ? contentSignature : 1;
-    record.cachedRouteDataValid =
-        record.cpuMeshContentSignature != 0 &&
-        record.localBoundsValid &&
-        !record.localBounds.IsCleared();
-}
-
 bool BuildRigidResidencyWorldBounds(
     const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& meshRecord,
     const RtPathTraceRigidRouteInstanceObservation& instance,
@@ -1675,6 +1549,8 @@ void RtSmokeGeometryUniverse::Clear()
     m_staticBucketAssignmentPlanCacheValid = false;
     m_staticBucketResidentGeometryPack =
         RtSmokeStaticBucketGeometryPack();
+    m_staticBucketResidentAssignmentPlan =
+        RtSmokeStaticBucketAssignmentPlan();
     m_staticBucketResidentAssignmentPlanSignature = 0;
     m_staticBucketResidentGeometryGeneration = 0;
     m_staticBucketResidentMaterialGeneration = 0;
@@ -1688,6 +1564,7 @@ void RtSmokeGeometryUniverse::Clear()
     m_staticBucketMaterialIndexCacheValid = false;
     m_staticGeometryGeneration = 1;
     m_staticMaterialGeneration = 1;
+    m_staticResidentPayloadGeneration = 1;
     m_previousStaticSnapshotGeneration = m_staticGeometryGeneration;
     m_previousStaticSnapshotMaterialGeneration = m_staticMaterialGeneration;
     m_staticMaterialDirtyTriangleOffset = -1;
@@ -1697,6 +1574,12 @@ void RtSmokeGeometryUniverse::Clear()
     m_previousStaticTriangleClassCache.clear();
     m_previousStaticTriangleMaterialCache.clear();
     m_canonicalIdentityRegistry.Clear();
+    m_a8S1RouteObservations.clear();
+    m_a8S1RouteObservationsAvailable = true;
+    m_a8S1ProducerOpportunities.fill(0);
+    m_a8S1ProducerObserved.fill(0);
+    m_a8S1ProducerSuppressedDiagnosticUnavailable.fill(0);
+    m_a8S1AliasSidecar.BeginFrame(0, 0);
     m_canonicalRigidBlasStats =
         RtPathTraceCanonicalRigidBlasStats();
     m_canonicalRigidBlasStats.blasRetired =
@@ -1724,6 +1607,195 @@ RtSmokeGeometryUniverse::FindCanonicalIdentityBinding(
     const PtCanonicalInstanceKey& key) const
 {
     return m_canonicalIdentityRegistry.Find(key);
+}
+
+const PtGeometryIdentityRegistryStats&
+RtSmokeGeometryUniverse::CanonicalIdentityRegistryStats() const
+{
+    return m_canonicalIdentityRegistry.Stats();
+}
+
+void RtSmokeGeometryUniverse::RecordA8S1RouteObservation(
+    const PtRenderDefKey& renderDefKey,
+    int modelSurfaceIndex,
+    bool modelSurfaceIndexValid,
+    uint64 legacyMeshHash,
+    const char* modelName,
+    PtA8S1RouteProducer producer)
+{
+    if (r_pathTracingCpuProducerCanonicalIdentityS1.GetInteger() == 0)
+    {
+        return;
+    }
+    const size_t producerIndex = static_cast<size_t>(producer);
+    if (producerIndex >= m_a8S1ProducerOpportunities.size())
+    {
+        return;
+    }
+    ++m_a8S1ProducerOpportunities[producerIndex];
+    if (!m_a8S1RouteObservationsAvailable)
+    {
+        ++m_a8S1ProducerSuppressedDiagnosticUnavailable[producerIndex];
+        return;
+    }
+
+    try
+    {
+        PtA8S1RouteObservation observation;
+        observation.route.worldGeneration = renderDefKey.worldGeneration;
+        observation.route.renderDefIndex = renderDefKey.index >= 0
+            ? static_cast<uint32_t>(renderDefKey.index)
+            : UINT32_MAX;
+        observation.route.renderDefGeneration = renderDefKey.generation;
+        observation.route.modelName = modelName != nullptr ? modelName : "";
+        observation.route.modelSurfaceIndex = modelSurfaceIndex;
+        observation.canonicalInstanceKey.worldGeneration =
+            observation.route.worldGeneration;
+        observation.canonicalInstanceKey.renderDefIndex =
+            observation.route.renderDefIndex;
+        observation.canonicalInstanceKey.renderDefGeneration =
+            observation.route.renderDefGeneration;
+        observation.canonicalInstanceKey.subInstanceKind =
+            PtCanonicalSubInstanceKind::RigidSurface;
+        observation.canonicalInstanceKey.modelSurfaceIndex =
+            modelSurfaceIndex >= 0
+                ? static_cast<uint32_t>(modelSurfaceIndex)
+                : UINT32_MAX;
+        observation.canonicalInstanceKey.jointSubmeshIndex = -1;
+        observation.legacyMeshHash = legacyMeshHash;
+        observation.surfaceIndexValid = modelSurfaceIndexValid;
+        observation.producer = producer;
+        m_a8S1RouteObservations.push_back(observation);
+        ++m_a8S1ProducerObserved[producerIndex];
+    }
+    catch (...)
+    {
+        // S1 allocation failure disables only this diagnostic frame. The
+        // legacy candidate, binding, lookup and GPU planning paths continue.
+        m_a8S1RouteObservations.clear();
+        m_a8S1RouteObservationsAvailable = false;
+        ++m_a8S1ProducerSuppressedDiagnosticUnavailable[producerIndex];
+    }
+}
+
+const std::vector<PtA8S1RouteObservation>&
+RtSmokeGeometryUniverse::A8S1RouteObservations() const
+{
+    return m_a8S1RouteObservations;
+}
+
+bool RtSmokeGeometryUniverse::A8S1RouteObservationsAvailable() const
+{
+    return m_a8S1RouteObservationsAvailable;
+}
+
+const std::array<uint64, static_cast<size_t>(PtA8S1RouteProducer::Count)>&
+RtSmokeGeometryUniverse::A8S1ProducerOpportunities() const
+{
+    return m_a8S1ProducerOpportunities;
+}
+
+const std::array<uint64, static_cast<size_t>(PtA8S1RouteProducer::Count)>&
+RtSmokeGeometryUniverse::A8S1ProducerObserved() const
+{
+    return m_a8S1ProducerObserved;
+}
+
+const std::array<uint64, static_cast<size_t>(PtA8S1RouteProducer::Count)>&
+RtSmokeGeometryUniverse::A8S1ProducerSuppressedDiagnosticUnavailable() const
+{
+    return m_a8S1ProducerSuppressedDiagnosticUnavailable;
+}
+
+PtA8S1AliasSidecar& RtSmokeGeometryUniverse::A8S1AliasSidecar()
+{
+    return m_a8S1AliasSidecar;
+}
+
+PtA8S1LegacyCandidateProbe
+RtSmokeGeometryUniverse::ProbeA8S1LegacyCandidates(
+    const PtA8S1NormalizedRouteKey& route) const
+{
+    PtA8S1LegacyCandidateProbe result;
+    std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+    // Health-first: no lookup-map token may precede this guard.
+    if (!EnsureRigidMeshCandidateLookupLive(0))
+    {
+        return result;
+    }
+    result.available = true;
+    for (size_t recordIndex = 0;
+        recordIndex < m_rigidMeshCandidateRecords.size(); ++recordIndex)
+    {
+        const RigidMeshCandidateRecord& record =
+            m_rigidMeshCandidateRecords[recordIndex];
+        if (!record.valid ||
+            record.modelSurfaceIndex != route.modelSurfaceIndex ||
+            idStr::Cmp(record.modelName.c_str(), route.modelName.c_str()) != 0)
+        {
+            continue;
+        }
+        const auto lookupIt = m_rigidMeshCandidateLookup.find(record.meshHash);
+        if (lookupIt == m_rigidMeshCandidateLookup.end() ||
+            lookupIt->second != recordIndex)
+        {
+            continue;
+        }
+        bool duplicate = false;
+        for (uint32_t keyIndex = 0;
+            keyIndex < result.legacyKeyCount; ++keyIndex)
+        {
+            duplicate |= result.legacyKeys[keyIndex] == record.meshHash;
+        }
+        if (!duplicate && result.legacyKeyCount < result.legacyKeys.size())
+        {
+            result.legacyKeys[result.legacyKeyCount++] = record.meshHash;
+        }
+    }
+    return result;
+}
+
+bool RtSmokeGeometryUniverse::CaptureA8S1LegacyCandidateProduct(
+    std::vector<PtA8S1LegacyCandidateProductRecord>& out) const
+{
+    out.clear();
+    std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+    // Health-first: the serializer is evidence, never a lookup repair bypass.
+    if (!EnsureRigidMeshCandidateLookupLive(0))
+    {
+        return false;
+    }
+    try
+    {
+        out.reserve(m_rigidMeshCandidateRecords.size());
+        for (size_t recordIndex = 0;
+            recordIndex < m_rigidMeshCandidateRecords.size(); ++recordIndex)
+        {
+            const RigidMeshCandidateRecord& record =
+                m_rigidMeshCandidateRecords[recordIndex];
+            if (!record.valid)
+            {
+                continue;
+            }
+            PtA8S1LegacyCandidateProductRecord product;
+            product.legacyMeshHash = record.meshHash;
+            product.multiplicity = static_cast<uint64_t>(
+                std::max(record.instanceCountThisFrame, 0));
+            const auto lookupIt = m_rigidMeshCandidateLookup.find(record.meshHash);
+            product.lookupMember =
+                lookupIt != m_rigidMeshCandidateLookup.end() &&
+                lookupIt->second == recordIndex;
+            product.blasToken = reinterpret_cast<uint64_t>(
+                static_cast<nvrhi::rt::IAccelStruct*>(record.rigidBlas));
+            out.push_back(product);
+        }
+    }
+    catch (...)
+    {
+        out.clear();
+        return false;
+    }
+    return true;
 }
 
 const PtGeometrySourceRecord*
@@ -2503,11 +2575,9 @@ RtSmokeGeometryUniverse::BuildCanonicalRigidIdentityStats(
         ++stats.sourceBindings;
         sample.canonicalChecksum = source->sourceChecksum;
 
-        const auto meshIt =
-            m_rigidMeshCandidateLookup.find(instance.meshHash);
-        if (meshIt == m_rigidMeshCandidateLookup.end() ||
-            meshIt->second >= m_rigidMeshCandidateRecords.size() ||
-            !m_rigidMeshCandidateRecords[meshIt->second].valid)
+        size_t legacyIndex = 0;
+        if (!RigidMeshCandidateLookupFind(instance.meshHash, legacyIndex) ||
+            !m_rigidMeshCandidateRecords[legacyIndex].valid)
         {
             ++stats.missingLegacyMeshes;
             sample.flags |=
@@ -2517,7 +2587,7 @@ RtSmokeGeometryUniverse::BuildCanonicalRigidIdentityStats(
         }
         ++stats.legacyBindings;
         const RigidMeshCandidateRecord& legacy =
-            m_rigidMeshCandidateRecords[meshIt->second];
+            m_rigidMeshCandidateRecords[legacyIndex];
 
         LegacyPayloadSignature signature;
         const auto signatureIt =
@@ -3229,13 +3299,21 @@ void RtSmokeGeometryUniverse::RetireRigidMeshGpuResources(
 
 void RtSmokeGeometryUniverse::ClearRigidResidencyCaches()
 {
-    for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
+    std::vector<RigidMeshCandidateRecord> detachedRecords;
+    std::unordered_set<uint64> detachedHashes;
     {
-        RetireRigidMeshGpuResources(record);
+        std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+        detachedRecords.swap(m_rigidMeshCandidateRecords);
+        detachedHashes.swap(m_frameRigidMeshCandidateHashes);
+        RebuildRigidMeshCandidateLookupFromRecordsUnlocked();
+        InvalidateRigidMeshCandidateLifecycleUnlocked();
     }
-    m_rigidMeshCandidateRecords.clear();
-    m_rigidMeshCandidateLookup.clear();
-    m_frameRigidMeshCandidateHashes.clear();
+    for (size_t detachedIndex = 0;
+        detachedIndex < detachedRecords.size();
+        ++detachedIndex)
+    {
+        RetireRigidMeshGpuResources(detachedRecords[detachedIndex]);
+    }
     m_rigidResidentRecords.clear();
     m_rigidResidentLookup.clear();
     m_rigidResidentFrameInstances.clear();
@@ -3267,6 +3345,7 @@ void RtSmokeGeometryUniverse::BeginFrame(
     bool capturePreviousStaticSnapshot)
 {
     PtGeometryLifecycle::MaybeDumpLifecycleStats(frameIndex, renderWorld);
+    PtGeometryLifecycle::BeginProducerPackFrame();
     if (r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
         renderWorld != nullptr &&
         m_rigidResidencyWorld != nullptr &&
@@ -3314,25 +3393,37 @@ void RtSmokeGeometryUniverse::BeginFrame(
             m_staticMaterialGeneration;
     }
     m_currentFrameIndex = frameIndex;
+    m_a8S1RouteObservations.clear();
+    m_a8S1RouteObservationsAvailable = true;
+    m_a8S1ProducerOpportunities.fill(0);
+    m_a8S1ProducerObserved.fill(0);
+    m_a8S1ProducerSuppressedDiagnosticUnavailable.fill(0);
     m_staticMaterialDirtyTriangleOffset = -1;
     m_staticMaterialDirtyTriangleCount = 0;
-    m_frameActive = true;
-    ResetRigidMeshCandidateFrameStats();
-    m_rigidMeshCandidateFrameStats.frameIndex = frameIndex;
-    m_rigidMeshCandidateFrameStats.generation = m_generation;
-    m_frameRigidMeshCandidateHashes.clear();
     for (RtSmokePersistentStaticSurfaceRecord& record : m_staticSurfaceRecords)
     {
         record.seenThisFrame = false;
         record.newlyCreatedThisFrame = false;
         record.disappearedThisFrame = false;
     }
-    for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
     {
-        record.seenThisFrame = false;
-        record.newlyCreatedThisFrame = false;
-        record.instanceCountThisFrame = 0;
-        record.tri = nullptr;
+        std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+		AdvanceRigidMeshCandidateFrameBeginSerialUnlocked();
+		m_frameActive = true;
+		ResetRigidMeshCandidateFrameStats();
+		m_rigidMeshCandidateFrameStats.frameIndex = frameIndex;
+		m_rigidMeshCandidateFrameStats.generation = m_generation;
+		m_rigidMeshCandidateRecordInsertFrameStart =
+			m_rigidMeshCandidateRecordInsertTotal;
+        m_frameRigidMeshCandidateHashes.clear();
+        for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
+        {
+            record.seenThisFrame = false;
+            record.newlyCreatedThisFrame = false;
+            record.instanceCountThisFrame = 0;
+            record.tri = nullptr;
+        }
+		AdvanceRigidMeshCandidateSemanticRevisionUnlocked();
     }
     for (RigidResidentInstanceRecord& record : m_rigidResidentRecords)
     {
@@ -3385,28 +3476,26 @@ void RtSmokeGeometryUniverse::EndFrame()
         record.dirty = record.newlyCreatedThisFrame || !record.historyValid;
     }
 
-    m_rigidMeshCandidateFrameStats.eligibleUniqueMeshes = static_cast<int>(m_frameRigidMeshCandidateHashes.size());
-    m_rigidMeshCandidateFrameStats.persistentEligibleMeshes = static_cast<int>(m_rigidMeshCandidateRecords.size());
-    m_rigidMeshCandidateFrameStats.localMeshSourceRecords = static_cast<int>(m_rigidMeshCandidateRecords.size());
-    for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
     {
-        if (!record.valid)
+        std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+        m_rigidMeshCandidateFrameStats.eligibleUniqueMeshes = static_cast<int>(m_frameRigidMeshCandidateHashes.size());
+        m_rigidMeshCandidateFrameStats.persistentEligibleMeshes = static_cast<int>(m_rigidMeshCandidateRecords.size());
+        m_rigidMeshCandidateFrameStats.localMeshSourceRecords = static_cast<int>(m_rigidMeshCandidateRecords.size());
+        for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
         {
-            continue;
+            if (!record.valid)
+                continue;
+            m_rigidMeshCandidateFrameStats.localMeshSourceVerts += record.sourceRange.vertices.count;
+            m_rigidMeshCandidateFrameStats.localMeshSourceIndexes += record.sourceRange.indexes.count;
+            m_rigidMeshCandidateFrameStats.localMeshSourceTriangles += record.sourceRange.triangles.count;
+            if (record.seenThisFrame)
+                ++m_rigidMeshCandidateFrameStats.localMeshSourceRecordsSeenThisFrame;
+            else
+                record.tri = nullptr;
         }
-        m_rigidMeshCandidateFrameStats.localMeshSourceVerts += record.sourceRange.vertices.count;
-        m_rigidMeshCandidateFrameStats.localMeshSourceIndexes += record.sourceRange.indexes.count;
-        m_rigidMeshCandidateFrameStats.localMeshSourceTriangles += record.sourceRange.triangles.count;
-        if (record.seenThisFrame)
-        {
-            ++m_rigidMeshCandidateFrameStats.localMeshSourceRecordsSeenThisFrame;
-        }
-        else
-        {
-            record.tri = nullptr;
-        }
+        m_frameActive = false;
+        AdvanceRigidMeshCandidateSemanticRevisionUnlocked();
     }
-    m_frameActive = false;
 }
 
 bool RtSmokeGeometryUniverse::PruneMissingStaticSurfaces()
@@ -3550,6 +3639,7 @@ bool RtSmokeGeometryUniverse::PruneMissingStaticSurfaces()
     m_staticTriangleClassCache.swap(keptTriangleClasses);
     m_staticTriangleMaterialCache.swap(keptTriangleMaterials);
     ++m_staticGeometryGeneration;
+    AdvancePathTraceResidentPayloadGeneration(m_staticResidentPayloadGeneration);
     ++m_generation;
     return true;
 }
@@ -3557,7 +3647,13 @@ bool RtSmokeGeometryUniverse::PruneMissingStaticSurfaces()
 void RtSmokeGeometryUniverse::NotifyStaticCacheChanged()
 {
     ++m_staticGeometryGeneration;
+    AdvancePathTraceResidentPayloadGeneration(m_staticResidentPayloadGeneration);
     ++m_generation;
+}
+
+uint64 RtSmokeGeometryUniverse::StaticResidentPayloadGeneration() const
+{
+    return m_staticResidentPayloadGeneration;
 }
 
 bool RtSmokeGeometryUniverse::RefreshStaticSurfaceMaterial(uint64 key, uint32_t materialId)
@@ -3594,6 +3690,7 @@ bool RtSmokeGeometryUniverse::RefreshStaticSurfaceMaterial(uint64 key, uint32_t 
 
     record->materialId = materialId;
     ++m_staticGeometryGeneration;
+    AdvancePathTraceResidentPayloadGeneration(m_staticResidentPayloadGeneration);
     record->materialGeneration = ++m_staticMaterialGeneration;
     AccumulateSmokeGeometryElementRange(record->currentRange.triangles, m_staticMaterialDirtyTriangleOffset, m_staticMaterialDirtyTriangleCount);
     return true;
@@ -3612,6 +3709,7 @@ bool RtSmokeGeometryUniverse::RefreshStaticSurfacePortalArea(
     }
 
     record->portalArea = portalArea;
+    AdvancePathTraceResidentPayloadGeneration(m_staticResidentPayloadGeneration);
     ++m_generation;
     return true;
 }
@@ -3630,6 +3728,7 @@ bool RtSmokeGeometryUniverse::RefreshStaticSurfaceBucketKey(
     }
 
     record->bucketSurfaceKey = bucketSurfaceKey;
+    AdvancePathTraceResidentPayloadGeneration(m_staticResidentPayloadGeneration);
     ++m_generation;
     return true;
 }
@@ -3637,6 +3736,341 @@ bool RtSmokeGeometryUniverse::RefreshStaticSurfaceBucketKey(
 bool RtSmokeGeometryUniverse::HasStaticSurface(uint64 key) const
 {
     return FindStaticSurface(key) != nullptr;
+}
+
+bool RtSmokeGeometryUniverse::CaptureGeometryUniversePlanningSnapshot(
+    RtSmokeGeometryUniverseSnapshot& snapshot,
+    const RtPathTracePlanningSnapshotEpoch& epoch,
+    size_t& captureProductSlotBytes) const
+{
+    return CaptureGeometryUniversePlanningSnapshotInternal(
+        snapshot, epoch, captureProductSlotBytes, false);
+}
+
+bool RtSmokeGeometryUniverse::CaptureCommittedGeometryUniverseSnapshot(
+    RtSmokeGeometryUniverseSnapshot& snapshot,
+    const RtPathTraceCommittedBaselineEpoch& epoch,
+    size_t& captureProductSlotBytes) const
+{
+    if (!RtPathTraceCommittedBaselineEpochValid(epoch))
+    {
+        snapshot.ResetAndRelease();
+        return false;
+    }
+    const RtPathTracePlanningSnapshotEpoch snapshotEpoch =
+        RtPathTraceMapCommittedBaselineToPlanningEpoch(epoch);
+    return CaptureGeometryUniversePlanningSnapshotInternal(
+        snapshot, snapshotEpoch, captureProductSlotBytes, true);
+}
+
+bool RtSmokeGeometryUniverse::CaptureGeometryUniversePlanningSnapshotInternal(
+    RtSmokeGeometryUniverseSnapshot& snapshot,
+    const RtPathTracePlanningSnapshotEpoch& epoch,
+    size_t& captureProductSlotBytes,
+    bool committedAfterEndFrame) const
+{
+    if ((committedAfterEndFrame ? m_frameActive :
+            (!m_frameActive || epoch.frameIndex != m_currentFrameIndex ||
+                !RtPathTracePlanningEpochValid(epoch))))
+    {
+        snapshot.ResetAndRelease();
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+    return RtPathTraceBuildPlanningSnapshotTransaction(
+        snapshot, captureProductSlotBytes,
+        [&](RtSmokeGeometryUniverseSnapshot& candidate)
+        {
+            size_t requiredBytes = captureProductSlotBytes;
+            if (!RtPathTracePlanningAccumulateBytes(
+                    sizeof(candidate), requiredBytes) ||
+                !RtPathTracePlanningAccumulateArrayBytes(
+                    m_staticSurfaceRecords.size(), sizeof(RtSmokeStaticSurfacePod),
+                    requiredBytes) ||
+                !RtPathTracePlanningAccumulateArrayBytes(
+                    m_rigidMeshCandidateRecords.size(),
+                    sizeof(RtSmokeRigidRouteReadyPod), requiredBytes) ||
+                !RtPathTracePlanningAccumulateArrayBytes(
+                    m_rigidResidentRecords.size(),
+                    sizeof(RtSmokeRigidResidentReadyPod), requiredBytes))
+            {
+                return false;
+            }
+            candidate.epoch = epoch;
+            candidate.ownerGeneration = m_generation;
+            candidate.staticSurfaces.reserve(m_staticSurfaceRecords.size());
+            for (const RtSmokePersistentStaticSurfaceRecord& record :
+                m_staticSurfaceRecords)
+            {
+                RtSmokeStaticSurfacePod pod;
+                pod.valid = record.valid;
+                pod.key = record.key;
+                pod.bucketSurfaceKey = record.bucketSurfaceKey;
+                pod.surfaceClassId = record.surfaceClassId;
+                pod.materialId = record.materialId;
+                pod.portalArea = record.portalArea;
+                pod.currentRange = record.currentRange;
+                pod.previousRange = record.previousRange;
+                pod.lastSeenFrame = record.lastSeenFrame;
+                pod.previousSeenFrame = record.previousSeenFrame;
+                pod.previousRangeValid = record.previousRangeValid;
+                pod.historyValid = record.historyValid;
+                pod.dirty = record.dirty;
+                pod.materialGeneration = record.materialGeneration;
+                pod.geometryFormat = record.geometryFormat;
+                if (pod.valid != HasStaticSurface(pod.key))
+                {
+                    return false;
+                }
+                candidate.staticSurfaces.push_back(pod);
+            }
+            std::sort(candidate.staticSurfaces.begin(),
+                candidate.staticSurfaces.end(),
+                [](const RtSmokeStaticSurfacePod& lhs,
+                    const RtSmokeStaticSurfacePod& rhs)
+                {
+                    return lhs.key < rhs.key;
+                });
+            for (size_t index = 1; index < candidate.staticSurfaces.size(); ++index)
+            {
+                if (candidate.staticSurfaces[index - 1].key ==
+                    candidate.staticSurfaces[index].key)
+                {
+                    return false;
+                }
+            }
+
+            candidate.rigidRoutes.reserve(m_rigidMeshCandidateRecords.size());
+            for (const RigidMeshCandidateRecord& record :
+                m_rigidMeshCandidateRecords)
+            {
+                RtSmokeRigidRouteReadyPod pod;
+                pod.valid = record.valid;
+                pod.meshHash = record.meshHash;
+                pod.vertexBufferIdentity = record.vertexBufferIdentity;
+                pod.indexBufferIdentity = record.indexBufferIdentity;
+                pod.materialId = record.materialId;
+                pod.vertexFormat = record.vertexFormat;
+                pod.modelEpoch = record.modelEpoch;
+                pod.modelSurfaceIndex = record.modelSurfaceIndex;
+                pod.jointIndex = record.jointIndex;
+                pod.sourceRange = record.sourceRange;
+                pod.cachedRouteDataValid = record.cachedRouteDataValid;
+                pod.localBoundsValid = record.localBoundsValid &&
+                    !record.localBounds.IsCleared();
+                memcpy(pod.normalTexMatrix, record.normalTexMatrix,
+                    sizeof(pod.normalTexMatrix));
+                pod.cpuMeshContentSignature = record.cpuMeshContentSignature;
+                pod.gpuUploadSignature = record.gpuUploadSignature;
+                pod.cachedVertexCount =
+                    static_cast<int>(record.cachedLocalVertices.size());
+                pod.cachedIndexCount =
+                    static_cast<int>(record.cachedLocalIndexes.size());
+                pod.gpuBlasVertexCount = record.gpuBlasVertexCount;
+                pod.gpuBlasIndexCount = record.gpuBlasIndexCount;
+                pod.hasRigidVertexBuffer = static_cast<bool>(record.rigidVertexBuffer);
+                pod.hasRigidIndexBuffer = static_cast<bool>(record.rigidIndexBuffer);
+                pod.hasRigidBlas = static_cast<bool>(record.rigidBlas);
+                pod.gpuBuffersUploaded = record.gpuBuffersUploaded;
+                pod.gpuBlasCreated = record.gpuBlasCreated;
+                pod.gpuBlasBuildSubmitted = record.gpuBlasBuildSubmitted;
+                pod.deferredSinceFrame = record.deferredSinceFrame;
+                if (RtPathTraceRigidRouteReadyRecordFromPod(pod) !=
+                    RigidMeshHasCachedRouteGpuReady(record))
+                {
+                    return false;
+                }
+                candidate.rigidRoutes.push_back(pod);
+            }
+            std::sort(candidate.rigidRoutes.begin(), candidate.rigidRoutes.end(),
+                [](const RtSmokeRigidRouteReadyPod& lhs,
+                    const RtSmokeRigidRouteReadyPod& rhs)
+                {
+                    return lhs.meshHash < rhs.meshHash;
+                });
+            for (size_t index = 1; index < candidate.rigidRoutes.size(); ++index)
+            {
+                if (candidate.rigidRoutes[index - 1].meshHash ==
+                    candidate.rigidRoutes[index].meshHash)
+                {
+                    return false;
+                }
+            }
+
+            candidate.rigidResidents.reserve(m_rigidResidentRecords.size());
+            for (const RigidResidentInstanceRecord& record : m_rigidResidentRecords)
+            {
+                RtSmokeRigidResidentReadyPod pod;
+                pod.instanceId = record.observation.instanceId;
+                pod.meshHash = record.observation.meshHash;
+                pod.entityIndex = record.observation.entityIndex;
+                pod.renderEntityNum = record.observation.renderEntityNum;
+                pod.materialId = record.observation.materialOverrideId;
+                pod.lastSeenFrame = record.lastSeenFrame;
+                candidate.rigidResidents.push_back(pod);
+            }
+            std::sort(candidate.rigidResidents.begin(),
+                candidate.rigidResidents.end(),
+                [](const RtSmokeRigidResidentReadyPod& lhs,
+                    const RtSmokeRigidResidentReadyPod& rhs)
+                {
+                    if (lhs.entityIndex != rhs.entityIndex)
+                    {
+                        return lhs.entityIndex < rhs.entityIndex;
+                    }
+                    if (lhs.renderEntityNum != rhs.renderEntityNum)
+                    {
+                        return lhs.renderEntityNum < rhs.renderEntityNum;
+                    }
+                    return lhs.materialId < rhs.materialId;
+                });
+            candidate.complete = true;
+            return true;
+        });
+}
+
+bool RtSmokeGeometryUniverse::CountGeometryUniversePlanningSnapshot(
+    const RtPathTracePlanningSnapshotEpoch& epoch,
+    RtSmokeGeometryUniverseSnapshotCounts& counts) const
+{
+    counts = {};
+    if (!m_frameActive || epoch.frameIndex != m_currentFrameIndex ||
+        !RtPathTracePlanningEpochValid(epoch))
+    {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+    counts.staticSurfaces = m_staticSurfaceRecords.size();
+    counts.rigidRoutes = m_rigidMeshCandidateRecords.size();
+    counts.rigidResidents = m_rigidResidentRecords.size();
+    return true;
+}
+
+bool RtSmokeGeometryUniverse::FillGeometryUniversePlanningSnapshotPreReserved(
+    RtSmokeGeometryUniverseSnapshot& snapshot,
+    const RtPathTracePlanningSnapshotEpoch& epoch,
+    const RtSmokeGeometryUniverseSnapshotCounts& counts) const
+{
+    if (!m_frameActive || epoch.frameIndex != m_currentFrameIndex ||
+        !RtPathTracePlanningEpochValid(epoch))
+    {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+    if (counts.staticSurfaces != m_staticSurfaceRecords.size() ||
+        counts.rigidRoutes != m_rigidMeshCandidateRecords.size() ||
+        counts.rigidResidents != m_rigidResidentRecords.size() ||
+        snapshot.staticSurfaces.capacity() < counts.staticSurfaces ||
+        snapshot.rigidRoutes.capacity() < counts.rigidRoutes ||
+        snapshot.rigidResidents.capacity() < counts.rigidResidents)
+    {
+        return false;
+    }
+    snapshot.epoch = epoch;
+    snapshot.ownerGeneration = m_generation;
+    snapshot.staticSurfaces.resize(counts.staticSurfaces);
+    for (size_t index = 0; index < counts.staticSurfaces; ++index)
+    {
+        const RtSmokePersistentStaticSurfaceRecord& record = m_staticSurfaceRecords[index];
+        RtSmokeStaticSurfacePod& pod = snapshot.staticSurfaces[index];
+        pod.valid = record.valid;
+        pod.key = record.key;
+        pod.bucketSurfaceKey = record.bucketSurfaceKey;
+        pod.surfaceClassId = record.surfaceClassId;
+        pod.materialId = record.materialId;
+        pod.portalArea = record.portalArea;
+        pod.currentRange = record.currentRange;
+        pod.previousRange = record.previousRange;
+        pod.lastSeenFrame = record.lastSeenFrame;
+        pod.previousSeenFrame = record.previousSeenFrame;
+        pod.previousRangeValid = record.previousRangeValid;
+        pod.historyValid = record.historyValid;
+        pod.dirty = record.dirty;
+        pod.materialGeneration = record.materialGeneration;
+        pod.geometryFormat = record.geometryFormat;
+        if (pod.valid != HasStaticSurface(pod.key))
+        {
+            return false;
+        }
+    }
+    std::sort(snapshot.staticSurfaces.begin(), snapshot.staticSurfaces.end(),
+        [](const auto& lhs, const auto& rhs) { return lhs.key < rhs.key; });
+    for (size_t index = 1; index < snapshot.staticSurfaces.size(); ++index)
+    {
+        if (snapshot.staticSurfaces[index - 1].key == snapshot.staticSurfaces[index].key)
+        {
+            return false;
+        }
+    }
+
+    snapshot.rigidRoutes.resize(counts.rigidRoutes);
+    for (size_t index = 0; index < counts.rigidRoutes; ++index)
+    {
+        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[index];
+        RtSmokeRigidRouteReadyPod& pod = snapshot.rigidRoutes[index];
+        pod.valid = record.valid;
+        pod.meshHash = record.meshHash;
+        pod.vertexBufferIdentity = record.vertexBufferIdentity;
+        pod.indexBufferIdentity = record.indexBufferIdentity;
+        pod.materialId = record.materialId;
+        pod.vertexFormat = record.vertexFormat;
+        pod.modelEpoch = record.modelEpoch;
+        pod.modelSurfaceIndex = record.modelSurfaceIndex;
+        pod.jointIndex = record.jointIndex;
+        pod.sourceRange = record.sourceRange;
+        pod.cachedRouteDataValid = record.cachedRouteDataValid;
+        pod.localBoundsValid = record.localBoundsValid && !record.localBounds.IsCleared();
+        memcpy(pod.normalTexMatrix, record.normalTexMatrix, sizeof(pod.normalTexMatrix));
+        pod.cpuMeshContentSignature = record.cpuMeshContentSignature;
+        pod.gpuUploadSignature = record.gpuUploadSignature;
+        pod.cachedVertexCount = static_cast<int>(record.cachedLocalVertices.size());
+        pod.cachedIndexCount = static_cast<int>(record.cachedLocalIndexes.size());
+        pod.gpuBlasVertexCount = record.gpuBlasVertexCount;
+        pod.gpuBlasIndexCount = record.gpuBlasIndexCount;
+        pod.hasRigidVertexBuffer = static_cast<bool>(record.rigidVertexBuffer);
+        pod.hasRigidIndexBuffer = static_cast<bool>(record.rigidIndexBuffer);
+        pod.hasRigidBlas = static_cast<bool>(record.rigidBlas);
+        pod.gpuBuffersUploaded = record.gpuBuffersUploaded;
+        pod.gpuBlasCreated = record.gpuBlasCreated;
+        pod.gpuBlasBuildSubmitted = record.gpuBlasBuildSubmitted;
+        pod.deferredSinceFrame = record.deferredSinceFrame;
+        if (RtPathTraceRigidRouteReadyRecordFromPod(pod) !=
+            RigidMeshHasCachedRouteGpuReady(record))
+        {
+            return false;
+        }
+    }
+    std::sort(snapshot.rigidRoutes.begin(), snapshot.rigidRoutes.end(),
+        [](const auto& lhs, const auto& rhs) { return lhs.meshHash < rhs.meshHash; });
+    for (size_t index = 1; index < snapshot.rigidRoutes.size(); ++index)
+    {
+        if (snapshot.rigidRoutes[index - 1].meshHash == snapshot.rigidRoutes[index].meshHash)
+        {
+            return false;
+        }
+    }
+
+    snapshot.rigidResidents.resize(counts.rigidResidents);
+    for (size_t index = 0; index < counts.rigidResidents; ++index)
+    {
+        const RigidResidentInstanceRecord& record = m_rigidResidentRecords[index];
+        RtSmokeRigidResidentReadyPod& pod = snapshot.rigidResidents[index];
+        pod.instanceId = record.observation.instanceId;
+        pod.meshHash = record.observation.meshHash;
+        pod.entityIndex = record.observation.entityIndex;
+        pod.renderEntityNum = record.observation.renderEntityNum;
+        pod.materialId = record.observation.materialOverrideId;
+        pod.lastSeenFrame = record.lastSeenFrame;
+    }
+    std::sort(snapshot.rigidResidents.begin(), snapshot.rigidResidents.end(),
+        [](const auto& lhs, const auto& rhs)
+        {
+            if (lhs.entityIndex != rhs.entityIndex) return lhs.entityIndex < rhs.entityIndex;
+            if (lhs.renderEntityNum != rhs.renderEntityNum) return lhs.renderEntityNum < rhs.renderEntityNum;
+            return lhs.materialId < rhs.materialId;
+        });
+    snapshot.complete = true;
+    return true;
 }
 
 RtSmokePersistentStaticSurfaceRecord* RtSmokeGeometryUniverse::TouchStaticSurface(uint64 key)
@@ -3733,6 +4167,7 @@ void RtSmokeGeometryUniverse::CompleteStaticSurfaceAppend(const RtSmokeStaticSur
     m_staticSurfaceLookup[append.key] = recordIndex;
     m_staticSurfaceKeys.push_back(append.key);
     ++m_staticGeometryGeneration;
+    AdvancePathTraceResidentPayloadGeneration(m_staticResidentPayloadGeneration);
     ++m_generation;
 }
 
@@ -3763,6 +4198,170 @@ RtSmokePersistentStaticSurfaceRecord* RtSmokeGeometryUniverse::FindStaticSurface
 const std::vector<RtSmokePersistentStaticSurfaceRecord>& RtSmokeGeometryUniverse::StaticSurfaceRecords() const
 {
     return m_staticSurfaceRecords;
+}
+
+bool RtSmokeGeometryUniverse::CaptureStaticBucketCpuSnapshot(
+    RtPathTraceStaticBucketCpuSnapshot& snapshot,
+    uint64 worldGeneration,
+    uint64 sourceGeneration,
+    int portalAreaCount,
+    int maxVerticesPerBucket,
+    int maxIndexesPerBucket,
+    int maxTrianglesPerBucket,
+    const std::vector<bool>* activePortalAreas) const
+{
+    snapshot.ResetAndRelease();
+    try
+    {
+        RtPathTraceStaticBucketCpuSnapshotCounts counts;
+        return CountStaticBucketCpuSnapshot(counts) &&
+            FillStaticBucketCpuSnapshotPreReserved(snapshot, counts,
+                worldGeneration, sourceGeneration, portalAreaCount,
+                maxVerticesPerBucket, maxIndexesPerBucket,
+                maxTrianglesPerBucket, activePortalAreas);
+    }
+    catch (const std::bad_alloc&) {}
+    catch (const std::length_error&) {}
+    snapshot.ResetAndRelease();
+    return false;
+}
+
+bool RtSmokeGeometryUniverse::CountStaticBucketCpuSnapshot(
+    RtPathTraceStaticBucketCpuSnapshotCounts& counts) const
+{
+    counts = RtPathTraceStaticBucketCpuSnapshotCounts();
+    if (m_staticSurfaceRecords.size() > static_cast<size_t>(std::numeric_limits<int>::max()) ||
+        m_staticVertexCache.size() > static_cast<size_t>(std::numeric_limits<int>::max()) ||
+        m_staticIndexCache.size() > static_cast<size_t>(std::numeric_limits<int>::max()) ||
+        m_staticTriangleClassCache.size() > static_cast<size_t>(std::numeric_limits<int>::max()) ||
+        m_staticTriangleClassCache.size() != m_staticTriangleMaterialCache.size())
+        return false;
+    counts.surfaces = m_staticSurfaceRecords.size();
+    counts.vertices = m_staticVertexCache.size();
+    counts.indexes = m_staticIndexCache.size();
+    counts.triangleClasses = m_staticTriangleClassCache.size();
+    counts.triangleMaterials = m_staticTriangleMaterialCache.size();
+    return true;
+}
+
+bool RtSmokeGeometryUniverse::FillStaticBucketCpuSnapshotPreReserved(
+    RtPathTraceStaticBucketCpuSnapshot& snapshot,
+    const RtPathTraceStaticBucketCpuSnapshotCounts& counts,
+    uint64 worldGeneration,
+    uint64 sourceGeneration,
+    int portalAreaCount,
+    int maxVerticesPerBucket,
+    int maxIndexesPerBucket,
+    int maxTrianglesPerBucket,
+    const std::vector<bool>* activePortalAreas) const
+{
+    snapshot.ResetAndRelease();
+    RtPathTraceStaticBucketCpuSnapshotCounts actualCounts;
+    if (!CountStaticBucketCpuSnapshot(actualCounts) ||
+        actualCounts.surfaces != counts.surfaces ||
+        actualCounts.vertices != counts.vertices ||
+        actualCounts.indexes != counts.indexes ||
+        actualCounts.triangleClasses != counts.triangleClasses ||
+        actualCounts.triangleMaterials != counts.triangleMaterials)
+    {
+        return false;
+    }
+    try
+    {
+        PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+        snapshot.surfaces.reserve(counts.surfaces);
+        if (snapshot.surfaces.capacity() != counts.surfaces)
+        {
+            snapshot.ResetAndRelease();
+            return false;
+        }
+        PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+        snapshot.vertices.reserve(counts.vertices);
+        if (snapshot.vertices.capacity() != counts.vertices)
+        {
+            snapshot.ResetAndRelease();
+            return false;
+        }
+        PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+        snapshot.indexes.reserve(counts.indexes);
+        if (snapshot.indexes.capacity() != counts.indexes)
+        {
+            snapshot.ResetAndRelease();
+            return false;
+        }
+        PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+        snapshot.triangleClasses.reserve(counts.triangleClasses);
+        if (snapshot.triangleClasses.capacity() != counts.triangleClasses)
+        {
+            snapshot.ResetAndRelease();
+            return false;
+        }
+        PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+        snapshot.triangleMaterials.reserve(counts.triangleMaterials);
+        if (snapshot.triangleMaterials.capacity() != counts.triangleMaterials)
+        {
+            snapshot.ResetAndRelease();
+            return false;
+        }
+        snapshot.vertices.insert(snapshot.vertices.end(),
+            m_staticVertexCache.begin(), m_staticVertexCache.end());
+        snapshot.indexes.insert(snapshot.indexes.end(),
+            m_staticIndexCache.begin(), m_staticIndexCache.end());
+        snapshot.triangleClasses.insert(snapshot.triangleClasses.end(),
+            m_staticTriangleClassCache.begin(), m_staticTriangleClassCache.end());
+        snapshot.triangleMaterials.insert(snapshot.triangleMaterials.end(),
+            m_staticTriangleMaterialCache.begin(), m_staticTriangleMaterialCache.end());
+        snapshot.worldGeneration = worldGeneration;
+        snapshot.sourceGeneration = sourceGeneration;
+        snapshot.storageGeneration = m_staticGeometryGeneration;
+        snapshot.portalAreaCount = portalAreaCount;
+        snapshot.maxVerticesPerBucket = maxVerticesPerBucket;
+        snapshot.maxIndexesPerBucket = maxIndexesPerBucket;
+        snapshot.maxTrianglesPerBucket = maxTrianglesPerBucket;
+        const int vertexCount = static_cast<int>(m_staticVertexCache.size());
+        const int indexCount = static_cast<int>(m_staticIndexCache.size());
+        const int triangleCount = static_cast<int>(m_staticTriangleClassCache.size());
+        const int materialTriangleCount = static_cast<int>(m_staticTriangleMaterialCache.size());
+        for (size_t recordIndex = 0; recordIndex < m_staticSurfaceRecords.size(); ++recordIndex)
+        {
+            const RtSmokePersistentStaticSurfaceRecord& record = m_staticSurfaceRecords[recordIndex];
+            RtSmokeStaticBucketAssignmentSurface surface;
+            surface.surfaceKey = record.bucketSurfaceKey != 0 ? record.bucketSurfaceKey : record.key;
+            surface.sourceRecordIndex = static_cast<uint32_t>(recordIndex);
+            surface.portalArea = record.portalArea;
+            surface.range.vertexOffset = record.currentRange.vertices.offset;
+            surface.range.vertexCount = record.currentRange.vertices.count;
+            surface.range.indexOffset = record.currentRange.indexes.offset;
+            surface.range.indexCount = record.currentRange.indexes.count;
+            surface.range.triangleOffset = record.currentRange.triangles.offset;
+            surface.range.triangleCount = record.currentRange.triangles.count;
+            surface.valid = record.valid && IsSmokeGeometryRangeValid(
+                record.currentRange, vertexCount, indexCount,
+                triangleCount, materialTriangleCount);
+            surface.active = activePortalAreas
+                ? (record.portalArea == RT_SMOKE_STATIC_BUCKET_FALLBACK_AREA ||
+                    (record.portalArea >= 0 &&
+                     record.portalArea < static_cast<int>(activePortalAreas->size()) &&
+                     (*activePortalAreas)[record.portalArea]))
+                : record.seenThisFrame;
+            snapshot.surfaces.push_back(surface);
+        }
+        snapshot.complete = snapshot.surfaces.size() == counts.surfaces &&
+            snapshot.vertices.size() == counts.vertices &&
+            snapshot.indexes.size() == counts.indexes &&
+            snapshot.triangleClasses.size() == counts.triangleClasses &&
+            snapshot.triangleMaterials.size() == counts.triangleMaterials;
+        if (!snapshot.complete)
+        {
+            snapshot.ResetAndRelease();
+            return false;
+        }
+        return true;
+    }
+    catch (const std::bad_alloc&) {}
+    catch (const std::length_error&) {}
+    snapshot.ResetAndRelease();
+    return false;
 }
 
 void RtSmokeGeometryUniverse::BuildStaticTlasBucketObservations(
@@ -4065,6 +4664,7 @@ RtSmokeGeometryUniverse::GetOrBuildStaticBucketResidentGeometryPack(
             m_staticMaterialGeneration;
         m_staticBucketResidentGeometryPackValid =
             m_staticBucketResidentGeometryPack.exact;
+        m_staticBucketResidentAssignmentPlan = assignmentPlan;
         return m_staticBucketResidentGeometryPack;
     }
 
@@ -4096,7 +4696,37 @@ RtSmokeGeometryUniverse::GetOrBuildStaticBucketResidentGeometryPack(
         }
         cachedBucket.active = sourceBucket.active;
     }
+    m_staticBucketResidentAssignmentPlan = assignmentPlan;
     return m_staticBucketResidentGeometryPack;
+}
+
+bool RtSmokeGeometryUniverse::TryGetStaticBucketResidentCpuState(
+    RtSmokeStaticBucketAssignmentPlan& assignmentPlan,
+    const RtSmokeStaticBucketGeometryPack*& geometryPack) const
+{
+    geometryPack = nullptr;
+    if (!m_staticBucketResidentGeometryPackValid ||
+        !m_staticBucketResidentGeometryPack.exact ||
+        !m_staticBucketResidentAssignmentPlan.exactCoverage)
+        return false;
+    assignmentPlan = m_staticBucketResidentAssignmentPlan;
+    geometryPack = &m_staticBucketResidentGeometryPack;
+    return true;
+}
+
+void RtSmokeGeometryUniverse::InstallStaticBucketResidentCpuState(
+    RtSmokeStaticBucketAssignmentPlan&& assignmentPlan,
+    RtSmokeStaticBucketGeometryPack&& geometryPack)
+{
+    m_staticBucketResidentAssignmentPlan = std::move(assignmentPlan);
+    m_staticBucketResidentGeometryPack = std::move(geometryPack);
+    m_staticBucketResidentAssignmentPlanSignature =
+        m_staticBucketResidentAssignmentPlan.planSignature;
+    m_staticBucketResidentGeometryGeneration = m_staticGeometryGeneration;
+    m_staticBucketResidentMaterialGeneration = m_staticMaterialGeneration;
+    m_staticBucketResidentGeometryPackValid =
+        m_staticBucketResidentAssignmentPlan.exactCoverage &&
+        m_staticBucketResidentGeometryPack.exact;
 }
 
 bool RtSmokeGeometryUniverse::GetOrBuildStaticBucketMaterialIndexes(
@@ -6071,113 +6701,611 @@ void RtSmokeGeometryUniverse::LogStaticRangeHistory(int maxRecords) const
     common->Printf("PathTracePrimaryPass: RT smoke geometry range history dump logged=%d\n", logged);
 }
 
-void RtSmokeGeometryUniverse::RecordRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation)
+namespace
 {
-    ++m_rigidMeshCandidateFrameStats.observations;
-    if ((observation.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) != 0)
-    {
-        ++m_rigidMeshCandidateFrameStats.rigidObservations;
-    }
+RtSmokeGeometryUniverse* g_rigidMeshPersistUniverse = nullptr;
+std::atomic<int> g_rigidMeshPersistTargetBoundAtFirstEntityAdd(-1);
+std::atomic<uint64> g_rigidMeshPersistCallsTotal(0);
+std::atomic<uint64> g_rigidMeshPersistedSurfacesTotal(0);
+}
 
-    const uint32_t rejectFlags = BuildRigidMeshCandidateRejectFlags(observation);
-    if (rejectFlags != 0)
+void RtSmokeGeometryUniverse::BindAsRigidMeshPersistTarget()
+{
+    g_rigidMeshPersistUniverse = this;
+}
+
+void RtSmokeGeometryUniverse::UnbindAsRigidMeshPersistTarget()
+{
+    if (g_rigidMeshPersistUniverse == this)
     {
-        ++m_rigidMeshCandidateFrameStats.rejectedInstances;
-        AccumulateRigidMeshCandidateRejectStats(m_rigidMeshCandidateFrameStats, rejectFlags);
-        AddRigidMeshCandidateSample(observation, false, rejectFlags, 0);
+        g_rigidMeshPersistUniverse = nullptr;
+    }
+}
+
+RtSmokeGeometryUniverse* RtSmokeGeometryUniverse::ActiveRigidMeshPersistTarget()
+{
+    return g_rigidMeshPersistUniverse;
+}
+
+void RtSmokeGeometryUniverse::NoteRigidMeshPersistFirstEntityAdd(bool targetBound)
+{
+	int expected = -1;
+	g_rigidMeshPersistTargetBoundAtFirstEntityAdd.compare_exchange_strong(
+		expected, targetBound ? 1 : 0, std::memory_order_relaxed);
+}
+
+void RtSmokeGeometryUniverse::NoteRigidMeshPersistCall()
+{
+	g_rigidMeshPersistCallsTotal.fetch_add(1, std::memory_order_relaxed);
+}
+
+void RtSmokeGeometryUniverse::NoteRigidMeshPersistedSurfaces(uint32 persistedSurfaces)
+{
+	g_rigidMeshPersistedSurfacesTotal.fetch_add(
+		persistedSurfaces, std::memory_order_relaxed);
+}
+
+RtSmokeGeometryUniverse::~RtSmokeGeometryUniverse()
+{
+    std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+    cpu_producer_publish::RigidMeshCandidateLookupHealthState state;
+    state.health = m_rigidMeshCandidateLookupHealth;
+    if (!cpu_producer_publish::RigidMeshCandidateLookupIsQuarantined(state))
+    {
+        std::unordered_map<uint64, size_t> empty;
+        m_rigidMeshCandidateLookup.swap(empty);
+    }
+}
+
+void RtSmokeGeometryUniverse::SnapshotRigidMeshRegistryLookup(
+    const std::vector<uint64>& meshHashes,
+	std::unordered_map<uint64, RigidMeshRegistryLookupSnapshotEntry>& out,
+	RigidMeshRegistryLookupDiagnostics* diagnostics,
+	const std::vector<RigidMeshRegistryIdentityDiagnosticInput>*
+		identityDiagnosticInputs) const
+{
+    OPTICK_EVENT("PT Rigid Registry Snapshot");
+    out.clear();
+	if (diagnostics != nullptr)
+	{
+		*diagnostics = RigidMeshRegistryLookupDiagnostics();
+	}
+    OPTICK_EVENT("PT Rigid Registry Snapshot Lock + Lookup");
+    std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+	if (diagnostics != nullptr)
+	{
+		diagnostics->candidateRecordInsertTotal =
+			m_rigidMeshCandidateRecordInsertTotal;
+		diagnostics->candidateRecordInsertsThisFrame =
+			m_rigidMeshCandidateRecordInsertTotal -
+			m_rigidMeshCandidateRecordInsertFrameStart;
+		diagnostics->persistTargetBoundAtFirstEntityAdd =
+			g_rigidMeshPersistTargetBoundAtFirstEntityAdd.load(
+				std::memory_order_relaxed);
+		diagnostics->persistCallsTotal =
+			g_rigidMeshPersistCallsTotal.load(std::memory_order_relaxed);
+		diagnostics->persistedSurfacesTotal =
+			g_rigidMeshPersistedSurfacesTotal.load(std::memory_order_relaxed);
+	}
+    if (!EnsureRigidMeshCandidateLookupLive(0))
+    {
+		if (diagnostics != nullptr)
+		{
+			diagnostics->earlyReturn = true;
+		}
         return;
     }
-
-    bool cacheHit = false;
-    RigidMeshCandidateRecord* record = FindOrCreateRigidMeshCandidate(observation, cacheHit);
-    int seenCount = 0;
-    if (record)
+	if (diagnostics != nullptr)
+	{
+		diagnostics->candidateRecordCount =
+			static_cast<uint32>(m_rigidMeshCandidateRecords.size());
+		diagnostics->lookupTableSize =
+			static_cast<uint32>(m_rigidMeshCandidateLookup.size());
+		diagnostics->populationSnapshotAvailable = true;
+	}
+    try
     {
-        const bool cpuMeshCacheMissing =
-            !cacheHit ||
-            record->cpuMeshContentSignature == 0;
-        const bool cpuMeshIdentityChanged =
-            record->vertexBufferIdentity !=
-                observation.vertexBufferIdentity ||
-            record->indexBufferIdentity !=
-                observation.indexBufferIdentity ||
-            record->vertexFormat != observation.vertexFormat ||
-            record->modelEpoch != observation.modelEpoch;
-        const bool cpuMeshRangeChanged =
-            record->sourceRange.vertices.count !=
-                observation.numVerts ||
-            record->sourceRange.indexes.count !=
-                observation.numIndexes;
-        const bool cpuMeshTextureMatrixChanged =
-            std::memcmp(
-                record->normalTexMatrix,
-                observation.normalTexMatrix,
-                sizeof(record->normalTexMatrix)) != 0;
-        const bool cpuMeshCacheChanged =
-            cpuMeshCacheMissing ||
-            cpuMeshIdentityChanged ||
-            cpuMeshRangeChanged ||
-            cpuMeshTextureMatrixChanged;
-        record->tri = observation.tri;
-        record->vertexBufferIdentity = observation.vertexBufferIdentity;
-        record->indexBufferIdentity = observation.indexBufferIdentity;
-        record->materialId = observation.materialId;
-        record->materialClassSignature = observation.materialClassSignature;
-        record->surfaceClassId = observation.surfaceClassId;
-        record->triangleClassAndFlags = observation.triangleClassAndFlags != 0u ? observation.triangleClassAndFlags : observation.surfaceClassId;
-        record->sourceFlags = observation.sourceFlags;
-        record->vertexFormat = observation.vertexFormat;
-        record->modelEpoch = observation.modelEpoch;
-        record->modelSurfaceIndex = observation.modelSurfaceIndex;
-        record->jointIndex = observation.jointIndex;
-        memcpy(record->normalTexMatrix, observation.normalTexMatrix, sizeof(record->normalTexMatrix));
-        record->sourceRange.vertices.count = observation.numVerts;
-        record->sourceRange.indexes.count = observation.numIndexes;
-        record->sourceRange.triangles.count = observation.numIndexes / 3;
-        record->materialName = observation.materialName;
-        record->modelName = observation.modelName;
-        if (cpuMeshCacheChanged)
+        for (size_t hashIndex = 0; hashIndex < meshHashes.size(); ++hashIndex)
         {
-            const char* refreshEvent =
-                cpuMeshCacheMissing
-                    ? "PT Rigid Cache Refresh Missing"
-                    : cpuMeshIdentityChanged
-                        ? "PT Rigid Cache Refresh Identity"
-                        : cpuMeshRangeChanged
-                            ? "PT Rigid Cache Refresh Range"
-                            : "PT Rigid Cache Refresh TexMatrix";
-            OPTICK_EVENT_DYNAMIC(refreshEvent);
-            RefreshRigidMeshCandidateCpuCache(*record);
+            const uint64 meshHash = meshHashes[hashIndex];
+            const std::unordered_map<uint64, size_t>::const_iterator it =
+                m_rigidMeshCandidateLookup.find(meshHash);
+            if (it == m_rigidMeshCandidateLookup.end() ||
+                it->second >= m_rigidMeshCandidateRecords.size())
+            {
+                continue;
+            }
+            const RigidMeshCandidateRecord& record =
+                m_rigidMeshCandidateRecords[it->second];
+            RigidMeshRegistryLookupSnapshotEntry entry;
+            entry.ready = RigidMeshHasCachedRouteGpuReady(record);
+            if (!entry.ready && record.deferredSinceFrame != 0)
+            {
+                const uint64 start = record.deferredSinceFrame;
+                const uint64 deadline = start + 1;
+                const uint64 frame = m_currentFrameIndex == 0 ? 1 : m_currentFrameIndex;
+                entry.pending = frame <= deadline;
+                entry.pendingExpired = frame > deadline;
+            }
+            entry.built = cpu_producer_publish::RigidBlasBuildStateIsSubmitted(
+                record.rigidBlas != nullptr,
+                record.gpuBlasCreated,
+                record.gpuBlasBuildSubmitted);
+            if (entry.built && record.rigidBlas)
+            {
+                entry.blasToken = reinterpret_cast<uint64>(
+                    static_cast<nvrhi::rt::IAccelStruct*>(record.rigidBlas));
+                entry.builtBlas = record.rigidBlas;
+            }
+			entry.refreshAttempts = record.cpuCacheRefreshAttempts;
+			entry.refreshSuccesses = record.cpuCacheRefreshSuccesses;
+			entry.refreshFailures = record.cpuCacheRefreshFailures;
+			entry.diagnosticReason = static_cast<uint8>(
+				RigidMeshRegistryDiagnosticReason(record));
+            out[meshHash] = entry;
         }
-        if (!record->seenThisFrame)
-        {
-            record->seenThisFrame = true;
-            record->lastSeenFrame = static_cast<int>(m_currentFrameIndex);
-            record->newlyCreatedThisFrame = !cacheHit;
-        }
-        ++record->seenCount;
-        ++record->instanceCountThisFrame;
-        seenCount = record->seenCount;
+    }
+    catch (const std::length_error&)
+    {
+        QuarantineRigidMeshCandidateLookup("lookup", 0, 0, 0);
+        out.clear();
+		if (diagnostics != nullptr)
+		{
+			diagnostics->earlyReturn = true;
+			diagnostics->populationSnapshotAvailable = false;
+		}
+		return;
+	}
+	if (diagnostics != nullptr)
+	{
+		cpu_producer_publish::RigidRegistryLookupDiagnosticCounts reduced;
+		if (cpu_producer_publish::ReduceRigidRegistryLookupDiagnostics(
+				meshHashes, out, reduced))
+		{
+			diagnostics->available = reduced.available;
+			diagnostics->uniqueMeshRequests = reduced.uniqueMeshRequests;
+			diagnostics->zeroHashSkipped = reduced.zeroHashSkipped;
+			diagnostics->lookupHits = reduced.lookupHits;
+			diagnostics->lookupMisses = reduced.lookupMisses;
+			diagnostics->ready = reduced.ready;
+			diagnostics->built = reduced.built;
+			diagnostics->pending = reduced.pending;
+			diagnostics->blasTokens = reduced.blasTokens;
+		}
+		for (const auto& lookupEntry : m_rigidMeshCandidateLookup)
+		{
+			InsertRigidRegistryDiagnosticKeySample(
+				diagnostics->residentKeySample,
+				diagnostics->residentKeySampleCount,
+				lookupEntry.first);
+		}
+		for (uint64 meshHash : meshHashes)
+		{
+			InsertRigidRegistryDiagnosticKeySample(
+				diagnostics->presentRequestKeySample,
+				diagnostics->presentRequestKeySampleCount,
+				meshHash);
+		}
+		if (identityDiagnosticInputs != nullptr)
+		{
+			std::array<RigidMeshRegistryIdentityDiagnosticSample,
+				RT_PT_RIGID_REGISTRY_IDENTITY_SAMPLES> stagedSamples = {};
+			uint32 stagedSampleCount = 0;
+			try
+			{
+				const size_t inputCount = std::min(
+					identityDiagnosticInputs->size(), stagedSamples.size());
+				for (size_t inputIndex = 0; inputIndex < inputCount; ++inputIndex)
+				{
+					const RigidMeshRegistryIdentityDiagnosticInput& input =
+						(*identityDiagnosticInputs)[inputIndex];
+					RigidMeshRegistryIdentityDiagnosticSample& sample =
+						stagedSamples[stagedSampleCount];
+					sample.instanceId = input.instanceId;
+					sample.modelEpoch = input.modelEpoch;
+					sample.storedMeshIdCount = std::min(
+						input.storedMeshIdCount,
+						static_cast<uint32>(sample.storedMeshIds.size()));
+					for (uint32 keyIndex = 0;
+						keyIndex < sample.storedMeshIdCount; ++keyIndex)
+					{
+						const uint64 key = input.storedMeshIds[keyIndex];
+						sample.storedMeshIds[keyIndex] = key;
+						sample.storedLookupMembership[keyIndex] =
+							m_rigidMeshCandidateLookup.find(key) !=
+							m_rigidMeshCandidateLookup.end() ? 1u : 0u;
+					}
+					if (input.model != nullptr)
+					{
+						std::vector<uint64> recomputedHashes;
+						ComputeRigidMeshHashesFromPresent(
+							input.model,
+							input.modelEpoch,
+							recomputedHashes,
+							RT_PT_RIGID_REGISTRY_IDENTITY_SURFACES);
+						sample.recomputeAvailable = true;
+						sample.recomputedMeshIdCount = std::min(
+							recomputedHashes.size(), sample.recomputedMeshIds.size());
+						for (uint32 keyIndex = 0;
+							keyIndex < sample.recomputedMeshIdCount; ++keyIndex)
+						{
+							const uint64 key = recomputedHashes[keyIndex];
+							sample.recomputedMeshIds[keyIndex] = key;
+							sample.recomputedLookupMembership[keyIndex] =
+								m_rigidMeshCandidateLookup.find(key) !=
+								m_rigidMeshCandidateLookup.end() ? 1u : 0u;
+						}
+					}
+					++stagedSampleCount;
+				}
+				diagnostics->identitySamples = stagedSamples;
+				diagnostics->identitySampleCount = stagedSampleCount;
+				diagnostics->identitySamplesAvailable = true;
+			}
+			catch (...)
+			{
+				// Dump-only recomputation is transactional: never mutate lookup
+				// health, the completed snapshot, or frame eligibility.
+				diagnostics->identitySamplesAvailable = false;
+			}
+		}
+	}
+}
+
+int RtSmokeGeometryUniverse::ComputeRigidMeshHashesFromPresent(
+    const idRenderModel* model,
+    uint32_t modelEpoch,
+    std::vector<uint64>& outHashes,
+	int maxSurfaceCount)
+{
+    outHashes.clear();
+    if (!model || model->IsStaticWorldModel() || model->IsDynamicModel() != DM_STATIC)
+    {
+        return 0;
     }
 
-    ++m_rigidMeshCandidateFrameStats.eligibleInstances;
-    m_rigidMeshCandidateFrameStats.eligibleVertsThisFrame += observation.numVerts;
-    m_rigidMeshCandidateFrameStats.eligibleIndexesThisFrame += observation.numIndexes;
-    m_rigidMeshCandidateFrameStats.eligibleTrianglesThisFrame += observation.numIndexes / 3;
-    if ((observation.sourceFlags & RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE) != 0)
+	const int modelSurfaceCount = model->NumSurfaces();
+	const int surfaceCount = maxSurfaceCount < 0
+		? modelSurfaceCount
+		: std::min(modelSurfaceCount, maxSurfaceCount);
+    for (int surfaceIndex = 0; surfaceIndex < surfaceCount; ++surfaceIndex)
     {
-        ++m_rigidMeshCandidateFrameStats.materialOverrideEligibleInstances;
+        const modelSurface_t* surface = model->Surface(surfaceIndex);
+        const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
+        const idMaterial* material = surface ? surface->shader : nullptr;
+        if (!tri || !tri->verts || !tri->indexes ||
+            tri->numVerts <= 0 || tri->numIndexes <= 0 ||
+            (tri->numIndexes % 3) != 0 || !material)
+        {
+            continue;
+        }
+
+        const uint32_t materialId = SmokeMaterialId(material);
+        if (materialId == 0)
+        {
+            continue;
+        }
+
+        const uint32_t surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+        const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(
+            material, RtSmokeSurfaceClass::RigidEntity, RtSmokeTranslucentSubtype::Unknown);
+        RtPathTraceMeshKey meshKey;
+        FillPathTraceRigidRouteMeshKey(
+            meshKey, tri, materialId, materialClassSignature, surfaceClassId);
+        const uint64 meshHash = BuildPathTraceRigidMeshHash(
+            meshKey, model, modelEpoch, surfaceIndex, -1);
+        if (meshHash != 0)
+        {
+            outHashes.push_back(meshHash);
+        }
     }
-    if (cacheHit)
+    return static_cast<int>(outHashes.size());
+}
+
+void LogRigidMeshCandidateLookupQuarantineOnce(
+    const char* mapName,
+    uint64_t mapSize,
+    uint64_t buckets,
+    uint64_t recordsSize,
+    uint64_t meshHash)
+{
+    static bool logged = false;
+    if (logged)
     {
-        ++m_rigidMeshCandidateFrameStats.reusedEligibleMeshObservations;
+        return;
     }
-    else
+    logged = true;
+    common->Printf(
+        "PathTracePrimaryPass: rigid candidate map quarantined map=%s size=%llu buckets=%llu records=%llu meshHash=0x%llx\n",
+        mapName,
+        static_cast<unsigned long long>(mapSize),
+        static_cast<unsigned long long>(buckets),
+        static_cast<unsigned long long>(recordsSize),
+        static_cast<unsigned long long>(meshHash));
+}
+
+void RtSmokeGeometryUniverse::QuarantineRigidMeshCandidateLookup(
+    const char* reason,
+    uint64 meshHash,
+    uint64 mapSize,
+    uint64 mapBuckets) const
+{
+    cpu_producer_publish::RigidMeshCandidateLookupHealthState state;
+    state.health = m_rigidMeshCandidateLookupHealth;
+    state.reason = m_rigidMeshCandidateLookupReason;
+    const bool transitioned =
+        cpu_producer_publish::RigidMeshCandidateLookupQuarantine(
+            state,
+            cpu_producer_publish::kRigidMeshCandidateLookupReasonStructural);
+    m_rigidMeshCandidateLookupHealth = state.health;
+    m_rigidMeshCandidateLookupReason = state.reason;
+    if (transitioned)
     {
-        ++m_rigidMeshCandidateFrameStats.newlyEligibleMeshes;
+        AdvanceRigidMeshCandidateSemanticRevisionUnlocked();
+        LogRigidMeshCandidateLookupQuarantineOnce(
+            reason,
+            mapSize,
+            mapBuckets,
+            m_rigidMeshCandidateRecords.size(),
+            meshHash);
     }
-    m_frameRigidMeshCandidateHashes.insert(observation.meshHash);
-    AddRigidMeshCandidateSample(observation, true, 0, seenCount);
+}
+
+bool RtSmokeGeometryUniverse::EnsureRigidMeshCandidateLookupLive(uint64 meshHash) const
+{
+    cpu_producer_publish::RigidMeshCandidateLookupHealthState state;
+    state.health = m_rigidMeshCandidateLookupHealth;
+    state.reason = m_rigidMeshCandidateLookupReason;
+    if (cpu_producer_publish::RigidMeshCandidateLookupIsQuarantined(state))
+    {
+        return false;
+    }
+    if (m_rigidMeshCandidateLookupCanary !=
+        cpu_producer_publish::kRigidMeshCandidateLookupCanaryLive)
+    {
+        static bool firstTouchLogged = false;
+        if (!firstTouchLogged)
+        {
+            firstTouchLogged = true;
+            common->Printf(
+                "PathTracePrimaryPass: rigid candidate map first-touch fail-closed canary=0x%x\n",
+                m_rigidMeshCandidateLookupCanary);
+        }
+        QuarantineRigidMeshCandidateLookup("lookup", meshHash, 0, 0);
+        return false;
+    }
+    return true;
+}
+
+bool RtSmokeGeometryUniverse::RigidMeshCandidateLookupFindUnlocked(
+    uint64 meshHash,
+    size_t& recordIndex) const
+{
+    OPTICK_EVENT("PT Rigid Candidate Lookup Find Unlocked");
+    recordIndex = static_cast<size_t>(-1);
+    if (!EnsureRigidMeshCandidateLookupLive(meshHash))
+    {
+        return false;
+    }
+    try
+    {
+        const std::unordered_map<uint64, size_t>::const_iterator it =
+            m_rigidMeshCandidateLookup.find(meshHash);
+        if (it == m_rigidMeshCandidateLookup.end() ||
+            it->second >= m_rigidMeshCandidateRecords.size())
+        {
+            return false;
+        }
+        recordIndex = it->second;
+        return true;
+    }
+    catch (const std::length_error&)
+    {
+        QuarantineRigidMeshCandidateLookup("lookup", meshHash, 0, 0);
+        return false;
+    }
+}
+
+bool RtSmokeGeometryUniverse::RigidMeshCandidateLookupFind(
+    uint64 meshHash,
+    size_t& recordIndex) const
+{
+    OPTICK_EVENT("PT Rigid Candidate Lookup Lock + Find");
+    std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+    return RigidMeshCandidateLookupFindUnlocked(meshHash, recordIndex);
+}
+
+bool RtSmokeGeometryUniverse::RigidMeshCandidateLookupBindUnlocked(
+    uint64 meshHash,
+    size_t recordIndex)
+{
+    if (!EnsureRigidMeshCandidateLookupLive(meshHash))
+    {
+        return false;
+    }
+    try
+    {
+        const auto prior = m_rigidMeshCandidateLookup.find(meshHash);
+        const bool changed = prior == m_rigidMeshCandidateLookup.end() ||
+            prior->second != recordIndex;
+        m_rigidMeshCandidateLookup[meshHash] = recordIndex;
+        m_rigidMeshCandidateLookupCanary =
+            cpu_producer_publish::kRigidMeshCandidateLookupCanaryLive;
+        if (changed) AdvanceRigidMeshCandidateSemanticRevisionUnlocked();
+        return true;
+    }
+    catch (const std::length_error&)
+    {
+        QuarantineRigidMeshCandidateLookup("lookup", meshHash, 0, 0);
+        return false;
+    }
+}
+
+bool RtSmokeGeometryUniverse::RigidMeshCandidateLookupBind(
+    uint64 meshHash,
+    size_t recordIndex)
+{
+    std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+    return RigidMeshCandidateLookupBindUnlocked(meshHash, recordIndex);
+}
+
+bool RtSmokeGeometryUniverse::RebuildRigidMeshCandidateLookupFromRecords()
+{
+    std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+    return RebuildRigidMeshCandidateLookupFromRecordsUnlocked();
+}
+
+bool RtSmokeGeometryUniverse::RebuildRigidMeshCandidateLookupFromRecordsUnlocked()
+{
+    cpu_producer_publish::RigidMeshCandidateLookupHealthState state;
+    state.health = m_rigidMeshCandidateLookupHealth;
+    state.reason = m_rigidMeshCandidateLookupReason;
+    bool mapTouched = false;
+    if (!cpu_producer_publish::RigidMeshCandidateLookupTryRebuild(state, mapTouched))
+    {
+        return false;
+    }
+    std::unordered_map<uint64, size_t> fresh;
+    try
+    {
+        fresh.reserve(m_rigidMeshCandidateRecords.size());
+        for (size_t recordIndex = 0;
+            recordIndex < m_rigidMeshCandidateRecords.size();
+            ++recordIndex)
+        {
+            const uint64 meshHash = m_rigidMeshCandidateRecords[recordIndex].meshHash;
+            if (meshHash == 0)
+            {
+                continue;
+            }
+            fresh[meshHash] = recordIndex;
+        }
+        if (!cpu_producer_publish::RigidMeshCandidateMapStateIsPlausible(
+                m_rigidMeshCandidateRecords.size(),
+                fresh.size(),
+                fresh.bucket_count(),
+                fresh.max_load_factor()))
+        {
+            QuarantineRigidMeshCandidateLookup(
+                "lookup",
+                0,
+                fresh.size(),
+                fresh.bucket_count());
+            return false;
+        }
+        m_rigidMeshCandidateLookup.swap(fresh);
+        m_rigidMeshCandidateLookupCanary =
+            cpu_producer_publish::kRigidMeshCandidateLookupCanaryLive;
+        cpu_producer_publish::RigidMeshCandidateLookupResetHealth(state);
+        state.reason = cpu_producer_publish::kRigidMeshCandidateLookupReasonNone;
+        m_rigidMeshCandidateLookupHealth = state.health;
+        m_rigidMeshCandidateLookupReason = state.reason;
+        AdvanceRigidMeshCandidateSemanticRevisionUnlocked();
+        return true;
+    }
+    catch (const std::length_error&)
+    {
+        QuarantineRigidMeshCandidateLookup("lookup", 0, 0, 0);
+        return false;
+    }
+}
+
+int RtSmokeGeometryUniverse::PersistRigidMeshFromPresent(const idRenderModel* model, uint32_t modelEpoch)
+{
+    OPTICK_EVENT("PT Rigid Persist Model Surfaces");
+    if (!model || model->IsStaticWorldModel() || model->IsDynamicModel() != DM_STATIC)
+    {
+        return 0;
+    }
+
+    int persisted = 0;
+    try
+    {
+    const int surfaceCount = model->NumSurfaces();
+    for (int surfaceIndex = 0; surfaceIndex < surfaceCount; ++surfaceIndex)
+    {
+        const modelSurface_t* surface = model->Surface(surfaceIndex);
+        const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
+        const idMaterial* material = surface ? surface->shader : nullptr;
+        if (!tri || !tri->verts || !tri->indexes ||
+            tri->numVerts <= 0 || tri->numIndexes <= 0 ||
+            (tri->numIndexes % 3) != 0 || !material)
+        {
+            continue;
+        }
+
+        const uint32_t materialId = SmokeMaterialId(material);
+        if (materialId == 0)
+        {
+            continue;
+        }
+
+        const uint32_t surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+        const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(
+            material, RtSmokeSurfaceClass::RigidEntity, RtSmokeTranslucentSubtype::Unknown);
+        RtPathTraceMeshKey meshKey;
+        FillPathTraceRigidRouteMeshKey(
+            meshKey, tri, materialId, materialClassSignature, surfaceClassId);
+
+        const uint64 meshHash = BuildPathTraceRigidMeshHash(
+            meshKey, model, modelEpoch, surfaceIndex, -1);
+        if (meshHash == 0)
+        {
+            continue;
+        }
+
+        RtPathTraceRigidMeshCandidateObservation observation;
+        observation.tri = tri;
+        observation.meshHash = meshHash;
+        observation.vertexBufferIdentity = meshKey.vertexBufferIdentity;
+        observation.indexBufferIdentity = meshKey.indexBufferIdentity;
+        observation.sourceFlags = RT_PT_INSTANCE_SOURCE_RIGID;
+        observation.materialId = materialId;
+        observation.materialClassSignature = materialClassSignature;
+        observation.surfaceClassId = surfaceClassId;
+        observation.triangleClassAndFlags = surfaceClassId;
+        observation.vertexFormat = meshKey.vertexFormat;
+        observation.drawSurfIndex = -1;
+        observation.modelSurfaceIndex = surfaceIndex;
+        observation.modelEpoch = modelEpoch;
+        observation.numVerts = tri->numVerts;
+        observation.numIndexes = tri->numIndexes;
+        observation.localSpaceValid = true;
+		BuildRigidNormalTexMatrix(
+			material,
+			material->ConstantRegisters(),
+			observation.normalTexMatrix);
+        observation.materialName = material->GetName();
+        observation.modelName = model->Name();
+
+        RecordRigidMeshCandidate(observation);
+
+        {
+            OPTICK_EVENT("PT Rigid Persist Post-Record Lock + Find");
+            std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+            if (!EnsureRigidMeshCandidateLookupLive(meshHash))
+            {
+                continue;
+            }
+            size_t persistIndex = 0;
+            if (RigidMeshCandidateLookupFindUnlocked(meshHash, persistIndex))
+            {
+                if (!m_rigidMeshCandidateRecords[persistIndex].rigidBlas &&
+                    m_rigidMeshCandidateRecords[persistIndex].deferredSinceFrame == 0)
+                {
+                    m_rigidMeshCandidateRecords[persistIndex].deferredSinceFrame =
+                        m_currentFrameIndex == 0 ? 1 : m_currentFrameIndex;
+                }
+                ++persisted;
+            }
+        }
+    }
+    }
+    catch (const std::length_error&)
+    {
+        QuarantineRigidMeshCandidateLookup("lookup", 0, 0, 0);
+    }
+    return persisted;
 }
 
 const RtPathTraceRigidMeshCandidateStats& RtSmokeGeometryUniverse::GetRigidMeshCandidateStats() const
@@ -6317,50 +7445,6 @@ void RtSmokeGeometryUniverse::RunRigidMeshCandidateDiagnostics(bool dumpRequeste
     r_pathTracingRigidMeshUniverseDump.SetInteger(0);
 }
 
-RtSmokeGeometryUniverse::RigidMeshCandidateRecord* RtSmokeGeometryUniverse::FindOrCreateRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation, bool& cacheHit)
-{
-    cacheHit = false;
-    const std::unordered_map<uint64, size_t>::iterator it = m_rigidMeshCandidateLookup.find(observation.meshHash);
-    if (it != m_rigidMeshCandidateLookup.end() && it->second < m_rigidMeshCandidateRecords.size())
-    {
-        cacheHit = true;
-        return &m_rigidMeshCandidateRecords[it->second];
-    }
-
-    RigidMeshCandidateRecord record;
-    record.valid = true;
-    record.tri = observation.tri;
-    record.meshHash = observation.meshHash;
-    record.vertexBufferIdentity = observation.vertexBufferIdentity;
-    record.indexBufferIdentity = observation.indexBufferIdentity;
-    record.materialId = observation.materialId;
-    record.materialClassSignature = observation.materialClassSignature;
-    record.surfaceClassId = observation.surfaceClassId;
-    record.triangleClassAndFlags = observation.triangleClassAndFlags != 0u ? observation.triangleClassAndFlags : observation.surfaceClassId;
-    record.sourceFlags = observation.sourceFlags;
-    record.vertexFormat = observation.vertexFormat;
-    record.modelEpoch = observation.modelEpoch;
-    record.modelSurfaceIndex = observation.modelSurfaceIndex;
-    record.jointIndex = observation.jointIndex;
-    record.sourceRange.vertices.offset = 0;
-    record.sourceRange.vertices.count = observation.numVerts;
-    record.sourceRange.indexes.offset = 0;
-    record.sourceRange.indexes.count = observation.numIndexes;
-    record.sourceRange.triangles.offset = 0;
-    record.sourceRange.triangles.count = observation.numIndexes / 3;
-    record.firstSeenFrame = static_cast<int>(m_currentFrameIndex);
-    record.lastSeenFrame = static_cast<int>(m_currentFrameIndex);
-    record.materialName = observation.materialName;
-    record.modelName = observation.modelName;
-    RefreshRigidMeshCandidateCpuCache(record);
-    const size_t recordIndex = m_rigidMeshCandidateRecords.size();
-    m_rigidMeshCandidateRecords.push_back(record);
-    m_rigidMeshCandidateLookup[observation.meshHash] = recordIndex;
-    ++m_generation;
-    m_rigidMeshCandidateFrameStats.generation = m_generation;
-    return &m_rigidMeshCandidateRecords.back();
-}
-
 void RtSmokeGeometryUniverse::ResetRigidMeshCandidateFrameStats()
 {
     m_rigidMeshCandidateFrameStats = RtPathTraceRigidMeshCandidateStats();
@@ -6368,43 +7452,8 @@ void RtSmokeGeometryUniverse::ResetRigidMeshCandidateFrameStats()
 
 void RtSmokeGeometryUniverse::AddRigidMeshCandidateSample(const RtPathTraceRigidMeshCandidateObservation& observation, bool eligible, uint32_t rejectFlags, int seenCount)
 {
-    RtPathTraceRigidMeshCandidateSample* sample = nullptr;
-    if (eligible)
-    {
-        if (m_rigidMeshCandidateFrameStats.eligibleSampleCount >= RT_PT_RIGID_MESH_CANDIDATE_SAMPLES)
-        {
-            return;
-        }
-        sample = &m_rigidMeshCandidateFrameStats.eligibleSamples[m_rigidMeshCandidateFrameStats.eligibleSampleCount++];
-    }
-    else
-    {
-        if (m_rigidMeshCandidateFrameStats.rejectedSampleCount >= RT_PT_RIGID_MESH_CANDIDATE_SAMPLES)
-        {
-            return;
-        }
-        sample = &m_rigidMeshCandidateFrameStats.rejectedSamples[m_rigidMeshCandidateFrameStats.rejectedSampleCount++];
-    }
-
-    sample->valid = true;
-    sample->eligible = eligible;
-    sample->meshHash = observation.meshHash;
-    sample->instanceId = observation.instanceId;
-    sample->triIdentity = reinterpret_cast<uintptr_t>(observation.tri);
-    sample->vertexBufferIdentity = observation.vertexBufferIdentity;
-    sample->indexBufferIdentity = observation.indexBufferIdentity;
-    sample->rejectFlags = rejectFlags;
-    sample->materialId = observation.materialId;
-    sample->materialClassSignature = observation.materialClassSignature;
-    sample->vertexFormat = observation.vertexFormat;
-    sample->drawSurfIndex = observation.drawSurfIndex;
-    sample->entityIndex = observation.entityIndex;
-    sample->renderEntityNum = observation.renderEntityNum;
-    sample->numVerts = observation.numVerts;
-    sample->numIndexes = observation.numIndexes;
-    sample->seenCount = seenCount;
-    sample->materialName = observation.materialName;
-    sample->modelName = observation.modelName;
+    RtPathTraceAddRigidMeshCandidateSampleToStats(
+        m_rigidMeshCandidateFrameStats, observation, eligible, rejectFlags, seenCount);
 }
 
 RtPathTraceRigidMeshValidationStats RtSmokeGeometryUniverse::ValidateRigidMeshCandidatesAgainstDynamicPayload(
@@ -6795,6 +7844,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
     std::vector<PathTraceSmokeVertex> localVertices;
     std::vector<uint32_t> localIndexes;
     const bool forceRebuild = r_pathTracingRigidBlasGpuForceRebuild.GetInteger() != 0;
+    const int registryMode = DecodeCpuProducerRegistryMode();
     const bool prepareCachedRouteRecords =
         r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
         r_pathTracingResidencyRouteCached.GetInteger() != 0;
@@ -6819,64 +7869,89 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
     admissionBudget.maxResultBytes = maxResultBytesPerFrame;
     admissionBudget.allowOneOversizedResult = true;
     std::vector<RtSmokeAsAdmissionRequest> admissionRequests;
-    admissionRequests.reserve(m_rigidMeshCandidateRecords.size());
-
-    std::vector<size_t> orderedRecordIndexes(
-        m_rigidMeshCandidateRecords.size());
-    for (size_t recordIndex = 0;
-        recordIndex < orderedRecordIndexes.size();
-        ++recordIndex)
+    std::vector<RigidMeshCandidateRecord> gpuPlans;
     {
-        orderedRecordIndexes[recordIndex] = recordIndex;
-    }
-    std::stable_sort(
-        orderedRecordIndexes.begin(),
-        orderedRecordIndexes.end(),
-        [this](size_t lhs, size_t rhs)
+        std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+        gpuPlans.reserve(m_rigidMeshCandidateRecords.size());
+        for (size_t snapshotIndex = 0;
+            snapshotIndex < m_rigidMeshCandidateRecords.size();
+            ++snapshotIndex)
         {
-            const RigidMeshCandidateRecord& lhsRecord =
-                m_rigidMeshCandidateRecords[lhs];
-            const RigidMeshCandidateRecord& rhsRecord =
-                m_rigidMeshCandidateRecords[rhs];
-            if (lhsRecord.seenThisFrame !=
-                rhsRecord.seenThisFrame)
+            gpuPlans.push_back(m_rigidMeshCandidateRecords[snapshotIndex]);
+        }
+    }
+    admissionRequests.reserve(gpuPlans.size());
+    std::stable_sort(
+        gpuPlans.begin(),
+        gpuPlans.end(),
+        [this](const RigidMeshCandidateRecord& lhsPlan,
+            const RigidMeshCandidateRecord& rhsPlan)
+        {
+            const bool lhsBuilt = cpu_producer_publish::RigidBlasBuildStateIsSubmitted(
+                lhsPlan.rigidBlas != nullptr,
+                lhsPlan.gpuBlasCreated,
+                lhsPlan.gpuBlasBuildSubmitted);
+            const bool rhsBuilt = cpu_producer_publish::RigidBlasBuildStateIsSubmitted(
+                rhsPlan.rigidBlas != nullptr,
+                rhsPlan.gpuBlasCreated,
+                rhsPlan.gpuBlasBuildSubmitted);
+            const bool lhsPreferred = cpu_producer_publish::RigidPersistGpuPlanPreferFirst(
+                lhsBuilt, lhsPlan.seenThisFrame, rhsBuilt, rhsPlan.seenThisFrame);
+            const bool rhsPreferred = cpu_producer_publish::RigidPersistGpuPlanPreferFirst(
+                rhsBuilt, rhsPlan.seenThisFrame, lhsBuilt, lhsPlan.seenThisFrame);
+            if (lhsPreferred != rhsPreferred)
             {
-                return lhsRecord.seenThisFrame;
+                return lhsPreferred;
             }
             const uint64 lhsAge =
-                lhsRecord.deferredSinceFrame != 0 &&
+                lhsPlan.deferredSinceFrame != 0 &&
                 m_currentFrameIndex >=
-                    lhsRecord.deferredSinceFrame
+                    lhsPlan.deferredSinceFrame
                     ? m_currentFrameIndex -
-                        lhsRecord.deferredSinceFrame
+                        lhsPlan.deferredSinceFrame
                     : 0;
             const uint64 rhsAge =
-                rhsRecord.deferredSinceFrame != 0 &&
+                rhsPlan.deferredSinceFrame != 0 &&
                 m_currentFrameIndex >=
-                    rhsRecord.deferredSinceFrame
+                    rhsPlan.deferredSinceFrame
                     ? m_currentFrameIndex -
-                        rhsRecord.deferredSinceFrame
+                        rhsPlan.deferredSinceFrame
                     : 0;
             if (lhsAge != rhsAge)
             {
                 return lhsAge > rhsAge;
             }
-            return lhsRecord.meshHash < rhsRecord.meshHash;
+            return lhsPlan.meshHash < rhsPlan.meshHash;
         });
 
-    auto recordAdmissionDeferral =
-        [this](
-            RigidMeshCandidateRecord& record,
-            RtSmokeAsDeferralReason reason,
-            uint64 deferredAge)
+    auto applyLiveDeferredSinceFrame =
+        [this](uint64 meshHash, bool clearToZero)
         {
-            if (record.deferredSinceFrame == 0)
+            std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+            size_t liveIndex = 0;
+            if (!RigidMeshCandidateLookupFindUnlocked(meshHash, liveIndex))
             {
-                record.deferredSinceFrame =
+                return;
+            }
+            if (clearToZero)
+            {
+                m_rigidMeshCandidateRecords[liveIndex].deferredSinceFrame = 0;
+                return;
+            }
+            if (m_rigidMeshCandidateRecords[liveIndex].deferredSinceFrame == 0)
+            {
+                m_rigidMeshCandidateRecords[liveIndex].deferredSinceFrame =
                     m_currentFrameIndex > 0
                         ? m_currentFrameIndex
                         : 1;
             }
+        };
+
+    auto noteAdmissionDeferral =
+        [this](
+            RtSmokeAsDeferralReason reason,
+            uint64 deferredAge)
+        {
             m_legacyRigidAdmissionIntervalStats.maxDeferredAge =
                 Max(
                     m_legacyRigidAdmissionIntervalStats.
@@ -6901,36 +7976,45 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
             }
         };
 
-    for (size_t recordIndex : orderedRecordIndexes)
+    for (size_t planIndex = 0; planIndex < gpuPlans.size(); ++planIndex)
     {
-        RigidMeshCandidateRecord& record =
-            m_rigidMeshCandidateRecords[recordIndex];
+        const RigidMeshCandidateRecord& gpuPlan = gpuPlans[planIndex];
         const bool cachedRouteWithinKeepWindow =
             prepareCachedRouteRecords &&
-            record.lastSeenFrame + cachedRouteFramesToKeep >= m_currentFrameIndex;
+            gpuPlan.lastSeenFrame + cachedRouteFramesToKeep >= m_currentFrameIndex;
         const bool cachedRouteCandidate =
             prepareCachedRouteRecords &&
-            !record.seenThisFrame &&
-            cachedRouteResidentMeshHashes.find(record.meshHash) != cachedRouteResidentMeshHashes.end() &&
+            !gpuPlan.seenThisFrame &&
+            cachedRouteResidentMeshHashes.find(gpuPlan.meshHash) != cachedRouteResidentMeshHashes.end() &&
             cachedRouteWithinKeepWindow &&
-            RigidMeshHasCachedRouteData(record);
-        if (!record.valid || (!record.seenThisFrame && !cachedRouteCandidate))
+            RigidMeshHasCachedRouteData(gpuPlan);
+        const bool gpuPlanBuilt =
+            cpu_producer_publish::RigidBlasBuildStateIsSubmitted(
+                gpuPlan.rigidBlas != nullptr,
+                gpuPlan.gpuBlasCreated,
+                gpuPlan.gpuBlasBuildSubmitted);
+        if (!cpu_producer_publish::RigidPersistGpuPlanShouldProcess(
+                gpuPlan.valid,
+                gpuPlan.seenThisFrame,
+                cachedRouteCandidate,
+                registryMode,
+                gpuPlanBuilt))
         {
             continue;
         }
 
         ++stats.meshRecords;
-        const int instanceCount = Max(1, record.instanceCountThisFrame);
+        const int instanceCount = Max(1, gpuPlan.instanceCountThisFrame);
         stats.instances += instanceCount;
-        stats.vertexCount += record.sourceRange.vertices.count;
-        stats.indexCount += record.sourceRange.indexes.count;
-        stats.triangleCount += record.sourceRange.triangles.count;
-        const int vertexBytes = record.sourceRange.vertices.count * static_cast<int>(sizeof(PathTraceSmokeVertex));
-        const int indexBytes = record.sourceRange.indexes.count * static_cast<int>(sizeof(uint32_t));
+        stats.vertexCount += gpuPlan.sourceRange.vertices.count;
+        stats.indexCount += gpuPlan.sourceRange.indexes.count;
+        stats.triangleCount += gpuPlan.sourceRange.triangles.count;
+        const int vertexBytes = gpuPlan.sourceRange.vertices.count * static_cast<int>(sizeof(PathTraceSmokeVertex));
+        const int indexBytes = gpuPlan.sourceRange.indexes.count * static_cast<int>(sizeof(uint32_t));
         stats.vertexBytes += vertexBytes;
         stats.indexBytes += indexBytes;
 
-        uint32_t invalidFlags = ValidateRigidBlasInputRecord(record);
+        uint32_t invalidFlags = ValidateRigidBlasInputRecord(gpuPlan);
         if (invalidFlags != 0)
         {
             ++stats.invalidInputs;
@@ -6941,40 +8025,40 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         ++stats.validInputs;
         const size_t requiredVertexBytes =
             static_cast<size_t>(
-                record.sourceRange.vertices.count) *
+                gpuPlan.sourceRange.vertices.count) *
             sizeof(PathTraceSmokeVertex);
         const size_t requiredIndexBytes =
             static_cast<size_t>(
-                record.sourceRange.indexes.count) *
+                gpuPlan.sourceRange.indexes.count) *
             sizeof(uint32_t);
-        const uint64 uploadSignature = BuildRigidGpuUploadSignature(record);
+        const uint64 uploadSignature = BuildRigidGpuUploadSignature(gpuPlan);
         bool builtThisFrame = false;
         const bool currentBuffersExact =
             RigidSmokeBufferHasCapacity(
-                record.rigidVertexBuffer,
+                gpuPlan.rigidVertexBuffer,
                 requiredVertexBytes,
                 sizeof(PathTraceSmokeVertex)) &&
             RigidSmokeBufferHasCapacity(
-                record.rigidIndexBuffer,
+                gpuPlan.rigidIndexBuffer,
                 requiredIndexBytes,
                 sizeof(uint32_t)) &&
-            record.gpuBuffersUploaded &&
-            record.gpuUploadSignature == uploadSignature;
+            gpuPlan.gpuBuffersUploaded &&
+            gpuPlan.gpuUploadSignature == uploadSignature;
         const bool currentBlasExact =
             currentBuffersExact &&
-            record.rigidBlas &&
-            record.gpuBlasCreated &&
-            record.gpuBlasBuildSubmitted &&
-            record.gpuBlasVertexCount ==
-                record.sourceRange.vertices.count &&
-            record.gpuBlasIndexCount ==
-                record.sourceRange.indexes.count;
+            gpuPlan.rigidBlas &&
+            gpuPlan.gpuBlasCreated &&
+            gpuPlan.gpuBlasBuildSubmitted &&
+            gpuPlan.gpuBlasVertexCount ==
+                gpuPlan.sourceRange.vertices.count &&
+            gpuPlan.gpuBlasIndexCount ==
+                gpuPlan.sourceRange.indexes.count;
         const bool replacementRequired =
             forceRebuild || !currentBlasExact;
         const bool replaceBuffers = !currentBuffersExact;
         if (!replacementRequired)
         {
-            record.deferredSinceFrame = 0;
+            applyLiveDeferredSinceFrame(gpuPlan.meshHash, true);
             ++stats.vertexBuffersReused;
             ++stats.indexBuffersReused;
             ++stats.blasHandlesReused;
@@ -6991,7 +8075,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
             localVertices.clear();
             localIndexes.clear();
             if (!BuildRigidLocalMeshData(
-                    record,
+                    gpuPlan,
                     localVertices,
                     localIndexes))
             {
@@ -7000,21 +8084,21 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
                 continue;
             }
             const uint64 deferredAge =
-                record.deferredSinceFrame != 0 &&
+                gpuPlan.deferredSinceFrame != 0 &&
                 m_currentFrameIndex >=
-                    record.deferredSinceFrame
+                    gpuPlan.deferredSinceFrame
                     ? m_currentFrameIndex -
-                        record.deferredSinceFrame
+                        gpuPlan.deferredSinceFrame
                     : 0;
             RtSmokeAsAdmissionRequest admissionRequest;
             admissionRequest.kind =
-                record.rigidBlas
+                gpuPlan.rigidBlas
                     ? (forceRebuild
                         ? RT_SMOKE_AS_WORK_PERIODIC_REBUILD
                         : RT_SMOKE_AS_WORK_UPDATE)
                     : RT_SMOKE_AS_WORK_NEW_BUILD;
             admissionRequest.priority =
-                record.seenThisFrame
+                gpuPlan.seenThisFrame
                     ? RT_SMOKE_AS_PRIORITY_ACTIVE
                     : RT_SMOKE_AS_PRIORITY_BACKGROUND;
             admissionRequest.deferredAge = deferredAge;
@@ -7028,8 +8112,8 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
             if (operationDecision.deferralReason ==
                 RT_SMOKE_AS_DEFER_OPERATION_BUDGET)
             {
-                recordAdmissionDeferral(
-                    record,
+                applyLiveDeferredSinceFrame(gpuPlan.meshHash, false);
+                noteAdmissionDeferral(
                     operationDecision.deferralReason,
                     deferredAge);
                 ++stats.blasBuildsSkipped;
@@ -7051,7 +8135,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
                         sizeof(PathTraceSmokeVertex),
                         true,
                         false)
-                    : record.rigidVertexBuffer;
+                    : gpuPlan.rigidVertexBuffer;
             nvrhi::BufferHandle replacementIndexBuffer =
                 replaceBuffers
                     ? CreateRigidSmokeBuffer(
@@ -7061,7 +8145,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
                         sizeof(uint32_t),
                         false,
                         true)
-                    : record.rigidIndexBuffer;
+                    : gpuPlan.rigidIndexBuffer;
             if (!replacementVertexBuffer ||
                 !replacementIndexBuffer)
             {
@@ -7073,13 +8157,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
                         m_legacyRigidAdmissionIntervalStats.
                             maxDeferredAge,
                         deferredAge);
-                if (record.deferredSinceFrame == 0)
-                {
-                    record.deferredSinceFrame =
-                        m_currentFrameIndex > 0
-                            ? m_currentFrameIndex
-                            : 1;
-                }
+                applyLiveDeferredSinceFrame(gpuPlan.meshHash, false);
                 admissionRequests.pop_back();
                 if (currentBlasExact)
                 {
@@ -7108,13 +8186,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
                         m_legacyRigidAdmissionIntervalStats.
                             maxDeferredAge,
                         deferredAge);
-                if (record.deferredSinceFrame == 0)
-                {
-                    record.deferredSinceFrame =
-                        m_currentFrameIndex > 0
-                            ? m_currentFrameIndex
-                            : 1;
-                }
+                applyLiveDeferredSinceFrame(gpuPlan.meshHash, false);
                 admissionRequests.pop_back();
                 if (currentBlasExact)
                 {
@@ -7150,8 +8222,8 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
                 admissionPlan.decisions.back();
             if (!admissionDecision.admitted)
             {
-                recordAdmissionDeferral(
-                    record,
+                applyLiveDeferredSinceFrame(gpuPlan.meshHash, false);
+                noteAdmissionDeferral(
                     admissionDecision.deferralReason,
                     deferredAge);
                 ++stats.blasBuildsSkipped;
@@ -7210,70 +8282,102 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
                     requiredVertexBytes + requiredIndexBytes);
             }
 
+            const uint64 publishMeshHash = gpuPlan.meshHash;
             nvrhi::utils::BuildBottomLevelAccelStruct(
                 commandList,
                 blasCreateResult.accelStruct,
                 blasCreateResult.accelStructDesc);
-            if (record.rigidBlas)
             {
-                RetireRigidBlas(record);
-                ++stats.blasRecreatedForInputChange;
+                std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+                size_t liveIndex = 0;
+                const bool identityRevalidated =
+                    RigidMeshCandidateLookupFindUnlocked(publishMeshHash, liveIndex) &&
+                    liveIndex < m_rigidMeshCandidateRecords.size() &&
+                    m_rigidMeshCandidateRecords[liveIndex].meshHash == publishMeshHash;
+                cpu_producer_publish::RigidMeshGpuPublishCommit publishCommit;
+                publishCommit.mutexHeld = true;
+                publishCommit.identityRevalidated = identityRevalidated;
+                publishCommit.gpuBlasBuildSubmitted = true;
+                if (!cpu_producer_publish::RigidMeshGpuPublishCommitBound(publishCommit))
+                {
+                    if (blasCreateResult.accelStruct)
+                    {
+                        m_retiredRigidGpuResources.blases.push_back(
+                            blasCreateResult.accelStruct);
+                        ++m_retiredRigidGpuResources.legacyBlasCount;
+                    }
+                    if (replaceBuffers)
+                    {
+                        RetireRigidBuffer(replacementVertexBuffer);
+                        RetireRigidBuffer(replacementIndexBuffer);
+                    }
+                }
+                else
+                {
+                    RigidMeshCandidateRecord& live =
+                        m_rigidMeshCandidateRecords[liveIndex];
+                    if (live.rigidBlas)
+                    {
+                        RetireRigidBlas(live);
+                        ++stats.blasRecreatedForInputChange;
+                    }
+                    if (replaceBuffers)
+                    {
+                        RetireRigidBuffer(live.rigidVertexBuffer);
+                        RetireRigidBuffer(live.rigidIndexBuffer);
+                        live.rigidVertexBuffer = replacementVertexBuffer;
+                        live.rigidIndexBuffer = replacementIndexBuffer;
+                    }
+                    else
+                    {
+                        ++stats.vertexBuffersReused;
+                        ++stats.indexBuffersReused;
+                    }
+                    live.rigidBlasDesc =
+                        blasCreateResult.accelStructDesc;
+                    live.rigidBlas =
+                        blasCreateResult.accelStruct;
+                    live.gpuUploadSignature = uploadSignature;
+                    live.gpuBuffersUploaded = true;
+                    live.gpuBlasCreated = true;
+                    live.gpuBlasBuildSubmitted = true;
+                    live.gpuBlasVertexCount =
+                        static_cast<int>(localVertices.size());
+                    live.gpuBlasIndexCount =
+                        static_cast<int>(localIndexes.size());
+                    live.deferredSinceFrame = 0;
+                    ++stats.blasHandlesCreated;
+                    ++stats.blasBuildsSubmitted;
+                    builtThisFrame = true;
+                }
             }
-            if (replaceBuffers)
-            {
-                RetireRigidBuffer(record.rigidVertexBuffer);
-                RetireRigidBuffer(record.rigidIndexBuffer);
-                record.rigidVertexBuffer = replacementVertexBuffer;
-                record.rigidIndexBuffer = replacementIndexBuffer;
-            }
-            else
-            {
-                ++stats.vertexBuffersReused;
-                ++stats.indexBuffersReused;
-            }
-            record.rigidBlasDesc =
-                blasCreateResult.accelStructDesc;
-            record.rigidBlas =
-                blasCreateResult.accelStruct;
-            record.gpuUploadSignature = uploadSignature;
-            record.gpuBuffersUploaded = true;
-            record.gpuBlasCreated = true;
-            record.gpuBlasBuildSubmitted = true;
-            record.gpuBlasVertexCount =
-                static_cast<int>(localVertices.size());
-            record.gpuBlasIndexCount =
-                static_cast<int>(localIndexes.size());
-            record.deferredSinceFrame = 0;
-            ++stats.blasHandlesCreated;
-            ++stats.blasBuildsSubmitted;
-            builtThisFrame = true;
         }
 
         if (stats.sampleCount < RT_PT_RIGID_BLAS_GPU_SAMPLES)
         {
             RtPathTraceRigidBlasGpuSample& sample = stats.samples[stats.sampleCount++];
             sample.valid = true;
-            sample.meshHash = record.meshHash;
-            sample.triIdentity = reinterpret_cast<uintptr_t>(record.tri);
-            sample.vertexBufferIdentity = record.vertexBufferIdentity;
-            sample.indexBufferIdentity = record.indexBufferIdentity;
-            sample.materialId = record.materialId;
+            sample.meshHash = gpuPlan.meshHash;
+            sample.triIdentity = reinterpret_cast<uintptr_t>(gpuPlan.tri);
+            sample.vertexBufferIdentity = gpuPlan.vertexBufferIdentity;
+            sample.indexBufferIdentity = gpuPlan.indexBufferIdentity;
+            sample.materialId = gpuPlan.materialId;
             sample.invalidFlags = invalidFlags;
-            sample.vertexCount = record.sourceRange.vertices.count;
-            sample.indexCount = record.sourceRange.indexes.count;
-            sample.triangleCount = record.sourceRange.triangles.count;
+            sample.vertexCount = gpuPlan.sourceRange.vertices.count;
+            sample.indexCount = gpuPlan.sourceRange.indexes.count;
+            sample.triangleCount = gpuPlan.sourceRange.triangles.count;
             sample.vertexBytes = vertexBytes;
             sample.indexBytes = indexBytes;
             sample.instanceCount = instanceCount;
-            sample.vertexBufferValid = record.rigidVertexBuffer != nullptr;
-            sample.indexBufferValid = record.rigidIndexBuffer != nullptr;
+            sample.vertexBufferValid = gpuPlan.rigidVertexBuffer != nullptr;
+            sample.indexBufferValid = gpuPlan.rigidIndexBuffer != nullptr;
             sample.blasValid =
-                RigidMeshHasCachedRouteGpuReady(record);
+                RigidMeshHasCachedRouteGpuReady(gpuPlan);
             sample.uploadedThisFrame =
                 builtThisFrame && replaceBuffers;
             sample.builtThisFrame = builtThisFrame;
-            sample.materialName = record.materialName;
-            sample.modelName = record.modelName;
+            sample.materialName = gpuPlan.materialName;
+            sample.modelName = gpuPlan.modelName;
         }
     }
 
@@ -7613,11 +8717,11 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
             continue;
         }
 
-        const std::unordered_map<uint64, size_t>::const_iterator meshIt = m_rigidMeshCandidateLookup.find(instance.meshHash);
+        size_t meshRecordIndex = 0;
         const RigidMeshCandidateRecord* meshRecord = nullptr;
-        if (meshIt != m_rigidMeshCandidateLookup.end() && meshIt->second < m_rigidMeshCandidateRecords.size())
+        if (RigidMeshCandidateLookupFind(instance.meshHash, meshRecordIndex))
         {
-            meshRecord = &m_rigidMeshCandidateRecords[meshIt->second];
+            meshRecord = &m_rigidMeshCandidateRecords[meshRecordIndex];
         }
         const bool hasMesh = meshRecord && meshRecord->valid;
         const bool routeReady =
@@ -7804,15 +8908,8 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 }
                 const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, RtSmokeSurfaceClass::RigidEntity, RtSmokeTranslucentSubtype::Unknown);
                 RtPathTraceMeshKey meshKey;
-                meshKey.tri = tri;
-                meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri ? tri->ambientCache : 0);
-                meshKey.indexBufferIdentity = static_cast<uintptr_t>(tri ? tri->indexCache : 0);
-                meshKey.numVerts = tri ? tri->numVerts : 0;
-                meshKey.numIndexes = tri ? tri->numIndexes : 0;
-                meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
-                meshKey.materialId = materialId;
-                meshKey.materialClassSignature = materialClassSignature;
-                meshKey.sourceKind = rigidSurfaceClassId;
+                FillPathTraceRigidRouteMeshKey(
+                    meshKey, tri, materialId, materialClassSignature, rigidSurfaceClassId);
                 const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
                 const uint32_t modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
                 uint32_t sourceFlags = RT_PT_INSTANCE_SOURCE_RIGID;
@@ -7830,6 +8927,13 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                     renderEntity.entityNum,
                     surfaceIndex,
                     sourceFlags);
+                RecordA8S1RouteObservation(
+                    rigidSnapshot.renderDefKey,
+                    rigidSnapshot.modelSurfaceIndex,
+                    rigidSnapshot.modelSurfaceIndexValid,
+                    rigidSnapshot.meshHash,
+                    model ? model->Name() : "<none>",
+                    PtA8S1RouteProducer::AreaResidency);
                 const uint64 meshHash = rigidSnapshot.meshHash;
                 const uint64 instanceId = rigidSnapshot.instanceId;
                 ++m_rigidResidencyAreaWalkEligibleSurfacesThisFrame;
@@ -8027,12 +9131,12 @@ void RtSmokeGeometryUniverse::CollectRigidResidencyBoundsBoxes(std::vector<RtPat
             continue;
         }
 
-        const std::unordered_map<uint64, size_t>::const_iterator meshIt = m_rigidMeshCandidateLookup.find(instance.meshHash);
-        if (meshIt == m_rigidMeshCandidateLookup.end() || meshIt->second >= m_rigidMeshCandidateRecords.size())
+        size_t meshRecordIndex = 0;
+        if (!RigidMeshCandidateLookupFind(instance.meshHash, meshRecordIndex))
         {
             continue;
         }
-        const RigidMeshCandidateRecord& meshRecord = m_rigidMeshCandidateRecords[meshIt->second];
+        const RigidMeshCandidateRecord& meshRecord = m_rigidMeshCandidateRecords[meshRecordIndex];
         if (!meshRecord.valid || !meshRecord.localBoundsValid || meshRecord.localBounds.IsCleared())
         {
             continue;
@@ -8245,13 +9349,13 @@ bool RtSmokeGeometryUniverse::RigidResidentObservationMatchesCurrentModel(const 
         return instance.modelSurfaceIndex < model->NumSurfaces();
     }
 
-    const std::unordered_map<uint64, size_t>::const_iterator meshIt = m_rigidMeshCandidateLookup.find(instance.meshHash);
-    if (meshIt == m_rigidMeshCandidateLookup.end() || meshIt->second >= m_rigidMeshCandidateRecords.size())
+    size_t meshRecordIndex = 0;
+    if (!RigidMeshCandidateLookupFind(instance.meshHash, meshRecordIndex))
     {
         return true;
     }
 
-    const RigidMeshCandidateRecord& meshRecord = m_rigidMeshCandidateRecords[meshIt->second];
+    const RigidMeshCandidateRecord& meshRecord = m_rigidMeshCandidateRecords[meshRecordIndex];
     const srfTriangles_t* tri = meshRecord.tri;
     if (tri == nullptr)
     {
@@ -8349,10 +9453,10 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
                 const bool withinWindow = record.lastSeenFrame + recordFramesToKeep >= m_currentFrameIndex;
                 if (withinWindow)
                 {
-                    const std::unordered_map<uint64, size_t>::const_iterator meshIt = m_rigidMeshCandidateLookup.find(record.observation.meshHash);
+                    size_t meshRecordIndex = 0;
                     const RigidMeshCandidateRecord* meshRecord =
-                        meshIt != m_rigidMeshCandidateLookup.end() && meshIt->second < m_rigidMeshCandidateRecords.size()
-                            ? &m_rigidMeshCandidateRecords[meshIt->second]
+                        RigidMeshCandidateLookupFind(record.observation.meshHash, meshRecordIndex)
+                            ? &m_rigidMeshCandidateRecords[meshRecordIndex]
                             : nullptr;
                     idBounds worldBounds;
                     const bool outsideFrustum =
@@ -8401,71 +9505,90 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
         }
     }
 
-    if (!m_rigidMeshCandidateRecords.empty())
+    std::vector<RigidMeshCandidateRecord> detachedMeshRecords;
     {
-        std::vector<bool> keepMeshRecords(
-            m_rigidMeshCandidateRecords.size(),
-            false);
-        bool removedMeshRecord = false;
-        for (size_t recordIndex = 0;
-             recordIndex < m_rigidMeshCandidateRecords.size();
-             ++recordIndex)
+        std::lock_guard<std::mutex> lock(m_rigidMeshCandidateLookupMutex);
+        if (!m_rigidMeshCandidateRecords.empty())
         {
-            RigidMeshCandidateRecord& record =
-                m_rigidMeshCandidateRecords[recordIndex];
-            const bool referencedByResident =
-                residentMeshHashes.find(record.meshHash) != residentMeshHashes.end();
-            // Entity-feed ownership limits how long an unseen instance may
-            // remain addressable, but immutable mesh/BLAS packages are safe to
-            // retain independently. Reclaim them on the dedicated mesh window
-            // instead of rebuilding large GLTF payloads after two missed frames.
-            const uint64 recordMeshFramesToKeep = meshFramesToKeep;
-            const bool keepRecord = v2
-                ? record.valid && (referencedByResident || record.seenThisFrame || record.lastSeenFrame + recordMeshFramesToKeep >= m_currentFrameIndex)
-                : record.valid && record.seenThisFrame;
-            if (keepRecord)
-            {
-                if (!record.seenThisFrame)
-                {
-                    record.tri = nullptr;
-                }
-                keepMeshRecords[recordIndex] = true;
-                ++m_rigidResidencyStats.meshLive;
-            }
-            else
-            {
-                RetireRigidMeshGpuResources(record);
-                removedMeshRecord = true;
-                ++m_rigidResidencyStats.meshAgedOut;
-            }
-        }
-        if (removedMeshRecord)
-        {
-            std::vector<RigidMeshCandidateRecord> liveMeshRecords;
-            liveMeshRecords.reserve(m_rigidMeshCandidateRecords.size());
+            std::vector<bool> keepMeshRecords(
+                m_rigidMeshCandidateRecords.size(),
+                false);
+            bool removedMeshRecord = false;
             for (size_t recordIndex = 0;
                  recordIndex < m_rigidMeshCandidateRecords.size();
                  ++recordIndex)
             {
-                if (keepMeshRecords[recordIndex])
+                RigidMeshCandidateRecord& record =
+                    m_rigidMeshCandidateRecords[recordIndex];
+                const bool referencedByResident =
+                    residentMeshHashes.find(record.meshHash) != residentMeshHashes.end();
+                // Entity-feed ownership limits how long an unseen instance may
+                // remain addressable, but immutable mesh/BLAS packages are safe to
+                // retain independently. Reclaim them on the dedicated mesh window
+                // instead of rebuilding large GLTF payloads after two missed frames.
+                const uint64 recordMeshFramesToKeep = meshFramesToKeep;
+                const bool keepRecord = v2
+                    ? record.valid && (referencedByResident || record.seenThisFrame || record.lastSeenFrame + recordMeshFramesToKeep >= m_currentFrameIndex)
+                    : record.valid && record.seenThisFrame;
+                if (keepRecord)
                 {
-                    liveMeshRecords.push_back(
-                        std::move(
-                            m_rigidMeshCandidateRecords[
-                                recordIndex]));
+                    if (!record.seenThisFrame)
+                    {
+                        record.tri = nullptr;
+                    }
+                    keepMeshRecords[recordIndex] = true;
+                    ++m_rigidResidencyStats.meshLive;
+                }
+                else
+                {
+                    removedMeshRecord = true;
+                    ++m_rigidResidencyStats.meshAgedOut;
                 }
             }
-            m_rigidMeshCandidateRecords.swap(liveMeshRecords);
-            m_rigidMeshCandidateLookup.clear();
-            m_rigidMeshCandidateLookup.reserve(m_rigidMeshCandidateRecords.size());
-            for (size_t recordIndex = 0; recordIndex < m_rigidMeshCandidateRecords.size(); ++recordIndex)
+            if (removedMeshRecord)
             {
-                m_rigidMeshCandidateLookup[m_rigidMeshCandidateRecords[recordIndex].meshHash] = recordIndex;
+                std::vector<RigidMeshCandidateRecord> liveMeshRecords;
+                liveMeshRecords.reserve(m_rigidMeshCandidateRecords.size());
+                for (size_t recordIndex = 0;
+                     recordIndex < m_rigidMeshCandidateRecords.size();
+                     ++recordIndex)
+                {
+                    if (keepMeshRecords[recordIndex])
+                    {
+                        liveMeshRecords.push_back(
+                            std::move(
+                                m_rigidMeshCandidateRecords[
+                                    recordIndex]));
+                    }
+                    else
+                    {
+                        detachedMeshRecords.push_back(
+                            std::move(
+                                m_rigidMeshCandidateRecords[
+                                    recordIndex]));
+                    }
+                }
+                m_rigidMeshCandidateRecords.swap(liveMeshRecords);
+                RebuildRigidMeshCandidateLookupFromRecordsUnlocked();
+                cpu_producer_publish::RigidMeshRecordCompactCommit compactCommit;
+                compactCommit.mutexHeld = true;
+                compactCommit.vectorSwapped = true;
+                compactCommit.lookupRebuiltUnlocked = true;
+                if (!cpu_producer_publish::RigidMeshRecordCompactCommitBound(compactCommit))
+                {
+                    QuarantineRigidMeshCandidateLookup("lookup", 0, 0, 0);
+                }
+                ++m_generation;
+                m_rigidResidencyStats.generation = m_generation;
             }
-            ++m_generation;
-            m_rigidResidencyStats.generation = m_generation;
         }
-    }
+        }
+        for (size_t detachedIndex = 0;
+             detachedIndex < detachedMeshRecords.size();
+             ++detachedIndex)
+        {
+            RetireRigidMeshGpuResources(detachedMeshRecords[detachedIndex]);
+        }
     m_rigidResidencyStats.retiredBlasPending =
         m_retiredRigidGpuResources.legacyBlasCount;
 }
@@ -8496,10 +9619,10 @@ RtPathTraceRigidTlasPlanStats RtSmokeGeometryUniverse::BuildRigidTlasPlanStats(c
         }
 
         const RigidMeshCandidateRecord* record = nullptr;
-        const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
-        if (it != m_rigidMeshCandidateLookup.end() && it->second < m_rigidMeshCandidateRecords.size())
+        size_t recordIndex = 0;
+        if (RigidMeshCandidateLookupFind(instance.meshHash, recordIndex))
         {
-            record = &m_rigidMeshCandidateRecords[it->second];
+            record = &m_rigidMeshCandidateRecords[recordIndex];
         }
 
         bool hasMeshRecord = record && record->valid;
@@ -8633,14 +9756,107 @@ void RtSmokeGeometryUniverse::DumpRigidTlasPlanStats(const RtPathTraceRigidTlasP
 
 bool RtSmokeGeometryUniverse::IsRigidRouteReady(uint64 meshHash) const
 {
-    const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(meshHash);
-    if (it == m_rigidMeshCandidateLookup.end() || it->second >= m_rigidMeshCandidateRecords.size())
+    size_t recordIndex = 0;
+    if (!RigidMeshCandidateLookupFind(meshHash, recordIndex))
     {
         return false;
     }
 
-    const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
+    const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[recordIndex];
     return RigidMeshHasCachedRouteGpuReady(record);
+}
+
+uint64 RtSmokeGeometryUniverse::RigidMeshCandidateBlasToken(uint64 meshHash) const
+{
+    size_t recordIndex = 0;
+    if (!RigidMeshCandidateLookupFind(meshHash, recordIndex))
+    {
+        return 0;
+    }
+    const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[recordIndex];
+    if (!record.rigidBlas)
+    {
+        return 0;
+    }
+    return reinterpret_cast<uint64>(static_cast<nvrhi::rt::IAccelStruct*>(record.rigidBlas));
+}
+
+nvrhi::rt::AccelStructHandle RtSmokeGeometryUniverse::RigidMeshCandidateBlas(uint64 meshHash) const
+{
+    size_t recordIndex = 0;
+    if (!RigidMeshCandidateLookupFind(meshHash, recordIndex))
+    {
+        return nullptr;
+    }
+    return m_rigidMeshCandidateRecords[recordIndex].rigidBlas;
+}
+
+bool RtSmokeGeometryUniverse::RigidMeshCandidateBlasWasBuilt(uint64 meshHash) const
+{
+    size_t recordIndex = 0;
+    if (!RigidMeshCandidateLookupFind(meshHash, recordIndex))
+    {
+        return false;
+    }
+    const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[recordIndex];
+    return cpu_producer_publish::RigidBlasBuildStateIsSubmitted(
+        record.rigidBlas != nullptr,
+        record.gpuBlasCreated,
+        record.gpuBlasBuildSubmitted);
+}
+
+nvrhi::rt::AccelStructHandle RtSmokeGeometryUniverse::RigidMeshCandidateBuiltBlas(uint64 meshHash) const
+{
+    if (!RigidMeshCandidateBlasWasBuilt(meshHash))
+    {
+        return nullptr;
+    }
+    return RigidMeshCandidateBlas(meshHash);
+}
+
+void RtSmokeGeometryUniverse::ClassifyRigidMeshForRegistry(uint64 meshHash, bool& ready, bool& pending) const
+{
+    ready = false;
+    pending = false;
+    size_t recordIndex = 0;
+    if (!RigidMeshCandidateLookupFind(meshHash, recordIndex))
+    {
+        return;
+    }
+    const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[recordIndex];
+    if (RigidMeshHasCachedRouteGpuReady(record))
+    {
+        ready = true;
+        return;
+    }
+    if (record.deferredSinceFrame == 0)
+    {
+        return;
+    }
+    const uint64 start = record.deferredSinceFrame;
+    const uint64 deadline = start + 1;
+    const uint64 frame = m_currentFrameIndex == 0 ? 1 : m_currentFrameIndex;
+    pending = frame <= deadline;
+}
+
+bool RtSmokeGeometryUniverse::FindRigidResidentSource(uint64 instanceId, PtRenderDefKey& key, uint64& meshHash) const
+{
+    key = PtRenderDefKey();
+    meshHash = 0;
+    if (instanceId == 0)
+    {
+        return false;
+    }
+    for (const RigidResidentInstanceRecord& rec : m_rigidResidentRecords)
+    {
+        if (rec.observation.instanceId == instanceId)
+        {
+            key = rec.observation.renderDefKey;
+            meshHash = rec.observation.meshHash;
+            return key.index >= 0 && key.generation != 0;
+        }
+    }
+    return false;
 }
 
 bool RtSmokeGeometryUniverse::IsRigidRouteResidentReadyForEntityMaterial(int entityIndex, int renderEntityNum, uint32_t materialId) const
@@ -8720,6 +9936,15 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
 {
     std::vector<RtPathTraceRigidRouteInstanceObservation> instances;
     BuildRigidRouteInstanceList(instanceUniverse, instances);
+    const uint32_t preselectFullCount = static_cast<uint32_t>(instances.size());
+    uint32_t preselectSelectedCount = preselectFullCount;
+    std::vector<uint64_t> preselectAllInstanceIds;
+    preselectAllInstanceIds.reserve(instances.size());
+    for (const RtPathTraceRigidRouteInstanceObservation& instance : instances)
+    {
+        preselectAllInstanceIds.push_back(instance.instanceId);
+    }
+    std::vector<RtSmokeRigidPreselectDrop> preselectDropped;
     const int normalizedMaxInstances = maxInstances > 0 ? maxInstances : 0;
     if (normalizedMaxInstances > 0 && static_cast<int>(instances.size()) > normalizedMaxInstances)
     {
@@ -8740,12 +9965,12 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
             {
                 return false;
             }
-            const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
-            if (it == m_rigidMeshCandidateLookup.end() || it->second >= m_rigidMeshCandidateRecords.size())
+            size_t recordIndex = 0;
+            if (!RigidMeshCandidateLookupFind(instance.meshHash, recordIndex))
             {
                 return false;
             }
-            const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
+            const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[recordIndex];
             return record.valid &&
                 RigidMeshHasCachedRouteGpuReady(record) &&
                 (m_rigidResidencyEnabled || record.seenThisFrame);
@@ -8846,6 +10071,46 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
                 appendPartialGroup(selectedInstances, group, remainingRouteBudget);
             }
         }
+
+        std::unordered_set<uint64> selectedIds;
+        selectedIds.reserve(selectedInstances.size());
+        for (const RtPathTraceRigidRouteInstanceObservation& selected : selectedInstances)
+        {
+            selectedIds.insert(selected.instanceId);
+        }
+        preselectSelectedCount = static_cast<uint32_t>(selectedInstances.size());
+        for (size_t groupIndex = 0; groupIndex < groups.size(); ++groupIndex)
+        {
+            const RigidRouteSelectionGroup& group = groups[groupIndex];
+            int selectedInGroup = 0;
+            for (size_t instanceIndex : group.indices)
+            {
+                if (selectedIds.find(instances[instanceIndex].instanceId) != selectedIds.end())
+                {
+                    ++selectedInGroup;
+                }
+            }
+            const bool groupPartial =
+                selectedInGroup > 0 &&
+                selectedInGroup < static_cast<int>(group.indices.size());
+            for (size_t instanceIndex : group.indices)
+            {
+                const RtPathTraceRigidRouteInstanceObservation& instance = instances[instanceIndex];
+                if (selectedIds.find(instance.instanceId) != selectedIds.end())
+                {
+                    continue;
+                }
+                RtSmokeRigidPreselectDrop drop;
+                drop.instanceId = instance.instanceId;
+                drop.entityIndex = instance.entityIndex;
+                drop.modelSurfaceIndex = instance.modelSurfaceIndex;
+                drop.materialId = instance.materialOverrideId;
+                drop.meshHash = instance.meshHash;
+                drop.groupId = static_cast<uint32_t>(group.firstIndex);
+                drop.groupPartial = groupPartial;
+                preselectDropped.push_back(drop);
+            }
+        }
         instances.swap(selectedInstances);
     }
 
@@ -8854,6 +10119,11 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
     snapshot.firstInstanceId = firstInstanceId;
     snapshot.instanceMask = instanceMask;
     snapshot.maxInstances = maxInstances;
+    snapshot.preselectFullCount = preselectFullCount;
+    snapshot.preselectSelectedCount = preselectSelectedCount;
+    snapshot.preselectDroppedCount = static_cast<uint32_t>(preselectDropped.size());
+    snapshot.preselectAllInstanceIds.swap(preselectAllInstanceIds);
+    snapshot.preselectDropped.swap(preselectDropped);
 
     const int reserveCount = maxInstances > 0 && maxInstances < static_cast<int>(instances.size())
         ? maxInstances
@@ -8864,6 +10134,10 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
         RtSmokeRigidTlasObservation observation;
         observation.meshHash = instance.meshHash;
         observation.instanceId = instance.instanceId;
+        observation.worldToken = reinterpret_cast<uint64_t>(instance.renderDefKey.world);
+        observation.worldGeneration = instance.renderDefKey.worldGeneration;
+        observation.renderDefIndex = instance.renderDefKey.index;
+        observation.renderDefGeneration = instance.renderDefKey.generation;
         observation.materialId = instance.materialOverrideId;
         observation.sourceFlags = instance.sourceFlags;
         observation.residencyEnabled = m_rigidResidencyEnabled;
@@ -8872,15 +10146,15 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
         observation.transformContinuous = instance.transformContinuous;
         memcpy(observation.objectToWorld, instance.objectToWorld, sizeof(observation.objectToWorld));
         memcpy(observation.previousObjectToWorld, instance.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
-        const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
-        if (it != m_rigidMeshCandidateLookup.end() && it->second < m_rigidMeshCandidateRecords.size())
+        size_t recordIndex = 0;
+        if (RigidMeshCandidateLookupFind(instance.meshHash, recordIndex))
         {
-            const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
+            const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[recordIndex];
             observation.hasMeshRecord = record.valid;
             observation.meshSeenThisFrame = record.seenThisFrame;
             observation.hasBlas =
                 RigidMeshHasCachedRouteGpuReady(record);
-            observation.routeRecordIndex = static_cast<uint32_t>(it->second);
+            observation.routeRecordIndex = static_cast<uint32_t>(recordIndex);
         }
         PtCanonicalInstanceKey canonicalInstance;
         canonicalInstance.worldGeneration =
@@ -8930,23 +10204,76 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
     const RtSmokeRigidTlasPlan& plan,
     std::vector<nvrhi::rt::InstanceDesc>& instanceDescs) const
 {
+    return BuildRigidTlasInstanceDescs(plan, instanceDescs, nullptr);
+}
+
+int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
+    const RtSmokeRigidTlasPlan& plan,
+    std::vector<nvrhi::rt::InstanceDesc>& instanceDescs,
+    std::vector<RtSmokeRigidBuilderInstanceResult>* builderResults,
+    std::vector<cpu_producer_publish::RigidSubmitBoundaryRecord>* submitMetadata) const
+{
     const size_t firstDesc = instanceDescs.size();
+    if (builderResults)
+    {
+        builderResults->clear();
+        builderResults->reserve(plan.instances.size());
+    }
+    if (submitMetadata)
+    {
+        submitMetadata->clear();
+        submitMetadata->reserve(plan.instances.size());
+    }
     for (const RtSmokePlanTlasInstance& plannedInstance : plan.instances)
     {
+        RtSmokeRigidBuilderInstanceResult result;
+        result.sourceInstanceId = plannedInstance.sourceInstanceId;
+        result.planInstanceId = plannedInstance.instanceId;
         if (!plannedInstance.sourceSeenThisFrame &&
             r_pathTracingResidencyRouteCachedTlas.GetInteger() == 0)
         {
+            result.decline = RtSmokeRigidBuilderDecline::CachedTlasDisabled;
+            if (builderResults)
+            {
+                builderResults->push_back(result);
+            }
             continue;
         }
         if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
         {
+            result.decline = RtSmokeRigidBuilderDecline::RouteRecordIndex;
+            if (builderResults)
+            {
+                builderResults->push_back(result);
+            }
             continue;
         }
         const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
-        if (!RigidPlanInstanceMatchesRecord(plannedInstance, record) ||
-            !record.rigidBlas ||
-            !RigidCachedTlasInstanceValid(plannedInstance, record))
+        if (!RigidPlanInstanceMatchesRecord(plannedInstance, record))
         {
+            result.decline = RtSmokeRigidBuilderDecline::PlanRecordMismatch;
+            if (builderResults)
+            {
+                builderResults->push_back(result);
+            }
+            continue;
+        }
+        if (!record.rigidBlas)
+        {
+            result.decline = RtSmokeRigidBuilderDecline::MissingBlas;
+            if (builderResults)
+            {
+                builderResults->push_back(result);
+            }
+            continue;
+        }
+        if (!RigidCachedTlasInstanceValid(plannedInstance, record))
+        {
+            result.decline = RtSmokeRigidBuilderDecline::CachedTlasInvalid;
+            if (builderResults)
+            {
+                builderResults->push_back(result);
+            }
             continue;
         }
 
@@ -8967,6 +10294,32 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
             .setTransform(transform)
             .setBLAS(record.rigidBlas);
         instanceDescs.push_back(instanceDesc);
+        if (submitMetadata)
+        {
+            cpu_producer_publish::RigidSubmitBoundaryRecord meta;
+            meta.instanceId.world = reinterpret_cast<const void*>(plannedInstance.worldToken);
+            meta.instanceId.worldGeneration = plannedInstance.worldGeneration;
+            meta.instanceId.index = plannedInstance.renderDefIndex;
+            meta.instanceId.generation = plannedInstance.renderDefGeneration;
+            meta.meshId = plannedInstance.meshHash;
+            meta.descriptorIndex = static_cast<uint32_t>(instanceDescs.size() - 1);
+            meta.instanceID = plannedInstance.instanceId;
+            meta.instanceMask = instanceMask;
+            meta.submittedBlasToken = reinterpret_cast<uint64_t>(
+                static_cast<nvrhi::rt::IAccelStruct*>(record.rigidBlas));
+            meta.provenance = cpu_producer_publish::kOriginCaptureWalk;
+            meta.exactIdentity =
+                cpu_producer_publish::RigidRegistryInstanceKeyValid(meta.instanceId) &&
+                meta.meshId != 0;
+            submitMetadata->push_back(meta);
+        }
+        result.appended = true;
+        result.instanceMask = instanceMask;
+        result.traceable = instanceMask != 0u;
+        if (builderResults)
+        {
+            builderResults->push_back(result);
+        }
     }
 
     return static_cast<int>(instanceDescs.size() - firstDesc);
@@ -9083,45 +10436,319 @@ RtPathTraceRigidRouteBuildSnapshot RtSmokeGeometryUniverse::CaptureRigidRouteBui
     bool captureGeometryPayload) const
 {
     RtPathTraceRigidRouteBuildSnapshot snapshot;
-    snapshot.plan = plan;
-    snapshot.materialTableIds = materialTableIds;
-    snapshot.meshes.reserve(plan.instances.size());
-
-    std::unordered_set<uint32_t> capturedRouteRecords;
-    for (const RtSmokePlanTlasInstance& plannedInstance : plan.instances)
-    {
-        if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
-        {
-            continue;
-        }
-        if (!capturedRouteRecords.insert(plannedInstance.routeRecordIndex).second)
-        {
-            continue;
-        }
-
-        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
-        RtPathTraceRigidRouteMeshSnapshot mesh;
-        mesh.routeRecordIndex = plannedInstance.routeRecordIndex;
-        mesh.valid = record.valid;
-        mesh.meshHash = record.meshHash;
-        mesh.gpuUploadSignature = record.gpuUploadSignature;
-        mesh.materialId = record.materialId;
-        mesh.surfaceClassId = record.surfaceClassId;
-        mesh.triangleClassAndFlags = record.triangleClassAndFlags;
-        mesh.routeReady = RigidMeshHasCachedRouteGpuReady(record);
-        mesh.localBounds = record.localBounds;
-        mesh.localBoundsValid = record.localBoundsValid && !record.localBounds.IsCleared();
-        mesh.vertexCount = static_cast<uint32_t>(record.cachedLocalVertices.size());
-        mesh.indexCount = static_cast<uint32_t>(record.cachedLocalIndexes.size());
-        if (mesh.routeReady && captureGeometryPayload)
-        {
-            mesh.vertices = record.cachedLocalVertices;
-            mesh.indexes = record.cachedLocalIndexes;
-        }
-        snapshot.meshes.push_back(std::move(mesh));
-    }
-
+    RtPathTraceRigidRouteBuildSnapshotCounts counts;
+    CountRigidRouteBuildSnapshot(plan, materialTableIds,
+        captureGeometryPayload, counts);
+    FillRigidRouteBuildSnapshotPreReserved(snapshot, plan, materialTableIds,
+        captureGeometryPayload, counts);
     return snapshot;
+}
+
+bool RtSmokeGeometryUniverse::CountRigidRouteBuildSnapshot(
+    const RtSmokeRigidTlasPlan& plan,
+    const std::vector<uint32_t>& materialTableIds,
+    bool captureGeometryPayload,
+    RtPathTraceRigidRouteBuildSnapshotCounts& counts) const
+{
+    counts = RtPathTraceRigidRouteBuildSnapshotCounts();
+    counts.planInstances = plan.instances.size();
+    counts.planTruncatedInstanceIds = plan.planTruncatedInstanceIds.size();
+    counts.materialTableIds = materialTableIds.size();
+    counts.instanceEligibility = plan.instances.size();
+    RtPathTraceRigidRouteResidentMeshPayloadCounts meshCounts;
+    if (!CountRigidRouteResidentMeshPayload(
+            plan, captureGeometryPayload, meshCounts))
+        return false;
+    counts.meshes = meshCounts.meshes;
+    counts.meshVertices = meshCounts.meshVertices;
+    counts.meshIndexes = meshCounts.meshIndexes;
+    return true;
+}
+
+bool RtSmokeGeometryUniverse::CountRigidRouteResidentMeshPayload(
+    const RtSmokeRigidTlasPlan& plan,
+    bool captureGeometryPayload,
+    RtPathTraceRigidRouteResidentMeshPayloadCounts& counts) const
+{
+    counts = RtPathTraceRigidRouteResidentMeshPayloadCounts();
+    for (size_t instanceIndex = 0; instanceIndex < plan.instances.size(); ++instanceIndex)
+    {
+        const uint32_t routeRecordIndex = plan.instances[instanceIndex].routeRecordIndex;
+        if (routeRecordIndex >= m_rigidMeshCandidateRecords.size()) continue;
+        bool duplicate = false;
+        for (size_t previous = 0; previous < instanceIndex; ++previous)
+        {
+            if (plan.instances[previous].routeRecordIndex == routeRecordIndex)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) continue;
+        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[routeRecordIndex];
+        ++counts.meshes;
+        if (captureGeometryPayload && RigidMeshHasCachedRouteGpuReady(record))
+        {
+            if (record.cachedLocalVertices.size() >
+                    std::numeric_limits<size_t>::max() - counts.meshVertices ||
+                record.cachedLocalIndexes.size() >
+                    std::numeric_limits<size_t>::max() - counts.meshIndexes)
+                return false;
+            counts.meshVertices += record.cachedLocalVertices.size();
+            counts.meshIndexes += record.cachedLocalIndexes.size();
+        }
+    }
+    return true;
+}
+
+bool RtSmokeGeometryUniverse::FillRigidRouteResidentMeshPayloadPreReserved(
+    RtPathTraceRigidRouteBuildSnapshot& snapshot,
+    const RtSmokeRigidTlasPlan& plan,
+    bool captureGeometryPayload,
+    const RtPathTraceRigidRouteResidentMeshPayloadCounts& counts) const
+{
+    snapshot = RtPathTraceRigidRouteBuildSnapshot();
+    RtPathTraceRigidRouteResidentMeshPayloadCounts actualCounts;
+    if (!CountRigidRouteResidentMeshPayload(
+            plan, captureGeometryPayload, actualCounts) ||
+        actualCounts.meshes != counts.meshes ||
+        actualCounts.meshVertices != counts.meshVertices ||
+        actualCounts.meshIndexes != counts.meshIndexes)
+        return false;
+    try
+    {
+        PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+        snapshot.meshes.reserve(counts.meshes);
+        if (snapshot.meshes.capacity() != counts.meshes)
+        {
+            snapshot = RtPathTraceRigidRouteBuildSnapshot();
+            return false;
+        }
+        for (size_t instanceIndex = 0; instanceIndex < plan.instances.size(); ++instanceIndex)
+        {
+            const RtSmokePlanTlasInstance& plannedInstance = plan.instances[instanceIndex];
+            if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
+                continue;
+            bool duplicate = false;
+            for (const RtPathTraceRigidRouteMeshSnapshot& captured : snapshot.meshes)
+            {
+                if (captured.routeRecordIndex == plannedInstance.routeRecordIndex)
+                {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+            const RigidMeshCandidateRecord& record =
+                m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
+            RtPathTraceRigidRouteMeshSnapshot mesh;
+            mesh.routeRecordIndex = plannedInstance.routeRecordIndex;
+            mesh.valid = record.valid;
+            mesh.meshHash = record.meshHash;
+            mesh.cpuMeshContentSignature = record.cpuMeshContentSignature;
+            mesh.gpuUploadSignature = record.gpuUploadSignature;
+            mesh.materialId = record.materialId;
+            mesh.surfaceClassId = record.surfaceClassId;
+            mesh.triangleClassAndFlags = record.triangleClassAndFlags;
+            mesh.routeReady = RigidMeshHasCachedRouteGpuReady(record);
+            mesh.localBounds = record.localBounds;
+            mesh.localBoundsValid = record.localBoundsValid && !record.localBounds.IsCleared();
+            mesh.vertexCount = static_cast<uint32_t>(record.cachedLocalVertices.size());
+            mesh.indexCount = static_cast<uint32_t>(record.cachedLocalIndexes.size());
+            if (mesh.routeReady && captureGeometryPayload)
+            {
+                PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+                mesh.vertices.reserve(record.cachedLocalVertices.size());
+                if (mesh.vertices.capacity() != record.cachedLocalVertices.size())
+                {
+                    snapshot = RtPathTraceRigidRouteBuildSnapshot();
+                    return false;
+                }
+                PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+                mesh.indexes.reserve(record.cachedLocalIndexes.size());
+                if (mesh.indexes.capacity() != record.cachedLocalIndexes.size())
+                {
+                    snapshot = RtPathTraceRigidRouteBuildSnapshot();
+                    return false;
+                }
+                mesh.vertices.insert(mesh.vertices.end(),
+                    record.cachedLocalVertices.begin(), record.cachedLocalVertices.end());
+                mesh.indexes.insert(mesh.indexes.end(),
+                    record.cachedLocalIndexes.begin(), record.cachedLocalIndexes.end());
+            }
+            snapshot.meshes.push_back(std::move(mesh));
+        }
+        if (snapshot.meshes.size() != counts.meshes)
+        {
+            snapshot = RtPathTraceRigidRouteBuildSnapshot();
+            return false;
+        }
+        return true;
+    }
+    catch (const std::bad_alloc&) {}
+    catch (const std::length_error&) {}
+    snapshot = RtPathTraceRigidRouteBuildSnapshot();
+    return false;
+}
+
+bool RtSmokeGeometryUniverse::FillRigidRouteBuildSnapshotPreReserved(
+    RtPathTraceRigidRouteBuildSnapshot& snapshot,
+    const RtSmokeRigidTlasPlan& plan,
+    const std::vector<uint32_t>& materialTableIds,
+    bool captureGeometryPayload,
+    const RtPathTraceRigidRouteBuildSnapshotCounts& counts) const
+{
+    snapshot = RtPathTraceRigidRouteBuildSnapshot();
+    RtPathTraceRigidRouteBuildSnapshotCounts actualCounts;
+    if (!CountRigidRouteBuildSnapshot(plan, materialTableIds,
+            captureGeometryPayload, actualCounts) ||
+        actualCounts.planInstances != counts.planInstances ||
+        actualCounts.planTruncatedInstanceIds != counts.planTruncatedInstanceIds ||
+        actualCounts.materialTableIds != counts.materialTableIds ||
+        actualCounts.meshes != counts.meshes ||
+        actualCounts.meshVertices != counts.meshVertices ||
+        actualCounts.meshIndexes != counts.meshIndexes ||
+        actualCounts.instanceEligibility != counts.instanceEligibility)
+    {
+        return false;
+    }
+    try
+    {
+        PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+        snapshot.plan.instances.reserve(counts.planInstances);
+        if (snapshot.plan.instances.capacity() != counts.planInstances)
+        {
+            snapshot = RtPathTraceRigidRouteBuildSnapshot();
+            return false;
+        }
+        PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+        snapshot.plan.planTruncatedInstanceIds.reserve(counts.planTruncatedInstanceIds);
+        if (snapshot.plan.planTruncatedInstanceIds.capacity() !=
+            counts.planTruncatedInstanceIds)
+        {
+            snapshot = RtPathTraceRigidRouteBuildSnapshot();
+            return false;
+        }
+        PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+        snapshot.materialTableIds.reserve(counts.materialTableIds);
+        if (snapshot.materialTableIds.capacity() != counts.materialTableIds)
+        {
+            snapshot = RtPathTraceRigidRouteBuildSnapshot();
+            return false;
+        }
+        PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+        snapshot.meshes.reserve(counts.meshes);
+        if (snapshot.meshes.capacity() != counts.meshes)
+        {
+            snapshot = RtPathTraceRigidRouteBuildSnapshot();
+            return false;
+        }
+        PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+        snapshot.instanceEligibility.reserve(counts.instanceEligibility);
+        if (snapshot.instanceEligibility.capacity() != counts.instanceEligibility)
+        {
+            snapshot = RtPathTraceRigidRouteBuildSnapshot();
+            return false;
+        }
+        snapshot.plan.instances.insert(snapshot.plan.instances.end(),
+            plan.instances.begin(), plan.instances.end());
+        snapshot.plan.planTruncatedInstanceIds.insert(
+            snapshot.plan.planTruncatedInstanceIds.end(),
+            plan.planTruncatedInstanceIds.begin(), plan.planTruncatedInstanceIds.end());
+        snapshot.plan.tlasInstanceSignature = plan.tlasInstanceSignature;
+        snapshot.plan.visibleInstances = plan.visibleInstances;
+        snapshot.plan.rigidInstances = plan.rigidInstances;
+        snapshot.plan.emittedInstances = plan.emittedInstances;
+        snapshot.plan.rejectedNonRigid = plan.rejectedNonRigid;
+        snapshot.plan.rejectedMissingMesh = plan.rejectedMissingMesh;
+        snapshot.plan.rejectedStaleMesh = plan.rejectedStaleMesh;
+        snapshot.plan.rejectedMissingBlas = plan.rejectedMissingBlas;
+        snapshot.plan.truncatedByCapPlan = plan.truncatedByCapPlan;
+        snapshot.materialTableIds.insert(snapshot.materialTableIds.end(),
+            materialTableIds.begin(), materialTableIds.end());
+
+        for (size_t instanceIndex = 0; instanceIndex < plan.instances.size(); ++instanceIndex)
+        {
+            const RtSmokePlanTlasInstance& plannedInstance = plan.instances[instanceIndex];
+            if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size()) continue;
+            bool duplicate = false;
+            for (const RtPathTraceRigidRouteMeshSnapshot& captured : snapshot.meshes)
+            {
+                if (captured.routeRecordIndex == plannedInstance.routeRecordIndex)
+                {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+            const RigidMeshCandidateRecord& record =
+                m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
+            RtPathTraceRigidRouteMeshSnapshot mesh;
+            mesh.routeRecordIndex = plannedInstance.routeRecordIndex;
+            mesh.valid = record.valid;
+            mesh.meshHash = record.meshHash;
+            mesh.cpuMeshContentSignature = record.cpuMeshContentSignature;
+            mesh.gpuUploadSignature = record.gpuUploadSignature;
+            mesh.materialId = record.materialId;
+            mesh.surfaceClassId = record.surfaceClassId;
+            mesh.triangleClassAndFlags = record.triangleClassAndFlags;
+            mesh.routeReady = RigidMeshHasCachedRouteGpuReady(record);
+            mesh.localBounds = record.localBounds;
+            mesh.localBoundsValid = record.localBoundsValid && !record.localBounds.IsCleared();
+            mesh.vertexCount = static_cast<uint32_t>(record.cachedLocalVertices.size());
+            mesh.indexCount = static_cast<uint32_t>(record.cachedLocalIndexes.size());
+            if (mesh.routeReady && captureGeometryPayload)
+            {
+                PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+                mesh.vertices.reserve(record.cachedLocalVertices.size());
+                if (mesh.vertices.capacity() != record.cachedLocalVertices.size())
+                {
+                    snapshot = RtPathTraceRigidRouteBuildSnapshot();
+                    return false;
+                }
+                PathTraceAccelCpuPackMaybeInjectAllocationFailure();
+                mesh.indexes.reserve(record.cachedLocalIndexes.size());
+                if (mesh.indexes.capacity() != record.cachedLocalIndexes.size())
+                {
+                    snapshot = RtPathTraceRigidRouteBuildSnapshot();
+                    return false;
+                }
+                mesh.vertices.insert(mesh.vertices.end(),
+                    record.cachedLocalVertices.begin(), record.cachedLocalVertices.end());
+                mesh.indexes.insert(mesh.indexes.end(),
+                    record.cachedLocalIndexes.begin(), record.cachedLocalIndexes.end());
+            }
+            snapshot.meshes.push_back(std::move(mesh));
+        }
+        for (const RtSmokePlanTlasInstance& plannedInstance : snapshot.plan.instances)
+        {
+            const RtPathTraceRigidRouteMeshSnapshot* mesh = nullptr;
+            for (const RtPathTraceRigidRouteMeshSnapshot& candidate : snapshot.meshes)
+            {
+                if (candidate.routeRecordIndex == plannedInstance.routeRecordIndex)
+                {
+                    mesh = &candidate;
+                    break;
+                }
+            }
+            snapshot.instanceEligibility.push_back(mesh
+                ? BuildRigidRouteInstanceEligibilityFromPod(plannedInstance, *mesh)
+                : RtPathTraceRigidRouteInstanceEligibility());
+        }
+        const bool complete = snapshot.plan.instances.size() == counts.planInstances &&
+            snapshot.meshes.size() == counts.meshes &&
+            snapshot.instanceEligibility.size() == counts.instanceEligibility;
+        if (!complete)
+        {
+            snapshot = RtPathTraceRigidRouteBuildSnapshot();
+            return false;
+        }
+        return true;
+    }
+    catch (const std::bad_alloc&) {}
+    catch (const std::length_error&) {}
+    snapshot = RtPathTraceRigidRouteBuildSnapshot();
+    return false;
 }
 
 static const RtPathTraceRigidRouteMeshSnapshot* FindRigidRouteMeshSnapshot(
@@ -9415,42 +11042,6 @@ bool UpdateRigidRouteGeometryFromSnapshot(
     return geometryChanged;
 }
 
-bool RemapRigidRouteMaterialIndexes(
-    RtPathTraceRigidRouteBuild& build,
-    const std::vector<uint32_t>& materialTableIds)
-{
-    bool changed = false;
-    int missingMaterialTableIndex = 0;
-    for (RtPathTraceRigidRouteGeometryRange& range : build.geometryRanges)
-    {
-        const uint32_t materialIndex = FindRigidRouteMaterialTableIndex(
-            materialTableIds,
-            range.materialId,
-            missingMaterialTableIndex);
-        if (range.materialIndex == materialIndex)
-        {
-            continue;
-        }
-
-        range.materialIndex = materialIndex;
-        const size_t triangleEnd =
-            static_cast<size_t>(range.triangleOffset) +
-            static_cast<size_t>(range.triangleCount);
-        if (triangleEnd <= build.triangleMaterialIndexes.size())
-        {
-            for (size_t triangleIndex = range.triangleOffset;
-                 triangleIndex < triangleEnd;
-                 ++triangleIndex)
-            {
-                build.triangleMaterialIndexes[triangleIndex] = materialIndex;
-            }
-        }
-        changed = true;
-    }
-    build.stats.missingMaterialTableIndex = missingMaterialTableIndex;
-    return changed;
-}
-
 void RebuildRigidRouteInstancesFromSnapshot(
     RtPathTraceRigidRouteBuild& build,
     const RtPathTraceRigidRouteBuildSnapshot& snapshot)
@@ -9576,29 +11167,6 @@ RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(
     UpdateRigidRouteGeometryFromSnapshot(build, snapshot);
     RebuildRigidRouteInstancesFromSnapshot(build, snapshot);
     return build;
-}
-
-uint64_t BuildRigidRouteGeometryUploadSignature(const RtPathTraceRigidRouteBuild& build)
-{
-    const RtSmokePlanDataSpan spans[] = {
-        MakeRigidRoutePlanDataSpan(build.vertices),
-        MakeRigidRoutePlanDataSpan(build.indexes),
-        MakeRigidRoutePlanDataSpan(build.triangleMaterials),
-        MakeRigidRoutePlanDataSpan(build.triangleMaterialIndexes)
-    };
-    return BuildSmokePlanDataSpanSignature(
-        spans,
-        static_cast<int>(sizeof(spans) / sizeof(spans[0])));
-}
-
-uint64_t BuildRigidRouteInstanceUploadSignature(const RtPathTraceRigidRouteBuild& build)
-{
-    const RtSmokePlanDataSpan spans[] = {
-        MakeRigidRoutePlanDataSpan(build.instances)
-    };
-    return BuildSmokePlanDataSpanSignature(
-        spans,
-        static_cast<int>(sizeof(spans) / sizeof(spans[0])));
 }
 
 RtPathTraceRigidRouteBuildTimedResult BuildRigidRouteBuffersTimedResult(

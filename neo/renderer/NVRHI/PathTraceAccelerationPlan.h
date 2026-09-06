@@ -11,6 +11,26 @@
 #include <limits>
 #include <vector>
 
+enum class RtSmokeBlasCreateStatus : std::uint8_t
+{
+    Success = 0,
+    InvalidInput,
+    InvalidGeometryBufferRange,
+    DeviceCreationFailure
+};
+
+struct RtSmokeBlasComponentPolicyState
+{
+    bool hasStaticBlas = false;
+    bool hasDynamicBlas = false;
+    bool continueFrame = true;
+};
+
+RtSmokeBlasComponentPolicyState ApplySmokeBlasCreateStatus(
+    const RtSmokeBlasComponentPolicyState& current,
+    bool staticComponent,
+    RtSmokeBlasCreateStatus status);
+
 // BLAS geometry is partitioned without reordering indexes. Hardware hit
 // GeometryIndex therefore contributes this fixed stride to the established
 // source-triangle identity.
@@ -95,6 +115,14 @@ struct RtSmokeAccelerationPlanSnapshot
     int staticIndexCount = 0;
     int dynamicVertexCount = 0;
     int dynamicIndexCount = 0;
+};
+
+struct RtSmokeAccelerationPlanSnapshotCounts
+{
+    size_t vertexBytes = 0;
+    size_t indexes = 0;
+    size_t triangleClasses = 0;
+    size_t triangleMaterials = 0;
 };
 
 struct RtSmokeAccelerationPlan
@@ -217,6 +245,10 @@ struct RtSmokePlanTlasInstance
     uint32_t flags = 0;
     uint64_t meshHash = 0;
     uint64_t sourceInstanceId = 0;
+    uint64_t worldToken = 0;
+    uint64_t worldGeneration = 0;
+    int renderDefIndex = -1;
+    uint32_t renderDefGeneration = 0;
     uint32_t materialId = 0;
     uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
     uint32_t canonicalBlasRecordIndex =
@@ -240,6 +272,7 @@ struct RtSmokeAccelerationSubmitPlanInput
     bool hasStaticBlas = false;
     bool hasDynamicBlas = false;
     bool staticBlasCacheHit = false;
+    bool dynamicBlasCacheHit = false;
     bool includeStaticBlasInTlas = true;
     bool hasExtraTlasInstances = false;
 };
@@ -1145,10 +1178,23 @@ struct RtSmokeBvhFramePlanningTimedResult
     uint64_t planningTimeMicros = 0;
 };
 
+enum RtSmokeRigidTlasObservationCategory : uint32_t
+{
+    RT_SMOKE_RIGID_TLAS_REJECT_NON_RIGID = 1,
+    RT_SMOKE_RIGID_TLAS_REJECT_MISSING_MESH = 2,
+    RT_SMOKE_RIGID_TLAS_REJECT_STALE_MESH = 3,
+    RT_SMOKE_RIGID_TLAS_REJECT_MISSING_BLAS = 4,
+    RT_SMOKE_RIGID_TLAS_ACCEPTED = 5
+};
+
 struct RtSmokeRigidTlasObservation
 {
     uint64_t meshHash = 0;
     uint64_t instanceId = 0;
+    uint64_t worldToken = 0;
+    uint64_t worldGeneration = 0;
+    int renderDefIndex = -1;
+    uint32_t renderDefGeneration = 0;
     uint32_t materialId = 0;
     uint32_t sourceFlags = 0;
     bool hasMeshRecord = false;
@@ -1166,6 +1212,10 @@ struct RtSmokeRigidTlasObservation
     float previousObjectToWorld[16] = {};
 };
 
+RtSmokeRigidTlasObservationCategory ClassifyRigidTlasObservation(
+    const RtSmokeRigidTlasObservation& observation,
+    uint32_t rigidSourceMask);
+
 struct RtSmokeRigidTlasPlanDesc
 {
     const RtSmokeRigidTlasObservation* observations = nullptr;
@@ -1176,6 +1226,47 @@ struct RtSmokeRigidTlasPlanDesc
     int maxInstances = 0;
 };
 
+enum class RtSmokeRigidBuilderDecline : uint32_t
+{
+    None = 0,
+    CachedTlasDisabled,
+    RouteRecordIndex,
+    PlanRecordMismatch,
+    MissingBlas,
+    CachedTlasInvalid
+};
+
+struct RtSmokeRigidBuilderInstanceResult
+{
+    uint64_t sourceInstanceId = 0;
+    uint32_t planInstanceId = 0;
+    uint32_t instanceMask = 0;
+    bool appended = false;
+    bool traceable = false;
+    RtSmokeRigidBuilderDecline decline = RtSmokeRigidBuilderDecline::None;
+};
+
+struct RtSmokeRigidPreselectDrop
+{
+    uint64_t instanceId = 0;
+    int entityIndex = -1;
+    int modelSurfaceIndex = -1;
+    uint32_t materialId = 0;
+    uint64_t meshHash = 0;
+    uint32_t groupId = 0;
+    bool groupPartial = false;
+};
+
+struct RtSmokeRigidCaptureSkipRecord
+{
+    uint64_t instanceId = 0;
+    int entityIndex = -1;
+    int modelSurfaceIndex = -1;
+    uint32_t materialId = 0;
+    uint64_t meshHash = 0;
+    uint32_t surfaceClassId = 0;
+};
+
 struct RtSmokeRigidTlasPlanSnapshot
 {
     std::vector<RtSmokeRigidTlasObservation> observations;
@@ -1183,6 +1274,11 @@ struct RtSmokeRigidTlasPlanSnapshot
     uint32_t firstInstanceId = 0;
     uint32_t instanceMask = 0;
     int maxInstances = 0;
+    uint32_t preselectFullCount = 0;
+    uint32_t preselectSelectedCount = 0;
+    uint32_t preselectDroppedCount = 0;
+    std::vector<uint64_t> preselectAllInstanceIds;
+    std::vector<RtSmokeRigidPreselectDrop> preselectDropped;
 };
 
 struct RtSmokeRigidTlasPlan
@@ -1196,6 +1292,8 @@ struct RtSmokeRigidTlasPlan
     int rejectedMissingMesh = 0;
     int rejectedStaleMesh = 0;
     int rejectedMissingBlas = 0;
+    int truncatedByCapPlan = 0;
+    std::vector<uint64_t> planTruncatedInstanceIds;
 };
 
 struct RtSmokeCanonicalRigidTlasSelectionInput
@@ -1347,6 +1445,13 @@ RtSmokeStaticBlasSignatureSnapshot CaptureSmokeStaticBlasSignatureSnapshot(
 
 RtSmokeAccelerationPlanSnapshot CaptureSmokeAccelerationPlanSnapshot(
     const RtSmokeAccelerationPlanInput& input);
+bool CountSmokeAccelerationPlanSnapshot(
+    const RtSmokeAccelerationPlanInput& input,
+    RtSmokeAccelerationPlanSnapshotCounts& counts);
+bool FillSmokeAccelerationPlanSnapshotPreReserved(
+    const RtSmokeAccelerationPlanInput& input,
+    const RtSmokeAccelerationPlanSnapshotCounts& counts,
+    RtSmokeAccelerationPlanSnapshot& snapshot);
 
 uint64_t BuildSmokeAccelerationPlanInputToken(
     const RtSmokeAccelerationPlanInput& input);
@@ -1356,12 +1461,26 @@ RtSmokePlanStaticBlasSignature ComputeSmokeStaticBlasSignaturePlan(
 
 RtSmokeAccelerationPlan BuildSmokeAccelerationPlan(
     const RtSmokeAccelerationPlanInput& input);
+void OverlaySmokeCurrentDynamicAccelerationPlan(
+    RtSmokeAccelerationPlan& plan,
+    int dynamicVertexCount,
+    int dynamicIndexCount);
+bool ValidateSmokeGeometryByteRange(
+    uint64_t byteOffset,
+    uint64_t elementCount,
+    uint64_t elementStride,
+    uint64_t bufferByteSize);
 
 RtSmokeAccelerationPlanResult BuildSmokeAccelerationPlanResult(
     const RtSmokeAccelerationPlanSnapshot& snapshot);
 
 RtSmokeAccelerationPlanTimedResult BuildSmokeAccelerationPlanTimedResult(
     const RtSmokeAccelerationPlanSnapshot& snapshot);
+RtSmokeAccelerationPlanTimedResult BuildSmokeAccelerationPlanTimedResult(
+    const RtSmokeAccelerationPlanSnapshot& residentSnapshot,
+    const RtSmokePlanStaticCacheInput& currentStaticCache,
+    int dynamicVertexCount,
+    int dynamicIndexCount);
 
 RtSmokeBaseTlasPlan BuildSmokeBaseTlasPlan(bool hasStaticBlas, bool hasDynamicBlas);
 
@@ -1370,9 +1489,16 @@ RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
 
 RtSmokeStaticBucketAssignmentPlan BuildSmokeStaticBucketAssignmentPlan(
     const RtSmokeStaticBucketAssignmentPlanDesc& desc);
+bool BuildSmokeStaticBucketAssignmentPlanPreReserved(
+    const RtSmokeStaticBucketAssignmentPlanDesc& desc,
+    RtSmokeStaticBucketAssignmentPlan& plan,
+    std::vector<int>& sortedSurfaceScratch);
 
 RtSmokeStaticBucketGeometryPack BuildSmokeStaticBucketGeometryPack(
     const RtSmokeStaticBucketGeometryPackDesc& desc);
+bool BuildSmokeStaticBucketGeometryPackPreReserved(
+    const RtSmokeStaticBucketGeometryPackDesc& desc,
+    RtSmokeStaticBucketGeometryPack& pack);
 bool ValidateSmokeStaticBucketClassMetadataLayout(
     const RtSmokeStaticBucketGeometryPack& geometryPack);
 

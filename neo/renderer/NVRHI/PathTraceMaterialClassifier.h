@@ -281,6 +281,8 @@ const char* RtMaterialCompositingOpName(RtMaterialCompositingOp operation);
 void BeginPathTraceMaterialClassifierFrame();
 const RtMaterialRecord& RegisterPathTraceMaterialRecord(const idMaterial* material, const RtSmokeMaterialTextureInfo& info);
 const RtMaterialRecord* FindPathTraceMaterialRecord(uint32_t materialId);
+int GetPathTraceMaterialRecordCount();
+bool PathTraceMaterialRecordLookupIndexSelfTest();
 RtMaterialClassifierStats GetPathTraceMaterialClassifierStats();
 uint32_t GetPathTraceMaterialClassifierGeneration();
 uint32_t PackPathTraceMaterialClassifierFlags(const RtMaterialRecord& record);

@@ -420,6 +420,87 @@ void TestCacheAndBaseTlas()
         dynamicCreatePlan.dynamicBlas.indexCount == dynamicCreateInput.dynamicIndexCount &&
         std::strcmp(dynamicCreatePlan.dynamicBlas.debugName, "PathTraceSmokeDynamicCandidateBLAS") == 0,
         "acceleration plan emits dynamic BLAS create metadata");
+
+    RtSmokeAccelerationPlan overlaidPlan = dynamicCreatePlan;
+    OverlaySmokeCurrentDynamicAccelerationPlan(overlaidPlan, 3, 0);
+    Check(!overlaidPlan.hasDynamicBlas &&
+        !overlaidPlan.dynamicBlas.enabled &&
+        overlaidPlan.dynamicBlas.vertexCount == 3 &&
+        overlaidPlan.dynamicBlas.indexCount == 0,
+        "current zero-index overlay disables dynamic BLAS");
+    OverlaySmokeCurrentDynamicAccelerationPlan(overlaidPlan, 4, 12);
+    Check(overlaidPlan.hasDynamicBlas &&
+        overlaidPlan.dynamicBlas.enabled &&
+        overlaidPlan.dynamicBlas.vertexCount == 4 &&
+        overlaidPlan.dynamicBlas.indexCount == 12,
+        "current nonzero overlay replaces stale dynamic plan counts");
+
+    Check(!ValidateSmokeGeometryByteRange(0, 144, sizeof(uint32_t), 48),
+        "historical 144-index plan is rejected against a 48-byte live buffer");
+    Check(ValidateSmokeGeometryByteRange(0, 12, sizeof(uint32_t), 48),
+        "current 12-index range fits the exact live buffer");
+    Check(!ValidateSmokeGeometryByteRange(
+            UINT64_MAX - 2, 2, sizeof(uint32_t), UINT64_MAX),
+        "geometry byte range rejects offset multiplication overflow");
+    constexpr std::uint64_t kTestVertexStride = 32;
+    Check(!ValidateSmokeGeometryByteRange(
+            0, 4, kTestVertexStride, 3 * kTestVertexStride),
+        "geometry byte range rejects vertex overrun");
+    RtSmokeAccelerationSubmitPlanInput sanitizedSubmit;
+    sanitizedSubmit.hasStaticBlas = true;
+    sanitizedSubmit.hasDynamicBlas = ValidateSmokeGeometryByteRange(
+        0, 144, sizeof(uint32_t), 48);
+    const RtSmokeAccelerationSubmitPlan sanitizedPlan =
+        BuildSmokeAccelerationSubmitPlan(sanitizedSubmit);
+    Check(!sanitizedPlan.buildDynamicBlas &&
+        sanitizedPlan.baseTlasPlan.instanceCount == 1 &&
+        sanitizedPlan.baseTlasPlan.instances[0].kind ==
+            RT_SMOKE_PLAN_TLAS_STATIC_BLAS,
+        "invalid dynamic range is excluded from build and TLAS while static remains");
+
+    const RtSmokeBlasComponentPolicyState bothComponents{true, true, true};
+    const RtSmokeBlasCreateStatus staleDynamicStatus =
+        ValidateSmokeGeometryByteRange(0, 144, sizeof(uint32_t), 48)
+            ? RtSmokeBlasCreateStatus::Success
+            : RtSmokeBlasCreateStatus::InvalidGeometryBufferRange;
+    const RtSmokeBlasComponentPolicyState dynamicRejected =
+        ApplySmokeBlasCreateStatus(
+            bothComponents, false, staleDynamicStatus);
+    RtSmokeAccelerationSubmitPlanInput dynamicRejectedInput;
+    dynamicRejectedInput.hasStaticBlas = dynamicRejected.hasStaticBlas;
+    dynamicRejectedInput.hasDynamicBlas = dynamicRejected.hasDynamicBlas;
+    const RtSmokeAccelerationSubmitPlan dynamicRejectedPlan =
+        BuildSmokeAccelerationSubmitPlan(dynamicRejectedInput);
+    Check(dynamicRejected.continueFrame && dynamicRejected.hasStaticBlas &&
+        !dynamicRejected.hasDynamicBlas &&
+        dynamicRejectedPlan.baseTlasPlan.instanceCount == 1 &&
+        dynamicRejectedPlan.baseTlasPlan.instances[0].kind ==
+            RT_SMOKE_PLAN_TLAS_STATIC_BLAS,
+        "dynamic range rejection continues with valid static TLAS component");
+
+    const RtSmokeBlasComponentPolicyState staticRejected =
+        ApplySmokeBlasCreateStatus(
+            bothComponents, true,
+            RtSmokeBlasCreateStatus::InvalidGeometryBufferRange);
+    RtSmokeAccelerationSubmitPlanInput staticRejectedInput;
+    staticRejectedInput.hasStaticBlas = staticRejected.hasStaticBlas;
+    staticRejectedInput.hasDynamicBlas = staticRejected.hasDynamicBlas;
+    const RtSmokeAccelerationSubmitPlan staticRejectedPlan =
+        BuildSmokeAccelerationSubmitPlan(staticRejectedInput);
+    Check(staticRejected.continueFrame && !staticRejected.hasStaticBlas &&
+        staticRejected.hasDynamicBlas &&
+        staticRejectedPlan.baseTlasPlan.instanceCount == 1 &&
+        staticRejectedPlan.baseTlasPlan.instances[0].kind ==
+            RT_SMOKE_PLAN_TLAS_DYNAMIC_BLAS,
+        "static range rejection continues with valid dynamic TLAS component");
+
+    const RtSmokeBlasComponentPolicyState deviceFailure =
+        ApplySmokeBlasCreateStatus(
+            bothComponents, false,
+            RtSmokeBlasCreateStatus::DeviceCreationFailure);
+    Check(!deviceFailure.continueFrame && deviceFailure.hasStaticBlas &&
+        deviceFailure.hasDynamicBlas,
+        "device BLAS creation failure retains hard-abort policy");
 }
 
 void TestOwnedSnapshot()
@@ -5814,6 +5895,70 @@ void TestGenerationEquality()
         "CPU work generation equality tracks light/input generation");
 }
 
+void TestWorkerRouteTransition()
+{
+    RtPathTraceCpuWorkGeneration generationG;
+    generationG.sceneGeneration = 7;
+    generationG.lightGeneration = 19;
+
+    bool dedicatedWorkerValid = true;
+    bool generationValid = true;
+    bool acceptedCachedPlanValid = false;
+    bool backendWorkerValid = false;
+    int backendStartAttempts = 0;
+
+    // Production stops the dedicated worker first, then invokes this exact
+    // shared latch transition before evaluating the backend-pool queue gate.
+    dedicatedWorkerValid = false;
+    RtPathTraceCpuWorkDiscardStoppedWorkerGeneration(generationValid);
+    Check(!dedicatedWorkerValid && !generationValid,
+        "backend pool transition discards the stopped dedicated generation latch");
+    const bool generationAlreadyQueued =
+        generationValid &&
+        RtPathTraceCpuWorkGenerationEquals(generationG, generationG);
+    if (RtPathTraceCpuWorkShouldStartWorker(
+            backendWorkerValid,
+            acceptedCachedPlanValid,
+            generationAlreadyQueued))
+    {
+        ++backendStartAttempts;
+    }
+    Check(backendStartAttempts == 1,
+        "backend pool transition attempts generation G after dedicated Stop discarded it");
+
+    Check(!RtPathTraceCpuWorkShouldStartWorker(false, true, false),
+        "accepted cached generation remains authoritative across worker-route transition");
+
+    // The inverse production transition waits/frees the backend list, then
+    // invokes the same discard helper before the dedicated route can queue.
+    bool backendGenerationValid = true;
+    backendWorkerValid = false;
+    RtPathTraceCpuWorkDiscardStoppedWorkerGeneration(
+        backendGenerationValid);
+    Check(!backendGenerationValid &&
+            RtPathTraceCpuWorkShouldStartWorker(false, false, false),
+        "dedicated transition clears the drained backend generation and reopens its queue gate");
+
+    RtPathTraceBackendJobListPhaseState phase =
+        RtPathTraceBackendJobListPhaseState::Idle;
+    Check(RtPathTraceBackendJobListCanPopulate(phase),
+        "persistent backend list starts available for phase T1");
+    Check(RtPathTraceBackendJobListMarkSubmitted(phase),
+        "persistent backend list submits phase T1");
+    Check(!RtPathTraceBackendJobListCanPopulate(phase) &&
+            !RtPathTraceBackendJobListMarkSubmitted(phase),
+        "persistent backend list rejects reuse before Wait");
+    Check(RtPathTraceBackendJobListMarkWaited(phase) &&
+            RtPathTraceBackendJobListCanPopulate(phase),
+        "persistent backend list returns idle only after T1 Wait");
+    Check(RtPathTraceBackendJobListMarkSubmitted(phase) &&
+            RtPathTraceBackendJobListMarkWaited(phase) &&
+            RtPathTraceBackendJobListCanPopulate(phase),
+        "persistent backend list supports a sequential T3 Submit/Wait phase");
+    Check(!RtPathTraceBackendJobListMarkWaited(phase),
+        "persistent backend list rejects Wait completion without a submit");
+}
+
 void TestGenerationAcceptance()
 {
     RtPathTraceCpuWorkState incompleteState;
@@ -6195,6 +6340,7 @@ int main(int argc, char** argv)
     TestBvhBucketableSignatures();
     TestUploadPlan();
     TestGenerationEquality();
+    TestWorkerRouteTransition();
     TestGenerationAcceptance();
     TestAsAdmissionPlan();
 

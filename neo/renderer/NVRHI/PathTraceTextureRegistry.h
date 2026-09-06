@@ -10,6 +10,7 @@
 #include "../Image.h"
 #include "../Material.h"
 #include <vector>
+#include <memory>
 
 struct RtSmokeMaterialTextureInfo
 {
@@ -102,7 +103,38 @@ struct RtSmokeMaterialTextureInfo
     textureColor_t emissiveColorFormat = CFM_DEFAULT;
     materialCoverage_t coverage = MC_BAD;
     int tableIndex = -1;
+    // Registry-owned metadata, not authored material facts. Public mutable access
+    // permanently requires exact binding checks until this registry is cleared.
+    uint64_t bindingDefinitionRevision = 0;
+    bool bindingMutableExposed = false;
 };
+
+struct RtSmokeMaterialTextureRegistryBumpCounts
+{
+    uint64 addMaterial = 0;
+    uint64 updateVariantFacts = 0;
+    uint64 addVariant = 0;
+    uint64 clearVariants = 0;
+    uint64 clearRegistry = 0;
+    uint64 refreshTextureHandles = 0;
+};
+
+struct RtSmokeMaterialTextureRegistryBumpStats
+{
+    bool enabled = false;
+    int frameNumber = -1;
+    RtSmokeMaterialTextureRegistryBumpCounts thisFrame;
+    RtSmokeMaterialTextureRegistryBumpCounts cumulative;
+};
+
+struct RtSmokeMaterialActiveTextureRefreshResult
+{
+    int visited = 0;
+    std::vector<uint32_t> changedMaterialIds;
+};
+
+struct RtPathTraceMaterialTextureVariantBasePod;
+struct RtPathTraceCaptureRegistryMaterialPod;
 
 bool IsSmokeDiffuseTextureSafeForRayTracing(nvrhi::ITexture* texture);
 bool IsSmokeImageNameSafeForRayTracing(const char* imageName);
@@ -111,13 +143,39 @@ bool IsSmokeDiffuseImageSafeForRayTracing(idImage* image);
 bool IsSmokeTextureHandleSafeForDescriptor(nvrhi::TextureHandle texture);
 bool SmokeTextureHandleListsEqual(const std::vector<nvrhi::TextureHandle>& lhs, const std::vector<nvrhi::TextureHandle>& rhs);
 RtSmokeMaterialTextureInfo* FindSmokeMaterialTextureInfo(uint32_t materialId);
+const RtSmokeMaterialTextureInfo* FindSmokeMaterialTextureInfoReadOnly(uint32_t materialId);
+RtSmokeMaterialTextureInfo& PublishCompleteSmokeMaterialTextureInfo(
+    RtSmokeMaterialTextureInfo&& completeInfo);
 RtSmokeMaterialTextureInfo& AddSmokeMaterialTextureInfo(uint32_t materialId, const char* materialName);
-bool RegisterSmokeMaterialTextureVariant(uint32_t variantMaterialId, uint32_t baseMaterialId);
+struct RtSmokeMaterialBindingFrame;
+struct RtCpuMaterialBindingPlanInput;
+struct RtCpuMaterialBindingPlan;
+std::shared_ptr<RtSmokeMaterialBindingFrame> SnapshotSmokeMaterialBindingFrame(RtCpuMaterialBindingPlanInput& input, uint64_t budget,
+    const std::vector<uint32_t>* baseIds = nullptr);
+// Owner-only. Complete owned variants need resource refresh, not authored discovery.
+// Input is bounded to65535 IDs; other IDs retain their order for discovery.
+std::vector<uint32_t> PrepareSmokeMaterialHydrationIds(const std::vector<uint32_t>& ids,
+    const RtSmokeMaterialBindingFrame* frame = nullptr);
+bool SmokeMaterialBindingNeedsPreparation(const RtSmokeMaterialBindingFrame& frame);
+// Production demand-loads referenced textures on the owner command list.
+// A null list is supported only by the CPU-only registry harness.
+bool ResolveSmokeMaterialBindingResources(RtSmokeMaterialBindingFrame& frame,
+    nvrhi::ICommandList* commandList = nullptr);
+bool CompleteSmokeMaterialBindingFrame(RtSmokeMaterialBindingFrame& frame, RtCpuMaterialBindingPlan&& plan);
+bool RegisterSmokeMaterialTextureVariant(uint32_t variantMaterialId, uint32_t baseMaterialId,
+    const RtSmokeMaterialBindingFrame* frame = nullptr);
 bool IsSmokeMaterialTextureVariant(uint32_t materialId);
 uint32_t SmokeMaterialTextureVariantBase(uint32_t materialId);
 int ClearSmokeMaterialTextureVariants();
 int ClearSmokeMaterialTextureRegistry();
 bool RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info);
+bool RefreshUnpublishedSmokeMaterialTextureHandleState(
+    RtSmokeMaterialTextureInfo& info);
+RtSmokeMaterialActiveTextureRefreshResult RefreshSmokeMaterialTextureHandlesForActiveIds(
+    const std::vector<uint32_t>& staticMaterialIds,
+    const std::vector<uint32_t>& dynamicMaterialIds,
+    const RtSmokeMaterialBindingFrame* frame = nullptr);
+bool SmokeMaterialActiveTextureRefreshSelfTest();
 RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex);
 bool ComputeSmokeMaterialHardwareOpaqueGeometry(
     const RtSmokeMaterialTextureInfo& info);
@@ -126,3 +184,27 @@ bool SmokeMaterialTextureInfoHasMaterialMetadata(const RtSmokeMaterialTextureInf
 const idStr& SmokeBestSafeTextureName(const RtSmokeMaterialTextureInfo& info);
 int SmokeMaterialTextureRegistrySize();
 uint64 SmokeMaterialTextureRegistryGeneration();
+void EnumerateSmokeMaterialTextureVariantBases(
+    std::vector<RtPathTraceMaterialTextureVariantBasePod>& output);
+void EnumerateSmokeMaterialTextureRegistryPod(
+    std::vector<RtPathTraceCaptureRegistryMaterialPod>& output);
+struct RtSmokeMaterialTextureRegistryEnumerationCounts
+{
+    std::size_t variantBases = 0;
+    std::size_t registryMaterials = 0;
+};
+RtSmokeMaterialTextureRegistryEnumerationCounts
+    CountSmokeMaterialTextureRegistryEnumeration();
+bool FillSmokeMaterialTextureRegistryEnumerationPreReserved(
+    const RtSmokeMaterialTextureRegistryEnumerationCounts& counts,
+    std::vector<RtPathTraceMaterialTextureVariantBasePod>& variantBases,
+    std::vector<RtPathTraceCaptureRegistryMaterialPod>& registryMaterials);
+RtSmokeMaterialTextureRegistryBumpStats SmokeMaterialTextureRegistryBumpStats();
+
+#if defined(RT_PT_TEXTURE_REGISTRY_HARNESS)
+bool SmokeMaterialTextureRegistryAtomicPublicationSelfTest();
+bool SmokeMaterialBindingDefinitionSelfTest();
+#endif
+
+struct RtCpuRewriteMaterialIdentity;
+void SnapshotSmokeMaterialIdentities(std::vector<RtCpuRewriteMaterialIdentity>& identities);

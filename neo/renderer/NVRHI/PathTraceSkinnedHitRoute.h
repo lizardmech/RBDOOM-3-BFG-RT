@@ -26,6 +26,8 @@ static constexpr std::uint32_t
     PT_PATH_TRACE_SBT_LEGACY_INSTANCE_CONTRIBUTION = 0u;
 static constexpr std::uint32_t
     PT_PATH_TRACE_SBT_SKINNED_INSTANCE_CONTRIBUTION = 2u;
+static constexpr std::uint32_t
+    PT_REWRITE_SKINNED_TRIANGLE_CLASS_AND_FLAGS = 2u;
 
 enum PtSkinnedHitRouteFlags : std::uint32_t
 {
@@ -355,6 +357,15 @@ PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
     const PtSkinnedHitRouteLegacyView& legacy,
     std::uint64_t firstShaderInstanceId);
 
+// CPU-only templates: zero storage generations, no dispatch/previous authority.
+// All canonical identity, topology and capacity validation remains mandatory.
+PtSkinnedHitRouteBuild PtBuildSkinnedHitRouteCpuTemplates(
+    const std::vector<PtSkinnedHitRouteCandidate>& candidates,
+    std::uint64_t firstShaderInstanceId);
+
+void PtPatchSkinnedHitRouteMaterial(PathTraceSkinnedHitRouteGpuTriangle& triangle,
+    std::uint64_t instanceHash, std::uint32_t materialId, std::uint32_t materialIndex);
+
 PtSkinnedHitRouteGpuUpload PtBuildSkinnedHitRouteGpuUpload(
     const PtSkinnedHitRouteBuild& build,
     std::uint32_t firstShaderInstanceId);
@@ -365,9 +376,30 @@ PtPathTraceSbtSelection PtPlanPathTraceSbtSelection(
 PtSkinnedTlasRoutePlan PtPlanSkinnedTlasRoutes(
     const PtSkinnedTlasRoutePlanInput& input);
 
-PtSkinnedCaptureAdmissionResult
-PtPlanSkinnedCaptureAdmission(
-    const PtSkinnedCaptureAdmissionInput& input);
+inline PtSkinnedCaptureAdmissionResult PtPlanSkinnedCaptureAdmission(
+    const PtSkinnedCaptureAdmissionInput& input)
+{
+    if (!input.gate) return PtSkinnedCaptureAdmissionResult::GateDisabled;
+    if (input.priorRoute == nullptr) return PtSkinnedCaptureAdmissionResult::MissingPriorRoute;
+    if (!input.priorRouteLive) return PtSkinnedCaptureAdmissionResult::PriorRouteNotLive;
+    if (!PtCanonicalInstanceKeyIsValid(input.currentInstance) ||
+        input.priorRoute->instanceKey != input.currentInstance)
+        return PtSkinnedCaptureAdmissionResult::CurrentInstanceMismatch;
+    if (!PtCanonicalMeshKeyIsValid(input.currentMesh) ||
+        input.currentMesh.sourceDomain != PtCanonicalMeshSourceDomain::SkinnedBindSource ||
+        input.currentMesh.deformationClass != PtCanonicalDeformationClass::Skinned ||
+        input.priorRoute->meshKey != input.currentMesh ||
+        input.currentSourceChecksum == 0 ||
+        input.priorRoute->sourceChecksum != input.currentSourceChecksum ||
+        input.currentVertexCount == 0 || input.currentIndexCount == 0 ||
+        input.currentIndexCount % 3u != 0u ||
+        input.priorRoute->vertexCount != input.currentVertexCount ||
+        input.priorRoute->indexCount != input.currentIndexCount ||
+        input.priorRoute->triangleCount != input.currentIndexCount / 3u)
+        return PtSkinnedCaptureAdmissionResult::CurrentSourceMismatch;
+    if (!input.jointDataReady) return PtSkinnedCaptureAdmissionResult::JointDataNotReady;
+    return PtSkinnedCaptureAdmissionResult::OmitCpuCapture;
+}
 
 const char* PtSkinnedHitRouteResultName(
     PtSkinnedHitRouteResult result);

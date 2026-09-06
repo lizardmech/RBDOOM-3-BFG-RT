@@ -130,3 +130,47 @@ bool RtPathTraceCpuWorkRecordRenderSubmit(
     state.lastAcceptedTiming.renderSubmitMs = renderSubmitMs;
     return true;
 }
+
+void RtPathTraceCpuWorkDiscardStoppedWorkerGeneration(
+    bool& workerGenerationValid)
+{
+    workerGenerationValid = false;
+}
+
+bool RtPathTraceCpuWorkShouldStartWorker(
+    bool workerValid,
+    bool acceptedCachedResultValid,
+    bool generationAlreadyQueued)
+{
+    return !workerValid &&
+        !acceptedCachedResultValid &&
+        !generationAlreadyQueued;
+}
+
+bool RtPathTraceBackendJobListCanPopulate(
+    RtPathTraceBackendJobListPhaseState state)
+{
+    return state == RtPathTraceBackendJobListPhaseState::Idle;
+}
+
+bool RtPathTraceBackendJobListMarkSubmitted(
+    RtPathTraceBackendJobListPhaseState& state)
+{
+    if (!RtPathTraceBackendJobListCanPopulate(state))
+    {
+        return false;
+    }
+    state = RtPathTraceBackendJobListPhaseState::Submitted;
+    return true;
+}
+
+bool RtPathTraceBackendJobListMarkWaited(
+    RtPathTraceBackendJobListPhaseState& state)
+{
+    if (state != RtPathTraceBackendJobListPhaseState::Submitted)
+    {
+        return false;
+    }
+    state = RtPathTraceBackendJobListPhaseState::Idle;
+    return true;
+}

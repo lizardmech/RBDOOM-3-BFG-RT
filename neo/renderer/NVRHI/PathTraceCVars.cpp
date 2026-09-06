@@ -147,6 +147,88 @@ idCVar r_pathTracingCpuPlanningAsync(
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic opt-in: run PT CPU acceleration planning from an owned snapshot on a background worker when possible; late or stale work falls back synchronously on the render thread" );
 
+idCVar r_pathTracingBackendParallelV0(
+    "r_pathTracingBackendParallelV0",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Vulkan-only opt-in: overlap immutable Doom-light snapshot collection and route rigid-TLAS planning through the bounded renderer-backend job pool" );
+
+idCVar r_pathTracingBackendParallelV1(
+    "r_pathTracingBackendParallelV1",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Vulkan-only opt-in: reuse one bounded backend job list for v0 work plus emissive-inventory and rigid-route phases; implies backendParallelV0" );
+
+idCVar r_pathTracingBackendParallelV1EmissivePartitions(
+    "r_pathTracingBackendParallelV1EmissivePartitions",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "BackendParallelV1 emissive inventory source-order partition count, clamped to 1..4" );
+
+idCVar r_pathTracingRigidRouteAppendJob(
+    "r_pathTracingRigidRouteAppendJob",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "BackendParallelV1 opt-in: build cached rigid-route emissive append records on one independent renderer-backend job" );
+
+idCVar r_pathTracingMaterialClassifyRing(
+    "r_pathTracingMaterialClassifyRing",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Opt-in exact-frame frontend fork-join lane for per-view material classification" );
+
+idCVar r_pathTracingMaterialClassifyRingParity(
+    "r_pathTracingMaterialClassifyRingParity",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Opt-in same-frame classifier product parity telemetry; requires r_pathTracingMaterialClassifyRing" );
+
+idCVar r_pathTracingCommittedDynamicGeometry(
+    "r_pathTracingCommittedDynamicGeometry",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Committed dynamic geometry mode: 0=off, 1=exact-frame shadow parity" );
+
+idCVar r_pathTracingProducerLanes(
+    "r_pathTracingProducerLanes",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Producer lanes mode: 0=off, 1=complete CaptureProduct shadow, 2=experimental latest-complete Lane A with serial fallback" );
+
+idCVar r_pathTracingCpuResidentPortalDepth(
+    "r_pathTracingCpuResidentPortalDepth", "5", CVAR_RENDERER | CVAR_INTEGER,
+    "Portal adjacency depth for resident dynamic pose updates (0..32); membership always persists" );
+
+idCVar r_pathTracingCpuProducerRewrite(
+    "r_pathTracingCpuProducerRewrite",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "R1 CPU producer rewrite route: 0=LegacyOnly, 1=RewriteWarmup then latch RewriteOnly" );
+
+idCVar r_pathTracingProducerLaneMask(
+    "r_pathTracingProducerLaneMask",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Producer lane enable mask; bit 0 is Lane A, B/C remain idle in L0" );
+
+idCVar r_pathTracingProducerLaneLog(
+    "r_pathTracingProducerLaneLog",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Bounded L0 producer-lane lifecycle/parity telemetry" );
+
+idCVar r_pathTracingCaptureSourceOriginCensusP0(
+    "r_pathTracingCaptureSourceOriginCensusP0",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic opt-in: synchronously census path-tracing draw-surface source origins before the vertex-cache backend transition" );
+
+idCVar r_pathTracingCaptureFixNObserveR1(
+    "r_pathTracingCaptureFixNObserveR1",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic opt-in: observe tri-vs-drawSurf cache validation and exclusive dynamic-loop terminals without changing capture decisions" );
+
 idCVar r_pathTracingInstanceUniverseDump(
     "r_pathTracingInstanceUniverseDump",
     "0",
@@ -259,7 +341,7 @@ idCVar r_pathTracingRigidRouteMaxInstances(
     "r_pathTracingRigidRouteMaxInstances",
     "510",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Maximum source3 rigid instances routed into material IDs, route buffers, and TLAS descriptors; clamped to 510 to fit the 512-instance TLAS with static/dynamic base entries" );
+    "Maximum source3 rigid instances routed into material IDs, route buffers, and TLAS walk extras; clamped to 510" );
 
 idCVar r_pathTracingRigidResidency(
     "r_pathTracingRigidResidency",
@@ -296,6 +378,72 @@ idCVar r_pathTracingGeometryLifecycleDump(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump one-shot render-def lifecycle counters, generation keys, and classification samples" );
+
+idCVar r_pathTracingCpuProducerPack(
+    "r_pathTracingCpuProducerPack",
+    "",
+    CVAR_RENDERER,
+    "Write a 3-frame minimal CPU-producer pack to this directory (e.g. fixtures/doom3_2), then clear" );
+
+idCVar r_pathTracingCpuProducerCompareDump(
+    "r_pathTracingCpuProducerCompareDump",
+    "",
+    CVAR_RENDERER,
+    "Write a 3-frame S4 compare dump to this path, then clear. Quote paths with hyphens. Prefer a simple filename (written next to condumps). Observational, not a mode" );
+
+idCVar r_pathTracingCpuProducerCaseCDump(
+    "r_pathTracingCpuProducerCaseCDump",
+    "",
+    CVAR_RENDERER,
+    "Write one Case C walk-set dump to a BARE filename (next to condumps), then clear. Quote if you must use a path with hyphens. Observational, not a mode" );
+
+idCVar r_pathTracingCpuProducerMergedWalkDump(
+    "r_pathTracingCpuProducerMergedWalkDump",
+    "",
+    CVAR_RENDERER,
+    "Write one M0 merged walk-set dump to a BARE filename (next to condumps), then clear. Quote if you must use a path with hyphens. Observational, not a mode" );
+
+idCVar r_pathTracingCpuProducerHeadroomDump(
+    "r_pathTracingCpuProducerHeadroomDump",
+    "",
+    CVAR_RENDERER,
+    "Write one H0 headroom dump to a BARE filename (next to condumps), then clear. Quote if you must use a path with hyphens. Observational, not a mode" );
+
+idCVar r_pathTracingCpuProducerRegistryGapDump(
+    "r_pathTracingCpuProducerRegistryGapDump",
+    "",
+    CVAR_RENDERER,
+    "Write one A1.5 Presented-live-rigid gap dump to a BARE filename (next to condumps), then clear. Quote if you must use a path with hyphens. Observational, not a mode" );
+
+idCVar r_pathTracingCpuProducerRegistryDump(
+    "r_pathTracingCpuProducerRegistryDump",
+    "",
+    CVAR_RENDERER,
+    "Write one A5 registry compare dump to a BARE filename (next to condumps), then clear. Quote if you must use a path with hyphens. Observational, not a mode" );
+
+idCVar r_pathTracingCpuProducerCanonicalIdentityS1(
+    "r_pathTracingCpuProducerCanonicalIdentityS1",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "A8-S1 observation only: capture frame-owned Present identity and report W/P/R proof; never changes a renderer key or decision" );
+
+idCVar r_pathTracingCpuProducerApply(
+    "r_pathTracingCpuProducerApply",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "When 1, skip drawSurf rediscovery for live dirty==0 lifecycle instances and omitted-skin surfaces; 0 is the old capture walk" );
+
+idCVar r_pathTracingCpuProducerPublish(
+    "r_pathTracingCpuProducerPublish",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "0 capture only; 1 capture and publish already-live skinned TLAS routes (22_publish_spec.txt)" );
+
+idCVar r_pathTracingCpuProducerRegistry(
+    "r_pathTracingCpuProducerRegistry",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "0 off; 1 dual-write rigid from lifecycle (capture still runs). Not a skip" );
 
 idCVar r_pathTracingGeometryShadowRegistry(
     "r_pathTracingGeometryShadowRegistry",
@@ -613,7 +761,7 @@ idCVar r_pathTracingResidencyDump(
     "r_pathTracingResidencyDump",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Print path-trace residency cache instrumentation when non-zero." );
+    "Print path-trace residency cache instrumentation: 0 = off, 1 = all residency families, 2 = material lines only." );
 
 idCVar r_pathTracingResidencyFramesToKeep(
     "r_pathTracingResidencyFramesToKeep",

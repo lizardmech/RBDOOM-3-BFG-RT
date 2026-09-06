@@ -47,6 +47,7 @@ struct RtMaterialClassCandidate
 };
 
 std::unordered_map<RtMaterialRecordKey, RtMaterialRecord, RtMaterialRecordKeyHash> g_materialRecords;
+std::unordered_map<uint32_t, const RtMaterialRecord*> g_materialRecordsById;
 RtMaterialClassifierStats g_materialClassifierStats;
 bool g_dumpedDeclSurfaceDistribution = false;
 int g_recordDebugLogs = 0;
@@ -56,6 +57,45 @@ uint64 HashRtMaterialValue(uint64 hash, uint64 value)
 {
     hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
     return hash;
+}
+
+bool TryIndexPathTraceMaterialRecordById(
+    std::unordered_map<uint32_t, const RtMaterialRecord*>& index,
+    uint32_t materialId,
+    const RtMaterialRecord* record,
+    bool assertOnConflict)
+{
+    const std::pair<std::unordered_map<uint32_t, const RtMaterialRecord*>::iterator, bool>
+        insertResult = index.emplace(materialId, record);
+    if (!insertResult.second && insertResult.first->second != record)
+    {
+        if (assertOnConflict)
+        {
+            assert(false && "duplicate path-trace materialId maps to different classifier records");
+        }
+        insertResult.first->second = nullptr;
+        return false;
+    }
+    return insertResult.first->second == record;
+}
+
+bool ValidatePathTraceMaterialRecordLookupIndex()
+{
+    if (g_materialRecordsById.size() != g_materialRecords.size())
+    {
+        return false;
+    }
+    for (const auto& entry : g_materialRecords)
+    {
+        const RtMaterialRecord& record = entry.second;
+        const auto indexed = g_materialRecordsById.find(record.materialId);
+        if (indexed == g_materialRecordsById.end() ||
+            indexed->second != &record)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 uint64 HashRtMaterialFloat(uint64 hash, float value)
@@ -2159,20 +2199,85 @@ const RtMaterialRecord& RegisterPathTraceMaterialRecord(const idMaterial* materi
         ++g_materialClassifierStats.hits;
         ++g_materialClassifierStats.frameHits;
     }
+    TryIndexPathTraceMaterialRecordById(
+        g_materialRecordsById,
+        info.materialId,
+        &record,
+        true);
+#ifndef NDEBUG
+    assert(ValidatePathTraceMaterialRecordLookupIndex());
+#endif
     AccumulateRecordStats(record);
     return record;
 }
 
 const RtMaterialRecord* FindPathTraceMaterialRecord(uint32_t materialId)
 {
-    for (std::unordered_map<RtMaterialRecordKey, RtMaterialRecord, RtMaterialRecordKeyHash>::const_iterator it = g_materialRecords.begin(); it != g_materialRecords.end(); ++it)
+    const auto record = g_materialRecordsById.find(materialId);
+    return record != g_materialRecordsById.end() ? record->second : nullptr;
+}
+
+int GetPathTraceMaterialRecordCount()
+{
+    return static_cast<int>(g_materialRecords.size());
+}
+
+bool PathTraceMaterialRecordLookupIndexSelfTest()
+{
+    std::unordered_map<RtMaterialRecordKey, RtMaterialRecord, RtMaterialRecordKeyHash>
+        records;
+    std::unordered_map<uint32_t, const RtMaterialRecord*> index;
+
+    RtMaterialRecordKey firstKey;
+    firstKey.materialId = 11u;
+    firstKey.materialNameHash = 101u;
+    RtMaterialRecord& first = records.emplace(
+        firstKey,
+        RtMaterialRecord()).first->second;
+    first.materialId = firstKey.materialId;
+    first.signature = 1u;
+    if (!TryIndexPathTraceMaterialRecordById(
+            index, first.materialId, &first, false) ||
+        index.find(first.materialId) == index.end() ||
+        index.find(first.materialId)->second != &first)
     {
-        if (it->second.materialId == materialId)
-        {
-            return &it->second;
-        }
+        return false;
     }
-    return nullptr;
+
+    first.signature = 2u;
+    if (!TryIndexPathTraceMaterialRecordById(
+            index, first.materialId, &first, false) ||
+        index.find(first.materialId)->second != &first ||
+        index.find(first.materialId)->second->signature != 2u)
+    {
+        return false;
+    }
+
+    RtMaterialRecordKey secondKey;
+    secondKey.materialId = 22u;
+    secondKey.materialNameHash = 202u;
+    RtMaterialRecord& second = records.emplace(
+        secondKey,
+        RtMaterialRecord()).first->second;
+    second.materialId = secondKey.materialId;
+    if (!TryIndexPathTraceMaterialRecordById(
+            index, second.materialId, &second, false) ||
+        index.find(99u) != index.end())
+    {
+        return false;
+    }
+
+    RtMaterialRecordKey duplicateKey;
+    duplicateKey.materialId = first.materialId;
+    duplicateKey.materialNameHash = 303u;
+    RtMaterialRecord& duplicate = records.emplace(
+        duplicateKey,
+        RtMaterialRecord()).first->second;
+    duplicate.materialId = first.materialId;
+    return !TryIndexPathTraceMaterialRecordById(
+            index, duplicate.materialId, &duplicate, false) &&
+        index.find(first.materialId) != index.end() &&
+        index.find(first.materialId)->second == nullptr;
 }
 
 RtMaterialClassifierStats GetPathTraceMaterialClassifierStats()

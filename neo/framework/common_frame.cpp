@@ -33,6 +33,8 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "Common_local.h"
 #include "../renderer/Image.h"
+#include "../renderer/NVRHI/PathTraceMaterialClassifierNameCache.h"
+#include "../renderer/NVRHI/PathTraceCpuProducerRewrite.h"
 
 // RB begin
 #if defined(USE_DOOMCLASSIC)
@@ -86,8 +88,19 @@ Run in a background thread for performance, but can also
 be called directly in the foreground thread for comparison.
 ===============
 */
+static void ProfileClassifierNameCacheDelta(const RtSmokeClassifierNameCacheStats& before)
+{
+    const auto after = SmokeThreadClassifierNameCache().Stats();
+    OPTICK_TAG("classifierNameHits", after.hits - before.hits);
+    OPTICK_TAG("classifierNameMisses", after.misses - before.misses);
+    OPTICK_TAG("classifierNameBypasses", after.bypasses - before.bypasses);
+}
+
 int idGameThread::Run()
 {
+    SCOPED_PROFILE_EVENT("Game/Draw Frame");
+    OPTICK_TAG("gameFrameTicks", numGameFrames);
+    const auto classifierNamesBefore = SmokeThreadClassifierNameCache().Stats();
 	commonLocal.frameTiming.startGameTime = Sys_Microseconds();
 
 	// debugging tool to test frame dropping behavior
@@ -165,6 +178,7 @@ int idGameThread::Run()
 	SetThreadRenderTime( ( commonLocal.frameTiming.finishDrawTime - commonLocal.frameTiming.finishGameTime ) / 1000 );
 
 	SetThreadTotalTime( ( commonLocal.frameTiming.finishDrawTime - commonLocal.frameTiming.startGameTime ) / 1000 );
+    ProfileClassifierNameCacheDelta(classifierNamesBefore);
 
 	return 0;
 }
@@ -532,6 +546,7 @@ void idCommonLocal::Frame()
 	try
 	{
 		SCOPED_PROFILE_EVENT( "Common::Frame" );
+        const auto classifierNamesBefore = SmokeThreadClassifierNameCache().Stats();
 
 		// This is the only place this is incremented
 		idLib::frameNumber++;
@@ -913,9 +928,16 @@ void idCommonLocal::Frame()
 
 		// make sure the game / draw thread has completed
 		// This may block if the game is taking longer than the render back end
-		gameThread.WaitForThread();
+        {
+            OPTICK_CATEGORY("Common Game/Draw Join", Optick::Category::Wait);
+            gameThread.WaitForThread();
+        }
 
-		// SRS - Use finishSyncTime_EndFrame to record timing just after gameThread.WaitForThread()
+        // Both capture and backend consumption have ended. Route teardown must
+        // never run on Game/Draw while the previous frame is being consumed.
+        RtCpuProducerRewrite_OnFrameBoundary();
+
+        // SRS - Use finishSyncTime_EndFrame to record timing just after gameThread.WaitForThread()
 		frameTiming.finishSyncTime_EndFrame = Sys_Microseconds();
 
 		// Send local usermds to the server.
@@ -986,6 +1008,7 @@ void idCommonLocal::Frame()
 		mainFrameTiming = frameTiming;
 
 		session->GetSaveGameManager().Pump();
+        ProfileClassifierNameCacheDelta(classifierNamesBefore);
 	}
 	catch( idException& )
 	{

@@ -4305,6 +4305,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                         m_frameResources.primarySurfaceHistoryNeedsClear ||
                         (m_frameResources.settings.resetReasonFlags &
                             rrHistoryResetMask) != 0;
+                    OPTICK_TAG("rrHistoryReset", rrHistoryReset ? 1u : 0u);
+                    OPTICK_TAG("rrResetReasons", m_frameResources.settings.resetReasonFlags & rrHistoryResetMask);
                     const idVec2 rrJitterPixels = PathTraceDLSSRRPixelJitter(
                         viewDef,
                         m_frameResources.restirPTFrameIndex,
@@ -6547,6 +6549,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     m_frameResources.primarySurfaceHistoryNeedsClear ? 1 : 0,
                     static_cast<unsigned int>( m_frameResources.settings.resetReasonFlags ) );
             }
+            OPTICK_TAG("rrHistoryReset", cleanRrHistoryReset ? 1u : 0u);
+            OPTICK_TAG("rrResetReasons", m_frameResources.settings.resetReasonFlags & kRrHistoryResetMask);
             const bool cleanRrEvaluated = PathTraceDLSSRRBridge_Evaluate(
                 commandList,
                 m_frameResources.rrInputColorTexture,

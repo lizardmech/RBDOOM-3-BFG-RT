@@ -9,6 +9,7 @@
 // texture set is known.
 
 #include "PathTraceCVars.h"
+#include "PathTraceDoomMaterialClassifierKernel.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceMaterialUniverse.h"
 
@@ -110,13 +111,32 @@ uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmok
     uint64 hash = 1469598103934665603ull;
     hash = HashSmokeMaterialUniverseValue(hash, materialId);
     hash = HashSmokeMaterialUniverseString(hash, info.materialName);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasDiffuseImage ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseString(hash, info.diffuseImageName);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasTextureHandle ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasSafeTexture ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasAlphaImage ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseString(hash, info.alphaImageName);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasAlphaTextureHandle ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasSafeAlphaTexture ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasNormalImage ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseString(hash, info.normalImageName);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasNormalTextureHandle ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasSafeNormalTexture ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasSpecularImage ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseString(hash, info.specularImageName);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasSpecularTextureHandle ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasSafeSpecularTexture ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasEmissiveImage ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseString(hash, info.emissiveImageName);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasEmissiveTextureHandle ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasSafeEmissiveTexture ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.hasFallbackAlbedo ? 1u : 0u);
     hash = HashSmokeMaterialUniverseFloat(hash, info.fallbackAlbedo.x);
     hash = HashSmokeMaterialUniverseFloat(hash, info.fallbackAlbedo.y);
     hash = HashSmokeMaterialUniverseFloat(hash, info.fallbackAlbedo.z);
     hash = HashSmokeMaterialUniverseFloat(hash, info.fallbackAlbedo.w);
     hash = HashSmokeMaterialUniverseValue(hash, info.hasAlphaTest ? 1u : 0u);
-    hash = HashSmokeMaterialUniverseValue(hash, info.hasAlphaImage ? 1u : 0u);
     hash = HashSmokeMaterialUniverseFloat(hash, info.alphaCutoff);
     hash = HashSmokeMaterialUniverseValue(hash, static_cast<uint64>(info.diffuseColorFormat));
     hash = HashSmokeMaterialUniverseValue(hash, info.additiveDecal ? 1u : 0u);
@@ -147,13 +167,12 @@ uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmok
     hash = HashSmokeMaterialUniverseValue(hash, info.objectGlassFallback ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.emissive ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.emissiveLightCandidate ? 1u : 0u);
-    hash = HashSmokeMaterialUniverseValue(hash, info.hasEmissiveImage ? 1u : 0u);
-    hash = HashSmokeMaterialUniverseValue(hash, info.hasSafeEmissiveTexture ? 1u : 0u);
     hash = HashSmokeMaterialUniverseFloat(hash, info.emissiveColor.x);
     hash = HashSmokeMaterialUniverseFloat(hash, info.emissiveColor.y);
     hash = HashSmokeMaterialUniverseFloat(hash, info.emissiveColor.z);
     hash = HashSmokeMaterialUniverseFloat(hash, info.emissiveColor.w);
     hash = HashSmokeMaterialUniverseValue(hash, info.skyEnvironment ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.hasSkyTextureHandle ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.hasSafeSkyTexture ? 1u : 0u);
     hash = HashSmokeMaterialUniverseString(hash, info.skyImageName);
     hash = HashSmokeMaterialUniverseFloat(hash, info.skyColor.x);
@@ -258,7 +277,11 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
     {
         record.material.flags |= RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK;
     }
-    if (info.emissive && (info.hasSafeEmissiveTexture || !info.hasEmissiveImage))
+    if (RtSmokeMaterialEmissiveFactFromLocalFacts(
+            info.emissive,
+            info.hasEmissiveImage,
+            info.hasSafeEmissiveTexture,
+            false))
     {
         record.material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
         if (info.emissiveLightCandidate)
@@ -333,6 +356,52 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
 }
 
 
+}
+
+bool SmokeMaterialUniverseSemanticFingerprintSelfTest()
+{
+    const uint32_t materialId = 0xf17e51u;
+    RtSmokeMaterialTextureInfo baseline;
+    baseline.materialName = "_rt_material_fingerprint_self_test";
+    const uint64 baselineSignature =
+        ComputeSmokePersistentMaterialSignature(materialId, baseline);
+
+    RtSmokeMaterialTextureInfo normalMutation = baseline;
+    normalMutation.hasNormalImage = true;
+    normalMutation.normalImageName = "textures/selftest/normal_local";
+    const uint64 normalSignature =
+        ComputeSmokePersistentMaterialSignature(materialId, normalMutation);
+    const RtSmokePersistentMaterialRecord normalRecord =
+        BuildSmokePersistentMaterialRecord(
+            materialId,
+            normalMutation,
+            normalSignature,
+            7u);
+
+    RtSmokeMaterialTextureInfo specularMutation = baseline;
+    specularMutation.hasSpecularImage = true;
+    specularMutation.specularImageName = "textures/selftest/specular_s";
+    const uint64 specularSignature =
+        ComputeSmokePersistentMaterialSignature(materialId, specularMutation);
+    const RtSmokePersistentMaterialRecord specularRecord =
+        BuildSmokePersistentMaterialRecord(
+            materialId,
+            specularMutation,
+            specularSignature,
+            8u);
+
+    RtSmokeMaterialTextureInfo nameOnlyMutation = baseline;
+    nameOnlyMutation.normalImageName = "textures/selftest/name_only";
+    return baselineSignature != normalSignature &&
+        baselineSignature != specularSignature &&
+        normalSignature != specularSignature &&
+        baselineSignature != ComputeSmokePersistentMaterialSignature(
+            materialId,
+            nameOnlyMutation) &&
+        normalRecord.facts.hasNormalImage &&
+        !normalRecord.facts.hasSafeNormalTexture &&
+        specularRecord.facts.hasSpecularImage &&
+        !specularRecord.facts.hasSafeSpecularTexture;
 }
 
 void BeginSmokeMaterialUniverseFrame()

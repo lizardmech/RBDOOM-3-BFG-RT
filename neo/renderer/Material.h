@@ -919,6 +919,9 @@ public:
 	// if a material only uses constants (no entityParm or globalparm references), this
 	// will return a pointer to an internal table, and EvaluateRegisters will not need
 	// to be called.  If NULL is returned, EvaluateRegisters must be used.
+	// Changes on construction, parse and purge; identifies immutable numeric definition facts.
+	uint64 GetDefinitionRevision() const { return definitionRevision; }
+
 	const float* 		ConstantRegisters() const
 	{
 		return constantRegisters;
@@ -956,6 +959,7 @@ public:
 
 private:
 	// parse the entire material
+	uint64 definitionRevision = 0;
 	void				CommonInit();
 	void				ParseMaterial( idLexer& src );
 	bool				MatchToken( idLexer& src, const char* match );

@@ -31,8 +31,13 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 
 #include "RenderCommon.h"
+#include "RenderWorld_local.h"
+#include "NVRHI/PathTraceCommittedBaseline.h"
+#include "NVRHI/PathTraceCaptureDeriveRing.h"
+#include "NVRHI/PathTraceCommittedCapture.h"
 #include "NVRHI/PathTraceEntityFeed.h"
 #include "NVRHI/PathTraceGeometryLifecycle.h"
+#include "NVRHI/PathTraceCpuProducerRewrite.h"
 
 /*
 ==========================================================================================
@@ -863,6 +868,7 @@ void R_RenderView( viewDef_t* parms )
 	R_AddLights();
 
 	// adds ambient surfaces and create any necessary interaction surfaces to add to the light lists
+	RtCpuProducerRewrite_OnRootViewBegin( parms );
 	R_AddModels();
 
 	// build up the GUIs on world surfaces
@@ -880,6 +886,7 @@ void R_RenderView( viewDef_t* parms )
 		// if we are debugging subviews, allow the skipping of the main view draw
 		if( r_subviewOnly.GetBool() )
 		{
+			RtCpuProducerRewrite_OnRootViewSealOrAbort( NULL );
 			return;
 		}
 	}
@@ -893,12 +900,33 @@ void R_RenderView( viewDef_t* parms )
 	PtGeometryLifecycle::ObserveFrontendDeformingEntities( parms );
 	PtGeometryLifecycle::CaptureSourceDelta( parms );
 
-	// The path-tracing backend runs one frame behind the frontend with SMP.
-	// Capture its offscreen rigid feed now, while portal/entity lists belong
-	// exclusively to the frontend, and carry only immutable frame data across.
+	if( !parms->isSubview && parms->renderWorld != NULL )
+	{
+		uint64 predecessorToken = 0;
+		const uint64 sealedToken =
+			NextPathTraceSealedPrimaryViewToken( &predecessorToken );
+		parms->pathTraceSealedPrimaryViewToken = sealedToken;
+		parms->pathTraceSealedPredecessorViewToken = predecessorToken;
+		parms->pathTraceSealedPrimaryViewFrameIndex = sealedToken;
+		parms->pathTraceWorldLifecycleGeneration =
+			parms->renderWorld->pathTraceWorldLifecycleGeneration;
+		parms->pathTraceSealedMapLoadSerial = parms->renderWorld->mapLoadSerial;
+		parms->pathTraceSealedMapTimeStamp = parms->renderWorld->mapTimeStamp;
+		parms->pathTraceSealedBarrierGeneration =
+			PathTraceCommittedBaselineBarrierGeneration();
+		RtPathTracePlanningCopyName( parms->pathTraceSealedMapName,
+			sizeof( parms->pathTraceSealedMapName ),
+			parms->renderWorld->mapName.c_str() );
+	}
+
+	// The root token must exist before the committed frontend DTO is captured.
+	// Completion is published only by the exact-token join below this call.
 	CapturePathTraceEntityFeedFrameSnapshot( parms );
+	CapturePathTraceMaterialClassifyFrontendInput( parms );
+	CapturePathTraceCommittedGeometryFrontendInput( parms );
 
 	// add the rendering commands for this viewDef
+	RtCpuProducerRewrite_OnRootViewSealOrAbort( parms );
 	R_AddDrawViewCmd( parms, false );
 
 	// restore view in case we are a subview

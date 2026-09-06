@@ -86,3 +86,27 @@ bool RtPathTraceCpuWorkRecordRenderSubmit(
     RtPathTraceCpuWorkState& state,
     const RtPathTraceCpuWorkGeneration& generation,
     double renderSubmitMs);
+
+// A stopped worker has discarded any queued/ready result it owned. Clear the
+// matching generation latch before another execution route evaluates whether
+// that generation is already queued.
+void RtPathTraceCpuWorkDiscardStoppedWorkerGeneration(
+    bool& workerGenerationValid);
+
+bool RtPathTraceCpuWorkShouldStartWorker(
+    bool workerValid,
+    bool acceptedCachedResultValid,
+    bool generationAlreadyQueued);
+
+enum class RtPathTraceBackendJobListPhaseState : uint8_t
+{
+    Idle = 0,
+    Submitted
+};
+
+bool RtPathTraceBackendJobListCanPopulate(
+    RtPathTraceBackendJobListPhaseState state);
+bool RtPathTraceBackendJobListMarkSubmitted(
+    RtPathTraceBackendJobListPhaseState& state);
+bool RtPathTraceBackendJobListMarkWaited(
+    RtPathTraceBackendJobListPhaseState& state);

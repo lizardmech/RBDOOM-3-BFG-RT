@@ -7,26 +7,7 @@
 // and diagnostic dumps.
 
 #include "../Material.h"
-
-struct RtSmokeTranslucentClassifierInfo
-{
-    bool sortIsGuiOrSubview = false;
-    bool sortIsDecal = false;
-    bool sortIsPostProcess = false;
-    bool polygonOffsetDecal = false;
-    bool hasScreenTexgen = false;
-    bool hasAdditiveBlend = false;
-    bool hasAmbientStage = false;
-    bool hasAmbientBlendStage = false;
-    bool hasDiffuseStage = false;
-    bool hasAddDefault0200Texture = false;
-    bool nameLooksGui = false;
-    bool nameLooksParticle = false;
-    bool nameLooksDecal = false;
-    bool nameLooksGlass = false;
-    bool nameLooksGlow = false;
-    bool nameLooksSignage = false;
-};
+#include "PathTraceDoomMaterialClassifierKernel.h"
 
 bool SmokeNameContainsAny(const idStr& name, const char* const* tokens, int tokenCount);
 bool SmokeStageBlendUsesSourceAlpha(const shaderStage_t* stage);
@@ -34,6 +15,11 @@ bool SmokeStageIsAdditiveBlend(const shaderStage_t* stage);
 bool SmokeStageIsFilterBlend(const shaderStage_t* stage, bool& blackKey);
 bool SmokeStageIsRenderMap(const shaderStage_t* stage);
 const char* SmokeStageAlphaSemanticName(const shaderStage_t* stage);
+bool CaptureSmokeTranslucentClassifierInput(
+    const idMaterial* material,
+    RtSmokeTranslucentClassifierInput& input,
+    RtSmokeTranslucentClassifierStageInput* stages,
+    int stageCapacity);
 RtSmokeTranslucentClassifierInfo BuildSmokeTranslucentClassifierInfo(const idMaterial* material);
 void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, bool& hasAlphaTest, float& alphaCutoff);
 void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier, bool& hasAlphaTest, float& alphaCutoff);

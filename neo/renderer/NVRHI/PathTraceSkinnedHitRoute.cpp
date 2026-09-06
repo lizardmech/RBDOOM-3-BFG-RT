@@ -121,10 +121,11 @@ PtSkinnedHitRouteResult ValidateCandidate(
     std::uint64_t& previousEnd,
     std::uint64_t& legacyVertexEnd,
     std::uint64_t& legacyIndexEnd,
-    std::uint64_t& legacyTriangleEnd)
+    std::uint64_t& legacyTriangleEnd,
+    bool cpuTemplate)
 {
     std::uint64_t expectedLegacyIndexCount = 0;
-    if (!candidate.dispatchReady)
+    if (cpuTemplate ? (candidate.dispatchReady || candidate.previousValid || candidate.legacyCapturePresent) : !candidate.dispatchReady)
     {
         return PtSkinnedHitRouteResult::DispatchNotReady;
     }
@@ -142,7 +143,7 @@ PtSkinnedHitRouteResult ValidateCandidate(
         return PtSkinnedHitRouteResult::InvalidMeshKey;
     }
     if (candidate.sourceChecksum == 0 ||
-        candidate.sourceGpuIndexGeneration == 0 ||
+        (cpuTemplate ? candidate.sourceGpuIndexGeneration != 0 : candidate.sourceGpuIndexGeneration == 0) ||
         candidate.sourceIndexes == nullptr ||
         candidate.sourceIndexCount == 0 ||
         candidate.sourceIndexCount !=
@@ -167,7 +168,7 @@ PtSkinnedHitRouteResult ValidateCandidate(
     {
         return PtSkinnedHitRouteResult::InvalidSourceContract;
     }
-    if (candidate.outputStorageGeneration == 0 ||
+    if ((cpuTemplate ? candidate.outputStorageGeneration != 0 : candidate.outputStorageGeneration == 0) ||
         candidate.outputVertexCount == 0 ||
         candidate.outputVertexCount !=
             candidate.meshKey.vertexCount ||
@@ -250,10 +251,10 @@ PtSkinnedHitRouteResult ValidateCandidate(
 
 }
 
-PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
+static PtSkinnedHitRouteBuild BuildSkinnedHitRoutesImpl(
     const std::vector<PtSkinnedHitRouteCandidate>& candidates,
     const PtSkinnedHitRouteLegacyView& legacy,
-    std::uint64_t firstShaderInstanceId)
+    std::uint64_t firstShaderInstanceId, bool cpuTemplate)
 {
     PtSkinnedHitRouteBuild build;
     build.records.reserve(candidates.size());
@@ -286,7 +287,7 @@ PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
                 previousEnd,
                 legacyVertexEnd,
                 legacyIndexEnd,
-                legacyTriangleEnd);
+                legacyTriangleEnd, cpuTemplate);
         const std::uint64_t instanceHash =
             PtHashCanonicalInstanceKey(
                 candidate.instanceKey);
@@ -594,6 +595,30 @@ PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
     }
 
     return build;
+}
+
+PtSkinnedHitRouteBuild PtBuildSkinnedHitRoutes(
+    const std::vector<PtSkinnedHitRouteCandidate>& candidates,
+    const PtSkinnedHitRouteLegacyView& legacy, std::uint64_t firstShaderInstanceId)
+{
+    return BuildSkinnedHitRoutesImpl(candidates, legacy, firstShaderInstanceId, false);
+}
+
+PtSkinnedHitRouteBuild PtBuildSkinnedHitRouteCpuTemplates(
+    const std::vector<PtSkinnedHitRouteCandidate>& candidates, std::uint64_t firstShaderInstanceId)
+{
+    return BuildSkinnedHitRoutesImpl(candidates, {}, firstShaderInstanceId, true);
+}
+
+void PtPatchSkinnedHitRouteMaterial(PathTraceSkinnedHitRouteGpuTriangle& triangle,
+    std::uint64_t instanceHash, std::uint32_t materialId, std::uint32_t materialIndex)
+{
+    triangle.materialId = materialId;
+    triangle.materialIndex = materialIndex;
+    const auto hash = BuildEmissiveIdentity(instanceHash, triangle.sourcePrimitiveIndex,
+        materialId, materialIndex, triangle.triangleClassAndFlags);
+    triangle.emissiveIdentityHashLo = static_cast<std::uint32_t>(hash);
+    triangle.emissiveIdentityHashHi = static_cast<std::uint32_t>(hash >> 32);
 }
 
 const char* PtSkinnedHitRouteResultName(
@@ -1143,58 +1168,6 @@ PtSkinnedTlasRoutePlan PtPlanSkinnedTlasRoutes(
     plan.result = PtSkinnedTlasRouteResult::Accepted;
     plan.stats.accepted = plan.stats.candidates;
     return plan;
-}
-
-PtSkinnedCaptureAdmissionResult
-PtPlanSkinnedCaptureAdmission(
-    const PtSkinnedCaptureAdmissionInput& input)
-{
-    if (!input.gate)
-    {
-        return PtSkinnedCaptureAdmissionResult::GateDisabled;
-    }
-    if (input.priorRoute == nullptr)
-    {
-        return PtSkinnedCaptureAdmissionResult::MissingPriorRoute;
-    }
-    if (!input.priorRouteLive)
-    {
-        return PtSkinnedCaptureAdmissionResult::PriorRouteNotLive;
-    }
-    if (!PtCanonicalInstanceKeyIsValid(input.currentInstance) ||
-        input.priorRoute->instanceKey != input.currentInstance)
-    {
-        return PtSkinnedCaptureAdmissionResult::
-            CurrentInstanceMismatch;
-    }
-    if (!PtCanonicalMeshKeyIsValid(input.currentMesh) ||
-        input.currentMesh.sourceDomain !=
-            PtCanonicalMeshSourceDomain::SkinnedBindSource ||
-        input.currentMesh.deformationClass !=
-            PtCanonicalDeformationClass::Skinned ||
-        input.priorRoute->meshKey != input.currentMesh ||
-        input.currentSourceChecksum == 0 ||
-        input.priorRoute->sourceChecksum !=
-            input.currentSourceChecksum ||
-        input.currentVertexCount == 0 ||
-        input.currentIndexCount == 0 ||
-        input.currentIndexCount % 3u != 0u ||
-        input.priorRoute->vertexCount !=
-            input.currentVertexCount ||
-        input.priorRoute->indexCount !=
-            input.currentIndexCount ||
-        input.priorRoute->triangleCount !=
-            input.currentIndexCount / 3u)
-    {
-        return PtSkinnedCaptureAdmissionResult::
-            CurrentSourceMismatch;
-    }
-    if (!input.jointDataReady)
-    {
-        return PtSkinnedCaptureAdmissionResult::
-            JointDataNotReady;
-    }
-    return PtSkinnedCaptureAdmissionResult::OmitCpuCapture;
 }
 
 const char* PtSkinnedTlasRouteResultName(

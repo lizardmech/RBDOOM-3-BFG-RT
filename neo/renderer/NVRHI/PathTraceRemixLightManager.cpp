@@ -135,10 +135,14 @@ void SortUnifiedLightPayloadRangeByStableIdentity(
         });
 }
 
+uint32_t RemixLightTypeIndexFromUnifiedType(uint32_t unifiedType);
+
 uint32_t BuildUniqueUnifiedIdentityIndex(
     const std::vector<PathTraceUnifiedLightRecord>& records,
-    RemixUnifiedIdentityIndexMap& identityToIndex)
+    RemixUnifiedIdentityIndexMap& identityToIndex,
+    uint32_t duplicateCounts[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT])
 {
+    std::fill(duplicateCounts, duplicateCounts + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
     identityToIndex.clear();
     identityToIndex.reserve(records.size());
     uint32_t duplicateCount = 0;
@@ -155,6 +159,8 @@ uint32_t BuildUniqueUnifiedIdentityIndex(
         {
             insertResult.first->second = -1;
             ++duplicateCount;
+            const uint32_t typeIndex = RemixLightTypeIndexFromUnifiedType(key.type);
+            if (typeIndex < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT) ++duplicateCounts[typeIndex];
         }
     }
     return duplicateCount;
@@ -205,38 +211,6 @@ uint32_t RemixLightTypeIndexFromUnifiedType(uint32_t unifiedType)
     default:
         return PATH_TRACE_REMIX_LIGHT_TYPE_COUNT;
     }
-}
-
-uint32_t BuildDuplicateUnifiedIdentityCountsByType(
-    const std::vector<PathTraceUnifiedLightRecord>& records,
-    uint32_t duplicateCounts[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT])
-{
-    std::fill(duplicateCounts, duplicateCounts + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
-
-    RemixUnifiedIdentityIndexMap identityToIndex;
-    identityToIndex.reserve(records.size());
-    uint32_t duplicateCount = 0;
-    for (int index = 0; index < static_cast<int>(records.size()); ++index)
-    {
-        const RemixUnifiedIdentityKey key = MakeRemixUnifiedIdentityKey(records[index]);
-        if (!RemixUnifiedIdentityKeyValid(key))
-        {
-            continue;
-        }
-
-        const auto insertResult = identityToIndex.emplace(key, index);
-        if (!insertResult.second)
-        {
-            insertResult.first->second = -1;
-            const uint32_t typeIndex = RemixLightTypeIndexFromUnifiedType(records[index].type);
-            if (typeIndex < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT)
-            {
-                ++duplicateCounts[typeIndex];
-            }
-            ++duplicateCount;
-        }
-    }
-    return duplicateCount;
 }
 
 PathTraceRemixLightEventSample MakeRemixLightEventSample(uint32_t index, const PathTraceUnifiedLightRecord& record)
@@ -319,6 +293,22 @@ uint32_t RemixRrxDiBoundedRangeSampleCount(uint32_t rangeCount, uint32_t request
 }
 
 }
+
+// Private to one PrepareSceneData invocation. Neither payload flags nor remap
+// indices change identity keys; sorting current records does change their indices.
+struct PathTraceRemixLightManager::IdentityIndexes
+{
+    RemixUnifiedIdentityIndexMap current, previous;
+    uint32_t currentDuplicates = 0, previousDuplicates = 0;
+    uint32_t currentDuplicatesByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+    uint32_t previousDuplicatesByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+    void BuildCurrent(const std::vector<PathTraceUnifiedLightRecord>& records) {
+        currentDuplicates = BuildUniqueUnifiedIdentityIndex(records, current, currentDuplicatesByType);
+    }
+    void BuildPrevious(const std::vector<PathTraceUnifiedLightRecord>& records) {
+        previousDuplicates = BuildUniqueUnifiedIdentityIndex(records, previous, previousDuplicatesByType);
+    }
+};
 
 void PathTraceRemixLightManager::Clear()
 {
@@ -431,11 +421,22 @@ void PathTraceRemixLightManager::PrepareSceneData(
         m_previousLightPayloads.swap(build.previousLights);
     }
     m_currentToPreviousMap.swap(build.currentToPreviousRemap);
+    IdentityIndexes identities;
+    {
+        OPTICK_EVENT("PT Remix Light Identity Inputs");
+        identities.BuildCurrent(m_currentLightPayloads);
+        identities.BuildPrevious(m_previousLightPayloads);
+    }
+    OPTICK_TAG("lightManagerIdentityCurrentBuilds", lightUniverseEnabled ? 2u : 1u);
+    OPTICK_TAG("lightManagerIdentityPreviousBuilds", 1u);
+    OPTICK_TAG("lightManagerIdentityRedundantBuildsSkipped", lightUniverseEnabled ? 9u : 4u);
+    OPTICK_TAG("lightManagerIdentityCurrentRows", static_cast<uint32_t>(m_currentLightPayloads.size()));
+    OPTICK_TAG("lightManagerIdentityPreviousRows", static_cast<uint32_t>(m_previousLightPayloads.size()));
     uint32_t identityDuplicateCount = 0;
     if (lightUniverseEnabled)
     {
         OPTICK_EVENT("PT Remix Light Stable Remap");
-        identityDuplicateCount = RebuildCurrentToPreviousMapByStableIdentity();
+        identityDuplicateCount = RebuildCurrentToPreviousMapByStableIdentity(identities);
     }
     else
     {
@@ -476,7 +477,7 @@ void PathTraceRemixLightManager::PrepareSceneData(
     }
     {
         OPTICK_EVENT("PT Remix Light Stability");
-        RebuildAnalyticStabilityClassification();
+        RebuildAnalyticStabilityClassification(identities);
     }
     if (lightUniverseEnabled)
     {
@@ -487,8 +488,12 @@ void PathTraceRemixLightManager::PrepareSceneData(
             SortCurrentDoomAnalyticRangeByCacheability(currentEmissiveCount, currentAnalyticCount);
         }
         {
+            OPTICK_EVENT("PT Remix Light Identity Reorder");
+            identities.BuildCurrent(m_currentLightPayloads);
+        }
+        {
             OPTICK_EVENT("PT Remix Light Stable Remap After Sort");
-            identityDuplicateCount = RebuildCurrentToPreviousMapByStableIdentity();
+            identityDuplicateCount = RebuildCurrentToPreviousMapByStableIdentity(identities);
         }
         {
             OPTICK_EVENT("PT Remix Light Previous Map After Sort");
@@ -496,7 +501,7 @@ void PathTraceRemixLightManager::PrepareSceneData(
         }
         {
             OPTICK_EVENT("PT Remix Light Stability After Sort");
-            RebuildAnalyticStabilityClassification();
+            RebuildAnalyticStabilityClassification(identities);
         }
     }
     {
@@ -513,7 +518,7 @@ void PathTraceRemixLightManager::PrepareSceneData(
     }
     {
         OPTICK_EVENT("PT Remix Light Stats");
-        RebuildStats(framePackage);
+        RebuildStats(framePackage, identities);
     }
     m_stats.enabled = lightUniverseEnabled ? 1u : 0u;
     m_stats.domain = domain;
@@ -647,7 +652,7 @@ void PathTraceRemixLightManager::RebuildPreviousToCurrentMap()
     }
 }
 
-uint32_t PathTraceRemixLightManager::RebuildCurrentToPreviousMapByStableIdentity()
+uint32_t PathTraceRemixLightManager::RebuildCurrentToPreviousMapByStableIdentity(const IdentityIndexes& identities)
 {
     m_currentToPreviousMap.assign(m_currentLightPayloads.size(), PATH_TRACE_REMIX_LIGHT_INVALID_INDEX);
     for (PathTraceUnifiedLightRecord& record : m_currentLightPayloads)
@@ -655,11 +660,9 @@ uint32_t PathTraceRemixLightManager::RebuildCurrentToPreviousMapByStableIdentity
         record.previousIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
     }
 
-    RemixUnifiedIdentityIndexMap currentIdentityToIndex;
-    RemixUnifiedIdentityIndexMap previousIdentityToIndex;
-    const uint32_t duplicateCount =
-        BuildUniqueUnifiedIdentityIndex(m_currentLightPayloads, currentIdentityToIndex) +
-        BuildUniqueUnifiedIdentityIndex(m_previousLightPayloads, previousIdentityToIndex);
+    const auto& currentIdentityToIndex = identities.current;
+    const auto& previousIdentityToIndex = identities.previous;
+    const uint32_t duplicateCount = identities.currentDuplicates + identities.previousDuplicates;
 
     for (uint32_t currentIndex = 0; currentIndex < m_currentLightPayloads.size(); ++currentIndex)
     {
@@ -691,12 +694,10 @@ uint32_t PathTraceRemixLightManager::RebuildCurrentToPreviousMapByStableIdentity
     return duplicateCount;
 }
 
-void PathTraceRemixLightManager::RebuildAnalyticStabilityClassification()
+void PathTraceRemixLightManager::RebuildAnalyticStabilityClassification(const IdentityIndexes& identities)
 {
-    RemixUnifiedIdentityIndexMap currentIdentityToIndex;
-    RemixUnifiedIdentityIndexMap previousIdentityToIndex;
-    BuildUniqueUnifiedIdentityIndex(m_currentLightPayloads, currentIdentityToIndex);
-    BuildUniqueUnifiedIdentityIndex(m_previousLightPayloads, previousIdentityToIndex);
+    const auto& currentIdentityToIndex = identities.current;
+    const auto& previousIdentityToIndex = identities.previous;
 
     for (PathTraceUnifiedLightRecord& record : m_currentLightPayloads)
     {
@@ -896,7 +897,8 @@ void PathTraceRemixLightManager::RebuildLightRanges(
             requestedTotal);
 }
 
-void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareObservationPackage& framePackage)
+void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareObservationPackage& framePackage,
+    const IdentityIndexes& identities)
 {
     const uint64_t structuralSignature = m_stats.structuralSignature;
     const uint64_t mappingSignature = m_stats.mappingSignature;
@@ -1005,15 +1007,9 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
         }
     }
     m_stats.previousOnlyCount = m_stats.previousInvalidCount;
-    RemixUnifiedIdentityIndexMap currentIdentityToIndex;
-    RemixUnifiedIdentityIndexMap previousIdentityToIndex;
-    m_stats.invalidDuplicateIdentityCount =
-        BuildUniqueUnifiedIdentityIndex(m_currentLightPayloads, currentIdentityToIndex) +
-        BuildUniqueUnifiedIdentityIndex(m_previousLightPayloads, previousIdentityToIndex);
-    uint32_t currentDuplicateIdentityByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
-    uint32_t previousDuplicateIdentityByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
-    BuildDuplicateUnifiedIdentityCountsByType(m_currentLightPayloads, currentDuplicateIdentityByType);
-    BuildDuplicateUnifiedIdentityCountsByType(m_previousLightPayloads, previousDuplicateIdentityByType);
+    m_stats.invalidDuplicateIdentityCount = identities.currentDuplicates + identities.previousDuplicates;
+    const auto& currentDuplicateIdentityByType = identities.currentDuplicatesByType;
+    const auto& previousDuplicateIdentityByType = identities.previousDuplicatesByType;
     for (uint32_t typeIndex = 0; typeIndex < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT; ++typeIndex)
     {
         m_stats.duplicateIdentityByType[typeIndex] =

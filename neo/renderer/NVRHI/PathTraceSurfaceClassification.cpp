@@ -5,6 +5,7 @@
 #include "PathTraceCVars.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceGuiSurfaces.h"
+#include "PathTraceOwnerSemanticKernel.h"
 #include "../RenderCommon.h"
 
 namespace {
@@ -70,41 +71,20 @@ bool SmokeMaterialCanPromoteRigidEmissiveCardWithClassifierInternal(
     bool allowSwinglightRuntimeState,
     const RtSmokeTranslucentClassifierInfo& classifier)
 {
-    if (!material || material->Deform() != DFRM_NONE)
+    if (!material)
     {
         return false;
     }
-    if (material->Coverage() != MC_TRANSLUCENT)
-    {
-        return false;
-    }
-
-    const char* materialName = material->GetName();
-    if (!allowSwinglightRuntimeState && materialName && idStr::FindText(materialName, "swinglight", false) >= 0)
-    {
-        return false;
-    }
-
-    if (classifier.hasScreenTexgen ||
-        classifier.hasAddDefault0200Texture ||
-        classifier.nameLooksGui ||
-        classifier.nameLooksParticle ||
-        classifier.nameLooksDecal ||
-        classifier.nameLooksGlass ||
-        classifier.sortIsPostProcess ||
-        classifier.sortIsGuiOrSubview ||
-        classifier.sortIsDecal ||
-        classifier.polygonOffsetDecal)
-    {
-        return false;
-    }
-
-    const bool hasEmissiveCardStage =
-        classifier.hasAdditiveBlend ||
-        classifier.hasAmbientBlendStage ||
-        (classifier.hasAmbientStage && !classifier.hasDiffuseStage);
-
-    return hasEmissiveCardStage;
+    RtSmokeMaterialRouteInput input;
+    input.materialPresent = true;
+    idStr::Copynz(input.materialName, material->GetName(),
+        sizeof(input.materialName));
+    input.coverage = static_cast<int>(material->Coverage());
+    input.deform = static_cast<int>(material->Deform());
+    input.stageCount = material->GetNumStages();
+    input.sort = material->GetSort();
+    return SmokeMaterialCanPromoteRigidEmissiveCardFromPod(
+        input, allowSwinglightRuntimeState, classifier);
 }
 
 bool SmokeMaterialCanPromoteRigidEmissiveCardInternal(const idMaterial* material, bool allowSwinglightRuntimeState)
@@ -159,19 +139,30 @@ bool SmokeMaterialUsesOpaqueSwinglightCompatibility(const idMaterial* material)
     }
     const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
     const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-    return stage->lighting == SL_AMBIENT &&
+    RtSmokeMaterialRouteInput input;
+    input.materialPresent = true;
+    idStr::Copynz(input.materialName, material->GetName(), sizeof(input.materialName));
+    input.coverage = static_cast<int>(material->Coverage());
+    input.deform = static_cast<int>(material->Deform());
+    input.stageCount = material->GetNumStages();
+    input.sort = material->GetSort();
+    input.singleStageAmbientAlphaBlend = stage->lighting == SL_AMBIENT &&
         srcBlend == GLS_SRCBLEND_SRC_ALPHA &&
-        dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA &&
-        classifier.hasAmbientBlendStage &&
-        !classifier.hasDiffuseStage &&
-        !classifier.hasAdditiveBlend &&
-        !classifier.hasScreenTexgen &&
-        !classifier.hasAddDefault0200Texture;
+        dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+    return SmokeMaterialUsesOpaqueSwinglightCompatibilityFromPod(input, classifier);
 }
 
 bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material)
 {
     return SmokeMaterialCanPromoteRigidEmissiveCardInternal(material, false);
+}
+
+bool SmokeMaterialCanPromoteRigidEmissiveCard(
+    const idMaterial* material,
+    const RtSmokeTranslucentClassifierInfo& classifier)
+{
+    return SmokeMaterialCanPromoteRigidEmissiveCardWithClassifierInternal(
+        material, false, classifier);
 }
 
 bool SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(const idMaterial* material)
@@ -182,23 +173,6 @@ bool SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(const idMaterial* materi
 bool SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)
 {
     return SmokeMaterialCanPromoteRigidEmissiveCardWithClassifierInternal(material, true, classifier);
-}
-
-uint32_t SmokeSurfaceClassId(RtSmokeSurfaceClass surfaceClass)
-{
-    switch (surfaceClass)
-    {
-        case RtSmokeSurfaceClass::StaticWorld:
-            return 0;
-        case RtSmokeSurfaceClass::RigidEntity:
-            return 1;
-        case RtSmokeSurfaceClass::SkinnedDeformed:
-            return 2;
-        case RtSmokeSurfaceClass::ParticleAlpha:
-            return 3;
-        default:
-            return 4;
-    }
 }
 
 const char* SmokeSurfaceClassName(RtSmokeSurfaceClass surfaceClass)
@@ -245,27 +219,6 @@ const char* RtPtFeedClassName(RtPtFeedClass feedClass)
     }
 }
 
-uint32_t SmokeTranslucentSubtypeId(RtSmokeTranslucentSubtype subtype)
-{
-    switch (subtype)
-    {
-        case RtSmokeTranslucentSubtype::DecalGrime:
-            return 0;
-        case RtSmokeTranslucentSubtype::ObjectGlass:
-            return 1;
-        case RtSmokeTranslucentSubtype::SmokeParticle:
-            return 2;
-        case RtSmokeTranslucentSubtype::SignageGlow:
-            return 3;
-        case RtSmokeTranslucentSubtype::GuiScreen:
-            return 5;
-        case RtSmokeTranslucentSubtype::PortalWindow:
-            return 4;
-        default:
-            return 6;
-    }
-}
-
 const char* SmokeTranslucentSubtypeName(RtSmokeTranslucentSubtype subtype)
 {
     switch (subtype)
@@ -304,44 +257,38 @@ RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSur
     const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
     const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
 
-    if ((drawSurf && drawSurf->jointCache != 0) ||
-        (tri && tri->staticModelWithJoints != nullptr) ||
-        (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0))
-    {
-        return RtSmokeSurfaceClass::SkinnedDeformed;
-    }
-
+    RtSmokeSurfaceClassifyInput input;
+    input.hasJointCache = drawSurf && drawSurf->jointCache != 0;
+    input.hasStaticModelWithJoints = tri && tri->staticModelWithJoints != nullptr;
+    input.hasRenderEntityJoints = renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0;
+    input.isWorldSpace = viewDef && space == &viewDef->worldSpace;
+    input.ambientCacheIsStatic = drawSurf && idVertexCache::CacheIsStatic(drawSurf->ambientCache);
+    input.indexCacheIsStatic = drawSurf && idVertexCache::CacheIsStatic(drawSurf->indexCache);
+    input.hasEntityDef = entityDef != nullptr;
+    input.modelDepthHack = space ? space->modelDepthHack : 0.0f;
+    input.material.materialPresent = material != nullptr;
     if (material)
     {
-        const deform_t deform = material->Deform();
-        const bool opaqueSwinglightCompatibility = SmokeMaterialUsesOpaqueSwinglightCompatibility(material);
-        if (IsSmokeGuiDrawSurface(drawSurf) ||
-            (!opaqueSwinglightCompatibility && material->Coverage() == MC_TRANSLUCENT) ||
-            deform == DFRM_SPRITE ||
-            deform == DFRM_TUBE ||
-            deform == DFRM_FLARE ||
-            deform == DFRM_PARTICLE ||
-            deform == DFRM_PARTICLE2 ||
-            (!opaqueSwinglightCompatibility && material->GetSort() >= SS_MEDIUM) ||
-            (space && space->modelDepthHack != 0.0f))
+        idStr::Copynz(input.material.materialName, material->GetName(),
+            sizeof(input.material.materialName));
+        input.material.coverage = static_cast<int>(material->Coverage());
+        input.material.deform = static_cast<int>(material->Deform());
+        input.material.stageCount = material->GetNumStages();
+        input.material.sort = material->GetSort();
+        input.material.guiSurface = IsSmokeGuiDrawSurface(drawSurf);
+        const shaderStage_t* stage = input.material.stageCount == 1 ? material->GetStage(0) : nullptr;
+        if (stage)
         {
-            return RtSmokeSurfaceClass::ParticleAlpha;
+            const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+            const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+            input.material.singleStageAmbientAlphaBlend = stage->lighting == SL_AMBIENT &&
+                srcBlend == GLS_SRCBLEND_SRC_ALPHA &&
+                dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
         }
     }
-
-    if ((viewDef && space == &viewDef->worldSpace) ||
-        !entityDef ||
-        (drawSurf && idVertexCache::CacheIsStatic(drawSurf->ambientCache) && idVertexCache::CacheIsStatic(drawSurf->indexCache) && !entityDef))
-    {
-        return RtSmokeSurfaceClass::StaticWorld;
-    }
-
-    if (entityDef)
-    {
-        return RtSmokeSurfaceClass::RigidEntity;
-    }
-
-    return RtSmokeSurfaceClass::Unknown;
+    const RtSmokeTranslucentClassifierInfo classifier =
+        BuildSmokeTranslucentClassifierInfo(material);
+    return ClassifySmokeSurfaceFromPod(input, classifier);
 }
 
 bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri)
@@ -433,56 +380,29 @@ RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(const drawSurf_t* draw
         return RtSmokeTranslucentSubtype::Unknown;
     }
 
-    const deform_t deform = material->Deform();
-    const float sort = material->GetSort();
     const RtSmokeTranslucentClassifierInfo info = BuildSmokeTranslucentClassifierInfo(material);
+    return ClassifySmokeTranslucentSubtype(drawSurf, info);
+}
 
-    if (IsSmokeGuiDrawSurface(drawSurf) || info.hasScreenTexgen || info.nameLooksGui)
-    {
-        return RtSmokeTranslucentSubtype::GuiScreen;
-    }
-
-    if (info.sortIsPostProcess || info.sortIsGuiOrSubview)
-    {
-        return RtSmokeTranslucentSubtype::PortalWindow;
-    }
-
-    if (deform == DFRM_PARTICLE ||
-        deform == DFRM_PARTICLE2 ||
-        deform == DFRM_SPRITE ||
-        deform == DFRM_TUBE ||
-        deform == DFRM_FLARE ||
-        sort >= SS_ALMOST_NEAREST ||
-        info.nameLooksParticle)
-    {
-        return RtSmokeTranslucentSubtype::SmokeParticle;
-    }
-
-    if (info.nameLooksGlass)
-    {
-        return RtSmokeTranslucentSubtype::ObjectGlass;
-    }
-
-    if (info.hasAddDefault0200Texture)
+RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(
+    const drawSurf_t* drawSurf,
+    const RtSmokeTranslucentClassifierInfo& info)
+{
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    if (!material)
     {
         return RtSmokeTranslucentSubtype::Unknown;
     }
 
-    if (info.hasAdditiveBlend ||
-        (info.hasAmbientStage && !info.hasDiffuseStage && info.nameLooksGlow) ||
-        (info.hasAmbientBlendStage && info.nameLooksGlow) ||
-        (info.nameLooksGlow && !info.nameLooksDecal) ||
-        info.nameLooksSignage)
-    {
-        return RtSmokeTranslucentSubtype::SignageGlow;
-    }
-
-    if (info.sortIsDecal || info.polygonOffsetDecal || info.nameLooksDecal)
-    {
-        return RtSmokeTranslucentSubtype::DecalGrime;
-    }
-
-    return RtSmokeTranslucentSubtype::Unknown;
+    RtSmokeMaterialRouteInput input;
+    input.materialPresent = true;
+    idStr::Copynz(input.materialName, material->GetName(), sizeof(input.materialName));
+    input.coverage = static_cast<int>(material->Coverage());
+    input.deform = static_cast<int>(material->Deform());
+    input.stageCount = material->GetNumStages();
+    input.sort = material->GetSort();
+    input.guiSurface = IsSmokeGuiDrawSurface(drawSurf);
+    return ClassifySmokeTranslucentSubtypeFromPod(input, info);
 }
 
 uint32_t SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype)
@@ -514,35 +434,21 @@ uint32_t SmokeMaterialRouteClassSignature(
     RtSmokeTranslucentSubtype subtype,
     const RtSmokeTranslucentClassifierInfo& classifier)
 {
-    uint32_t signature =
-        (SmokeSurfaceClassId(surfaceClass) & 0x0fu) |
-        ((SmokeTranslucentSubtypeId(subtype) & 0x0fu) << 4);
-    if (!material)
-    {
-        return signature;
-    }
-
     bool hasAlphaTest = false;
     float alphaCutoff = 0.0f;
-    ResolveSmokeMaterialAlphaInfo(material, classifier, hasAlphaTest, alphaCutoff);
-    const uint32_t coverage = static_cast<uint32_t>(material->Coverage()) & 0x0fu;
-    const uint32_t deform = static_cast<uint32_t>(material->Deform()) & 0x0fu;
-    const bool routeSortMediumOrLater = material->GetSort() >= SS_MEDIUM;
-
-    signature |= coverage << 8;
-    signature |= deform << 12;
-    signature |= hasAlphaTest ? (1u << 16) : 0u;
-    signature |= routeSortMediumOrLater ? (1u << 17) : 0u;
-    signature |= classifier.hasScreenTexgen ? (1u << 18) : 0u;
-    signature |= classifier.hasAdditiveBlend ? (1u << 19) : 0u;
-    signature |= classifier.hasAmbientBlendStage ? (1u << 20) : 0u;
-    signature |= classifier.hasDiffuseStage ? (1u << 21) : 0u;
-    signature |= classifier.hasAddDefault0200Texture ? (1u << 22) : 0u;
-    signature |= classifier.nameLooksGui ? (1u << 23) : 0u;
-    signature |= classifier.nameLooksParticle ? (1u << 24) : 0u;
-    signature |= classifier.nameLooksDecal ? (1u << 25) : 0u;
-    signature |= classifier.nameLooksGlass ? (1u << 26) : 0u;
-    signature |= classifier.nameLooksGlow ? (1u << 27) : 0u;
-    signature |= classifier.nameLooksSignage ? (1u << 28) : 0u;
-    return signature;
+    if (material)
+    {
+        ResolveSmokeMaterialAlphaInfo(material, classifier, hasAlphaTest, alphaCutoff);
+    }
+    RtSmokeMaterialRouteInput input;
+    input.materialPresent = material != nullptr;
+    idStr::Copynz(input.materialName,
+        material ? material->GetName() : "", sizeof(input.materialName));
+    input.coverage = material ? static_cast<int>(material->Coverage()) : 0;
+    input.deform = material ? static_cast<int>(material->Deform()) : 0;
+    input.stageCount = material ? material->GetNumStages() : 0;
+    input.sort = material ? material->GetSort() : 0.0f;
+    input.hasAlphaTest = hasAlphaTest;
+    return SmokeMaterialRouteClassSignatureFromPod(
+        input, surfaceClass, subtype, classifier);
 }

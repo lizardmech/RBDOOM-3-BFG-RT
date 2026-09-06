@@ -84,17 +84,18 @@ bool SmokeRtCpuTryLoadVertexJoints(const idDrawVert& base, const idJointMat* joi
 
 }
 
-const idJointMat* GetSmokeRtCpuSkinningJoints(const srfTriangles_t* tri)
+bool GetSmokeRtCpuSkinningJointSnapshot(const srfTriangles_t* tri, SmokeRtSkinningJointSnapshot& out)
 {
+    out = SmokeRtSkinningJointSnapshot();
     if (!r_useGPUSkinning.GetBool() || !tri)
     {
-        return nullptr;
+        return false;
     }
 
     const idRenderModelStatic* model = tri->staticModelWithJoints;
     if (!SmokeRtCpuPointerLooksPlausible(model))
     {
-        return nullptr;
+        return false;
     }
 
     int jointCount = 0;
@@ -104,9 +105,17 @@ const idJointMat* GetSmokeRtCpuSkinningJoints(const srfTriangles_t* tri)
         jointCount > 4096 ||
         !SmokeRtCpuPointerLooksPlausible(joints))
     {
-        return nullptr;
+        return false;
     }
-    return joints;
+    out.jointsInverted = joints;
+    out.numInvertedJoints = jointCount;
+    return true;
+}
+
+const idJointMat* GetSmokeRtCpuSkinningJoints(const srfTriangles_t* tri)
+{
+    SmokeRtSkinningJointSnapshot snapshot;
+    return GetSmokeRtCpuSkinningJointSnapshot(tri, snapshot) ? snapshot.jointsInverted : nullptr;
 }
 
 idVec3 TransformSmokeSkinnedVertexPosition(const idDrawVert& base, const idJointMat* joints)

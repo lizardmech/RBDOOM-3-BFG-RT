@@ -90,6 +90,7 @@ struct RtSmokeMaterialUniverseStats
 void BeginSmokeMaterialUniverseFrame();
 void ReserveSmokeMaterialUniverse(size_t expectedMaterialCount);
 void ClearSmokeMaterialUniverse();
+bool SmokeMaterialUniverseSemanticFingerprintSelfTest();
 const RtSmokePersistentMaterialRecord& GetSmokePersistentMaterialRecord(uint32_t materialId, const RtSmokeMaterialTextureInfo& info);
 const RtSmokeMaterialUniverseFacts& GetSmokeMaterialUniverseFacts(uint32_t materialId, const RtSmokeMaterialTextureInfo& info);
 RtSmokeMaterialUniverseStats GetSmokeMaterialUniverseStats();

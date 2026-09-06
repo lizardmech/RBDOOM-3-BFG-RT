@@ -32,6 +32,8 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "RenderCommon.h"
 #include "NVRHI/PathTraceGeometryLifecycle.h"
+#include "NVRHI/PathTraceCommittedBaseline.h"
+#include "NVRHI/PathTraceCpuProducerRewrite.h"
 
 
 /*
@@ -41,6 +43,9 @@ idRenderWorldLocal::FreeWorld
 */
 void idRenderWorldLocal::FreeWorld()
 {
+	RtCpuProducerRewrite_Invalidate( RtCpuRewriteInvalidReason::MapWorldChange );
+	DrainPathTraceCommittedBaselinePhase1(
+		RtPathTraceCommittedBaselineDrainReason::WorldReplacement );
 	// this will free all the lightDefs and entityDefs
 	FreeDefs();
 
@@ -735,6 +740,9 @@ bool idRenderWorldLocal::InitFromMap( const char* name )
 	idLexer* 		src;
 	idToken			token;
 	idRenderModel* 	lastModel;
+	RtCpuProducerRewrite_Invalidate( RtCpuRewriteInvalidReason::MapWorldChange );
+	DrainPathTraceCommittedBaselinePhase1(
+		RtPathTraceCommittedBaselineDrainReason::MapReset );
 	++mapLoadSerial;
 
 	// if this is an empty world, initialize manually

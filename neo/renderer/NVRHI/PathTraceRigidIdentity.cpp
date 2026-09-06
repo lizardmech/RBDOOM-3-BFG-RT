@@ -3,6 +3,8 @@
 
 #include "PathTraceRigidIdentity.h"
 #include "PathTraceAcceleration.h"
+#include "PathTraceCaptureProduct.h"
+#include "PathTraceRigidMeshIdentity.h"
 
 namespace {
 
@@ -18,31 +20,52 @@ int ResolvePathTraceRigidModelSurfaceIndex(
     const srfTriangles_t* tri,
     int requestedModelSurfaceIndex)
 {
-    if (requestedModelSurfaceIndex >= 0)
+    if (requestedModelSurfaceIndex >= 0 || !model || !tri)
     {
-        return requestedModelSurfaceIndex;
+        return ResolvePathTraceModelSurfaceIndexFromPod(
+            requestedModelSurfaceIndex,
+            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(tri)),
+            nullptr, 0);
     }
 
-    if (!model)
+    const int surfaceCount = model->NumSurfaces();
+    if (surfaceCount <= 0)
     {
         return -1;
     }
-
-    if (!tri)
-    {
-        return -1;
-    }
-
-    for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
-    {
-        const modelSurface_t* surface = model->Surface(surfaceIndex);
-        if (surface && surface->geometry == tri)
+    return ResolvePathTraceModelSurfaceIndexFromOrderedTokens(
+        requestedModelSurfaceIndex,
+        static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(tri)),
+        static_cast<std::size_t>(surfaceCount),
+        [model](std::size_t surfaceIndex)
         {
-            return surfaceIndex;
-        }
-    }
+            const modelSurface_t* surface = model->Surface(
+                static_cast<int>(surfaceIndex));
+            return static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(
+                surface ? surface->geometry : nullptr));
+        });
+}
 
-    return -1;
+void FillPathTraceRigidRouteMeshKey(
+    RtPathTraceMeshKey& meshKey,
+    const srfTriangles_t* tri,
+    uint32_t materialId,
+    uint32_t materialClassSignature,
+    uint32_t sourceKind)
+{
+    meshKey.tri = tri;
+    meshKey.vertexBufferIdentity = static_cast<uintptr_t>(
+        cpu_producer_publish::RigidMeshVertexCacheIdentity(
+            static_cast<uint64_t>(tri ? tri->ambientCache : 0)));
+    meshKey.indexBufferIdentity = static_cast<uintptr_t>(
+        cpu_producer_publish::RigidMeshIndexCacheIdentity(
+            static_cast<uint64_t>(tri ? tri->indexCache : 0)));
+    meshKey.numVerts = tri ? tri->numVerts : 0;
+    meshKey.numIndexes = tri ? tri->numIndexes : 0;
+    meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
+    meshKey.materialId = materialId;
+    meshKey.materialClassSignature = materialClassSignature;
+    meshKey.sourceKind = sourceKind;
 }
 
 uint64 BuildPathTraceRigidMeshHash(
@@ -52,24 +75,40 @@ uint64 BuildPathTraceRigidMeshHash(
     int modelSurfaceIndex,
     int jointIndex)
 {
-    uint64 hash = 14695981039346656037ull;
-    const uintptr_t modelIdentity = reinterpret_cast<uintptr_t>(model);
-    hash = HashRigidIdentityBytes(hash, &modelIdentity, sizeof(modelIdentity));
-    hash = HashRigidIdentityBytes(hash, &modelEpoch, sizeof(modelEpoch));
-    hash = HashRigidIdentityBytes(hash, &modelSurfaceIndex, sizeof(modelSurfaceIndex));
-    hash = HashRigidIdentityBytes(hash, &key.vertexBufferIdentity, sizeof(key.vertexBufferIdentity));
-    hash = HashRigidIdentityBytes(hash, &key.indexBufferIdentity, sizeof(key.indexBufferIdentity));
-    hash = HashRigidIdentityBytes(hash, &key.numVerts, sizeof(key.numVerts));
-    hash = HashRigidIdentityBytes(hash, &key.numIndexes, sizeof(key.numIndexes));
-    hash = HashRigidIdentityBytes(hash, &key.vertexFormat, sizeof(key.vertexFormat));
-    hash = HashRigidIdentityBytes(hash, &key.materialId, sizeof(key.materialId));
-    hash = HashRigidIdentityBytes(hash, &key.materialClassSignature, sizeof(key.materialClassSignature));
-    hash = HashRigidIdentityBytes(hash, &key.sourceKind, sizeof(key.sourceKind));
-    if (jointIndex >= 0)
-    {
-        hash = HashRigidIdentityBytes(hash, &jointIndex, sizeof(jointIndex));
-    }
-    return hash;
+    RtPathTraceRigidMeshIdentityPod pod;
+    pod.modelIdentity = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(model));
+    pod.modelEpoch = modelEpoch;
+    pod.modelSurfaceIndex = modelSurfaceIndex;
+    pod.jointIndex = jointIndex;
+    pod.vertexBufferIdentity = key.vertexBufferIdentity;
+    pod.indexBufferIdentity = key.indexBufferIdentity;
+    pod.numVerts = key.numVerts;
+    pod.numIndexes = key.numIndexes;
+    pod.vertexFormat = key.vertexFormat;
+    pod.materialId = key.materialId;
+    pod.materialClassSignature = key.materialClassSignature;
+    pod.sourceKind = key.sourceKind;
+    return BuildPathTraceRigidMeshHashFromPod(pod);
+}
+
+uint64 BuildPathTraceRigidMeshHashFromPod(
+    const RtPathTraceRigidMeshIdentityPod& input)
+{
+    const cpu_producer_publish::RigidMeshIdentityInputs in =
+        cpu_producer_publish::MakeRigidMeshIdentity(
+            input.modelIdentity,
+            input.modelEpoch,
+            input.modelSurfaceIndex,
+            static_cast<uint64_t>(input.vertexBufferIdentity),
+            static_cast<uint64_t>(input.indexBufferIdentity),
+            input.numVerts,
+            input.numIndexes,
+            input.vertexFormat,
+            input.materialId,
+            input.materialClassSignature,
+            input.sourceKind,
+            input.jointIndex);
+    return static_cast<uint64>(cpu_producer_publish::HashRigidMeshIdentity(in));
 }
 
 uint64 BuildPathTraceRigidInstanceId(
@@ -82,20 +121,38 @@ uint64 BuildPathTraceRigidInstanceId(
     uint32_t materialId,
     int jointIndex)
 {
+    RtPathTraceRigidInstanceIdentityPod pod;
+    pod.meshHash = meshHash;
+    pod.renderWorldIdentity = static_cast<uint64_t>(
+        reinterpret_cast<uintptr_t>(renderDefKey.world));
+    pod.renderDefIndex = renderDefKey.index;
+    pod.renderDefGeneration = renderDefKey.generation;
+    pod.modelEpoch = modelEpoch;
+    pod.entityIndex = entityIndex;
+    pod.renderEntityNum = renderEntityNum;
+    pod.modelSurfaceIndex = modelSurfaceIndex;
+    pod.materialId = materialId;
+    pod.jointIndex = jointIndex;
+    return BuildPathTraceRigidInstanceIdFromPod(pod);
+}
+
+uint64 BuildPathTraceRigidInstanceIdFromPod(
+    const RtPathTraceRigidInstanceIdentityPod& input)
+{
     uint64 hash = 14695981039346656037ull;
-    hash = HashRigidIdentityBytes(hash, &renderDefKey.world, sizeof(renderDefKey.world));
-    hash = HashRigidIdentityBytes(hash, &renderDefKey.index, sizeof(renderDefKey.index));
-    hash = HashRigidIdentityBytes(hash, &renderDefKey.generation, sizeof(renderDefKey.generation));
-    hash = HashRigidIdentityBytes(hash, &modelEpoch, sizeof(modelEpoch));
-    hash = HashRigidIdentityBytes(hash, &entityIndex, sizeof(entityIndex));
-    hash = HashRigidIdentityBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
-    hash = HashRigidIdentityBytes(hash, &modelSurfaceIndex, sizeof(modelSurfaceIndex));
-    hash = HashRigidIdentityBytes(hash, &materialId, sizeof(materialId));
-    if (jointIndex >= 0)
+    hash = HashRigidIdentityBytes(hash, &input.renderWorldIdentity, sizeof(input.renderWorldIdentity));
+    hash = HashRigidIdentityBytes(hash, &input.renderDefIndex, sizeof(input.renderDefIndex));
+    hash = HashRigidIdentityBytes(hash, &input.renderDefGeneration, sizeof(input.renderDefGeneration));
+    hash = HashRigidIdentityBytes(hash, &input.modelEpoch, sizeof(input.modelEpoch));
+    hash = HashRigidIdentityBytes(hash, &input.entityIndex, sizeof(input.entityIndex));
+    hash = HashRigidIdentityBytes(hash, &input.renderEntityNum, sizeof(input.renderEntityNum));
+    hash = HashRigidIdentityBytes(hash, &input.modelSurfaceIndex, sizeof(input.modelSurfaceIndex));
+    hash = HashRigidIdentityBytes(hash, &input.materialId, sizeof(input.materialId));
+    if (input.jointIndex >= 0)
     {
-        hash = HashRigidIdentityBytes(hash, &jointIndex, sizeof(jointIndex));
+        hash = HashRigidIdentityBytes(hash, &input.jointIndex, sizeof(input.jointIndex));
     }
-    hash = HashRigidIdentityBytes(hash, &meshHash, sizeof(meshHash));
+    hash = HashRigidIdentityBytes(hash, &input.meshHash, sizeof(input.meshHash));
     return hash;
 }
 
@@ -118,10 +175,38 @@ RtPathTraceRigidInstanceSnapshot BuildPathTraceRigidInstanceSnapshot(
     snapshot.modelEpoch = modelEpoch;
     snapshot.entityIndex = entityIndex;
     snapshot.renderEntityNum = renderEntityNum;
-    snapshot.jointIndex = jointIndex;
-    snapshot.modelSurfaceIndex = (requestedModelSurfaceIndex >= 0 || RtPathTraceSourceFlagsAreDurableRigid(sourceFlags))
-        ? ResolvePathTraceRigidModelSurfaceIndex(model, tri, requestedModelSurfaceIndex)
-        : -1;
+	snapshot.jointIndex = jointIndex;
+	bool comparedCall = false;
+	bool snapshotSurfaceMatches = false;
+	const bool useResolvedSurface = requestedModelSurfaceIndex >= 0 ||
+		RtPathTraceSourceFlagsAreDurableRigid(sourceFlags);
+	if (useResolvedSurface)
+	{
+		const bool usedSnapshot =
+			ResolvePathTraceCaptureSerialRigidIdentitySurfaceFromSnapshot(
+				static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(model)),
+				modelEpoch, requestedModelSurfaceIndex,
+				static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(tri)),
+				snapshot.modelSurfaceIndex, snapshotSurfaceMatches, comparedCall);
+		if (!usedSnapshot && !comparedCall)
+		{
+			snapshot.modelSurfaceIndex = ResolvePathTraceRigidModelSurfaceIndex(
+				model, tri, requestedModelSurfaceIndex);
+		}
+	}
+	if (comparedCall)
+	{
+		snapshot.modelSurfaceIndexValid = snapshotSurfaceMatches;
+	}
+	else if (model != nullptr && tri != nullptr &&
+		snapshot.modelSurfaceIndex >= 0 &&
+		snapshot.modelSurfaceIndex < model->NumSurfaces())
+	{
+		const modelSurface_t* resolvedSurface =
+			model->Surface(snapshot.modelSurfaceIndex);
+		snapshot.modelSurfaceIndexValid =
+			resolvedSurface != nullptr && resolvedSurface->geometry == tri;
+	}
     snapshot.materialId = key.materialId;
     snapshot.materialClassSignature = key.materialClassSignature;
     snapshot.sourceFlags = sourceFlags;

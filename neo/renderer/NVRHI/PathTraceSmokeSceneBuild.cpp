@@ -13,10 +13,20 @@
 #include "PathTraceAccelerationPlan.h"
 #include "PathTraceCVars.h"
 #include "PathTraceCpuWork.h"
+#include "PathTraceCpuProducerPacker.h"
+#include "PathTraceCpuProducerPublish.h"
+#include "PathTraceCaptureProduct.h"
+#include "PathTraceCommittedBaseline.h"
+#include "PathTraceGeometryLifecycle.h"
+#include "PathTraceCpuProducerRewrite.h"
+#include "../GLMatrix.h"
+#include "PathTraceCpuProducerApplyGate.h"
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomLights.h"
 #include "PathTraceDrawSurfCapture.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceMaterialRecordKernel.h"
+#include "PathTraceRigidResolveKernel.h"
 #include "PathTraceEmissiveCandidates.h"
 #include "PathTraceEntityFeed.h"
 #include "PathTraceGeometryAttributeSurvey.h"
@@ -26,6 +36,7 @@
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceParticleCapture.h"
 #include "PathTracePrimaryPass.h"
+#include "PathTraceProducerLanes.h"
 #include "PathTraceRemixFramePrepare.h"
 #include "PathTraceRemixLightManager.h"
 #include "PathTraceDebugModes.h"
@@ -55,6 +66,8 @@
 #include <cstring>
 #include <future>
 #include <limits>
+#include <map>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -64,6 +77,9 @@ extern DeviceManager* deviceManager;
 extern idCVar r_lightScale;
 
 namespace {
+
+int g_pathTraceProducerLaneConfiguredMode = -1;
+int g_pathTraceProducerLaneConfiguredMask = -1;
 
 const int RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES = 120;
 const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
@@ -79,6 +95,280 @@ static_assert(
 int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
 int g_smokeLastGeometryValidationDumpErrors = 0;
+
+struct RtPathTraceLaneBProductReleaseGuard
+{
+    RtPathTraceAccelCpuProduct* product = nullptr;
+    ~RtPathTraceLaneBProductReleaseGuard()
+    {
+        if (product != nullptr)
+        {
+            ReleasePathTraceProducerLaneBProduct(*product);
+        }
+    }
+};
+
+constexpr int RT_PT_BACKEND_JOB_PARALLELISM = 4;
+constexpr int RT_PT_BACKEND_JOB_LIST_MAX_JOBS =
+    RT_PT_BACKEND_JOB_PARALLELISM + 1;
+constexpr int RT_PT_RIGID_ROUTE_APPEND_JOB_LIST_MAX_JOBS = 1;
+
+struct PathTraceDoomLightBackendJob
+{
+    idParallelJobList* jobList = nullptr;
+    PathTraceDoomAnalyticLightSnapshot snapshot;
+    PathTraceDoomAnalyticLightCollectionResult result;
+    uint64 startUs = 0;
+    uint64 finishUs = 0;
+
+    ~PathTraceDoomLightBackendJob()
+    {
+        if (jobList)
+        {
+            jobList->Wait();
+            parallelJobManager->FreeJobList(jobList);
+        }
+    }
+};
+
+struct PathTraceRigidRouteBackendJob
+{
+    RtPathTraceRigidRouteBuildSnapshot snapshot;
+    RtPathTraceRigidRouteBuildTimedResult result;
+};
+
+void RunPathTraceRigidRouteBackendJob(void* data)
+{
+    OPTICK_EVENT("PT Backend Job Rigid Route");
+    PathTraceRigidRouteBackendJob* job =
+        static_cast<PathTraceRigidRouteBackendJob*>(data);
+    job->result = BuildRigidRouteBuffersTimedResult(job->snapshot);
+}
+REGISTER_PARALLEL_JOB(
+    RunPathTraceRigidRouteBackendJob,
+    "Path trace rigid-route immutable snapshot build");
+
+struct PathTraceEmissiveInventoryBackendInput
+{
+    std::vector<uint32_t> materialIds;
+    std::vector<PathTraceSmokeMaterial> materials;
+    std::vector<uint32_t> materialUniverseIndexes;
+    std::vector<uint32_t> staticMaterialIndexes;
+    std::vector<uint32_t> dynamicMaterialIndexes;
+    const std::vector<PathTraceSmokeVertex>* staticVertices = nullptr;
+    const std::vector<uint32_t>* staticIndexes = nullptr;
+    const std::vector<uint32_t>* staticTriangleClasses = nullptr;
+    const RtSmokeStaticBucketGeometryPack* staticBucketGeometryPack = nullptr;
+    const std::vector<uint32_t>* staticBucketTriangleMaterialIndexes = nullptr;
+    const RtPathTraceStaticBucketActivePublication* staticBucketPublication = nullptr;
+    const std::vector<PathTraceSmokeVertex>* dynamicVertices = nullptr;
+    const std::vector<uint32_t>* dynamicIndexes = nullptr;
+    const std::vector<uint32_t>* dynamicTriangleClasses = nullptr;
+    const std::vector<uint32_t>* dynamicTriangleInstanceIds = nullptr;
+    const std::vector<uint32_t>* dynamicTriangleIdentityIds = nullptr;
+    uint32_t emissiveMaterialFlag = 0;
+    uint32_t triangleClassMask = 0;
+    uint32_t skinnedSurfaceClassId = 0;
+    int maxRecords = 0;
+};
+
+struct PathTraceEmissiveInventoryBackendJob
+{
+    const PathTraceEmissiveInventoryBackendInput* input = nullptr;
+    RtSmokeEmissiveInventorySourceRange sourceRange;
+    RtSmokeEmissiveInventoryPartitionResult result;
+};
+
+void RunPathTraceEmissiveInventoryBackendJob(void* data)
+{
+    OPTICK_EVENT("PT Backend Job Emissive Inventory");
+    PathTraceEmissiveInventoryBackendJob* job =
+        static_cast<PathTraceEmissiveInventoryBackendJob*>(data);
+    const PathTraceEmissiveInventoryBackendInput& input = *job->input;
+    BuildSmokeEmissiveTriangleInventoryPartition(
+        input.materialIds,
+        input.materials,
+        input.materialUniverseIndexes,
+        *input.staticVertices,
+        *input.staticIndexes,
+        *input.staticTriangleClasses,
+        input.staticMaterialIndexes,
+        input.staticBucketGeometryPack,
+        input.staticBucketTriangleMaterialIndexes,
+        input.staticBucketPublication,
+        *input.dynamicVertices,
+        *input.dynamicIndexes,
+        *input.dynamicTriangleClasses,
+        input.dynamicMaterialIndexes,
+        *input.dynamicTriangleInstanceIds,
+        *input.dynamicTriangleIdentityIds,
+        job->sourceRange,
+        input.emissiveMaterialFlag,
+        input.triangleClassMask,
+        input.skinnedSurfaceClassId,
+        input.maxRecords,
+        job->result);
+}
+REGISTER_PARALLEL_JOB(
+    RunPathTraceEmissiveInventoryBackendJob,
+    "Path trace immutable emissive inventory build");
+
+struct PathTraceRigidRouteEmissiveAppendBackendInput
+{
+    std::vector<uint32_t> materialIds;
+    std::vector<PathTraceSmokeMaterial> materials;
+    std::vector<uint32_t> materialUniverseIndexes;
+    const RtPathTraceRigidRouteBuild* rigidRouteBuild = nullptr;
+    uint32_t emissiveMaterialFlag = 0;
+    int maxRecords = 0;
+};
+
+struct PathTraceRigidRouteEmissiveAppendBackendJob
+{
+    const PathTraceRigidRouteEmissiveAppendBackendInput* input = nullptr;
+    RtSmokeRigidRouteEmissiveAppendResult result;
+};
+
+void RunPathTraceRigidRouteEmissiveAppendBackendJob(void* data)
+{
+    OPTICK_EVENT("PT Backend Job Rigid Route Append");
+    PathTraceRigidRouteEmissiveAppendBackendJob* job =
+        static_cast<PathTraceRigidRouteEmissiveAppendBackendJob*>(data);
+    if (!job || !job->input || !job->input->rigidRouteBuild)
+    {
+        assert(!"rigid-route emissive append worker input is incomplete");
+        return;
+    }
+    const PathTraceRigidRouteEmissiveAppendBackendInput& input =
+        *job->input;
+    BuildSmokeRigidRouteEmissiveTriangleInventorySnapshot(
+        input.materialIds,
+        input.materials,
+        input.materialUniverseIndexes,
+        *input.rigidRouteBuild,
+        input.emissiveMaterialFlag,
+        input.maxRecords,
+        job->result);
+}
+REGISTER_PARALLEL_JOB(
+    RunPathTraceRigidRouteEmissiveAppendBackendJob,
+    "Path trace cached rigid-route emissive append build");
+
+void RunPathTraceDoomLightBackendJob(void* data)
+{
+    OPTICK_EVENT("PT Backend Job Doom Lights");
+    PathTraceDoomLightBackendJob* job =
+        static_cast<PathTraceDoomLightBackendJob*>(data);
+    job->result = CollectPathTraceDoomAnalyticLightsFromSnapshot(job->snapshot);
+    job->finishUs = Sys_Microseconds();
+}
+REGISTER_PARALLEL_JOB(
+    RunPathTraceDoomLightBackendJob,
+    "Path trace Doom-light immutable snapshot collection");
+
+bool StartPathTraceDoomLightBackendJob(
+    PathTraceDoomLightBackendJob& job,
+    PathTraceDoomAnalyticLightSnapshot&& snapshot)
+{
+    if (!parallelJobManager || job.jobList || !snapshot.IsValid())
+    {
+        return false;
+    }
+    job.jobList = parallelJobManager->AllocJobList(
+        JOBLIST_RENDERER_BACKEND,
+        JOBLIST_PRIORITY_MEDIUM,
+        4,
+        0,
+        nullptr);
+    if (!job.jobList)
+    {
+        return false;
+    }
+    job.snapshot = std::move(snapshot);
+    job.startUs = Sys_Microseconds();
+    job.jobList->AddJob(RunPathTraceDoomLightBackendJob, &job);
+    job.jobList->Submit(nullptr, RT_PT_BACKEND_JOB_PARALLELISM);
+    return true;
+}
+
+PathTraceDoomAnalyticLightCollectionResult FinishPathTraceDoomLightBackendJob(
+    PathTraceDoomLightBackendJob& job)
+{
+    if (!job.jobList)
+    {
+        return {};
+    }
+    {
+        OPTICK_EVENT("PT Backend Job Doom Lights Wait");
+        job.jobList->Wait();
+    }
+    parallelJobManager->FreeJobList(job.jobList);
+    job.jobList = nullptr;
+    job.snapshot = PathTraceDoomAnalyticLightSnapshot();
+    return std::move(job.result);
+}
+
+void RunPathTraceRigidTlasBackendJob(void* data)
+{
+    OPTICK_EVENT("PT Backend Job Rigid TLAS Plan");
+    RtPathTraceRigidTlasBackendJob* job =
+        static_cast<RtPathTraceRigidTlasBackendJob*>(data);
+    job->result = BuildSmokeRigidTlasPlanTimedResult(job->snapshot);
+}
+REGISTER_PARALLEL_JOB(
+    RunPathTraceRigidTlasBackendJob,
+    "Path trace rigid TLAS immutable snapshot plan");
+
+void StopPathTraceRigidTlasBackendJob(RtPathTraceRigidTlasBackendJob& job)
+{
+    if (!job.jobList)
+    {
+        return;
+    }
+    job.jobList->Wait();
+    parallelJobManager->FreeJobList(job.jobList);
+    job = RtPathTraceRigidTlasBackendJob();
+}
+
+bool StartPathTraceRigidTlasBackendJob(
+    RtPathTraceRigidTlasBackendJob& job,
+    const RtSmokeRigidTlasPlanSnapshot& snapshot)
+{
+    if (!parallelJobManager || job.jobList)
+    {
+        return false;
+    }
+    job.jobList = parallelJobManager->AllocJobList(
+        JOBLIST_RENDERER_BACKEND,
+        JOBLIST_PRIORITY_MEDIUM,
+        4,
+        0,
+        nullptr);
+    if (!job.jobList)
+    {
+        return false;
+    }
+    job.snapshot = snapshot;
+    job.jobList->AddJob(RunPathTraceRigidTlasBackendJob, &job);
+    job.jobList->Submit(nullptr, RT_PT_BACKEND_JOB_PARALLELISM);
+    return true;
+}
+
+bool PathTraceRigidTlasBackendJobReady(
+    RtPathTraceRigidTlasBackendJob& job)
+{
+    return job.jobList && job.jobList->TryWait();
+}
+
+RtSmokeRigidTlasPlanTimedResult TakePathTraceRigidTlasBackendJob(
+    RtPathTraceRigidTlasBackendJob& job)
+{
+    RtSmokeRigidTlasPlanTimedResult result = std::move(job.result);
+    parallelJobManager->FreeJobList(job.jobList);
+    job = RtPathTraceRigidTlasBackendJob();
+    return result;
+}
+
 
 void MergeSmokeMaterialStats(
     RtSmokeMaterialStats& destination,
@@ -1170,24 +1460,51 @@ static bool ChooseSmokeSpectrumLightColor(
     return found;
 }
 
+struct RtSmokeMaterialRecordWork {
+    RtCpuMaterialRecordsInput input;
+    std::vector<PathTraceDynamicMaterialRecord> records;
+};
+
+static RtCpuMaterialRecordsInput SnapshotSmokeMaterialRecords(const RtSmokeMaterialTableBuild& table,
+    const std::vector<RtSmokeDynamicMaterialEvalSample>& samples, const viewDef_t* viewDef)
+{
+    static_assert(RT_SMOKE_DYNAMIC_ORDERED_STAGE_CAPACITY == 8, "owned record stage capacity");
+    OPTICK_EVENT("PT CPU Material Records Snapshot");
+    RtCpuMaterialRecordsInput input;
+    const size_t count=std::min(table.materials.size(),table.materialIds.size());
+    input.rows.resize(count);
+    bool needSpectrum=false;
+    for (size_t i=0;i<count;++i) {
+        auto& row=input.rows[i]; row.id=table.materialIds[i];
+        row.residentStatic=SmokeTableMaterialIsResidentStatic(table,static_cast<int>(i));
+        row.variant=IsSmokeMaterialTextureVariant(row.id);
+        if (i<table.materialInfos.size()) {
+            row.detailDecal=table.materialInfos[i].detailDecal;
+            row.detailDecalSpectrum=table.materialInfos[i].detailDecalSpectrum;
+        }
+        needSpectrum=needSpectrum || (!row.residentStatic && row.detailDecal && row.detailDecalSpectrum>0);
+    }
+    input.samples.reserve(samples.size());
+    for (const auto& sample:samples) input.samples.push_back(RtCpuCaptureMaterialRecordSample(sample));
+    if (needSpectrum) {
+        std::vector<RtSmokeSpectrumLight> lights; BuildSmokeSpectrumLights(viewDef,lights);
+        for (const auto& light:lights) {
+            RtCpuMaterialSpectrumLight copy;
+            copy.spectrum=light.spectrum;copy.radius=light.radius;
+            copy.origin={light.origin.x,light.origin.y,light.origin.z};
+            copy.color={light.color.x,light.color.y,light.color.z,light.color.w};
+            input.spectrumLights.push_back(copy);
+        }
+    }
+    return input;
+}
+
 std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
     const RtSmokeMaterialTableBuild& table,
     const RtSmokeMaterialStats& materialStats,
-    const viewDef_t* viewDef)
+    const viewDef_t* viewDef,
+    bool supplementDrawSurfaces = true)
 {
-    std::vector<PathTraceDynamicMaterialRecord> records;
-    const int materialCount = Min(static_cast<int>(table.materials.size()), static_cast<int>(table.materialIds.size()));
-    if (materialCount <= 0)
-    {
-        return records;
-    }
-
-    records.resize(materialCount);
-    std::vector<std::vector<PathTraceDynamicMaterialRecord>> orderedStageRecords(materialCount);
-    int validRecordCount = 0;
-    std::vector<RtSmokeSpectrumLight> spectrumLights;
-    bool spectrumLightsBuilt = false;
-
     // Dynamic-material evaluation used to be fed only while geometry was
     // appended to the dynamic fallback. Rigid-route promotion legitimately
     // removes that geometry, but it must not remove the per-draw-surface
@@ -1204,7 +1521,7 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
             sampledMaterialIds.insert(sample.id);
         }
     }
-    if (viewDef && viewDef->drawSurfs)
+    if (supplementDrawSurfaces && viewDef && viewDef->drawSurfs)
     {
         for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
         {
@@ -1238,263 +1555,7 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
         }
     }
 
-    for (const RtSmokeDynamicMaterialEvalSample& sample : dynamicSamples)
-    {
-        if (!sample.valid)
-        {
-            continue;
-        }
-
-        const int materialIndex = FindSmokeMaterialTableIndexById(table, sample.id);
-        if (materialIndex < 0)
-        {
-            continue;
-        }
-        if (SmokeTableMaterialIsResidentStatic(table, materialIndex))
-        {
-            continue;
-        }
-
-        PathTraceDynamicMaterialRecord record;
-        record.color[0] = Max(0.0f, sample.color[0]);
-        record.color[1] = Max(0.0f, sample.color[1]);
-        record.color[2] = Max(0.0f, sample.color[2]);
-        record.color[3] = idMath::ClampFloat(0.0f, 1.0f, sample.color[3]);
-        record.texMatrix0[0] = sample.texMatrix[0][0];
-        record.texMatrix0[1] = sample.texMatrix[0][1];
-        record.texMatrix0[2] = sample.texMatrix[0][2];
-        record.texMatrix0[3] = sample.condition;
-        record.texMatrix1[0] = sample.texMatrix[1][0];
-        record.texMatrix1[1] = sample.texMatrix[1][1];
-        record.texMatrix1[2] = sample.texMatrix[1][2];
-        record.texMatrix1[3] = sample.alphaTest;
-        record.materialIndex = static_cast<uint32_t>(materialIndex);
-        record.materialId = sample.id;
-        record.stageIndex = sample.stageIndex >= 0 ? static_cast<uint32_t>(sample.stageIndex) : UINT32_MAX;
-        record.flags = RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID;
-        if (sample.condition != 0.0f && sample.enabledStages > 0)
-        {
-            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
-        }
-        if (sample.selectedStageEmissive)
-        {
-            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE;
-        }
-        if (IsSmokeMaterialTextureVariant(record.materialId))
-        {
-            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE;
-        }
-        if (SmokeDynamicMaterialSampleHasTexMatrix(sample))
-        {
-            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX;
-        }
-        if (sample.alphaTestStages > 0 || sample.alphaTest > 0.0f)
-        {
-            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST;
-        }
-        if (sample.dynamicImageStages > 0)
-        {
-            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_DYNAMIC_IMAGE;
-        }
-        if (sample.cinematicStages > 0)
-        {
-            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_CINEMATIC;
-        }
-        if (sample.guiRenderTargetStages > 0)
-        {
-            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_GUI_RENDER_TARGET;
-        }
-        if (sample.programStages > 0)
-        {
-            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_PROGRAM;
-        }
-        // Detail-decal overrides: the composite consumes record.color as the
-        // decal layer's tint, which must be the DIFFUSE stage's evaluated color
-        // (the generic selection above prefers the brightest stage and loses
-        // e.g. alphabet4's yellow to a white bump stage). Spectrum decals are
-        // additionally gated/tinted by their ASSOCIATED matching-spectrum light.
-        if (materialIndex < static_cast<int>(table.materialInfos.size()))
-        {
-            const RtSmokeMaterialTextureInfo& info = table.materialInfos[materialIndex];
-            if (info.detailDecal && sample.hasDiffuseStageColor)
-            {
-                record.color[0] = Max(0.0f, sample.diffuseStageColor[0]);
-                record.color[1] = Max(0.0f, sample.diffuseStageColor[1]);
-                record.color[2] = Max(0.0f, sample.diffuseStageColor[2]);
-                record.color[3] = idMath::ClampFloat(0.0f, 1.0f, sample.diffuseStageColor[3]);
-                record.texMatrix0[3] = sample.diffuseStageCondition;
-                if (sample.diffuseStageCondition != 0.0f)
-                {
-                    record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
-                }
-                else
-                {
-                    record.flags &= ~RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
-                }
-            }
-            if (info.detailDecal && info.detailDecalSpectrum > 0)
-            {
-                if (!spectrumLightsBuilt)
-                {
-                    BuildSmokeSpectrumLights(viewDef, spectrumLights);
-                    spectrumLightsBuilt = true;
-                }
-                idVec4 lightColor(0.0f, 0.0f, 0.0f, 1.0f);
-                ChooseSmokeSpectrumLightColor(
-                    spectrumLights,
-                    info.detailDecalSpectrum,
-                    sample.hasSurfaceOrigin ? &sample.surfaceOrigin : nullptr,
-                    lightColor);
-                record.color[0] *= lightColor.x;
-                record.color[1] *= lightColor.y;
-                record.color[2] *= lightColor.z;
-                record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE;
-                if (Max(record.color[0], Max(record.color[1], record.color[2])) <= 0.0f)
-                {
-                    record.flags &= ~RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
-                }
-            }
-        }
-        if ((records[materialIndex].flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u)
-        {
-            ++validRecordCount;
-        }
-        records[materialIndex] = record;
-        std::vector<PathTraceDynamicMaterialRecord>& materialStageRecords = orderedStageRecords[materialIndex];
-        materialStageRecords.clear();
-        materialStageRecords.reserve(sample.orderedStageCount);
-        for (int orderedIndex = 0; orderedIndex < sample.orderedStageCount; ++orderedIndex)
-        {
-            const RtSmokeDynamicStageEval& stage = sample.orderedStages[orderedIndex];
-            PathTraceDynamicMaterialRecord stageRecord;
-            for (int component = 0; component < 4; ++component)
-            {
-                stageRecord.color[component] = stage.color[component];
-            }
-            stageRecord.texMatrix0[0] = stage.texMatrix[0][0];
-            stageRecord.texMatrix0[1] = stage.texMatrix[0][1];
-            stageRecord.texMatrix0[2] = stage.texMatrix[0][2];
-            stageRecord.texMatrix0[3] = stage.condition;
-            stageRecord.texMatrix1[0] = stage.texMatrix[1][0];
-            stageRecord.texMatrix1[1] = stage.texMatrix[1][1];
-            stageRecord.texMatrix1[2] = stage.texMatrix[1][2];
-            stageRecord.texMatrix1[3] = stage.alphaTest;
-            stageRecord.materialIndex = static_cast<uint32_t>(materialIndex);
-            stageRecord.materialId = sample.id;
-            stageRecord.stageIndex = stage.stageIndex >= 0 ? static_cast<uint32_t>(stage.stageIndex) : UINT32_MAX;
-            stageRecord.flags = RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID | RT_SMOKE_DYNAMIC_MATERIAL_RECORD_ORDERED_STAGE_VALUE;
-            if (stage.enabled)
-            {
-                stageRecord.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
-            }
-            if (stage.emissive)
-            {
-                stageRecord.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE;
-            }
-            if (stage.hasTexMatrix)
-            {
-                stageRecord.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX;
-            }
-            if (stage.hasAlphaTest)
-            {
-                stageRecord.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST;
-            }
-            materialStageRecords.push_back(stageRecord);
-        }
-        if (sample.orderedStageOverflow)
-        {
-            records[materialIndex].stageIndex |= RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OVERFLOW;
-        }
-    }
-
-    // Synthesize records for spectrum detail decals with NO eval record
-    // (constant-register materials, e.g. pentastic1_spectrum): visibility and
-    // tint track the associated matching-spectrum light. No matching light ->
-    // stage disabled -> the composite drops the layer (invisible writing).
-    const int infoCount = Min(materialCount, static_cast<int>(table.materialInfos.size()));
-    for (int materialIndex = 0; materialIndex < infoCount; ++materialIndex)
-    {
-        const RtSmokeMaterialTextureInfo& info = table.materialInfos[materialIndex];
-        if (SmokeTableMaterialIsResidentStatic(table, materialIndex))
-        {
-            continue;
-        }
-        if (!info.detailDecal || info.detailDecalSpectrum <= 0)
-        {
-            continue;
-        }
-        if ((records[materialIndex].flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) != 0u)
-        {
-            continue;
-        }
-        if (!spectrumLightsBuilt)
-        {
-            BuildSmokeSpectrumLights(viewDef, spectrumLights);
-            spectrumLightsBuilt = true;
-        }
-
-        idVec4 lightColor(0.0f, 0.0f, 0.0f, 1.0f);
-        ChooseSmokeSpectrumLightColor(spectrumLights, info.detailDecalSpectrum, nullptr, lightColor);
-        const bool lit = lightColor.x > 0.0f || lightColor.y > 0.0f || lightColor.z > 0.0f;
-
-        PathTraceDynamicMaterialRecord record;
-        record.color[0] = lightColor.x;
-        record.color[1] = lightColor.y;
-        record.color[2] = lightColor.z;
-        record.color[3] = 1.0f;
-        record.texMatrix0[3] = lit ? 1.0f : 0.0f;
-        record.materialIndex = static_cast<uint32_t>(materialIndex);
-        record.materialId = table.materialIds[materialIndex];
-        record.stageIndex = UINT32_MAX;
-        // SELECTED_EMISSIVE marks the layer as self-revealing in the composite:
-        // it contributes as emissive tinted by the matching light, so the
-        // reveal pulses with the light instead of riding local DI.
-        record.flags = RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID | RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE;
-        if (lit)
-        {
-            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
-        }
-        records[materialIndex] = record;
-        ++validRecordCount;
-    }
-
-    if (validRecordCount == 0)
-    {
-        records.clear();
-        return records;
-    }
-
-    size_t orderedRecordCount = 0;
-    for (const std::vector<PathTraceDynamicMaterialRecord>& materialStageRecords : orderedStageRecords)
-    {
-        orderedRecordCount += materialStageRecords.size();
-    }
-    records.reserve(records.size() + orderedRecordCount);
-    for (int materialIndex = 0; materialIndex < materialCount; ++materialIndex)
-    {
-        std::vector<PathTraceDynamicMaterialRecord>& materialStageRecords = orderedStageRecords[materialIndex];
-        if (materialStageRecords.empty())
-        {
-            continue;
-        }
-
-        PathTraceDynamicMaterialRecord& header = records[materialIndex];
-        const uint32_t selectedStageRaw = header.stageIndex & RT_SMOKE_DYNAMIC_MATERIAL_HEADER_SELECTED_STAGE_MASK;
-        const uint32_t selectedStage = selectedStageRaw == 0xffu ? 0xffu : Min(selectedStageRaw, 0xfeu);
-        const uint32_t stageCount = Min(static_cast<uint32_t>(materialStageRecords.size()), 0xfu);
-        const uint32_t stageOffset = Min(static_cast<uint32_t>(records.size()), 0xffffu);
-        const bool overflow =
-            (header.stageIndex & RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OVERFLOW) != 0u ||
-            records.size() > 0xffffu ||
-            materialStageRecords.size() > 0xfu;
-        header.stageIndex = selectedStage |
-            (stageCount << RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_COUNT_SHIFT) |
-            (stageOffset << RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OFFSET_SHIFT) |
-            (overflow ? RT_SMOKE_DYNAMIC_MATERIAL_HEADER_STAGE_OVERFLOW : 0u);
-        header.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ORDERED_STAGE_VALUES;
-        records.insert(records.end(), materialStageRecords.begin(), materialStageRecords.end());
-    }
-    return records;
+    return BuildRtCpuMaterialRecords(SnapshotSmokeMaterialRecords(table,dynamicSamples,viewDef));
 }
 
 bool SmokeDynamicMaterialRecordHasTexMatrix(const std::vector<PathTraceDynamicMaterialRecord>& records, uint32_t materialIndex)
@@ -2232,6 +2293,7 @@ size_t SmokeBufferCapacityElements(nvrhi::BufferHandle buffer, size_t structStri
 template< typename T >
 uint64_t BuildSmokeVectorUploadSignature(const std::vector<T>& data)
 {
+    OPTICK_EVENT("PT Upload Signature Hash Vector Payload");
     const RtSmokePlanDataSpan spans[] = {
         MakeSmokePlanDataSpan(data)
     };
@@ -2248,6 +2310,7 @@ uint64_t BuildSmokePreviousStaticGeometryUploadSignature(
     size_t triangleClassCount,
     size_t triangleMaterialCount)
 {
+    OPTICK_EVENT("PT Upload Signature Hash Previous Static Metadata");
     uint64_t hash = 1469598103934665603ull;
     const uint64_t version = 2;
     hash = HashSmokeBytes(hash, &version, sizeof(version));
@@ -2634,6 +2697,8 @@ uint64_t BuildSmokeRigidRoutePayloadToken(const RtPathTraceRigidRouteBuildSnapsh
         const uint64_t indexCount = static_cast<uint64_t>(mesh.indexCount);
         hash = HashSmokeBytes(hash, &mesh.routeRecordIndex, sizeof(mesh.routeRecordIndex));
         hash = HashSmokeBytes(hash, &mesh.meshHash, sizeof(mesh.meshHash));
+        hash = HashSmokeBytes(hash, &mesh.cpuMeshContentSignature,
+            sizeof(mesh.cpuMeshContentSignature));
         hash = HashSmokeBytes(hash, &mesh.gpuUploadSignature, sizeof(mesh.gpuUploadSignature));
         hash = HashSmokeBytes(hash, &mesh.materialId, sizeof(mesh.materialId));
         hash = HashSmokeBytes(hash, &mesh.surfaceClassId, sizeof(mesh.surfaceClassId));
@@ -2871,11 +2936,13 @@ RtSmokeBufferUploadItem MakeSmokeVectorUploadItem(
     nvrhi::ResourceStates finalState,
     bool skip,
     int elementOffset = -1,
-    int elementCount = 0)
+    int elementCount = 0,
+    const char* profileName = nullptr)
 {
     RtSmokeBufferUploadItem item;
     item.buffer = buffer;
     item.data = data.data();
+    item.profileName = profileName;
     item.finalState = finalState;
     const RtSmokeUploadPlanMetadata uploadPlan = BuildSmokeVectorUploadPlanMetadata(
         data.size(),
@@ -2888,6 +2955,154 @@ RtSmokeBufferUploadItem MakeSmokeVectorUploadItem(
     item.sourceOffsetBytes = uploadPlan.sourceOffsetBytes;
     item.destOffsetBytes = uploadPlan.destOffsetBytes;
     return item;
+}
+
+struct SmokeRestoreDynamicGpuCommitDesc
+{
+    nvrhi::IDevice* device = nullptr;
+    nvrhi::ICommandList* commandList = nullptr;
+    std::vector<PathTraceSmokeVertex>* vertices = nullptr;
+    std::vector<uint32_t>* indexes = nullptr;
+    std::vector<uint32_t>* triangleClasses = nullptr;
+    std::vector<uint32_t>* triangleMaterials = nullptr;
+    std::vector<uint32_t>* materialIndexes = nullptr;
+    nvrhi::BufferHandle vertexBuffer;
+    nvrhi::BufferHandle indexBuffer;
+    nvrhi::BufferHandle classBuffer;
+    nvrhi::BufferHandle materialBuffer;
+    nvrhi::BufferHandle materialIndexBuffer;
+    nvrhi::rt::AccelStructHandle dynamicBlas;
+    nvrhi::rt::AccelStructDesc dynamicBlasDesc;
+    RtSmokeAccelerationPlan* accelerationPlan = nullptr;
+    RtSmokeBucketRanges* bucketRanges = nullptr;
+    int extraVertexCount = 0;
+    int extraIndexCount = 0;
+};
+
+// Option (b): restore ran after the first create/upload. Grow dynamic buffers
+// if needed, re-upload vertex/index/class/material, and rebuild this frame's
+// dynamic BLAS/ranges from the new vectors. A CPU-only append is not complete.
+bool CommitRestoredDynamicGeometryThisFrame(SmokeRestoreDynamicGpuCommitDesc& desc)
+{
+    if (!desc.device || !desc.commandList || !desc.vertices || !desc.indexes ||
+        !desc.triangleClasses || !desc.triangleMaterials || !desc.materialIndexes ||
+        !desc.accelerationPlan || !desc.bucketRanges)
+    {
+        return false;
+    }
+    if (desc.extraIndexCount <= 0 ||
+        desc.indexes->size() < static_cast<size_t>(desc.extraIndexCount))
+    {
+        return false;
+    }
+    if (desc.materialIndexes->size() != desc.triangleMaterials->size())
+    {
+        return false;
+    }
+    for (uint32_t materialIndex : *desc.materialIndexes)
+    {
+        if (materialIndex == UINT32_MAX)
+        {
+            return false;
+        }
+    }
+
+    RtSmokeBucketRange& tail = desc.bucketRanges->buckets[RT_SMOKE_CLASS_COUNT - 1];
+    if (tail.vertexCount == 0 && tail.indexCount == 0)
+    {
+        tail.vertexOffset = static_cast<int>(desc.vertices->size()) - desc.extraVertexCount;
+        tail.indexOffset = static_cast<int>(desc.indexes->size()) - desc.extraIndexCount;
+        tail.triangleOffset = static_cast<int>(desc.triangleClasses->size()) - (desc.extraIndexCount / 3);
+        if (tail.vertexOffset < 0)
+        {
+            tail.vertexOffset = 0;
+        }
+        if (tail.indexOffset < 0)
+        {
+            tail.indexOffset = 0;
+        }
+        if (tail.triangleOffset < 0)
+        {
+            tail.triangleOffset = 0;
+        }
+    }
+    tail.vertexCount += desc.extraVertexCount;
+    tail.indexCount += desc.extraIndexCount;
+    tail.triangleCount += desc.extraIndexCount / 3;
+    ++tail.surfaceCount;
+
+    RtSmokeDynamicGeometryBuffers existing;
+    existing.vertexBuffer = desc.vertexBuffer;
+    existing.indexBuffer = desc.indexBuffer;
+    existing.triangleClassBuffer = desc.classBuffer;
+    existing.triangleMaterialBuffer = desc.materialBuffer;
+    existing.triangleMaterialIndexBuffer = desc.materialIndexBuffer;
+    const RtSmokeDynamicGeometryBuffers grown = ResizeOrCreateSmokeDynamicGeometryBuffers(
+        desc.device,
+        existing,
+        desc.vertices->size() * sizeof(PathTraceSmokeVertex),
+        desc.indexes->size() * sizeof(uint32_t),
+        desc.triangleClasses->size() * sizeof(uint32_t),
+        desc.triangleMaterials->size() * sizeof(uint32_t),
+        desc.materialIndexes->size() * sizeof(uint32_t));
+    if (!grown.IsValid())
+    {
+        return false;
+    }
+    desc.vertexBuffer = grown.vertexBuffer;
+    desc.indexBuffer = grown.indexBuffer;
+    desc.classBuffer = grown.triangleClassBuffer;
+    desc.materialBuffer = grown.triangleMaterialBuffer;
+    desc.materialIndexBuffer = grown.triangleMaterialIndexBuffer;
+
+    const RtSmokeBufferUploadItem uploadItems[] = {
+        MakeSmokeVectorUploadItem(desc.vertexBuffer, *desc.vertices, nvrhi::ResourceStates::AccelStructBuildInput, false, -1, 0, "PT Merged Dynamic Upload Vertices"),
+        MakeSmokeVectorUploadItem(desc.indexBuffer, *desc.indexes, nvrhi::ResourceStates::AccelStructBuildInput, false, -1, 0, "PT Merged Dynamic Upload Indexes"),
+        MakeSmokeVectorUploadItem(desc.classBuffer, *desc.triangleClasses, nvrhi::ResourceStates::ShaderResource, false, -1, 0, "PT Merged Dynamic Upload Triangle Classes"),
+        MakeSmokeVectorUploadItem(desc.materialBuffer, *desc.triangleMaterials, nvrhi::ResourceStates::ShaderResource, false, -1, 0, "PT Merged Dynamic Upload Triangle Materials"),
+        MakeSmokeVectorUploadItem(desc.materialIndexBuffer, *desc.materialIndexes, nvrhi::ResourceStates::ShaderResource, false, -1, 0, "PT Merged Dynamic Upload Material Indexes")
+    };
+    RtSmokeBufferUploadBatchDesc uploadBatchDesc;
+    uploadBatchDesc.commandList = desc.commandList;
+    uploadBatchDesc.items = uploadItems;
+    uploadBatchDesc.itemCount = static_cast<int>(sizeof(uploadItems) / sizeof(uploadItems[0]));
+    UploadSmokeAccelerationBuffers(uploadBatchDesc);
+
+    RtSmokeBlasCreateDesc blasDesc;
+    blasDesc.device = desc.device;
+    blasDesc.vertexBuffer = desc.vertexBuffer;
+    blasDesc.indexBuffer = desc.indexBuffer;
+    blasDesc.vertexCount = static_cast<int>(desc.vertices->size());
+    blasDesc.indexCount = static_cast<int>(desc.indexes->size());
+    blasDesc.triangleMaterialIds =
+        desc.triangleMaterials->empty() ? nullptr : desc.triangleMaterials->data();
+    blasDesc.triangleMaterialCount = static_cast<int>(desc.triangleMaterials->size());
+    blasDesc.enableOpaqueGeometry = r_pathTracingHardwareOpaqueGeometry.GetInteger() != 0;
+    blasDesc.debugName = "PathTraceSmokeDynamicCandidateBLAS";
+    const RtSmokeBlasCreateResult blasResult = CreateSmokeBlas(blasDesc);
+    if (!blasResult.Succeeded())
+    {
+        return false;
+    }
+    desc.dynamicBlas = blasResult.accelStruct;
+    desc.dynamicBlasDesc = blasResult.accelStructDesc;
+    desc.accelerationPlan->hasDynamicBlas = blasDesc.indexCount > 0;
+    desc.accelerationPlan->dynamicBlas.enabled = blasDesc.indexCount > 0;
+    desc.accelerationPlan->dynamicBlas.vertexCount = blasDesc.vertexCount;
+    desc.accelerationPlan->dynamicBlas.indexCount = blasDesc.indexCount;
+
+    const uint32_t restoreIndexBegin =
+        static_cast<uint32_t>(desc.indexes->size() - static_cast<size_t>(desc.extraIndexCount));
+    return cpu_producer_publish::RestoreGeometryInThisFrameGpuProduct(
+        static_cast<uint32_t>(desc.vertices->size()),
+        static_cast<uint32_t>(desc.indexes->size()),
+        static_cast<uint32_t>(desc.triangleClasses->size()),
+        static_cast<uint32_t>(desc.triangleMaterials->size()),
+        static_cast<uint32_t>(desc.accelerationPlan->dynamicBlas.vertexCount),
+        static_cast<uint32_t>(desc.accelerationPlan->dynamicBlas.indexCount),
+        restoreIndexBegin,
+        desc.extraIndexCount,
+        static_cast<uint32_t>(desc.materialIndexes->size()));
 }
 
 RtSmokeBufferUploadItem MakeSmokeBufferStateItem(nvrhi::BufferHandle buffer, nvrhi::ResourceStates finalState)
@@ -6683,12 +6898,13 @@ void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char*
         r_pathTracingRigidRouteMaxInstances.SetInteger(presetRigidRouteMaxInstances);
     }
 
-    common->Printf("PathTracePrimaryPass: applied %s preset %d source3=1 rigidRoute=1 rigidResidency=1 residencyV2=1 entityFeed=1 staticPreload=1 rigidEmissiveCards=1 portalSteps=%d bvhValidation=%d rigidRouteMax=%d tlasMax=512\n",
+    common->Printf("PathTracePrimaryPass: applied %s preset %d source3=1 rigidRoute=1 rigidResidency=1 residencyV2=1 entityFeed=1 staticPreload=1 rigidEmissiveCards=1 portalSteps=%d bvhValidation=%d rigidRouteMax=%d tlasMax=%u\n",
         label ? label : "mode test",
         preset,
         portalSteps,
         preset == 4 ? 1 : 0,
-        r_pathTracingRigidRouteMaxInstances.GetInteger());
+        r_pathTracingRigidRouteMaxInstances.GetInteger(),
+        cpu_producer_publish::kPathTraceSmokeTlasMaxInstances);
 }
 
 nvrhi::ObjectType GetPathTraceCommandObjectType()
@@ -6830,6 +7046,7 @@ struct RtSmokeStaticBucketFramePublication
     RtPathTraceSceneUniverseBuildStats sourceBuildStats;
     RtSmokeGeometryUniverseStats universeStats;
     RtSmokeStaticBucketAssignmentPlan assignmentPlan;
+    RtSmokeStaticBucketGeometryPack ownedGeometryPack;
     const RtSmokeStaticBucketGeometryPack* geometryPack = nullptr;
     const std::vector<uint32_t>* materialIndexes = nullptr;
     RtPathTraceStaticBucketBlasGpuStats gpuStats;
@@ -6839,10 +7056,187 @@ struct RtSmokeStaticBucketFramePublication
     std::vector<bool> portalActiveAreas;
 };
 
+static bool ResolvePathTraceLaneBAccelCpuProduct(
+    RtPathTraceAccelCpuSnapshot& snapshot,
+    RtPathTraceAccelCpuProduct& frameProduct,
+    bool* loadBearingHit)
+{
+    if (!PathTraceProducerLaneBActive() || !snapshot.complete)
+    {
+        return false;
+    }
+    const uint64 snapshotStartUs = Sys_Microseconds();
+    if (!ValidatePathTraceAccelCpuSnapshot(snapshot))
+    {
+        RecordPathTraceProducerLaneBTiming(
+            Sys_Microseconds() - snapshotStartUs, 0, 0);
+        return false;
+    }
+
+    const int mode = PathTraceProducerLaneBEffectiveMode();
+    uint32 age = UINT32_MAX;
+    bool ready = mode == 2 && TryConsumeLatestPathTraceProducerLaneB(
+        snapshot.epoch.generation,
+        snapshot.compatibility,
+        snapshot.inputReceipt,
+        frameProduct,
+        age);
+    if (loadBearingHit != nullptr)
+    {
+        *loadBearingHit = ready;
+    }
+    bool oracleReady = false;
+    RtPathTraceAccelCpuProduct oracleProduct;
+    if (mode == 1)
+    {
+        oracleReady = BuildPathTraceAccelCpuProduct(snapshot, oracleProduct);
+    }
+    bool dispatched = false;
+    try
+    {
+        dispatched = DispatchPathTraceProducerLaneB(
+            RtPathTraceAccelCpuSnapshot(snapshot));
+    }
+    catch (const std::bad_alloc&) {}
+    catch (const std::length_error&) {}
+    if (mode == 1 && dispatched && oracleReady)
+        RecordPathTraceProducerLaneBSerialOracle(
+            BuildPathTraceAccelCpuOracle(oracleProduct));
+    RecordPathTraceProducerLaneBTiming(
+        Sys_Microseconds() - snapshotStartUs, 0, 0);
+    return ready;
+}
+
+uint64_t BuildSmokeLaneBAccelerationPublishSignature(
+    const RtSmokeAccelerationPlanInput& input)
+{
+    uint64_t hash = 14695981039346656037ull;
+#define HASH_LANE_B_FIELD(value) \
+    hash = HashSmokeBytes(hash, &(value), sizeof(value))
+    HASH_LANE_B_FIELD(input.staticSignature.vertexStride);
+    HASH_LANE_B_FIELD(input.staticSignature.staticRange.vertexCount);
+    HASH_LANE_B_FIELD(input.staticSignature.staticRange.indexCount);
+    HASH_LANE_B_FIELD(input.staticSignature.staticRange.triangleCount);
+    HASH_LANE_B_FIELD(input.staticVertexCount);
+    HASH_LANE_B_FIELD(input.staticIndexCount);
+#undef HASH_LANE_B_FIELD
+    return hash;
+}
+
+// C0-a live static join: static-surface keys (record.key) that map to a
+// packed bucket whose exact publication descriptor landed in extraTlas.
+// Uses m_staticBucketGeometryUniverse / assignmentPlan / geometryPack /
+// activePublication -- not m_smokeGeometryUniverse and not rigid IDs.
+static cpu_producer_publish::StaticSurfaceProductSet
+BuildCaseCSubmittedStaticSurfaceProduct(
+    const RtSmokeGeometryUniverse& staticBucketUniverse,
+    const RtSmokeStaticBucketFramePublication& frame,
+    const std::vector<nvrhi::rt::InstanceDesc>* extraTlasInstances)
+{
+    cpu_producer_publish::StaticSurfaceProductSet empty;
+    const RtSmokeStaticBucketGeometryPack* pack = frame.geometryPack;
+    if (pack == nullptr)
+    {
+        return empty;
+    }
+
+    const std::vector<RtSmokePersistentStaticSurfaceRecord>& records =
+        staticBucketUniverse.StaticSurfaceRecords();
+    const RtSmokeStaticBucketAssignmentPlan& plan = frame.assignmentPlan;
+    const RtPathTraceStaticBucketActivePublication& pub =
+        frame.activePublication;
+
+    std::vector<cpu_producer_publish::StaticBucketProductJoinSurface> surfaces;
+    std::vector<cpu_producer_publish::StaticBucketProductJoinBucket> buckets;
+    surfaces.reserve(plan.assignments.size());
+    buckets.reserve(pack->buckets.size());
+
+    size_t tlasCursor = 0;
+    for (size_t bucketIndex = 0; bucketIndex < pack->buckets.size(); ++bucketIndex)
+    {
+        const RtSmokeStaticBucketPackedRecord& packed = pack->buckets[bucketIndex];
+        cpu_producer_publish::StaticBucketProductJoinBucket joinBucket;
+        joinBucket.packedBucketKey = packed.bucketKey;
+        const bool active =
+            bucketIndex < pub.activeBucketMask.size() &&
+            pub.activeBucketMask[bucketIndex] != 0u;
+        joinBucket.active = active;
+
+        const nvrhi::rt::InstanceDesc* pubDesc = nullptr;
+        if (active && tlasCursor < pub.tlasInstances.size())
+        {
+            pubDesc = &pub.tlasInstances[tlasCursor];
+            ++tlasCursor;
+        }
+        const bool blasReady =
+            pubDesc != nullptr &&
+            pubDesc->bottomLevelAS != nullptr;
+        joinBucket.exactReady =
+            pub.activeSetExact &&
+            blasReady;
+        if (pubDesc != nullptr)
+        {
+            joinBucket.instanceMask = pubDesc->instanceMask;
+            joinBucket.instanceId = pubDesc->instanceID;
+            joinBucket.blasToken =
+                reinterpret_cast<uint64_t>(pubDesc->bottomLevelAS);
+        }
+        buckets.push_back(joinBucket);
+
+        const size_t firstAssignment = packed.firstAssignment;
+        const size_t endAssignment =
+            firstAssignment + static_cast<size_t>(packed.assignmentCount);
+        for (size_t assignmentIndex = firstAssignment;
+            assignmentIndex < endAssignment &&
+                assignmentIndex < plan.assignments.size();
+            ++assignmentIndex)
+        {
+            const RtSmokeStaticBucketAssignment& assignment =
+                plan.assignments[assignmentIndex];
+            if (assignment.sourceRecordIndex >= records.size())
+            {
+                continue;
+            }
+            const RtSmokePersistentStaticSurfaceRecord& record =
+                records[assignment.sourceRecordIndex];
+            if (!record.valid || record.key == 0)
+            {
+                continue;
+            }
+            cpu_producer_publish::StaticBucketProductJoinSurface joinSurf;
+            joinSurf.staticSurfaceKey = record.key;
+            joinSurf.packedBucketKey = packed.bucketKey;
+            surfaces.push_back(joinSurf);
+        }
+    }
+
+    std::vector<cpu_producer_publish::StaticBucketSubmittedDescriptor> submitted;
+    if (extraTlasInstances != nullptr)
+    {
+        submitted.reserve(extraTlasInstances->size());
+        for (const nvrhi::rt::InstanceDesc& desc : *extraTlasInstances)
+        {
+            cpu_producer_publish::StaticBucketSubmittedDescriptor item;
+            item.instanceId = desc.instanceID;
+            item.instanceMask = desc.instanceMask;
+            item.blasToken = reinterpret_cast<uint64_t>(desc.bottomLevelAS);
+            submitted.push_back(item);
+        }
+    }
+
+    return cpu_producer_publish::BuildSubmittedStaticSurfaceProductSet(
+        surfaces,
+        buckets,
+        submitted);
+}
+
 RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
     const viewDef_t* viewDef,
     RtPathTraceSceneUniverse& sceneUniverse,
     RtSmokeGeometryUniverse& staticBucketGeometryUniverse,
+    const RtSmokeGeometryUniverse& rigidGeometryUniverse,
+    const RtSmokeRigidTlasPlan& rigidTlasPlan,
+    const RtSmokeAccelerationPlanInput& laneBAccelerationInput,
     const std::vector<uint32_t>& materialIds,
     nvrhi::IDevice* device,
     nvrhi::ICommandList* commandList,
@@ -6850,7 +7244,12 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
     ID_TIME_T mapTimeStamp,
     int portalSteps,
     bool reflectionPortalHalo,
-    bool forceFullResidentActiveSet)
+    bool forceFullResidentActiveSet,
+    bool laneBAllowBootstrap,
+    RtPathTraceAccelCpuResidentPublisher* laneBResidentPublisher,
+    RtPathTraceAccelCpuSnapshot* laneBSnapshot,
+    RtPathTraceAccelCpuProduct* laneBFrameProduct,
+    bool* laneBLoadBearingHit)
 {
     OPTICK_EVENT("PT Static Bucket Frame Publication");
 
@@ -6904,6 +7303,36 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
         if (!staticBucketGeometryUniverse.StaticSurfaceRecords().empty())
         {
             staticBucketGeometryUniverse.Clear();
+        }
+        if (laneBResidentPublisher != nullptr && laneBSnapshot != nullptr &&
+            laneBFrameProduct != nullptr &&
+            PathTraceProducerLaneBActive())
+        {
+            OPTICK_EVENT("PT Lane B Publish");
+            const RtPathTraceRigidRouteBuildSnapshot rigidMetadata =
+                rigidGeometryUniverse.CaptureRigidRouteBuildSnapshot(
+                    rigidTlasPlan, materialIds, false);
+            uint64 staticSignature = 14695981039346656037ull;
+            const uint64 staticResidentGeneration =
+                staticBucketGeometryUniverse.StaticResidentPayloadGeneration();
+            staticSignature = HashSmokeBytes(staticSignature,
+                &staticResidentGeneration,
+                sizeof(staticResidentGeneration));
+            const uint64 accelerationSignature =
+                BuildSmokeLaneBAccelerationPublishSignature(
+                    laneBAccelerationInput);
+            staticSignature = HashSmokeBytes(staticSignature,
+                &accelerationSignature, sizeof(accelerationSignature));
+            const bool captured = laneBResidentPublisher->Publish(
+                laneBAccelerationInput, rigidGeometryUniverse, rigidTlasPlan,
+                materialIds, rigidMetadata,
+                BuildSmokeRigidRoutePayloadToken(rigidMetadata),
+                staticBucketGeometryUniverse,
+                static_cast<uint64>(mapTimeStamp), 0, staticSignature,
+                0, 1, 3, 1, nullptr, *laneBSnapshot);
+            if (captured)
+                ResolvePathTraceLaneBAccelCpuProduct(
+                    *laneBSnapshot, *laneBFrameProduct, laneBLoadBearingHit);
         }
         return frame;
     }
@@ -6999,29 +7428,98 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
             validationStart,
             StaticBucketClock::now());
     }
-    const auto assignmentStart = StaticBucketClock::now();
-    frame.assignmentPlan =
-        staticBucketGeometryUniverse.BuildStaticBucketAssignmentPlan(
-            static_cast<uint64>(mapTimeStamp),
-            frame.sourceGeneration,
-            frame.portalAreaCount,
-            frame.maxVerticesPerBucket,
-            frame.maxIndexesPerBucket,
+
+    bool laneBProductReady = false;
+    if (laneBResidentPublisher != nullptr && laneBSnapshot != nullptr &&
+        laneBFrameProduct != nullptr &&
+        PathTraceProducerLaneBActive())
+    {
+        OPTICK_EVENT("PT Lane B Publish");
+        const RtPathTraceRigidRouteBuildSnapshot rigidMetadata =
+            rigidGeometryUniverse.CaptureRigidRouteBuildSnapshot(
+                rigidTlasPlan, materialIds, false);
+        uint64 staticSignature = 14695981039346656037ull;
+        const uint64 staticResidentGeneration =
+            staticBucketGeometryUniverse.StaticResidentPayloadGeneration();
+        staticSignature = HashSmokeBytes(staticSignature,
+            &staticResidentGeneration,
+            sizeof(staticResidentGeneration));
+        const uint64 accelerationSignature =
+            BuildSmokeLaneBAccelerationPublishSignature(
+                laneBAccelerationInput);
+        staticSignature = HashSmokeBytes(staticSignature,
+            &accelerationSignature, sizeof(accelerationSignature));
+        const bool staticSnapshotReady = laneBResidentPublisher->Publish(
+            laneBAccelerationInput, rigidGeometryUniverse, rigidTlasPlan,
+            materialIds, rigidMetadata,
+            BuildSmokeRigidRoutePayloadToken(rigidMetadata),
+            staticBucketGeometryUniverse,
+            static_cast<uint64>(mapTimeStamp), frame.sourceGeneration,
+            staticSignature, frame.portalAreaCount,
+            frame.maxVerticesPerBucket, frame.maxIndexesPerBucket,
             frame.maxTrianglesPerBucket,
             frame.activeMaskValid ? &activeAreas : nullptr,
-            &frame.assignmentPlanCacheHit);
+            *laneBSnapshot);
+        laneBProductReady = staticSnapshotReady &&
+            ResolvePathTraceLaneBAccelCpuProduct(
+                *laneBSnapshot, *laneBFrameProduct, laneBLoadBearingHit);
+    }
+
+    const auto assignmentStart = StaticBucketClock::now();
+    const uint64 laneBStaticApplyStartUs = laneBProductReady
+        ? Sys_Microseconds() : 0;
+    if (laneBProductReady)
+    {
+        staticBucketGeometryUniverse.InstallStaticBucketResidentCpuState(
+            std::move(laneBFrameProduct->staticAssignment),
+            std::move(laneBFrameProduct->staticPack));
+        if (!staticBucketGeometryUniverse.TryGetStaticBucketResidentCpuState(
+                frame.assignmentPlan, frame.geometryPack))
+            return frame;
+        frame.assignmentPlanCacheHit = false;
+    }
+    else if (PathTraceProducerLaneBEffectiveMode() == 2 &&
+        !laneBAllowBootstrap)
+    {
+        frame.assignmentPlanCacheHit = true;
+        if (!staticBucketGeometryUniverse.TryGetStaticBucketResidentCpuState(
+                frame.assignmentPlan, frame.geometryPack))
+            return frame;
+    }
+    else
+    {
+        frame.assignmentPlan =
+            staticBucketGeometryUniverse.BuildStaticBucketAssignmentPlan(
+                static_cast<uint64>(mapTimeStamp),
+                frame.sourceGeneration,
+                frame.portalAreaCount,
+                frame.maxVerticesPerBucket,
+                frame.maxIndexesPerBucket,
+                frame.maxTrianglesPerBucket,
+                frame.activeMaskValid ? &activeAreas : nullptr,
+                &frame.assignmentPlanCacheHit);
+    }
     frame.assignmentMicroseconds = elapsedMicroseconds(
         assignmentStart,
         StaticBucketClock::now());
     const auto residentPackStart = StaticBucketClock::now();
-    frame.geometryPack =
-        &staticBucketGeometryUniverse.
-            GetOrBuildStaticBucketResidentGeometryPack(
-                frame.assignmentPlan,
-                frame.residentPackCacheHit);
+    if (frame.geometryPack == nullptr)
+    {
+        frame.geometryPack =
+            &staticBucketGeometryUniverse.
+                GetOrBuildStaticBucketResidentGeometryPack(
+                    frame.assignmentPlan,
+                    frame.residentPackCacheHit);
+    }
+    else frame.residentPackCacheHit = !laneBProductReady;
     frame.residentPackMicroseconds = elapsedMicroseconds(
         residentPackStart,
         StaticBucketClock::now());
+    if (laneBProductReady)
+    {
+        RecordPathTraceProducerLaneBTiming(
+            0, Sys_Microseconds() - laneBStaticApplyStartUs, 0);
+    }
     const RtSmokeStaticBucketGeometryPack& geometryPack =
         *frame.geometryPack;
     const std::vector<int>*
@@ -7197,7 +7695,4330 @@ RtSmokeStaticBucketFramePublication BuildSmokeStaticBucketFramePublication(
 
 }
 
+static void BuildRegistryAffineFromObjectToWorld(
+    const float objectToWorld[16],
+    nvrhi::rt::AffineTransform& transform)
+{
+    transform[0] = objectToWorld[0];
+    transform[1] = objectToWorld[4];
+    transform[2] = objectToWorld[8];
+    transform[3] = objectToWorld[12];
+    transform[4] = objectToWorld[1];
+    transform[5] = objectToWorld[5];
+    transform[6] = objectToWorld[9];
+    transform[7] = objectToWorld[13];
+    transform[8] = objectToWorld[2];
+    transform[9] = objectToWorld[6];
+    transform[10] = objectToWorld[10];
+    transform[11] = objectToWorld[14];
+}
+
+static cpu_producer_publish::RigidRegistryInstanceKey MakeRegistryInstanceKeyFromRenderDef(
+    const PtRenderDefKey& key)
+{
+    cpu_producer_publish::RigidRegistryInstanceKey instanceId;
+    instanceId.world = key.world;
+    instanceId.worldGeneration = key.worldGeneration;
+    instanceId.index = key.index;
+    instanceId.generation = key.generation;
+    return instanceId;
+}
+
+static void RigidRegistryXformToObjectToWorld(
+    const cpu_producer_publish::RigidRegistryXform& xform,
+    float objectToWorld[16])
+{
+    idMat3 axis;
+    for (int row = 0; row < 3; ++row)
+    {
+        for (int column = 0; column < 3; ++column)
+        {
+            axis[row][column] = xform.axis[row * 3 + column];
+        }
+    }
+    const idVec3 origin(xform.origin[0], xform.origin[1], xform.origin[2]);
+    R_AxisToModelMatrix(axis, origin, objectToWorld);
+}
+
+// A4: after walk extras exist, before submit. Mode test is == 1.
+static void EmitCoalescedRegistryExtrasIntoLiveTlas(
+    const viewDef_t* viewDef,
+    const RtSmokeGeometryUniverse& universe,
+    std::vector<nvrhi::rt::InstanceDesc>& liveExtraTlasInstances,
+    cpu_producer_publish::RigidSubmitBoundaryList& submitBoundary,
+    cpu_producer_publish::RegistryPublishCounters& counters,
+    std::vector<cpu_producer_publish::RegistryCompareObservation>& walkObservations,
+    std::vector<cpu_producer_publish::RegistryCompareObservation>& hookObservations)
+{
+    OPTICK_EVENT("PT Smoke Submit Boundary Registry Hook");
+    using namespace cpu_producer_publish;
+    walkObservations.clear();
+    hookObservations.clear();
+    if (DecodeCpuProducerRegistryMode() != 1)
+    {
+        return;
+    }
+
+    std::vector<RigidRegistryInstanceRecord> liveInstances;
+    PtGeometryLifecycle::SnapshotLiveRigidRegistryInstances(
+        viewDef ? viewDef->renderWorld : nullptr, liveInstances);
+
+    std::vector<uint64> snapshotHashes;
+    for (const RigidRegistryInstanceRecord& instance : liveInstances)
+    {
+        for (size_t meshIndex = 0; meshIndex < instance.meshIds.size(); ++meshIndex)
+        {
+            snapshotHashes.push_back(instance.meshIds[meshIndex]);
+        }
+    }
+    std::unordered_map<uint64, RtSmokeGeometryUniverse::RigidMeshRegistryLookupSnapshotEntry> lookupSnapshot;
+    universe.SnapshotRigidMeshRegistryLookup(snapshotHashes, lookupSnapshot);
+
+    std::vector<RegistryEligibleSurface> eligible;
+    for (const RigidRegistryInstanceRecord& instance : liveInstances)
+    {
+        for (size_t meshIndex = 0; meshIndex < instance.meshIds.size(); ++meshIndex)
+        {
+            const uint64_t meshId = instance.meshIds[meshIndex];
+            RegistryEligibleSurface surface;
+            surface.instanceId = instance.instanceId;
+            surface.meshId = meshId;
+            surface.presentRecorded = instance.alive;
+            surface.currentXform = instance.currentXform;
+            const std::unordered_map<uint64, RtSmokeGeometryUniverse::RigidMeshRegistryLookupSnapshotEntry>::const_iterator snapIt =
+                lookupSnapshot.find(meshId);
+            if (snapIt != lookupSnapshot.end())
+            {
+                surface.meshBlasReady = snapIt->second.ready;
+                surface.meshBlasBuilt = snapIt->second.built;
+                surface.meshPending = snapIt->second.pending;
+                surface.blasToken = snapIt->second.blasToken;
+            }
+            eligible.push_back(surface);
+        }
+    }
+
+    const size_t metadataBefore = submitBoundary.records.size();
+    BuildRegistryIndependentObservations(
+        submitBoundary,
+        metadataBefore,
+        eligible,
+        walkObservations,
+        hookObservations);
+    EmitCoalescedRegistryTlas(
+        DecodeCpuProducerRegistryMode(), eligible, submitBoundary, counters);
+
+    for (size_t extraIndex = metadataBefore; extraIndex < submitBoundary.records.size(); ++extraIndex)
+    {
+        RigidSubmitBoundaryRecord& extra = submitBoundary.records[extraIndex];
+        nvrhi::rt::AccelStructHandle blas = nullptr;
+        const std::unordered_map<uint64, RtSmokeGeometryUniverse::RigidMeshRegistryLookupSnapshotEntry>::const_iterator snapBlas =
+            lookupSnapshot.find(extra.meshId);
+        if (snapBlas != lookupSnapshot.end())
+        {
+            blas = snapBlas->second.builtBlas;
+        }
+        if (!blas)
+        {
+            ++counters.registrySuppressed;
+            if (counters.registryEmitted > 0)
+            {
+                --counters.registryEmitted;
+            }
+            if (submitBoundary.rigidPhysicalCount > 0)
+            {
+                --submitBoundary.rigidPhysicalCount;
+            }
+            submitBoundary.records.erase(submitBoundary.records.begin() + extraIndex);
+            --extraIndex;
+            continue;
+        }
+        float objectToWorld[16];
+        RigidRegistryXformToObjectToWorld(extra.currentXform, objectToWorld);
+        nvrhi::rt::AffineTransform transform;
+        BuildRegistryAffineFromObjectToWorld(objectToWorld, transform);
+        extra.descriptorIndex = static_cast<uint32_t>(liveExtraTlasInstances.size());
+        extra.instanceID = extra.descriptorIndex + 1u;
+        extra.submittedBlasToken = reinterpret_cast<uint64_t>(
+            static_cast<nvrhi::rt::IAccelStruct*>(blas));
+        nvrhi::rt::InstanceDesc instanceDesc;
+        instanceDesc
+            .setInstanceID(extra.instanceID)
+            .setInstanceMask(extra.instanceMask != 0u ? extra.instanceMask : 0x02u)
+            .setInstanceContributionToHitGroupIndex(0)
+            .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
+            .setTransform(transform)
+            .setBLAS(blas);
+        liveExtraTlasInstances.push_back(instanceDesc);
+    }
+}
+
+
+static PtA8S1LegacyProductSnapshot CaptureA8S1LegacyProductSnapshot(
+    const RtSmokeGeometryUniverse& universe,
+    const cpu_producer_publish::RigidSubmitBoundaryList& submitBoundary,
+    const std::vector<nvrhi::rt::InstanceDesc>& finalPhysical,
+    const std::unordered_map<uint64_t, uint64_t>& selectedBlasByMeshId)
+{
+    PtA8S1LegacyProductSnapshot snapshot;
+    if (!universe.CaptureA8S1LegacyCandidateProduct(snapshot.candidates))
+    {
+        return snapshot;
+    }
+    try
+    {
+        snapshot.submitted.reserve(submitBoundary.records.size());
+        for (const cpu_producer_publish::RigidSubmitBoundaryRecord& record :
+            submitBoundary.records)
+        {
+            if (!cpu_producer_publish::RigidSubmitBoundaryExact(record) ||
+                record.descriptorIndex >= finalPhysical.size())
+            {
+                continue;
+            }
+            const nvrhi::rt::InstanceDesc& physical =
+                finalPhysical[record.descriptorIndex];
+            PtA8S1LegacySubmittedProductRecord product;
+            product.legacyMeshHash = record.meshId;
+            product.instanceMask = static_cast<uint32_t>(physical.instanceMask);
+            static_assert(sizeof(physical.transform) >=
+                sizeof(product.transformBits),
+                "A8-S1 legacy product transform serialization is undersized");
+            std::memcpy(
+                product.transformBits.data(),
+                &physical.transform,
+                sizeof(product.transformBits));
+            product.submittedBlasToken = reinterpret_cast<uint64_t>(
+                static_cast<nvrhi::rt::IAccelStruct*>(physical.bottomLevelAS));
+            const auto selectedIt = selectedBlasByMeshId.find(record.meshId);
+            product.selectedBlasToken = selectedIt != selectedBlasByMeshId.end()
+                ? selectedIt->second
+                : 0;
+            snapshot.submitted.push_back(product);
+        }
+        snapshot.available = true;
+    }
+    catch (...)
+    {
+        snapshot.candidates.clear();
+        snapshot.submitted.clear();
+        snapshot.available = false;
+    }
+    PtA8S1NormalizeLegacyProductSnapshot(snapshot);
+    return snapshot;
+}
+
+static PtA8S1DiagnosticResult BuildA8S1CanonicalIdentityDiagnostic(
+    const viewDef_t* viewDef,
+    RtSmokeGeometryUniverse& universe)
+{
+    PtA8S1DiagnosticResult result;
+    result.enabled =
+        r_pathTracingCpuProducerCanonicalIdentityS1.GetInteger() != 0;
+    if (!result.enabled)
+    {
+        return result;
+    }
+
+    const PtGeometryPresentIdentitySnapshot* dto = viewDef
+        ? viewDef->pathTraceGeometryPresentIdentitySnapshot
+        : nullptr;
+    result.dtoInstances = dto ? dto->recordCount : 0;
+    result.dtoBytes = dto ? dto->packedBytes : 0;
+    result.dtoCaptureMicroseconds = dto ? dto->captureMicroseconds : 0;
+    result.routeTopologyPasses = 0;
+    result.routeTopologyMicroseconds = 0;
+    result.normalizedRouteRequests =
+        static_cast<uint64_t>(universe.A8S1RouteObservations().size());
+    result.coverageComplete = true;
+    const auto& producerOpportunities = universe.A8S1ProducerOpportunities();
+    const auto& producerObserved = universe.A8S1ProducerObserved();
+    const auto& producerSuppressed =
+        universe.A8S1ProducerSuppressedDiagnosticUnavailable();
+    uint64_t observedProducerTotal = 0;
+    for (size_t producer = 0; producer < producerOpportunities.size(); ++producer)
+    {
+        result.producerOpportunities[producer] = producerOpportunities[producer];
+        result.producerObserved[producer] = producerObserved[producer];
+        observedProducerTotal += producerObserved[producer];
+        result.producerSuppressedDiagnosticUnavailable[producer] =
+            producerSuppressed[producer];
+        result.producerNoOpportunityThisFrame[producer] =
+            producerOpportunities[producer] == 0 ? 1u : 0u;
+        if (!PtA8S1ProducerCoverageRowReconciles(
+                producerOpportunities[producer],
+                producerObserved[producer],
+                producerSuppressed[producer]))
+        {
+            result.coverageComplete = false;
+        }
+    }
+    if (!universe.A8S1RouteObservationsAvailable() ||
+        observedProducerTotal != result.normalizedRouteRequests)
+    {
+        result.coverageComplete = false;
+    }
+
+    if (dto == nullptr || dto->available == 0 ||
+        !universe.A8S1RouteObservationsAvailable() ||
+        (dto->recordCount != 0 && dto->records == nullptr) ||
+        (dto->modelNameBytes != 0 && dto->modelNames == nullptr))
+    {
+        return result;
+    }
+
+    try
+    {
+        std::vector<PtA8S1PresentView> presents;
+        presents.reserve(static_cast<size_t>(dto->recordCount));
+        std::unordered_map<uint64_t, std::vector<size_t>> presentByInstanceHash;
+        presentByInstanceHash.reserve(static_cast<size_t>(dto->recordCount));
+        for (uint64_t index = 0; index < dto->recordCount; ++index)
+        {
+            const PtGeometryPresentIdentityRecord& source = dto->records[index];
+            if (source.valid == 0 ||
+                source.modelNameOffset > dto->modelNameBytes ||
+                source.modelNameLength >
+                    dto->modelNameBytes - source.modelNameOffset)
+            {
+                continue;
+            }
+            PtA8S1PresentView present;
+            present.instanceKey = source.instanceKey;
+            present.instanceHash = source.instanceHash;
+            present.meshKey = source.meshKey;
+            present.meshHash = source.meshHash;
+            present.lastUpsertSequence = source.lastUpsertSequence;
+            present.worldGeneration = dto->worldGeneration;
+            present.publicationGeneration = dto->publicationGeneration;
+            if (source.modelNameLength != 0)
+            {
+                present.modelName.assign(
+                    dto->modelNames + source.modelNameOffset,
+                    source.modelNameLength);
+            }
+            const size_t presentIndex = presents.size();
+            presents.push_back(std::move(present));
+            presentByInstanceHash[PtHashCanonicalInstanceKey(
+                source.instanceKey)].push_back(presentIndex);
+        }
+
+        PtA8S1AliasSidecar& alias = universe.A8S1AliasSidecar();
+        alias.BeginFrame(dto->worldGeneration, dto->publicationGeneration);
+        const PtGeometryIdentityTransportSnapshot* delta = viewDef
+            ? viewDef->pathTraceGeometryIdentitySnapshot
+            : nullptr;
+        if (delta != nullptr && delta->records != nullptr)
+        {
+            for (uint64_t index = 0; index < delta->recordCount; ++index)
+            {
+                const PtGeometryIdentityTransportRecord& record =
+                    delta->records[index];
+                if (record.operation == PtGeometryIdentityOperation::Remove)
+                {
+                    result.aliasRetired += alias.Retire(record.instanceKey);
+                }
+            }
+        }
+
+        bool allGateEligible = true;
+        const PtGeometryIdentityRegistryStats& registryStats =
+            universe.CanonicalIdentityRegistryStats();
+        for (const PtA8S1RouteObservation& route :
+            universe.A8S1RouteObservations())
+        {
+            const uint32_t producer = static_cast<uint32_t>(route.producer);
+            if (producer < static_cast<uint32_t>(PtA8S1RouteProducer::Count))
+            {
+                ++result.producerCounts[producer];
+            }
+
+            size_t bucket = 0;
+            if (!route.surfaceIndexValid)
+            {
+                bucket = 0;
+            }
+            else if (route.route.modelName.empty() ||
+                route.route.modelName == "<none>")
+            {
+                // B2 deliberately uses W's route observation, not P's DTO.
+                bucket = 1;
+            }
+            else
+            {
+                const PtA8S1PresentView* present = nullptr;
+                const uint64_t instanceHash =
+                    PtHashCanonicalInstanceKey(route.canonicalInstanceKey);
+                const auto exactIt = presentByInstanceHash.find(instanceHash);
+                if (exactIt != presentByInstanceHash.end())
+                {
+                    for (size_t presentIndex : exactIt->second)
+                    {
+                        if (presents[presentIndex].instanceKey ==
+                            route.canonicalInstanceKey)
+                        {
+                            present = &presents[presentIndex];
+                            break;
+                        }
+                    }
+                }
+
+                // A full-key join cannot itself expose a bad key component.
+                // If it misses, choose a unique nearest canonical record only
+                // for the observation proof; ambiguity remains B3.
+                if (present == nullptr)
+                {
+                    uint32_t bestMismatchCount = UINT32_MAX;
+                    const PtA8S1PresentView* best = nullptr;
+                    bool bestAmbiguous = false;
+                    for (const PtA8S1PresentView& candidate : presents)
+                    {
+                        if (candidate.instanceKey.subInstanceKind !=
+                            PtCanonicalSubInstanceKind::RigidSurface)
+                        {
+                            continue;
+                        }
+                        const uint32_t mismatch =
+                            PtA8S1CompareRouteAssociation(route.route, candidate);
+                        uint32_t mismatchCount = 0;
+                        for (uint32_t bits = mismatch; bits != 0; bits >>= 1)
+                        {
+                            mismatchCount += bits & 1u;
+                        }
+                        if (mismatchCount < bestMismatchCount)
+                        {
+                            bestMismatchCount = mismatchCount;
+                            best = &candidate;
+                            bestAmbiguous = false;
+                        }
+                        else if (mismatchCount == bestMismatchCount)
+                        {
+                            bestAmbiguous = true;
+                        }
+                    }
+                    if (best != nullptr && !bestAmbiguous &&
+                        bestMismatchCount == 1)
+                    {
+                        present = best;
+                        ++result.associationFallbackScans;
+                    }
+                }
+
+                if (present == nullptr)
+                {
+                    bucket = 2;
+                }
+                else
+                {
+                    const uint32_t routeMismatch =
+                        PtA8S1CompareRouteAssociation(route.route, *present);
+                    result.routeWorldMismatch +=
+                        (routeMismatch & PT_A8_S1_ROUTE_WORLD_MISMATCH) != 0;
+                    result.routeRenderDefIndexMismatch +=
+                        (routeMismatch & PT_A8_S1_ROUTE_RENDER_DEF_INDEX_MISMATCH) != 0;
+                    result.routeRenderDefGenerationMismatch +=
+                        (routeMismatch & PT_A8_S1_ROUTE_RENDER_DEF_GENERATION_MISMATCH) != 0;
+                    result.routeModelNameMismatch +=
+                        (routeMismatch & PT_A8_S1_ROUTE_MODEL_NAME_MISMATCH) != 0;
+                    result.routeSurfaceIndexMismatch +=
+                        (routeMismatch & PT_A8_S1_ROUTE_SURFACE_INDEX_MISMATCH) != 0;
+
+                    const PtGeometryIdentityBinding* sourceBinding =
+                        universe.FindCanonicalIdentityBinding(
+                            present->instanceKey);
+                    if (sourceBinding == nullptr || !sourceBinding->active)
+                    {
+                        bucket = 3;
+                    }
+                    else
+                    {
+                        PtA8S1BindingView binding;
+                        binding.found = true;
+                        binding.instanceKey = sourceBinding->instanceKey;
+                        binding.instanceHash = sourceBinding->instanceHash;
+                        binding.meshKey = sourceBinding->meshKey;
+                        binding.meshHash = sourceBinding->meshHash;
+                        binding.lastEventSequence =
+                            sourceBinding->lastEventSequence;
+                        binding.worldGeneration = registryStats.worldGeneration;
+                        binding.publicationGeneration =
+                            registryStats.publicationGeneration;
+
+                        const PtA8S1Freshness freshness =
+                            PtA8S1CompareFreshness(*present, binding);
+                        const PtA8S1TransportIntegrity integrity =
+                            PtA8S1CompareTransportIntegrity(*present, binding);
+                        result.transportInstanceKeyMismatch +=
+                            !integrity.instanceKey;
+                        result.transportInstanceHashMismatch +=
+                            !integrity.instanceHash;
+                        result.transportMeshKeyMismatch +=
+                            !integrity.meshKey;
+                        result.transportMeshHashMismatch +=
+                            !integrity.meshHash;
+
+                        const bool canonicalValid =
+                            PtCanonicalInstanceKeyIsValid(present->instanceKey) &&
+                            PtCanonicalMeshKeyIsValid(present->meshKey) &&
+                            present->instanceHash != 0 && present->meshHash != 0 &&
+                            PtCanonicalInstanceKeyIsValid(binding.instanceKey) &&
+                            PtCanonicalMeshKeyIsValid(binding.meshKey) &&
+                            binding.instanceHash != 0 && binding.meshHash != 0;
+
+                        const PtA8S1AliasSidecar::Update aliasUpdate =
+                            alias.Observe(
+                                route.legacyMeshHash,
+                                route.route,
+                                present->meshHash);
+                        result.aliasInserted += aliasUpdate.inserted;
+                        result.aliasHits += aliasUpdate.hit;
+                        result.aliasRefreshed += aliasUpdate.refreshed;
+                        result.aliasCollisions += aliasUpdate.collision;
+                        const bool aliasPersisted = alias.Contains(
+                            route.legacyMeshHash,
+                            route.route,
+                            binding.meshHash);
+                        if (!freshness.epochEqual)
+                        {
+                            bucket = 4;
+                        }
+                        else if (!freshness.sequenceFresh)
+                        {
+                            bucket = 5;
+                        }
+                        else if (!canonicalValid)
+                        {
+                            bucket = 6;
+                        }
+                        else if (routeMismatch != 0)
+                        {
+                            bucket = 7;
+                        }
+                        else
+                        {
+                            bucket = 8;
+                            result.aliasPersisted += aliasPersisted;
+                            result.aliasMissing += !aliasPersisted;
+                            if (!integrity.All() || !aliasPersisted)
+                            {
+                                allGateEligible = false;
+                            }
+                        }
+                    }
+                }
+            }
+            ++result.buckets[bucket];
+            if (bucket != 8)
+            {
+                allGateEligible = false;
+            }
+        }
+
+        uint64_t reconciled = 0;
+        for (uint64_t count : result.buckets)
+        {
+            reconciled += count;
+        }
+        result.reconciled = reconciled == result.normalizedRouteRequests;
+        result.aliasEntries = alias.EntryCount();
+        result.aliasBytes = alias.ApproxBytes();
+
+        result.presentBridgeSampleCount = static_cast<uint32_t>(std::min(
+            presents.size(), result.presentBridgeSamples.size()));
+        result.presentBridgeAvailable = result.presentBridgeSampleCount != 0;
+        bool anyProducerSuppression = false;
+        for (uint64_t suppressed :
+            result.producerSuppressedDiagnosticUnavailable)
+        {
+            anyProducerSuppression |= suppressed != 0;
+        }
+        for (uint32_t sampleIndex = 0;
+            sampleIndex < result.presentBridgeSampleCount; ++sampleIndex)
+        {
+            const PtA8S1PresentView& present = presents[sampleIndex];
+            PtA8S1PresentBridgeSample& bridge =
+                result.presentBridgeSamples[sampleIndex];
+            bridge.presentDto = true;
+            bridge.presentTuple.worldGeneration =
+                present.instanceKey.worldGeneration;
+            bridge.presentTuple.renderDefIndex =
+                present.instanceKey.renderDefIndex;
+            bridge.presentTuple.renderDefGeneration =
+                present.instanceKey.renderDefGeneration;
+            bridge.presentTuple.modelName = present.modelName;
+            bridge.presentTuple.modelSurfaceIndex =
+                present.instanceKey.modelSurfaceIndex <=
+                    static_cast<uint32_t>(INT_MAX)
+                    ? static_cast<int32_t>(
+                        present.instanceKey.modelSurfaceIndex)
+                    : -1;
+            bridge.binding = universe.FindCanonicalIdentityBinding(
+                present.instanceKey) != nullptr;
+
+            const auto addRouteLegacyKey = [&bridge](uint64_t key) {
+                for (uint32_t index = 0;
+                    index < bridge.routeLegacyKeyCount; ++index)
+                {
+                    if (bridge.routeLegacyKeys[index] == key)
+                    {
+                        return;
+                    }
+                }
+                if (key != 0 &&
+                    bridge.routeLegacyKeyCount < bridge.routeLegacyKeys.size())
+                {
+                    bridge.routeLegacyKeys[bridge.routeLegacyKeyCount++] = key;
+                }
+            };
+            for (const PtA8S1RouteObservation& observation :
+                universe.A8S1RouteObservations())
+            {
+                if (PtA8S1NormalizedRouteKeyEqual(
+                        observation.route, bridge.presentTuple))
+                {
+                    bridge.currentRoute = true;
+                    addRouteLegacyKey(observation.legacyMeshHash);
+                }
+            }
+            std::array<uint64_t, 8> everKeys = {};
+            const uint32_t everKeyCount = alias.CollectLegacyKeysForRoute(
+                bridge.presentTuple, everKeys);
+            bridge.everRoute = everKeyCount != 0;
+            for (uint32_t keyIndex = 0; keyIndex < everKeyCount; ++keyIndex)
+            {
+                addRouteLegacyKey(everKeys[keyIndex]);
+            }
+
+            const PtA8S1LegacyCandidateProbe candidateProbe =
+                universe.ProbeA8S1LegacyCandidates(bridge.presentTuple);
+            bridge.legacyCandidateProbeAvailable = candidateProbe.available;
+            bridge.candidateLegacyKeys = candidateProbe.legacyKeys;
+            bridge.candidateLegacyKeyCount = candidateProbe.legacyKeyCount;
+            result.presentBridgeAvailable &= candidateProbe.available;
+
+            bool exactLegacyAssociation = false;
+            for (uint32_t routeKeyIndex = 0;
+                routeKeyIndex < bridge.routeLegacyKeyCount; ++routeKeyIndex)
+            {
+                for (uint32_t candidateKeyIndex = 0;
+                    candidateKeyIndex < bridge.candidateLegacyKeyCount;
+                    ++candidateKeyIndex)
+                {
+                    exactLegacyAssociation |=
+                        bridge.routeLegacyKeys[routeKeyIndex] ==
+                            bridge.candidateLegacyKeys[candidateKeyIndex];
+                }
+            }
+
+            if (bridge.presentTuple.modelSurfaceIndex < 0 ||
+                bridge.presentTuple.modelName.empty() ||
+                !PtCanonicalInstanceKeyIsValid(present.instanceKey) ||
+                !PtCanonicalMeshKeyIsValid(present.meshKey))
+            {
+                bridge.outcome = PtA8S1PresentBridgeOutcome::InvalidOrRejected;
+            }
+            else if (!bridge.currentRoute && !bridge.everRoute)
+            {
+                bridge.outcome = anyProducerSuppression
+                    ? PtA8S1PresentBridgeOutcome::RouteOpportunitySuppressed
+                    : PtA8S1PresentBridgeOutcome::NeverRouted;
+            }
+            else if (!candidateProbe.available ||
+                bridge.candidateLegacyKeyCount == 0)
+            {
+                bridge.outcome =
+                    PtA8S1PresentBridgeOutcome::RoutedNoLegacyAssociation;
+            }
+            else if (!exactLegacyAssociation)
+            {
+                bridge.outcome =
+                    PtA8S1PresentBridgeOutcome::AssociatedUnderThirdKey;
+            }
+            else
+            {
+                bridge.outcome = PtA8S1PresentBridgeOutcome::AssociatedExact;
+            }
+            ++result.presentBridgeOutcomes[
+                static_cast<uint32_t>(bridge.outcome)];
+        }
+        result.available = result.reconciled && alias.Available();
+        result.observedRouteProofReady = result.available && allGateEligible &&
+            result.normalizedRouteRequests != 0;
+    }
+    catch (...)
+    {
+        // Observation failures cannot alter the renderer product or the
+        // canonical/legacy registries. Leave the S2 gate closed.
+        result.available = false;
+        result.reconciled = false;
+        result.observedRouteProofReady = false;
+    }
+    return result;
+}
+
+static void FillRegistryCompareFromFinalPhysical(
+    const viewDef_t* viewDef,
+    RtSmokeGeometryUniverse& universe,
+    const cpu_producer_publish::RigidSubmitBoundaryList& submitBoundary,
+    const std::vector<nvrhi::rt::InstanceDesc>& finalPhysical,
+    const std::vector<cpu_producer_publish::RegistryCompareObservation>& walkObservations,
+    const std::vector<cpu_producer_publish::RegistryCompareObservation>& hookObservations,
+    cpu_producer_publish::CompareFrameInput& compareIn)
+{
+    OPTICK_EVENT("PT Smoke Final Physical Join Detail");
+    using namespace cpu_producer_publish;
+    compareIn.registryDecodedMode = DecodeCpuProducerRegistryMode();
+    compareIn.registryWalkObs = walkObservations;
+    compareIn.registryHookObs = hookObservations;
+
+    std::vector<RigidRegistryInstanceRecord> liveInstances;
+    PtGeometryLifecycle::SnapshotLiveRigidRegistryInstances(
+        viewDef ? viewDef->renderWorld : nullptr, liveInstances);
+    std::vector<uint64> snapshotHashes;
+    for (const RigidRegistryInstanceRecord& instance : liveInstances)
+    {
+        for (size_t meshIndex = 0; meshIndex < instance.meshIds.size(); ++meshIndex)
+        {
+            snapshotHashes.push_back(instance.meshIds[meshIndex]);
+        }
+    }
+	const bool identityDiagnosticRequested =
+		r_pathTracingCpuProducerRegistryDump.GetString()[0] != '\0';
+	std::vector<RtSmokeGeometryUniverse::RigidMeshRegistryIdentityDiagnosticInput>
+		identityDiagnosticInputs;
+	if (identityDiagnosticRequested && viewDef && viewDef->renderWorld)
+	{
+		const idRenderWorldLocal* renderWorld = viewDef->renderWorld;
+		identityDiagnosticInputs.reserve(RT_PT_RIGID_REGISTRY_IDENTITY_SAMPLES);
+		for (const RigidRegistryInstanceRecord& instance : liveInstances)
+		{
+			if (identityDiagnosticInputs.size() >=
+				static_cast<size_t>(RT_PT_RIGID_REGISTRY_IDENTITY_SAMPLES))
+			{
+				break;
+			}
+			RtSmokeGeometryUniverse::RigidMeshRegistryIdentityDiagnosticInput input;
+			input.instanceId = PackRigidRegistryInstanceId(instance.instanceId);
+			input.modelEpoch = PtGeometryLifecycle::EntityModelEpoch(
+				renderWorld, instance.instanceId.index);
+			const int entityIndex = instance.instanceId.index;
+			if (entityIndex >= 0 && entityIndex < renderWorld->entityDefs.Num() &&
+				PtGeometryLifecycle::EntityGeneration(renderWorld, entityIndex) ==
+					instance.instanceId.generation)
+			{
+				const idRenderEntityLocal* entity = renderWorld->entityDefs[entityIndex];
+				if (entity && entity->world == renderWorld && entity->index == entityIndex)
+				{
+					input.model = entity->parms.hModel;
+				}
+			}
+			input.storedMeshIdCount = static_cast<uint32_t>(std::min(
+				instance.meshIds.size(), input.storedMeshIds.size()));
+			for (uint32_t keyIndex = 0;
+				keyIndex < input.storedMeshIdCount; ++keyIndex)
+			{
+				input.storedMeshIds[keyIndex] = instance.meshIds[keyIndex];
+			}
+			identityDiagnosticInputs.push_back(input);
+		}
+	}
+    std::unordered_map<uint64, RtSmokeGeometryUniverse::RigidMeshRegistryLookupSnapshotEntry> lookupSnapshot;
+	RtSmokeGeometryUniverse::RigidMeshRegistryLookupDiagnostics lookupDiagnostics;
+	universe.SnapshotRigidMeshRegistryLookup(
+		snapshotHashes,
+		lookupSnapshot,
+		&lookupDiagnostics,
+		identityDiagnosticRequested ? &identityDiagnosticInputs : nullptr);
+	compareIn.registryLookupEarlyReturn = lookupDiagnostics.earlyReturn ? 1u : 0u;
+	compareIn.registryLookupHits = lookupDiagnostics.lookupHits;
+	compareIn.registryLookupMisses = lookupDiagnostics.lookupMisses;
+	compareIn.registryLookupReady = lookupDiagnostics.ready;
+	compareIn.registryLookupBuilt = lookupDiagnostics.built;
+	compareIn.registryLookupPending = lookupDiagnostics.pending;
+	compareIn.registryLookupBlasTokens = lookupDiagnostics.blasTokens;
+	compareIn.registryLookupDiagnosticsAvailable =
+		lookupDiagnostics.available ? 1u : 0u;
+	compareIn.registryUniqueMeshRequests = lookupDiagnostics.uniqueMeshRequests;
+	compareIn.registryZeroHashSkipped = lookupDiagnostics.zeroHashSkipped;
+	compareIn.registryCandidateRecordCount = lookupDiagnostics.candidateRecordCount;
+	compareIn.registryLookupTableSize = lookupDiagnostics.lookupTableSize;
+	compareIn.registryPopulationSnapshotAvailable =
+		lookupDiagnostics.populationSnapshotAvailable ? 1u : 0u;
+	compareIn.registryCandidateRecordInsertTotal =
+		lookupDiagnostics.candidateRecordInsertTotal;
+	compareIn.registryCandidateRecordInsertsThisFrame =
+		lookupDiagnostics.candidateRecordInsertsThisFrame;
+	compareIn.registryPersistTargetBoundAtFirstEntityAdd =
+		lookupDiagnostics.persistTargetBoundAtFirstEntityAdd;
+	compareIn.registryPersistCallsTotal = lookupDiagnostics.persistCallsTotal;
+	compareIn.registryPersistedSurfacesTotal =
+		lookupDiagnostics.persistedSurfacesTotal;
+	compareIn.registryResidentKeySample = lookupDiagnostics.residentKeySample;
+	compareIn.registryResidentKeySampleCount =
+		lookupDiagnostics.residentKeySampleCount;
+	compareIn.registryPresentRequestKeySample =
+		lookupDiagnostics.presentRequestKeySample;
+	compareIn.registryPresentRequestKeySampleCount =
+		lookupDiagnostics.presentRequestKeySampleCount;
+	compareIn.registryIdentitySamplesAvailable =
+		lookupDiagnostics.identitySamplesAvailable ? 1u : 0u;
+	compareIn.registryIdentitySampleCount = std::min(
+		lookupDiagnostics.identitySampleCount,
+		static_cast<uint32_t>(compareIn.registryIdentitySamples.size()));
+	for (uint32_t sampleIndex = 0;
+		sampleIndex < compareIn.registryIdentitySampleCount; ++sampleIndex)
+	{
+		const RtSmokeGeometryUniverse::RigidMeshRegistryIdentityDiagnosticSample&
+			source = lookupDiagnostics.identitySamples[sampleIndex];
+		CompareFrameInput::RegistryIdentityDiagnosticSample& destination =
+			compareIn.registryIdentitySamples[sampleIndex];
+		destination.instanceId = source.instanceId;
+		destination.modelEpoch = source.modelEpoch;
+		destination.recomputeAvailable = source.recomputeAvailable;
+		destination.storedMeshIds = source.storedMeshIds;
+		destination.storedLookupMembership = source.storedLookupMembership;
+		destination.storedMeshIdCount = source.storedMeshIdCount;
+		destination.recomputedMeshIds = source.recomputedMeshIds;
+		destination.recomputedLookupMembership =
+			source.recomputedLookupMembership;
+		destination.recomputedMeshIdCount = source.recomputedMeshIdCount;
+	}
+	compareIn.registryRefreshAttempts = 0;
+	compareIn.registryRefreshSuccesses = 0;
+	compareIn.registryRefreshFailures = 0;
+	compareIn.registryDiagnosticHistogram.fill(0u);
+	for (const auto& snapshotEntry : lookupSnapshot)
+	{
+		compareIn.registryRefreshAttempts +=
+			snapshotEntry.second.refreshAttempts;
+		compareIn.registryRefreshSuccesses +=
+			snapshotEntry.second.refreshSuccesses;
+		compareIn.registryRefreshFailures +=
+			snapshotEntry.second.refreshFailures;
+	}
+    std::unordered_set<uint64_t> walkIds;
+    for (const RegistryCompareObservation& observation : walkObservations)
+    {
+        walkIds.insert(observation.instanceId);
+    }
+    std::unordered_map<uint64_t, uint64_t> selectedBlasByMeshId;
+    for (const RigidRegistryInstanceRecord& instance : liveInstances)
+    {
+        if (!instance.alive)
+        {
+            continue;
+        }
+        const uint64_t packed = PackRigidRegistryInstanceId(instance.instanceId);
+        for (size_t meshIndex = 0; meshIndex < instance.meshIds.size(); ++meshIndex)
+        {
+            const uint64_t meshId = instance.meshIds[meshIndex];
+            RegistryCompareLiveInstance live;
+            live.instanceId = packed;
+            live.meshId = meshId;
+            live.presentRecorded = true;
+            live.hasInstance = true;
+            live.walkObserved = walkIds.find(packed) != walkIds.end();
+            const auto snapIt = lookupSnapshot.find(meshId);
+            if (snapIt != lookupSnapshot.end())
+            {
+                live.meshBlasReady = snapIt->second.ready && snapIt->second.built;
+                live.meshPending = snapIt->second.pending && !live.meshBlasReady;
+                live.meshPendingExpired =
+                    snapIt->second.pendingExpired && !live.meshBlasReady;
+                live.selectedMeshBlasToken = snapIt->second.blasToken;
+				live.refreshAttempts = snapIt->second.refreshAttempts;
+				live.refreshSuccesses = snapIt->second.refreshSuccesses;
+				live.refreshFailures = snapIt->second.refreshFailures;
+				live.diagnosticReason = static_cast<RigidCpuMeshDiagnosticReason>(
+					snapIt->second.diagnosticReason);
+                selectedBlasByMeshId[meshId] = snapIt->second.blasToken;
+            }
+			else
+			{
+				live.diagnosticReason = lookupDiagnostics.earlyReturn
+					? RigidCpuMeshDiagnosticReason::LookupUnavailable
+					: RigidCpuMeshDiagnosticReason::LookupMiss;
+			}
+			const size_t reasonIndex =
+				static_cast<size_t>(live.diagnosticReason);
+			if (reasonIndex < compareIn.registryDiagnosticHistogram.size())
+			{
+				++compareIn.registryDiagnosticHistogram[reasonIndex];
+			}
+            compareIn.registryLive.push_back(live);
+        }
+    }
+
+    std::vector<RegistryComparePhysicalExtra> physical;
+    physical.reserve(finalPhysical.size());
+    for (size_t descriptorIndex = 0; descriptorIndex < finalPhysical.size(); ++descriptorIndex)
+    {
+        const nvrhi::rt::InstanceDesc& desc = finalPhysical[descriptorIndex];
+        RegistryComparePhysicalExtra extra;
+        extra.descriptorIndex = static_cast<uint32_t>(descriptorIndex);
+        extra.instanceID = static_cast<uint32_t>(desc.instanceID);
+        extra.instanceMask = static_cast<uint32_t>(desc.instanceMask);
+        extra.blasToken = reinterpret_cast<uint64_t>(
+            static_cast<nvrhi::rt::IAccelStruct*>(desc.bottomLevelAS));
+        physical.push_back(extra);
+    }
+    BuildRegistrySubmittedFromFinalPhysical(
+        submitBoundary, physical, selectedBlasByMeshId, compareIn.registrySubmitted);
+    const bool a8S1Enabled =
+        r_pathTracingCpuProducerCanonicalIdentityS1.GetInteger() != 0;
+    PtA8S1LegacyProductSnapshot legacyProductBefore;
+    if (a8S1Enabled)
+    {
+        legacyProductBefore = CaptureA8S1LegacyProductSnapshot(
+            universe, submitBoundary, finalPhysical, selectedBlasByMeshId);
+    }
+    compareIn.a8S1 = BuildA8S1CanonicalIdentityDiagnostic(viewDef, universe);
+    PtA8S1LegacyProductSnapshot legacyProductAfter;
+    if (a8S1Enabled)
+    {
+        legacyProductAfter = CaptureA8S1LegacyProductSnapshot(
+            universe, submitBoundary, finalPhysical, selectedBlasByMeshId);
+    }
+    compareIn.a8S1.legacyProductParityAvailable =
+        legacyProductBefore.available && legacyProductAfter.available;
+    compareIn.a8S1.legacyProductDifferenceCount =
+        compareIn.a8S1.legacyProductParityAvailable
+            ? PtA8S1LegacyProductDifferenceCount(
+                legacyProductBefore, legacyProductAfter)
+            : 0;
+    compareIn.a8S1.legacyProductParity =
+        compareIn.a8S1.legacyProductParityAvailable &&
+        compareIn.a8S1.legacyProductDifferenceCount == 0;
+}
+
+
+static cpu_producer_publish::RegistryGapResult BuildRegistryGapAtSubmitBoundary(
+    const viewDef_t* viewDef,
+    const cpu_producer_publish::RigidSubmitBoundaryList& submitBoundary,
+    const RtSmokeGeometryUniverse& universe)
+{
+    using namespace cpu_producer_publish;
+    std::vector<PtGeometryLifecycle::PresentedEntityRecord> presented;
+    PtGeometryLifecycle::SnapshotPresentedEntities(
+        viewDef ? viewDef->renderWorld : nullptr, presented);
+
+    std::vector<RegistryGapLiveRecord> live;
+    live.reserve(presented.size());
+    for (const PtGeometryLifecycle::PresentedEntityRecord& rec : presented)
+    {
+        RegistryGapLiveRecord out;
+        out.key = MakeRegistryGapKey(
+            reinterpret_cast<uint64_t>(rec.key.world),
+            rec.key.worldGeneration,
+            rec.key.index,
+            rec.key.generation);
+        out.alive = rec.alive;
+        out.geometryClass = static_cast<RegistryGapClass>(rec.geometryClass);
+        live.push_back(out);
+    }
+
+    std::unordered_map<uint64_t, uint64_t> selectedBlasByMeshId;
+    for (size_t index = 0; index < submitBoundary.records.size(); ++index)
+    {
+        const uint64_t meshId = submitBoundary.records[index].meshId;
+        if (meshId != 0 && selectedBlasByMeshId.find(meshId) == selectedBlasByMeshId.end())
+        {
+            selectedBlasByMeshId[meshId] = universe.RigidMeshCandidateBlasToken(meshId);
+        }
+    }
+    const std::vector<RegistryGapProduct> products =
+        RegistryGapProductsFromSubmitBoundary(submitBoundary, selectedBlasByMeshId);
+    return CountRegistryGap(live, products);
+}
+
+void PathTracePrimaryPass::ResetRigidTlasBackendJob()
+{
+    StopPathTraceRigidTlasBackendJob(m_smokeRigidTlasBackendJob);
+    ResetBackendParallelV1JobList();
+    ResetRigidRouteAppendJobList();
+    m_smokeRigidTlasDedicatedWorkerDisabledForBackendPool = false;
+    m_smokeRigidRouteDedicatedWorkerDisabledForBackendV1 = false;
+}
+
+bool PathTracePrimaryPass::EnsureBackendParallelV1JobList()
+{
+    if (m_backendParallelV1JobList)
+    {
+        return true;
+    }
+    if (!parallelJobManager)
+    {
+        return false;
+    }
+    m_backendParallelV1JobList = parallelJobManager->AllocJobList(
+        JOBLIST_RENDERER_BACKEND,
+        JOBLIST_PRIORITY_MEDIUM,
+        RT_PT_BACKEND_JOB_LIST_MAX_JOBS,
+        0,
+        nullptr);
+    m_backendParallelV1PhaseState = RtPathTraceBackendJobListPhaseState::Idle;
+    return m_backendParallelV1JobList != nullptr;
+}
+
+void PathTracePrimaryPass::ResetBackendParallelV1JobList()
+{
+    if (m_backendParallelV1JobList)
+    {
+        if (m_backendParallelV1PhaseState ==
+            RtPathTraceBackendJobListPhaseState::Submitted)
+        {
+            m_backendParallelV1JobList->Wait();
+            RtPathTraceBackendJobListMarkWaited(
+                m_backendParallelV1PhaseState);
+        }
+        parallelJobManager->FreeJobList(m_backendParallelV1JobList);
+    }
+    m_backendParallelV1JobList = nullptr;
+    m_backendParallelV1PhaseState = RtPathTraceBackendJobListPhaseState::Idle;
+    m_backendParallelV1RigidTlasPending = false;
+    m_backendParallelV1RigidTlasReady = false;
+    RtPathTraceCpuWorkDiscardStoppedWorkerGeneration(
+        m_smokeRigidTlasPlanAsyncGenerationValid);
+    m_smokeRigidTlasBackendJob.snapshot = RtSmokeRigidTlasPlanSnapshot();
+    m_smokeRigidTlasBackendJob.result = RtSmokeRigidTlasPlanTimedResult();
+}
+
+bool PathTracePrimaryPass::EnsureRigidRouteAppendJobList()
+{
+    if (m_rigidRouteAppendJobList)
+    {
+        return true;
+    }
+    if (!parallelJobManager)
+    {
+        return false;
+    }
+    m_rigidRouteAppendJobList = parallelJobManager->AllocJobList(
+        JOBLIST_RENDERER_BACKEND,
+        JOBLIST_PRIORITY_MEDIUM,
+        RT_PT_RIGID_ROUTE_APPEND_JOB_LIST_MAX_JOBS,
+        0,
+        nullptr);
+    m_rigidRouteAppendJobPhaseState =
+        RtPathTraceBackendJobListPhaseState::Idle;
+    return m_rigidRouteAppendJobList != nullptr;
+}
+
+void PathTracePrimaryPass::ResetRigidRouteAppendJobList()
+{
+    if (m_rigidRouteAppendJobList)
+    {
+        if (m_rigidRouteAppendJobPhaseState ==
+            RtPathTraceBackendJobListPhaseState::Submitted)
+        {
+            m_rigidRouteAppendJobList->Wait();
+            RtPathTraceBackendJobListMarkWaited(
+                m_rigidRouteAppendJobPhaseState);
+        }
+        parallelJobManager->FreeJobList(m_rigidRouteAppendJobList);
+    }
+    m_rigidRouteAppendJobList = nullptr;
+    m_rigidRouteAppendJobPhaseState =
+        RtPathTraceBackendJobListPhaseState::Idle;
+}
+
+void PathTracePrimaryPass::PublishRewriteSkinnedTelemetry()
+{
+    OPTICK_EVENT("PT CPU Rewrite Skinned");
+    RtCpuProducerRewriteService* service = RtCpuProducerRewrite_GetService();
+    if (!service)
+    {
+        return;
+    }
+    const RtCpuRewriteCounters counters = service->Counters();
+
+#define RT_REWRITE_ENTITY_TOTAL_TAG(TAG_NAME, FIELD, DOMAIN) \
+    OPTICK_TAG(#TAG_NAME, counters.FIELD[static_cast<uint32_t>(PtCanonicalMeshSourceDomain::DOMAIN)])
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityCandidates_Invalid, captureEntityCandidates, Invalid);
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityProvisional_Invalid, captureEntityProvisional, Invalid);
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityCandidates_StaticWorldMap, captureEntityCandidates, StaticWorldMap);
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityProvisional_StaticWorldMap, captureEntityProvisional, StaticWorldMap);
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityCandidates_RegisteredRenderModel, captureEntityCandidates, RegisteredRenderModel);
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityProvisional_RegisteredRenderModel, captureEntityProvisional, RegisteredRenderModel);
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityCandidates_SkinnedBindSource, captureEntityCandidates, SkinnedBindSource);
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityProvisional_SkinnedBindSource, captureEntityProvisional, SkinnedBindSource);
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityCandidates_GeneratedPersistent, captureEntityCandidates, GeneratedPersistent);
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityProvisional_GeneratedPersistent, captureEntityProvisional, GeneratedPersistent);
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityCandidates_UnsupportedTransient, captureEntityCandidates, UnsupportedTransient);
+    RT_REWRITE_ENTITY_TOTAL_TAG(entityProvisional_UnsupportedTransient, captureEntityProvisional, UnsupportedTransient);
+#undef RT_REWRITE_ENTITY_TOTAL_TAG
+
+#define RT_REWRITE_ENTITY_REJECT_TAG(DOMAIN_NAME, DOMAIN, REASON_NAME, REASON) \
+    OPTICK_TAG("entityReject_" #DOMAIN_NAME "_" #REASON_NAME, \
+        counters.captureEntityRejected[static_cast<uint32_t>(PtCanonicalMeshSourceDomain::DOMAIN)] \
+            [static_cast<uint32_t>(RtCpuRewriteCaptureAdmissionReason::REASON)])
+    RT_REWRITE_ENTITY_REJECT_TAG(Invalid, Invalid, callback, Callback);
+    RT_REWRITE_ENTITY_REJECT_TAG(Invalid, Invalid, forceUpdate, ForceUpdate);
+    RT_REWRITE_ENTITY_REJECT_TAG(Invalid, Invalid, weaponDepthHack, WeaponDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(Invalid, Invalid, modelDepthHack, ModelDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(Invalid, Invalid, unsupportedSource, UnsupportedSource);
+    RT_REWRITE_ENTITY_REJECT_TAG(Invalid, Invalid, gpuSkinningDisabled, GpuSkinningDisabled);
+    RT_REWRITE_ENTITY_REJECT_TAG(Invalid, Invalid, cpuPosedSurface, CpuPosedSurface);
+    RT_REWRITE_ENTITY_REJECT_TAG(Invalid, Invalid, missingJointSnapshot, MissingJointSnapshot);
+    RT_REWRITE_ENTITY_REJECT_TAG(Invalid, Invalid, unresolvedCurrentSurface, UnresolvedCurrentSurface);
+    RT_REWRITE_ENTITY_REJECT_TAG(StaticWorldMap, StaticWorldMap, callback, Callback);
+    RT_REWRITE_ENTITY_REJECT_TAG(StaticWorldMap, StaticWorldMap, forceUpdate, ForceUpdate);
+    RT_REWRITE_ENTITY_REJECT_TAG(StaticWorldMap, StaticWorldMap, weaponDepthHack, WeaponDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(StaticWorldMap, StaticWorldMap, modelDepthHack, ModelDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(StaticWorldMap, StaticWorldMap, unsupportedSource, UnsupportedSource);
+    RT_REWRITE_ENTITY_REJECT_TAG(StaticWorldMap, StaticWorldMap, gpuSkinningDisabled, GpuSkinningDisabled);
+    RT_REWRITE_ENTITY_REJECT_TAG(StaticWorldMap, StaticWorldMap, cpuPosedSurface, CpuPosedSurface);
+    RT_REWRITE_ENTITY_REJECT_TAG(StaticWorldMap, StaticWorldMap, missingJointSnapshot, MissingJointSnapshot);
+    RT_REWRITE_ENTITY_REJECT_TAG(StaticWorldMap, StaticWorldMap, unresolvedCurrentSurface, UnresolvedCurrentSurface);
+    RT_REWRITE_ENTITY_REJECT_TAG(RegisteredRenderModel, RegisteredRenderModel, callback, Callback);
+    RT_REWRITE_ENTITY_REJECT_TAG(RegisteredRenderModel, RegisteredRenderModel, forceUpdate, ForceUpdate);
+    RT_REWRITE_ENTITY_REJECT_TAG(RegisteredRenderModel, RegisteredRenderModel, weaponDepthHack, WeaponDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(RegisteredRenderModel, RegisteredRenderModel, modelDepthHack, ModelDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(RegisteredRenderModel, RegisteredRenderModel, unsupportedSource, UnsupportedSource);
+    RT_REWRITE_ENTITY_REJECT_TAG(RegisteredRenderModel, RegisteredRenderModel, gpuSkinningDisabled, GpuSkinningDisabled);
+    RT_REWRITE_ENTITY_REJECT_TAG(RegisteredRenderModel, RegisteredRenderModel, cpuPosedSurface, CpuPosedSurface);
+    RT_REWRITE_ENTITY_REJECT_TAG(RegisteredRenderModel, RegisteredRenderModel, missingJointSnapshot, MissingJointSnapshot);
+    RT_REWRITE_ENTITY_REJECT_TAG(RegisteredRenderModel, RegisteredRenderModel, unresolvedCurrentSurface, UnresolvedCurrentSurface);
+    RT_REWRITE_ENTITY_REJECT_TAG(SkinnedBindSource, SkinnedBindSource, callback, Callback);
+    RT_REWRITE_ENTITY_REJECT_TAG(SkinnedBindSource, SkinnedBindSource, forceUpdate, ForceUpdate);
+    RT_REWRITE_ENTITY_REJECT_TAG(SkinnedBindSource, SkinnedBindSource, weaponDepthHack, WeaponDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(SkinnedBindSource, SkinnedBindSource, modelDepthHack, ModelDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(SkinnedBindSource, SkinnedBindSource, unsupportedSource, UnsupportedSource);
+    RT_REWRITE_ENTITY_REJECT_TAG(SkinnedBindSource, SkinnedBindSource, gpuSkinningDisabled, GpuSkinningDisabled);
+    RT_REWRITE_ENTITY_REJECT_TAG(SkinnedBindSource, SkinnedBindSource, cpuPosedSurface, CpuPosedSurface);
+    RT_REWRITE_ENTITY_REJECT_TAG(SkinnedBindSource, SkinnedBindSource, missingJointSnapshot, MissingJointSnapshot);
+    RT_REWRITE_ENTITY_REJECT_TAG(SkinnedBindSource, SkinnedBindSource, unresolvedCurrentSurface, UnresolvedCurrentSurface);
+    RT_REWRITE_ENTITY_REJECT_TAG(GeneratedPersistent, GeneratedPersistent, callback, Callback);
+    RT_REWRITE_ENTITY_REJECT_TAG(GeneratedPersistent, GeneratedPersistent, forceUpdate, ForceUpdate);
+    RT_REWRITE_ENTITY_REJECT_TAG(GeneratedPersistent, GeneratedPersistent, weaponDepthHack, WeaponDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(GeneratedPersistent, GeneratedPersistent, modelDepthHack, ModelDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(GeneratedPersistent, GeneratedPersistent, unsupportedSource, UnsupportedSource);
+    RT_REWRITE_ENTITY_REJECT_TAG(GeneratedPersistent, GeneratedPersistent, gpuSkinningDisabled, GpuSkinningDisabled);
+    RT_REWRITE_ENTITY_REJECT_TAG(GeneratedPersistent, GeneratedPersistent, cpuPosedSurface, CpuPosedSurface);
+    RT_REWRITE_ENTITY_REJECT_TAG(GeneratedPersistent, GeneratedPersistent, missingJointSnapshot, MissingJointSnapshot);
+    RT_REWRITE_ENTITY_REJECT_TAG(GeneratedPersistent, GeneratedPersistent, unresolvedCurrentSurface, UnresolvedCurrentSurface);
+    RT_REWRITE_ENTITY_REJECT_TAG(UnsupportedTransient, UnsupportedTransient, callback, Callback);
+    RT_REWRITE_ENTITY_REJECT_TAG(UnsupportedTransient, UnsupportedTransient, forceUpdate, ForceUpdate);
+    RT_REWRITE_ENTITY_REJECT_TAG(UnsupportedTransient, UnsupportedTransient, weaponDepthHack, WeaponDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(UnsupportedTransient, UnsupportedTransient, modelDepthHack, ModelDepthHack);
+    RT_REWRITE_ENTITY_REJECT_TAG(UnsupportedTransient, UnsupportedTransient, unsupportedSource, UnsupportedSource);
+    RT_REWRITE_ENTITY_REJECT_TAG(UnsupportedTransient, UnsupportedTransient, gpuSkinningDisabled, GpuSkinningDisabled);
+    RT_REWRITE_ENTITY_REJECT_TAG(UnsupportedTransient, UnsupportedTransient, cpuPosedSurface, CpuPosedSurface);
+    RT_REWRITE_ENTITY_REJECT_TAG(UnsupportedTransient, UnsupportedTransient, missingJointSnapshot, MissingJointSnapshot);
+    RT_REWRITE_ENTITY_REJECT_TAG(UnsupportedTransient, UnsupportedTransient, unresolvedCurrentSurface, UnresolvedCurrentSurface);
+#undef RT_REWRITE_ENTITY_REJECT_TAG
+
+    OPTICK_TAG("surfaceCandidates", counters.skinnedSurfaceCandidates);
+    OPTICK_TAG("surfaceAdmitted", counters.skinnedSurfaceAdmitted);
+#define RT_REWRITE_SURFACE_REJECT_TAG(NAME, REASON) \
+    OPTICK_TAG("surfaceReject_" #NAME, counters.skinnedSurfaceRejected[static_cast<uint32_t>(RtCpuRewriteCaptureAdmissionReason::REASON)])
+    RT_REWRITE_SURFACE_REJECT_TAG(callback, Callback);
+    RT_REWRITE_SURFACE_REJECT_TAG(forceUpdate, ForceUpdate);
+    RT_REWRITE_SURFACE_REJECT_TAG(weaponDepthHack, WeaponDepthHack);
+    RT_REWRITE_SURFACE_REJECT_TAG(modelDepthHack, ModelDepthHack);
+    RT_REWRITE_SURFACE_REJECT_TAG(unsupportedSource, UnsupportedSource);
+    RT_REWRITE_SURFACE_REJECT_TAG(gpuSkinningDisabled, GpuSkinningDisabled);
+    RT_REWRITE_SURFACE_REJECT_TAG(cpuPosedSurface, CpuPosedSurface);
+    RT_REWRITE_SURFACE_REJECT_TAG(missingJointSnapshot, MissingJointSnapshot);
+    RT_REWRITE_SURFACE_REJECT_TAG(unresolvedCurrentSurface, UnresolvedCurrentSurface);
+#undef RT_REWRITE_SURFACE_REJECT_TAG
+
+    OPTICK_TAG("jointRowsTotal", counters.skinnedJointRows);
+    OPTICK_TAG("jointRowsHighWater", counters.skinnedJointRowsHighWater);
+    OPTICK_TAG("lastJoinCount", m_rewriteSkinnedLastJoinCount);
+    OPTICK_TAG("routeRecordCount", m_rewriteSkinnedHitRouteRecordCount);
+    OPTICK_TAG("routeTriangleCount", m_rewriteSkinnedHitRouteTriangleCount);
+    OPTICK_TAG("skinnedGpuLogicalBytes", m_rewriteSkinnedGpuBytes);
+    OPTICK_TAG("retiredPairLiveCount", m_rewriteSkinnedRetiredPairCount);
+    OPTICK_TAG("retiredPairLiveLogicalBytes", m_rewriteSkinnedRetiredPairBytes);
+    OPTICK_TAG("retiredPairCountHighWater", m_rewriteSkinnedRetiredPairHighWater);
+    OPTICK_TAG("retiredPairLogicalBytesHighWater", m_rewriteSkinnedRetiredPairBytesHighWater);
+    OPTICK_TAG("keepLastStreak", m_rewriteSkinnedKeepLastStreak);
+    OPTICK_TAG("keepLastFamily", static_cast<uint32_t>(m_rewriteKeepLastFamily));
+    OPTICK_TAG("lastRejectReason", m_rewriteSkinnedLastRejectReason);
+    OPTICK_TAG("degradedCommits", m_rewriteSkinnedDegradedCommits);
+}
+
+void PathTracePrimaryPass::PublishRewriteRetirementTelemetry()
+{
+    OPTICK_EVENT("PT CPU Rewrite Retirement");
+    uint64_t actualBytes = 0;
+    uint64_t actualSkinnedCount = 0;
+    uint64_t actualSkinnedBytes = 0;
+    for (const RtCpuRewriteRetiredGpuGeometry& entry : m_rewriteRetiredGeometry)
+    {
+        actualBytes += entry.bytes;
+        if (entry.skinnedPair)
+        {
+            ++actualSkinnedCount;
+            actualSkinnedBytes += entry.bytes;
+        }
+    }
+    RtCpuRewriteRetirementLedgerReconcile(m_rewriteRetirementLedger,
+        static_cast<uint64_t>(m_rewriteRetiredGeometry.size()), actualBytes,
+        actualSkinnedCount, actualSkinnedBytes);
+    m_rewriteSkinnedRetiredPairCount = m_rewriteRetirementLedger.skinnedLiveCount;
+    m_rewriteSkinnedRetiredPairBytes = m_rewriteRetirementLedger.skinnedLiveLogicalBytes;
+    m_rewriteSkinnedRetiredPairHighWater = Max(m_rewriteSkinnedRetiredPairHighWater,
+        m_rewriteSkinnedRetiredPairCount);
+    m_rewriteSkinnedRetiredPairBytesHighWater = Max(m_rewriteSkinnedRetiredPairBytesHighWater,
+        m_rewriteSkinnedRetiredPairBytes);
+    OPTICK_TAG("liveCount", m_rewriteRetirementLedger.liveCount);
+    OPTICK_TAG("liveLogicalBytes", m_rewriteRetirementLedger.liveLogicalBytes);
+    OPTICK_TAG("unscheduledCount", m_rewriteRetirementLedger.unscheduledCount);
+    OPTICK_TAG("unscheduledLogicalBytes", m_rewriteRetirementLedger.unscheduledLogicalBytes);
+    OPTICK_TAG("liveCountHighWater", m_rewriteRetirementLedger.liveCountHighWater);
+    OPTICK_TAG("liveLogicalBytesHighWater", m_rewriteRetirementLedger.liveLogicalBytesHighWater);
+    OPTICK_TAG("unscheduledCountHighWater", m_rewriteRetirementLedger.unscheduledCountHighWater);
+    OPTICK_TAG("unscheduledLogicalBytesHighWater", m_rewriteRetirementLedger.unscheduledLogicalBytesHighWater);
+    OPTICK_TAG("countBound", kRtCpuRewriteRetiredSoftCount);
+    OPTICK_TAG("logicalByteBound", kRtCpuRewriteRetiredSoftLogicalBytes);
+    OPTICK_TAG("retireFrames", r_pathTracingSceneRetireFrames.GetInteger());
+    OPTICK_TAG("enqueuedTotal", m_rewriteRetirementLedger.enqueuedTotal);
+    OPTICK_TAG("scheduledTotal", m_rewriteRetirementLedger.scheduledTotal);
+    OPTICK_TAG("releasedTotal", m_rewriteRetirementLedger.releasedTotal);
+    OPTICK_TAG("countPressureRejects", m_rewriteRetirementLedger.countPressureRejects);
+    OPTICK_TAG("logicalBytePressureRejects", m_rewriteRetirementLedger.bytePressureRejects);
+    OPTICK_TAG("unknownLogicalByteRejects", m_rewriteRetirementLedger.unknownByteRejects);
+    OPTICK_TAG("arithmeticOverflowRejects", m_rewriteRetirementLedger.arithmeticOverflowRejects);
+    OPTICK_TAG("metadataReserveFailures", m_rewriteRetirementLedger.metadataReserveFailures);
+    OPTICK_TAG("evictionDeferred", m_rewriteRetirementLedger.evictionDeferred);
+    OPTICK_TAG("forcedDrainOverBound", m_rewriteRetirementLedger.forcedDrainOverBound);
+    OPTICK_TAG("reconciliationAnomalies", m_rewriteRetirementLedger.reconciliationAnomalies);
+    if (RtCpuProducerRewriteService* service = RtCpuProducerRewrite_GetService())
+    {
+        service->NoteRetirementLedger(m_rewriteRetirementLedger);
+    }
+}
+
+bool PathTracePrimaryPass::PreflightRewriteGpuGeometryBatch(
+    const std::vector<RtCpuRewriteRetirementCandidate>& batch,
+    RtCpuRewriteRetirementDecision* decision)
+{
+    uint64_t proposedBytes = 0;
+    bool bytesKnown = true;
+    for (const RtCpuRewriteRetirementCandidate& candidate : batch)
+    {
+        if ((!candidate.blas && !candidate.vertexBuffer && !candidate.indexBuffer) || candidate.logicalBytes == 0)
+        {
+            bytesKnown = false;
+        }
+        if (UINT64_MAX - proposedBytes < candidate.logicalBytes)
+        {
+            if (decision) *decision = RtCpuRewriteRetirementDecision::ArithmeticOverflow;
+            return false;
+        }
+        proposedBytes += candidate.logicalBytes;
+    }
+    RtCpuRewriteRetirementAdmissionInput input;
+    input.currentLiveCount = m_rewriteRetirementLedger.liveCount;
+    input.currentLiveLogicalBytes = m_rewriteRetirementLedger.liveLogicalBytes;
+    input.proposedCount = static_cast<uint64_t>(batch.size());
+    input.proposedLogicalBytes = proposedBytes;
+    input.proposedBytesKnown = bytesKnown;
+    const RtCpuRewriteRetirementDecision result = RtCpuRewritePlanRetirementAdmission(input);
+    if (decision) *decision = result;
+    if (result != RtCpuRewriteRetirementDecision::Admit) return false;
+    try
+    {
+        m_rewriteRetiredGeometry.reserve(m_rewriteRetiredGeometry.size() + batch.size());
+    }
+    catch (const std::bad_alloc&)
+    {
+        ++m_rewriteRetirementLedger.metadataReserveFailures;
+        if (decision) *decision = RtCpuRewriteRetirementDecision::ArithmeticOverflow;
+        return false;
+    }
+    return true;
+}
+
+void PathTracePrimaryPass::EnqueuePreflightedRewriteGpuGeometryBatch(
+    const std::vector<RtCpuRewriteRetirementCandidate>& batch)
+{
+    uint64_t bytes = 0;
+    uint64_t skinnedCount = 0;
+    uint64_t skinnedBytes = 0;
+    for (const RtCpuRewriteRetirementCandidate& candidate : batch)
+    {
+        RtCpuRewriteRetiredGpuGeometry retired = {};
+        retired.retireSerial = candidate.retireSerial;
+        retired.blas = candidate.blas;
+        retired.vertexBuffer = candidate.vertexBuffer;
+        retired.indexBuffer = candidate.indexBuffer;
+        retired.bytes = candidate.logicalBytes;
+        retired.skinnedPair = candidate.kind == RtCpuRewriteRetirementKind::Skinned;
+        m_rewriteRetiredGeometry.push_back(retired);
+        bytes += candidate.logicalBytes;
+        if (retired.skinnedPair)
+        {
+            ++skinnedCount;
+            skinnedBytes += candidate.logicalBytes;
+        }
+    }
+    RtCpuRewriteRetirementLedgerEnqueue(m_rewriteRetirementLedger,
+        static_cast<uint64_t>(batch.size()), bytes, skinnedCount, skinnedBytes);
+    PublishRewriteRetirementTelemetry();
+}
+
+bool PathTracePrimaryPass::TryRetireRewriteGpuGeometryBatch(
+    const std::vector<RtCpuRewriteRetirementCandidate>& batch,
+    bool forceDrain,
+    RtCpuRewriteRetirementDecision* decision)
+{
+    RtCpuRewriteRetirementDecision result = RtCpuRewriteRetirementDecision::Admit;
+    if (forceDrain)
+    {
+        std::vector<RtCpuRewriteRetirementCandidate> liveBatch;
+        try
+        {
+            liveBatch.reserve(batch.size());
+            for (const RtCpuRewriteRetirementCandidate& candidate : batch)
+            {
+                if (!candidate.blas && !candidate.vertexBuffer && !candidate.indexBuffer) continue;
+                liveBatch.push_back(candidate);
+            }
+            m_rewriteRetiredGeometry.reserve(m_rewriteRetiredGeometry.size() + liveBatch.size());
+        }
+        catch (const std::bad_alloc&)
+        {
+            ++m_rewriteRetirementLedger.metadataReserveFailures;
+            if (decision) *decision = RtCpuRewriteRetirementDecision::ArithmeticOverflow;
+            PublishRewriteRetirementTelemetry();
+            return false;
+        }
+        uint64_t proposedLogicalBytes = 0;
+        bool bytesKnown = true;
+        bool arithmeticOverflow = false;
+        for (const RtCpuRewriteRetirementCandidate& candidate : liveBatch)
+        {
+            bytesKnown = bytesKnown && candidate.logicalBytes != 0;
+            if (UINT64_MAX - proposedLogicalBytes < candidate.logicalBytes)
+            {
+                arithmeticOverflow = true;
+                break;
+            }
+            proposedLogicalBytes += candidate.logicalBytes;
+        }
+        RtCpuRewriteRetirementAdmissionInput forceInput;
+        forceInput.currentLiveCount = m_rewriteRetirementLedger.liveCount;
+        forceInput.currentLiveLogicalBytes = m_rewriteRetirementLedger.liveLogicalBytes;
+        forceInput.proposedCount = static_cast<uint64_t>(liveBatch.size());
+        forceInput.proposedLogicalBytes = proposedLogicalBytes;
+        forceInput.proposedBytesKnown = bytesKnown;
+        result = arithmeticOverflow ? RtCpuRewriteRetirementDecision::ArithmeticOverflow
+            : RtCpuRewritePlanRetirementAdmission(forceInput);
+        RtCpuRewriteRetirementLedgerForcedDrain(m_rewriteRetirementLedger,
+            result != RtCpuRewriteRetirementDecision::Admit);
+        m_rewriteRetirementWarningLatched = false;
+        EnqueuePreflightedRewriteGpuGeometryBatch(liveBatch);
+        if (decision) *decision = RtCpuRewriteRetirementDecision::Admit;
+        return true;
+    }
+    const bool fit = PreflightRewriteGpuGeometryBatch(batch, &result);
+    if (!fit)
+    {
+        m_rewriteRetirementRejectedThisAttempt = true;
+        switch (result)
+        {
+        case RtCpuRewriteRetirementDecision::CountPressure:
+            m_rewriteSkinnedLastRejectReason = static_cast<uint32_t>(RtCpuRewriteSkinnedRejectReason::RetirementCountPressure); break;
+        case RtCpuRewriteRetirementDecision::BytePressure:
+            m_rewriteSkinnedLastRejectReason = static_cast<uint32_t>(RtCpuRewriteSkinnedRejectReason::RetirementBytePressure); break;
+        case RtCpuRewriteRetirementDecision::UnknownBytes:
+            m_rewriteSkinnedLastRejectReason = static_cast<uint32_t>(RtCpuRewriteSkinnedRejectReason::RetirementUnknownBytes); break;
+        case RtCpuRewriteRetirementDecision::ArithmeticOverflow:
+            m_rewriteSkinnedLastRejectReason = static_cast<uint32_t>(RtCpuRewriteSkinnedRejectReason::RetirementArithmeticOverflow); break;
+        case RtCpuRewriteRetirementDecision::Admit: break;
+        }
+        RtCpuRewriteRetirementLedgerReject(m_rewriteRetirementLedger, result);
+        if (!m_rewriteRetirementWarningLatched)
+        {
+            common->Warning("CPU rewrite retirement circuit breaker: reason=%u current=%llu/%llu logical proposed=%zu/%llu logical bounds=%llu/%llu logical serial=%llu r_pathTracingSceneRetireFrames=%d; terminal until route change/map reset/drain",
+                static_cast<uint32_t>(result), m_rewriteRetirementLedger.liveCount,
+                m_rewriteRetirementLedger.liveLogicalBytes, batch.size(),
+                [&]() { uint64_t value = 0; for (const auto& c : batch) value += c.logicalBytes; return value; }(),
+                kRtCpuRewriteRetiredSoftCount, kRtCpuRewriteRetiredSoftLogicalBytes,
+                m_rewriteTlasCommitSerial, r_pathTracingSceneRetireFrames.GetInteger());
+            m_rewriteRetirementWarningLatched = true;
+        }
+        PublishRewriteRetirementTelemetry();
+        if (decision) *decision = result;
+        return false;
+    }
+    m_rewriteRetirementWarningLatched = false;
+    EnqueuePreflightedRewriteGpuGeometryBatch(batch);
+    if (decision) *decision = RtCpuRewriteRetirementDecision::Admit;
+    return true;
+}
+
+void PathTracePrimaryPass::ReleaseExpiredRewriteGpuGeometry(uint64_t currentFrame, bool forceSchedule)
+{
+    OPTICK_EVENT("PT CPU Geometry Retire Release");
+    const uint64_t startUs = Sys_Microseconds();
+    uint64_t released = 0, deferred = 0;
+    // A TLAS stores raw BLAS device addresses and NVRHI destroys a BLAS as soon
+    // as its last handle drops. A retired BLAS may therefore be released only
+    // after a TLAS that no longer references it has been committed (serial
+    // advanced past the retire serial) and after enough frames for every
+    // in-flight trace of the older TLAS to have completed.
+    const uint64_t retireFrames = static_cast<uint64_t>(
+        Max(3, idMath::ClampInt(0, 32, r_pathTracingSceneRetireFrames.GetInteger())));
+    size_t out = 0;
+    for (size_t i = 0; i < m_rewriteRetiredGeometry.size(); ++i)
+    {
+        RtCpuRewriteRetiredGpuGeometry& entry = m_rewriteRetiredGeometry[i];
+        if (entry.releaseFrame == 0 &&
+            (forceSchedule || m_rewriteTlasCommitSerial > entry.retireSerial))
+        {
+            entry.releaseFrame = currentFrame + retireFrames;
+            RtCpuRewriteRetirementLedgerSchedule(m_rewriteRetirementLedger, 1, entry.bytes);
+        }
+        const bool release = entry.releaseFrame != 0 && currentFrame >= entry.releaseFrame;
+        if (release && RtCpuRewriteRetirementReleaseBudgetAllows(released,
+            Sys_Microseconds() - startUs, forceSchedule))
+        {
+            RtCpuRewriteRetirementLedgerRelease(m_rewriteRetirementLedger, 1, entry.bytes,
+                entry.skinnedPair ? 1 : 0, entry.skinnedPair ? entry.bytes : 0);
+            // Drop handles here so their actual destruction is inside the budget.
+            // Move-compaction below only targets empty entries and leaves an empty
+            // tail; resize must not hide another batch of unbudgeted releases.
+            entry = RtCpuRewriteRetiredGpuGeometry();
+            ++released;
+            continue;
+        }
+        if (release) ++deferred;
+        if (out != i)
+        {
+            m_rewriteRetiredGeometry[out] = std::move(entry);
+        }
+        ++out;
+    }
+    m_rewriteRetiredGeometry.resize(out);
+    OPTICK_TAG("retirementReleasedThisCall", released);
+    OPTICK_TAG("retirementReleaseDeferredThisCall", deferred);
+    OPTICK_TAG("retirementReleaseElapsedUs", Sys_Microseconds() - startUs);
+    PublishRewriteRetirementTelemetry();
+}
+
+struct PathTracePrimaryPass::RtCpuRewriteLightWork
+{
+    uint64_t analyticRoot = 0, analyticWorld = 0, analyticMap = 0;
+    bool analyticReady = false;
+    std::shared_ptr<RtCpuRewriteLightJob> job;
+    std::vector<uint32_t> materialIds;
+    std::vector<PathTraceSmokeMaterial> materials;
+    std::vector<PathTraceSmokeVertex> vertices;
+    std::vector<PtSkinnedEmissiveAuditTriangle> triangles;
+    std::vector<RtSmokeEmissiveMaterialFacts> facts;
+    std::vector<PathTraceSmokeEmissiveTriangle> previousEmissiveTriangles;
+    std::vector<PathTraceDoomAnalyticLightCandidate> doomAnalyticLights;
+    PathTraceDoomAnalyticLightGpuRemap doomAnalyticRemap;
+    PathTraceRemixLightManager managerBase;
+    PathTraceRemixLightManagerPrepareResult manager;
+    PathTraceRemixFramePrepare frame;
+    PathTraceRemixLightManagerPrepareDesc desc;
+    int maxRecords = 0, portalAnalyticCount = 0;
+    float uniformMixture = 0.0f;
+    bool includeAnalytic = false, includeEmissive = false, unifiedRequested = false;
+    PtSkinnedEmissiveAuditInventory inventory;
+    RtSmokeEmissiveInventoryStats emissiveInventoryStats;
+    std::vector<PathTraceSmokeLightCandidate> lightCandidates;
+    std::vector<PathTraceEmissiveLightRemap> emissiveLightRemap;
+    RtSmokeEmissiveDistributionBuild emissiveDistribution;
+    PathTraceUnifiedEmissiveLookupBuild unifiedPtEmissiveLookup;
+    PathTraceUnifiedLightBuild unifiedLights;
+    void PrepareManager()
+    {
+        const auto& emissiveTriangles = inventory.current;
+        const std::vector<PathTraceSmokeEmissiveTriangle> emptyEmissiveTriangles;
+        const std::vector<PathTraceEmissiveLightRemap> emptyEmissiveRemap;
+        const std::vector<PathTraceDoomAnalyticLightCandidate> emptyAnalyticLights;
+        const std::vector<PathTraceDoomAnalyticLightCandidateIdentity> emptyAnalyticIdentities;
+        const std::vector<PathTraceDoomAnalyticLightRemap> emptyAnalyticRemap;
+        PathTraceRemixLightManagerPrepareDesc remixLightPrepareDesc = desc;
+        remixLightPrepareDesc.framePackage = &frame.GetObservationPackage();
+        remixLightPrepareDesc.currentEmissiveTriangles = &(includeEmissive ? emissiveTriangles : emptyEmissiveTriangles);
+        remixLightPrepareDesc.previousEmissiveTriangles = &(includeEmissive ? previousEmissiveTriangles : emptyEmissiveTriangles);
+        // Enabled light-universe preparation uses its own committed history and
+        // ignores the source remap. Never borrow the sibling's in-progress vector.
+        remixLightPrepareDesc.emissiveRemap = &((includeEmissive && !desc.lightUniverseEnabled) ? emissiveLightRemap : emptyEmissiveRemap);
+        remixLightPrepareDesc.currentAnalyticLights = &(includeAnalytic ? doomAnalyticLights : emptyAnalyticLights);
+        remixLightPrepareDesc.previousAnalyticLights = &(includeAnalytic ? doomAnalyticRemap.previousCandidates : emptyAnalyticLights);
+        remixLightPrepareDesc.currentAnalyticIdentities = &(includeAnalytic ? doomAnalyticRemap.currentCandidateIdentities : emptyAnalyticIdentities);
+        remixLightPrepareDesc.previousAnalyticIdentities = &(includeAnalytic ? doomAnalyticRemap.previousCandidateIdentities : emptyAnalyticIdentities);
+        remixLightPrepareDesc.analyticRemap = &(includeAnalytic ? doomAnalyticRemap.universeRemap : emptyAnalyticRemap);
+        {
+            OPTICK_EVENT("PT Remix Light Manager Prepare");
+            manager = managerBase.BuildPrepareResult(remixLightPrepareDesc);
+        }
+    }
+    bool Prepare(RtCpuProducerRewriteService& service, uint64_t rootFrame, uint64_t charge,
+        const std::shared_ptr<RtCpuRewriteLightWork>& owned)
+    {
+        const std::vector<PathTraceSkinnedPreviousPosition> noPreviousPositions;
+        inventory = BuildSmokeCanonicalSkinnedEmissiveAuditInventory(materialIds,
+            materials, vertices, noPreviousPositions, triangles,
+            RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE, maxRecords, &facts, &emissiveInventoryStats, uniformMixture);
+        if (inventory.invalidTriangles || inventory.zeroIdentityTriangles) return false;
+        auto& emissiveTriangles = inventory.current;
+        auto& uptEmissiveGeometry = inventory.currentGeometry;
+        // All corners above are exact world positions, not audit placeholders.
+        for (auto& geometry : uptEmissiveGeometry) geometry.validity = PT_UPT_EMISSIVE_GEOMETRY_VALID;
+        lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
+        // Generic inventory diagnostics classify InstanceID 1 as dynamic; the rewrite
+        // uses that base BLAS for world geometry. Correct the family counts here.
+        emissiveInventoryStats.staticTriangles = 0;
+        for (const auto& triangle : emissiveTriangles)
+            emissiveInventoryStats.staticTriangles += triangle.instanceId == 1u;
+        emissiveInventoryStats.dynamicTriangles = static_cast<int>(emissiveTriangles.size()) - emissiveInventoryStats.staticTriangles;
+        const bool managerNeedsSourceRemap = includeEmissive && !desc.lightUniverseEnabled;
+        const auto prepareRemap = [&] {
+            OPTICK_EVENT("PT CPU Emissive Remap Worker");
+            emissiveLightRemap = BuildSmokeCanonicalEmissiveLightRemap(emissiveTriangles, previousEmissiveTriangles);
+        };
+        if (managerNeedsSourceRemap) prepareRemap();
+        const auto managerJob = service.SubmitLightManagerPreparation(rootFrame, charge,
+            [owned] { owned->PrepareManager(); return true; });
+        if (!managerJob) return false;
+        // The manager reads immutable inventory/remap/settings; this branch writes
+        // only unifiedLights. Drain the child even if unified construction throws.
+        struct ManagerJoinGuard {
+            RtCpuProducerRewriteService& service;
+            const std::shared_ptr<RtCpuRewriteLightJob>& job;
+            uint64_t root;
+            bool joined = false;
+            ~ManagerJoinGuard() { if (!joined) service.FinishLightManagerPreparation(job, root); }
+        } managerGuard{service, managerJob, rootFrame};
+        OPTICK_TAG("lightManagerNeedsSourceRemap", managerNeedsSourceRemap ? 1u : 0u);
+        if (!managerNeedsSourceRemap) prepareRemap();
+        unifiedLights = [&]() {
+            OPTICK_EVENT("PT Unified Light Build");
+            return BuildPathTraceUnifiedLights(
+                emissiveTriangles,
+                previousEmissiveTriangles,
+                emissiveLightRemap,
+                doomAnalyticLights,
+                doomAnalyticRemap.previousCandidates,
+                doomAnalyticRemap.currentCandidateIdentities,
+                doomAnalyticRemap.previousCandidateIdentities,
+                doomAnalyticRemap.universeRemap,
+                desc.analyticStateCompatibilityTolerance);
+        }();
+        const bool managerReady = service.FinishLightManagerPreparation(managerJob, rootFrame);
+        managerGuard.joined = true;
+        if (!managerReady) return false;
+        OPTICK_TAG("lightManagerSerialReplaySkipped", 1u);
+        const std::vector<uint32_t>& restirLightManagerCurrentToPreviousRemap =
+            manager.currentToPreviousMap;
+        const std::vector<uint32_t>& restirLightManagerPreviousToCurrentRemap =
+            manager.previousToCurrentMap;
+        const std::vector<PathTraceUnifiedLightRecord>& restirLightManagerCurrentPayloadRecords =
+            manager.currentLightPayloads;
+        const std::vector<PathTraceUnifiedLightRecord>& restirLightManagerPreviousPayloadRecords =
+            manager.previousLightPayloads;
+        // Source order and dense order can differ. Build the mapping once rather
+        // than searching the full light list for every CDF entry.
+        std::vector<uint32_t> emissiveSourceToDense(emissiveTriangles.size(), PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX);
+        for (uint32_t dense = 0; dense < restirLightManagerCurrentPayloadRecords.size(); ++dense) {
+            const auto& light = restirLightManagerCurrentPayloadRecords[dense];
+            if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE && light.sourceIndex < emissiveSourceToDense.size())
+                emissiveSourceToDense[light.sourceIndex] = dense;
+        }
+        emissiveDistribution = [&]() {
+            OPTICK_EVENT("PT Emissive Distribution");
+            RtSmokeEmissiveDistributionBuild build =
+                BuildSmokeEmissiveDistribution(emissiveTriangles);
+            for (PathTraceEmissiveDistributionEntry& entry : build.entries)
+            {
+                entry.denseLightIndex = entry.emissiveTriangleIndex < emissiveSourceToDense.size()
+                    ? emissiveSourceToDense[entry.emissiveTriangleIndex] : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+            }
+            return build;
+        }();
+        unifiedPtEmissiveLookup =
+            unifiedRequested
+            ? BuildPathTraceUnifiedEmissiveLookup(
+                restirLightManagerCurrentPayloadRecords,
+                emissiveDistribution.entries,
+                manager.stats.emissiveRangeOffset,
+                manager.stats.emissiveRangeCount)
+            : PathTraceUnifiedEmissiveLookupBuild();
+
+
+        return true;
+    }
+};
+
+bool PathTracePrimaryPass::PrepareRewriteAnalyticLighting(const viewDef_t* viewDef,
+    const RtCpuRewriteFrozenProductView& product, const RtCpuRewriteOverlayView* overlay,
+    bool allowHistory, uint64_t frameIndex, std::shared_ptr<RtCpuRewriteLightWork>& work)
+{
+    OPTICK_EVENT("PT CPU Lights Early Analytic Input");
+    work = std::make_shared<RtCpuRewriteLightWork>();
+    struct EarlyLightReport {
+        const RtCpuRewriteLightWork& work;
+        ~EarlyLightReport() { OPTICK_TAG("lightAnalyticPreparedEarly", work.analyticReady ? 1u : 0u); }
+    } report { *work };
+    if (!viewDef || !frameIndex || viewDef->pathTraceRewriteRootFrame != frameIndex) return false;
+    const bool historyValid = allowHistory && m_rewriteLightHistoryValid &&
+        m_rewriteLightWorld == product.worldGeneration && m_rewriteLightMap == product.mapGeneration;
+    // Analytic collection has owner-side history. A later failed scene must not
+    // use that uncommitted generation for temporal remapping on the next attempt.
+    m_rewriteLightHistoryValid = false;
+    OPTICK_TAG("lightHistoryValid", historyValid ? 1u : 0u);
+    const bool unifiedPtScenePublicationRequested = NormalizePathTraceDebugMode(
+        idMath::ClampInt(0, 58, r_pathTracingDebugMode.GetInteger())) == 0 && r_pathTracingUnifiedPtEnable.GetInteger() != 0;
+    const int cleanRtxdiDiView = r_pathTracingCleanRtxdiDiView.GetInteger();
+    const int cleanRtxdiDiResolveView = cleanRtxdiDiView >= 18 && cleanRtxdiDiView <= 23 ? 16 : cleanRtxdiDiView;
+    const bool cleanRtxdiDiRealAnalyticRoute = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
+        r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
+        (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 ||
+         cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16);
+    const int regirSceneLightDomain = idMath::ClampInt(0, 2, r_pathTracingReGIRLightDomain.GetInteger());
+    auto& doomAnalyticLights = work->doomAnalyticLights;
+    auto& doomAnalyticRemap = work->doomAnalyticRemap;
+    {
+        OPTICK_EVENT("PT CPU Lights Analytic");
+        const bool exactLightInput = overlay && overlay->rootFrame == viewDef->pathTraceRewriteRootFrame &&
+            overlay->analyticLights != nullptr;
+        OPTICK_TAG("lightSnapshotMissing", exactLightInput ? 0u : 1u);
+        OPTICK_TAG("lightSnapshotRoot", overlay ? overlay->rootFrame : 0);
+        if (!exactLightInput) return false;
+        PathTraceDoomAnalyticLightSnapshot snapshot;
+        snapshot.data = overlay->analyticLights;
+        auto collection = CollectPathTraceDoomAnalyticLightsFromSnapshot(snapshot);
+        if (!collection.IsValid()) return false;
+        doomAnalyticLights = PublishPathTraceDoomAnalyticLightsFromCollection(viewDef, std::move(collection));
+        doomAnalyticRemap = GetPathTraceDoomAnalyticLightGpuRemap();
+        if (cleanRtxdiDiRealAnalyticRoute && r_pathTracingCleanRtxdiDiBypassLightUniverse.GetInteger() != 0)
+            doomAnalyticRemap = BuildCleanRtxdiDiBypassLightUniverseRemap(viewDef, doomAnalyticLights);
+        else g_cleanRtxdiDiBypassLightUniverse.Reset();
+        ApplyCleanRtxdiDiAnalyticDomainFreeze(viewDef, doomAnalyticLights, doomAnalyticRemap);
+        for (const auto& light : doomAnalyticLights) {
+            if (light.doomRadiusAndArea[2] > 0.5f) break;
+            ++work->portalAnalyticCount;
+        }
+        if (!historyValid || doomAnalyticRemap.previousCandidates.size() != size_t(m_sceneInputs.lights.doomAnalyticLightCount)) {
+            doomAnalyticRemap.previousCandidates.clear();
+            doomAnalyticRemap.previousCandidateIdentities.clear();
+            doomAnalyticRemap.universeRemap.clear();
+            for (auto& identity : doomAnalyticRemap.currentCandidateIdentities) {
+                identity.flags &= ~PATH_TRACE_DOOM_ANALYTIC_IDENTITY_REMAP_VALID;
+                identity.remapIndex = PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX;
+            }
+        }
+    }
+    const bool regirLightUniverseRequested =
+        r_pathTracingReGIREnable.GetInteger() != 0 &&
+        r_pathTracingReGIRMode.GetInteger() != 0;
+    const bool cleanRtxdiDiRluRequested =
+        cleanRtxdiDiRealAnalyticRoute &&
+        r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0;
+    const bool pdfNeeRluCurrentProducerRequested =
+        r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0;
+    const bool neeCacheRluCurrentProducerRequested =
+        r_pathTracingNeeCacheEnable.GetInteger() != 0 &&
+        r_pathTracingNeeCacheMode.GetInteger() != 0;
+    const bool remixLightUniverseEnabled =
+        r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
+        unifiedPtScenePublicationRequested ||
+        regirLightUniverseRequested ||
+        cleanRtxdiDiRluRequested ||
+        pdfNeeRluCurrentProducerRequested ||
+        neeCacheRluCurrentProducerRequested;
+    const bool currentRluDenseProducerRequested =
+        unifiedPtScenePublicationRequested ||
+        cleanRtxdiDiRluRequested ||
+        pdfNeeRluCurrentProducerRequested ||
+        neeCacheRluCurrentProducerRequested;
+    const uint32_t remixLightUniverseDomain = static_cast<uint32_t>(
+        idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
+            ? r_pathTracingRemixLightUniverseDomain.GetInteger()
+            : (currentRluDenseProducerRequested ? 2 : regirSceneLightDomain)));
+    const bool remixLightUniverseStrictMapping =
+        r_pathTracingRemixLightUniverseStrictRemixMapping.GetInteger() != 0;
+    const bool remixLightUniverseIncludeAnalytic =
+        !remixLightUniverseEnabled || remixLightUniverseDomain == 0u || remixLightUniverseDomain == 2u;
+    const bool remixLightUniverseIncludeEmissive =
+        !remixLightUniverseEnabled || remixLightUniverseDomain == 1u || remixLightUniverseDomain == 2u;
+    work->includeAnalytic = remixLightUniverseIncludeAnalytic;
+    work->includeEmissive = remixLightUniverseIncludeEmissive;
+    work->unifiedRequested = unifiedPtScenePublicationRequested;
+    work->desc.emissiveSampleCount = remixLightUniverseIncludeEmissive ? static_cast<uint32_t>(idMath::ClampInt(0,64,r_pathTracingReservoirCandidateTrials.GetInteger())) : 0u;
+    work->desc.doomAnalyticSampleCount = remixLightUniverseIncludeAnalytic ? static_cast<uint32_t>(idMath::ClampInt(0,256,r_pathTracingRestirPTAnalyticLightTrials.GetInteger())) : 0u;
+    work->desc.analyticStateCompatibilityTolerance = idMath::ClampFloat(0.0f,1.0f,r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat());
+    work->desc.domain = remixLightUniverseEnabled ? remixLightUniverseDomain : 2u;
+    work->desc.strictRemixMapping = remixLightUniverseStrictMapping;
+    work->desc.lightUniverseEnabled = remixLightUniverseEnabled;
+    work->maxRecords = idMath::ClampInt(1, RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS,
+        r_pathTracingEmissiveInventoryMaxTriangles.GetInteger());
+    work->uniformMixture = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingEmissiveUniformMixture.GetFloat());
+    if (historyValid) { work->previousEmissiveTriangles = m_rewritePreviousEmissives; work->managerBase = m_remixLightManager; }
+    PathTraceRemixFramePrepareDesc frameDesc;
+    frameDesc.frameIndex = frameIndex; frameDesc.resetReasonFlags = m_frameResources.settings.resetReasonFlags;
+    work->frame.BeginFrame(frameDesc);
+    const uint64_t prefixCharge = uint64_t(work->previousEmissiveTriangles.size()) * 4096 +
+        uint64_t(work->doomAnalyticLights.size() + work->doomAnalyticRemap.previousCandidates.size()) * 8192;
+    if (prefixCharge > 512ull * 1024 * 1024) return false;
+    work->analyticRoot = frameIndex;
+    work->analyticWorld = product.worldGeneration;
+    work->analyticMap = product.mapGeneration;
+    work->analyticReady = true;
+    OPTICK_TAG("lightAnalyticEarlyRoot", frameIndex);
+    return true;
+}
+
+bool PathTracePrimaryPass::BeginRewriteLighting(const viewDef_t* viewDef, const RtCpuRewriteFrozenProductView& product,
+    const RtCpuRewriteOverlayView* overlay, const RtCpuRewriteJoinResult& join,
+    const std::vector<uint32_t>& staticMaterialIds,
+    const std::vector<RtCpuRewriteTextureMatrices>& staticMatrices,
+    const std::vector<RtCpuRewriteMaterialBinding>& materialBindings,
+    const RtSmokeMaterialTableBuild& materialTable, bool haveSkinned, int idleSlot,
+    uint64_t frameIndex, RtCpuProducerRewriteService& service, std::shared_ptr<RtCpuRewriteLightWork>& work)
+{
+    OPTICK_EVENT("PT CPU Lights Snapshot");
+    uint32_t rejectStage = 1;
+    struct LightAttemptReport {
+        uint32_t& stage;
+        ~LightAttemptReport() { OPTICK_TAG("lightRejectStage", stage); }
+    } attemptReport { rejectStage };
+    if (idleSlot < 0 || idleSlot >= 3) return false;
+    if (!work || !work->analyticReady || work->analyticRoot != frameIndex ||
+        work->analyticRoot != viewDef->pathTraceRewriteRootFrame ||
+        work->analyticWorld != product.worldGeneration || work->analyticMap != product.mapGeneration)
+        return false;
+    work->analyticReady = false; // One consumption, no late replay of owner history.
+    OPTICK_TAG("lightAnalyticConsumedEarly", 1u);
+    OPTICK_TAG("lightAnalyticLatePreparationSkipped", 1u);
+    const int maxRecords = work->maxRecords;
+    auto& vertices = work->vertices;
+    auto& triangles = work->triangles;
+    uint32_t skinVertices = 0, skinTriangles = 0, staticTriangles = 0, rigidTriangles = 0;
+    uint32_t cappedTriangles = 0;
+    auto emissive = [&](uint32_t material) {
+        return material < materialTable.materials.size() &&
+            (materialTable.materials[material].flags & RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE) != 0;
+    };
+    auto transform = [](PathTraceSmokeVertex& vertex, const float* matrix, const float* uv) {
+        const float x = vertex.position[0], y = vertex.position[1], z = vertex.position[2];
+        for (int row = 0; row < 3; ++row)
+            vertex.position[row] = matrix[row] * x + matrix[4 + row] * y + matrix[8 + row] * z + matrix[12 + row];
+        vertex.position[3] = 1;
+        RtCpuRewriteApplyTextureMatrix(vertex.texCoord, uv);
+    };
+    auto append = [&](const PathTraceSmokeVertex* corners, const PtCanonicalInstanceKey& key, const PtCanonicalMeshKey& meshKey,
+        uint32_t identityPrimitive, uint32_t hitInstance, uint32_t hitPrimitive,
+        uint32_t material, uint32_t triangleClass) {
+        for (uint32_t corner = 0; corner < 3; ++corner) {
+            for (uint32_t component = 0; component < 3; ++component)
+                if (!std::isfinite(corners[corner].position[component])) return false;
+            if (!std::isfinite(corners[corner].texCoord[0]) || !std::isfinite(corners[corner].texCoord[1])) return false;
+        }
+        PathTraceSkinnedHitRouteGpuTriangle identity = {};
+        identity.sourcePrimitiveIndex = identityPrimitive;
+        identity.triangleClassAndFlags = triangleClass;
+        // A reused entity/surface slot with different topology is a new light.
+        const uint64_t sourceIdentity = (PtHashCanonicalInstanceKey(key) ^ PtHashCanonicalMeshKey(meshKey)) * 1099511628211ull;
+        PtPatchSkinnedHitRouteMaterial(identity, sourceIdentity, materialTable.materialIds[material], material);
+        PtSkinnedEmissiveAuditTriangle triangle = {};
+        triangle.materialIndex = material;
+        triangle.materialId = materialTable.materialIds[material];
+        triangle.instanceId = hitInstance;
+        triangle.primitiveIndex = hitPrimitive;
+        triangle.triangleClassAndFlags = triangleClass;
+        triangle.identityHash = uint64_t(identity.emissiveIdentityHashLo) | (uint64_t(identity.emissiveIdentityHashHi) << 32);
+        for (uint32_t corner = 0; corner < 3; ++corner) {
+            triangle.currentVertexIndexes[corner] = static_cast<uint32_t>(vertices.size());
+            vertices.push_back(corners[corner]);
+        }
+        triangles.push_back(triangle);
+        return true;
+    };
+    {
+        OPTICK_EVENT("PT CPU Lights Emissive");
+        rejectStage = 2;
+        // Filter entire surfaces first. No full mesh/route packing is repeated.
+        for (uint32_t si = 0; si < product.StaticSourceCount(); ++si) {
+            const auto& source = product.StaticSources()[si];
+            if (source.sourceClass != kRtCpuRewriteClassStaticWorld || !source.triangleCount) continue;
+            if (si >= staticMaterialIds.size() || si >= staticMatrices.size()) return false;
+            uint32_t material = 0;
+            if (!RtCpuRewriteResolveMaterial(materialBindings, staticMaterialIds[si], material)) return false;
+            if (!emissive(material)) continue;
+            for (uint32_t local = 0; local < source.triangleCount; ++local) {
+                if (triangles.size() >= size_t(maxRecords)) { cappedTriangles += source.triangleCount - local; break; }
+                const uint32_t primitive = source.triangleBegin + local;
+                if (primitive >= product.triangleCount || uint64_t(primitive) * 3 + 2 >= product.indexCount) return false;
+                PathTraceSmokeVertex corners[3];
+                for (uint32_t c = 0; c < 3; ++c) {
+                    const uint32_t vertex = product.indexes[primitive * 3 + c];
+                    if (vertex >= product.vertexCount) return false;
+                    corners[c] = product.vertices[vertex];
+                    RtCpuRewriteApplyTextureMatrix(corners[c].texCoord, staticMatrices[si].primary);
+                }
+                // Rewrite static world occupies the dynamic base BLAS (InstanceID 1).
+                if (!append(corners, source.instanceKey, source.meshKey, local, 1u, primitive, material, kRtCpuRewriteClassStaticWorld)) return false;
+                ++staticTriangles;
+            }
+        }
+        for (const auto& instance : join.joined) {
+            if (!emissive(instance.route.materialIndex)) continue;
+            if (instance.meshIndex >= product.rigidMeshCount) return false;
+            const auto& mesh = product.rigidMeshes[instance.meshIndex];
+            for (uint32_t primitive = 0; primitive < mesh.triangleCount; ++primitive) {
+                if (triangles.size() >= size_t(maxRecords)) { cappedTriangles += mesh.triangleCount - primitive; break; }
+                if (uint64_t(primitive) * 3 + 2 >= mesh.indexCount) return false;
+                PathTraceSmokeVertex corners[3];
+                for (uint32_t c = 0; c < 3; ++c) {
+                    const uint32_t vertex = mesh.indexes[primitive * 3 + c];
+                    if (vertex >= mesh.vertexCount) return false;
+                    corners[c] = mesh.vertices[vertex];
+                    transform(corners[c], instance.currentObjectToWorld, instance.textureMatrices.primary);
+                }
+                if (!append(corners, instance.instanceKey, mesh.meshKey, primitive, 2u + instance.routeRecordIndex,
+                    primitive, instance.route.materialIndex, kRtCpuRewriteClassRigidEntity)) return false;
+                ++rigidTriangles;
+            }
+        }
+        if (haveSkinned) for (uint32_t si = 0; si < join.skinnedCount; ++si) {
+            const auto& instance = join.skinned[si];
+            if (!emissive(instance.materialIndex)) continue;
+            if (instance.meshIndex >= product.skinnedMeshCount || !overlay || !overlay->joints ||
+                instance.jointOffset > overlay->jointCount || instance.jointCount > overlay->jointCount - instance.jointOffset) return false;
+            const auto& mesh = product.skinnedMeshes[instance.meshIndex];
+            for (uint32_t primitive = 0; primitive < mesh.triangleCount; ++primitive) {
+                if (triangles.size() >= size_t(maxRecords)) { cappedTriangles += mesh.triangleCount - primitive; break; }
+                if (uint64_t(primitive) * 3 + 2 >= mesh.indexCount) return false;
+                PathTraceSmokeVertex corners[3];
+                for (uint32_t c = 0; c < 3; ++c) {
+                    const uint32_t vertex = mesh.indexes[primitive * 3 + c];
+                    if (vertex >= mesh.vertexCount || !RtCpuRewriteEvaluateEmissiveVertex(mesh.vertices[vertex],
+                        overlay->joints + instance.jointOffset, instance.jointCount,
+                        instance.currentObjectToWorld, instance.textureMatrix, corners[c])) return false;
+                    ++skinVertices;
+                }
+                if (!append(corners, instance.instanceKey, mesh.meshKey, primitive, RtCpuRewriteSkinnedFirstInstanceId(join.joinedCount) + si,
+                    primitive, instance.materialIndex, kRtCpuRewriteClassSkinnedEntity)) return false;
+                ++skinTriangles;
+            }
+        }
+    }
+    OPTICK_TAG("lightStaticTriangles", staticTriangles);
+    OPTICK_TAG("lightRigidTriangles", rigidTriangles);
+    OPTICK_TAG("lightSkinTriangles", skinTriangles);
+    OPTICK_TAG("lightSkinVertices", skinVertices);
+    OPTICK_TAG("lightCappedTriangles", cappedTriangles);
+    work->materialIds = materialTable.materialIds;
+    work->materials = materialTable.materials;
+    work->facts = SnapshotSmokeEmissiveMaterialFacts(work->materialIds, work->triangles);
+    const uint64_t charge = uint64_t(work->triangles.size() + work->previousEmissiveTriangles.size()) * 4096 +
+        uint64_t(work->doomAnalyticLights.size() + work->doomAnalyticRemap.previousCandidates.size()) * 8192 +
+        uint64_t(work->materials.size()) * 4096;
+    work->job = service.SubmitLightPreparation(frameIndex, charge,
+        [owned = work, servicePtr = &service, frameIndex, charge] {
+            return owned->Prepare(*servicePtr, frameIndex, charge, owned);
+        });
+    rejectStage = work->job ? 0u : 6u;
+    return work->job != nullptr;
+}
+
+bool PathTracePrimaryPass::FinishRewriteLighting(nvrhi::IDevice* device, nvrhi::ICommandList* commandList,
+    int idleSlot, uint64_t rootFrame, RtCpuProducerRewriteService& service,
+    const std::shared_ptr<RtCpuRewriteLightWork>& work, RtCpuRewriteLightCandidate& candidate)
+{
+    OPTICK_EVENT("PT CPU Lights");
+    uint32_t rejectStage = 4;
+    struct LightCommitReport { uint32_t& stage; ~LightCommitReport() { OPTICK_TAG("lightRejectStage", stage); } } report { rejectStage };
+    if (!work || !service.FinishLightPreparation(work->job, rootFrame)) return false;
+    auto& emissiveTriangles = work->inventory.current;
+    auto& uptEmissiveGeometry = work->inventory.currentGeometry;
+    auto& emissiveInventoryStats = work->emissiveInventoryStats;
+    auto& previousEmissiveTriangles = work->previousEmissiveTriangles;
+    auto& emissiveLightRemap = work->emissiveLightRemap;
+    auto& emissiveDistribution = work->emissiveDistribution;
+    auto& lightCandidates = work->lightCandidates;
+    auto& doomAnalyticLights = work->doomAnalyticLights;
+    auto& doomAnalyticRemap = work->doomAnalyticRemap;
+    auto& unifiedLights = work->unifiedLights;
+    auto& unifiedPtEmissiveLookup = work->unifiedPtEmissiveLookup;
+    auto& restirLightManagerCurrentToPreviousRemap = work->manager.currentToPreviousMap;
+    auto& restirLightManagerPreviousToCurrentRemap = work->manager.previousToCurrentMap;
+    auto& restirLightManagerCurrentPayloadRecords = work->manager.currentLightPayloads;
+    auto& restirLightManagerPreviousPayloadRecords = work->manager.previousLightPayloads;
+    const auto& remixLightManagerSignatureStats = work->manager.stats;
+    uint64_t capacityBytes = 0, uploadBytes = 0;
+    uint32_t created = 0;
+    {
+        OPTICK_EVENT("PT CPU Lights Upload");
+        rejectStage = 5;
+        auto upload = [&](int index, const auto& records, nvrhi::BufferHandle& handle, const char* name) {
+            using Record = typename std::decay<decltype(records)>::type::value_type;
+            const size_t bytes = Max(size_t(1), records.size()) * sizeof(Record);
+            auto buffer = m_rewriteLightGpuSlots[idleSlot].buffers[index];
+            if (!buffer || buffer->getDesc().byteSize < bytes) {
+                nvrhi::BufferDesc desc;
+                desc.byteSize = bytes;
+                desc.structStride = sizeof(Record);
+                desc.debugName = name;
+                desc.initialState = nvrhi::ResourceStates::ShaderResource;
+                desc.keepInitialState = true;
+                desc.canHaveUAVs = true;
+                if (bytes > 128ull * 1024 * 1024 - capacityBytes) return false;
+                buffer = device->createBuffer(desc);
+                ++created;
+            }
+            if (!buffer || buffer->getDesc().byteSize > 128ull * 1024 * 1024 - capacityBytes) return false;
+            capacityBytes += buffer->getDesc().byteSize;
+            Record zero = {};
+            commandList->writeBuffer(buffer, records.empty() ? &zero : records.data(), bytes);
+            commandList->setBufferState(buffer, nvrhi::ResourceStates::ShaderResource);
+            candidate.gpu.buffers[index] = buffer;
+            handle = buffer;
+            uploadBytes += bytes;
+            return true;
+        };
+        if (!upload(0, emissiveTriangles, candidate.inputs.emissiveTriangleBuffer, "Rewrite emissiveTriangleBuffer")) return false;
+        if (!upload(1, previousEmissiveTriangles, candidate.inputs.previousEmissiveTriangleBuffer, "Rewrite previousEmissiveTriangleBuffer")) return false;
+        if (!upload(2, emissiveLightRemap, candidate.inputs.emissiveRemapBuffer, "Rewrite emissiveRemapBuffer")) return false;
+        if (!upload(3, emissiveDistribution.entries, candidate.inputs.emissiveDistributionBuffer, "Rewrite emissiveDistributionBuffer")) return false;
+        if (!upload(4, lightCandidates, candidate.inputs.lightCandidateBuffer, "Rewrite lightCandidateBuffer")) return false;
+        if (!upload(5, doomAnalyticLights, candidate.inputs.doomAnalyticLightBuffer, "Rewrite doomAnalyticLightBuffer")) return false;
+        if (!upload(6, doomAnalyticRemap.previousCandidates, candidate.inputs.doomAnalyticPreviousLightBuffer, "Rewrite doomAnalyticPreviousLightBuffer")) return false;
+        if (!upload(7, doomAnalyticRemap.currentCandidateIdentities, candidate.inputs.doomAnalyticCurrentIdentityBuffer, "Rewrite doomAnalyticCurrentIdentityBuffer")) return false;
+        if (!upload(8, doomAnalyticRemap.previousCandidateIdentities, candidate.inputs.doomAnalyticPreviousIdentityBuffer, "Rewrite doomAnalyticPreviousIdentityBuffer")) return false;
+        if (!upload(9, doomAnalyticRemap.universeRemap, candidate.inputs.doomAnalyticRemapBuffer, "Rewrite doomAnalyticRemapBuffer")) return false;
+        if (!upload(10, unifiedLights.currentLights, candidate.inputs.unifiedLightBuffer, "Rewrite unifiedLightBuffer")) return false;
+        if (!upload(11, unifiedLights.previousLights, candidate.inputs.unifiedPreviousLightBuffer, "Rewrite unifiedPreviousLightBuffer")) return false;
+        if (!upload(12, unifiedLights.currentToPreviousRemap, candidate.inputs.unifiedLightRemapBuffer, "Rewrite unifiedLightRemapBuffer")) return false;
+        if (!upload(13, restirLightManagerCurrentPayloadRecords, candidate.inputs.restirLightManagerCurrentPayloadBuffer, "Rewrite restirLightManagerCurrentPayloadBuffer")) return false;
+        if (!upload(14, restirLightManagerPreviousPayloadRecords, candidate.inputs.restirLightManagerPreviousPayloadBuffer, "Rewrite restirLightManagerPreviousPayloadBuffer")) return false;
+        if (!upload(15, restirLightManagerPreviousToCurrentRemap, candidate.inputs.restirLightManagerPreviousToCurrentBuffer, "Rewrite restirLightManagerPreviousToCurrentBuffer")) return false;
+        if (!upload(16, unifiedPtEmissiveLookup.entries, candidate.inputs.unifiedPtEmissiveLookupBuffer, "Rewrite unifiedPtEmissiveLookupBuffer")) return false;
+        if (!upload(17, uptEmissiveGeometry, candidate.inputs.unifiedPtEmissiveGeometryBuffer, "Rewrite unifiedPtEmissiveGeometryBuffer")) return false;
+        nvrhi::BufferHandle currentToPreviousBuffer;
+        if (!upload(18, restirLightManagerCurrentToPreviousRemap, currentToPreviousBuffer, "Rewrite restirCurrentToPrevious")) return false;
+        commandList->commitBarriers();
+    }
+    candidate.inputs.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
+    candidate.inputs.emissiveDistributionCount = static_cast<int>(emissiveDistribution.entries.size());
+    candidate.inputs.emissiveDistributionZeroPdfSkipped = emissiveDistribution.zeroPdfSkipped;
+    candidate.inputs.emissiveDistributionFallbackIndex = emissiveDistribution.fallbackIndex == UINT32_MAX ? -1 : static_cast<int>(emissiveDistribution.fallbackIndex);
+    candidate.inputs.emissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
+    candidate.inputs.emissiveDynamicTriangleCount = emissiveInventoryStats.dynamicTriangles;
+    candidate.inputs.lightCandidateCount = emissiveInventoryStats.candidateMaterials;
+    candidate.inputs.texturedLightCandidateCount = emissiveInventoryStats.texturedCandidateMaterials;
+    candidate.inputs.doomAnalyticLightCount = static_cast<int>(doomAnalyticLights.size());
+    candidate.inputs.doomAnalyticPreviousLightCount = static_cast<int>(doomAnalyticRemap.previousCandidates.size());
+    candidate.inputs.doomAnalyticCurrentIdentityCount = static_cast<int>(doomAnalyticRemap.currentCandidateIdentities.size());
+    candidate.inputs.doomAnalyticPreviousIdentityCount = static_cast<int>(doomAnalyticRemap.previousCandidateIdentities.size());
+    candidate.inputs.doomAnalyticRemapCount = static_cast<int>(doomAnalyticRemap.universeRemap.size());
+    candidate.inputs.doomAnalyticInvalidRemapCount = doomAnalyticRemap.invalidRemapCount;
+    candidate.inputs.previousEmissiveTriangleCount = static_cast<int>(previousEmissiveTriangles.size());
+    candidate.inputs.unifiedLightCount = static_cast<int>(unifiedLights.currentLights.size());
+    candidate.inputs.unifiedPreviousLightCount = static_cast<int>(unifiedLights.previousLights.size());
+    candidate.inputs.unifiedLightRemapCount = static_cast<int>(unifiedLights.currentToPreviousRemap.size());
+    candidate.inputs.restirLightManagerCurrentPayloadCount = static_cast<int>(restirLightManagerCurrentPayloadRecords.size());
+    candidate.inputs.restirLightManagerPreviousPayloadCount = static_cast<int>(restirLightManagerPreviousPayloadRecords.size());
+    candidate.inputs.restirLightManagerPreviousToCurrentCount = static_cast<int>(restirLightManagerPreviousToCurrentRemap.size());
+    candidate.inputs.unifiedPtEmissiveLookupCount = static_cast<int>(unifiedPtEmissiveLookup.entries.size());
+    candidate.inputs.restirLightManagerEmissiveRangeOffset = remixLightManagerSignatureStats.emissiveRangeOffset;
+    candidate.inputs.restirLightManagerEmissiveRangeCount = remixLightManagerSignatureStats.emissiveRangeCount;
+    candidate.inputs.restirLightManagerDoomAnalyticRangeOffset = remixLightManagerSignatureStats.doomAnalyticRangeOffset;
+    candidate.inputs.restirLightManagerDoomAnalyticRangeCount = remixLightManagerSignatureStats.doomAnalyticRangeCount;
+    candidate.inputs.restirLightManagerDoomAnalyticSampleableCount = remixLightManagerSignatureStats.doomAnalyticCurrentSampleableCount;
+    candidate.inputs.restirLightManagerStructuralSignature = remixLightManagerSignatureStats.structuralSignature;
+    candidate.inputs.restirLightManagerMappingSignature = remixLightManagerSignatureStats.mappingSignature;
+    candidate.inputs.restirLightManagerPayloadSignature = remixLightManagerSignatureStats.payloadSignature;
+    candidate.inputs.unifiedPtEmissiveLookupSignature = unifiedPtEmissiveLookup.signature;
+    candidate.inputs.emissiveDistributionTotalPdf = emissiveDistribution.totalPdf;
+    candidate.inputs.emissiveDistributionFallbackWeight = emissiveDistribution.fallbackWeight;
+    candidate.inputs.emissiveDistributionValid = emissiveDistribution.valid;
+    candidate.inputs.unifiedPtEmissiveLookupExact = unifiedPtEmissiveLookup.exact;
+    candidate.inputs.capabilityFlags = RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED;
+    OPTICK_TAG("lightAnalyticCount", static_cast<uint32_t>(doomAnalyticLights.size()));
+    OPTICK_TAG("lightEmissiveCount", static_cast<uint32_t>(emissiveTriangles.size()));
+    OPTICK_TAG("lightUnifiedCount", static_cast<uint32_t>(unifiedLights.currentLights.size()));
+    OPTICK_TAG("lightBufferCreates", created);
+    OPTICK_TAG("lightUploadBytes", uploadBytes);
+    OPTICK_TAG("lightCapacityBytes", capacityBytes);
+    candidate.emissives = std::move(emissiveTriangles);
+    candidate.uploadBytes = uploadBytes;
+    candidate.manager = std::move(work->manager);
+    candidate.frame = std::move(work->frame);
+    candidate.portalAnalyticCount = work->portalAnalyticCount;
+    rejectStage = 0;
+    return true;
+}
+
+// Bootstrap must preserve variant ownership too: escaped rows remain guarded for
+// their registry lifetime, even after the rewrite takes over the seeded table.
+static RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeRewriteMaterialHydration(
+    const std::vector<uint32_t>& ids, bool enabled, const RtSmokeMaterialBindingFrame* bindings=nullptr)
+{
+    const auto* service=RtCpuProducerRewrite_GetService();
+    const bool rewrite=service && (service->Route()==RtCpuProducerRewriteRoute::RewriteWarmup ||
+        service->Route()==RtCpuProducerRewriteRoute::RewriteOnly);
+    if (!rewrite || !enabled || !declManager || ids.empty() || ids.size()>65535)
+        return RegisterSmokeMaterialTextureInfoForMaterialIds(ids,enabled);
+    const int start=Sys_Milliseconds();
+    const auto pending=PrepareSmokeMaterialHydrationIds(ids,bindings);
+    auto timing=RegisterSmokeMaterialTextureInfoForMaterialIds(pending,!pending.empty());
+    timing.metadataMs=Sys_Milliseconds()-start;
+    return timing;
+}
+
+// Apply main's upload-only Lambert diagnostic to either CPU scene route.
+static void ApplyFlatLambertMaterialUpload(std::vector<PathTraceSmokeMaterial>& materials)
+{
+    for (PathTraceSmokeMaterial& material : materials)
+    {
+        material.debugAlbedo[0] = 0.8f;
+        material.debugAlbedo[1] = 0.8f;
+        material.debugAlbedo[2] = 0.8f;
+        material.debugAlbedo[3] = 1.0f;
+        material.emissiveColor[0] = 0.0f;
+        material.emissiveColor[1] = 0.0f;
+        material.emissiveColor[2] = 0.0f;
+        material.emissiveColor[3] = 0.0f;
+        material.diffuseTextureIndex = UINT32_MAX;
+        material.alphaTextureIndex = UINT32_MAX;
+        material.normalTextureIndex = UINT32_MAX;
+        material.specularTextureIndex = UINT32_MAX;
+        material.emissiveTextureIndex = UINT32_MAX;
+        material.alphaCutoff = 0.0f;
+        material.flags = 0u;
+        material.padding0 = 0u;
+        material.padding1 = 0u;
+        material.padding2 = 0u;
+    }
+}
+
+bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
+    const viewDef_t* viewDef,
+    nvrhi::IDevice* device,
+    nvrhi::ICommandList* commandList)
+{
+    OPTICK_EVENT("PT CPU Geometry Acquire");
+    RtCpuProducerRewriteService* service = RtCpuProducerRewrite_GetService();
+    if (!service || !viewDef || !device || !commandList)
+    {
+        return false;
+    }
+    struct OverlayFrameCleanup
+    {
+        RtCpuProducerRewriteService* service;
+        uint64_t rootFrame;
+        ~OverlayFrameCleanup() { service->ReleaseConsumedOverlay(); service->DiscardOverlaysThrough(rootFrame); }
+    } overlayFrameCleanup { service, viewDef->pathTraceRewriteRootFrame };
+    const RtCpuProducerRewriteRoute route = service->Route();
+    const uint64_t rewriteFrame = static_cast<uint64_t>(Max(idLib::frameNumber, 0));
+    if (route != RtCpuProducerRewriteRoute::DrainingToLegacy)
+    {
+        ReleaseExpiredRewriteGpuGeometry(rewriteFrame, false);
+    }
+    if (route == RtCpuProducerRewriteRoute::LegacyOnly)
+    {
+        return false;
+    }
+    if (route == RtCpuProducerRewriteRoute::RewriteWarmup ||
+        route == RtCpuProducerRewriteRoute::RewriteOnly ||
+        route == RtCpuProducerRewriteRoute::DrainingToLegacy)
+    {
+        PublishRewriteSkinnedTelemetry();
+    }
+    if (route == RtCpuProducerRewriteRoute::DrainingToLegacy)
+    {
+        const RtCpuRewriteSkinnedReplacementPlan drainPlan = RtCpuRewritePlanSkinnedReplacement(
+            RtCpuRewriteSkinnedReplacementEvent::Drain);
+        if (!drainPlan.enqueueBeforeForceSchedule || !drainPlan.resetSerialAfterForceSchedule)
+        {
+            return false;
+        }
+        size_t skinnedPairCount = 0;
+        for (const auto& package : m_rewriteSkinnedPackages) skinnedPairCount += package.meshes.size();
+        std::vector<RtCpuRewriteRetirementCandidate> drainBatch;
+        drainBatch.reserve(skinnedPairCount);
+        for (const auto& package : m_rewriteSkinnedPackages)
+            for (const auto& mesh : package.meshes)
+                drainBatch.push_back({ m_rewriteTlasCommitSerial, mesh.blas, package.output,
+                    mesh.indexBuffer, mesh.bytes, RtCpuRewriteRetirementKind::Skinned });
+        if (!TryRetireRewriteGpuGeometryBatch(drainBatch, true)) return false;
+        for (auto& package : m_rewriteSkinnedPackages) package = RtCpuRewriteSkinnedPackage();
+        m_rewriteCurrentSkinnedSlot = -1;
+        m_rewriteNextSkinnedGeneration = 1;
+        m_rewriteSkinnedHistoryCpuBytes = 0;
+        ReleaseExpiredRewriteGpuGeometry(rewriteFrame, true);
+        m_rewriteRetirementWarningLatched = false;
+        // Slots are dropped below; the committed package keeps its own TLAS
+        // reference. BLASes only that TLAS references are retired by frame delay
+        // (forceSchedule above) rather than destroyed while it may still trace.
+        for (uint32_t slot = 0; slot < 3; ++slot)
+        {
+            m_rewriteTlasSlots[slot] = RtCpuRewriteIsolatedTlasSlot();
+        }
+        m_rewriteTlasCommitSerial = 0;
+        m_rewriteLastMaterialTable = RtSmokeMaterialTableBuild();
+        m_rewriteFrameMaterialTable = RtSmokeMaterialTableBuild();
+        m_rewriteFrameMaterialConfiguration = 0;
+        m_rewriteMaterialConfiguration = m_rewriteStaticMaterialSignature = 0;
+        m_rewriteStaticSurfaceMaterialSignatures.clear();
+        m_rewriteMaterialRowSignatures.clear();
+        for (auto& slot : m_rewriteMaterialGpuSlots) slot = RtCpuRewriteMaterialGpuSlot();
+        for (auto& slot : m_rewriteLightGpuSlots) slot = RtCpuRewriteLightGpuSlot();
+        m_rewritePreviousEmissives.clear();
+        m_rewriteLightHistoryValid = false;
+        m_rewriteLightWorld = m_rewriteLightMap = 0;
+        m_rewriteMaterialBindings.clear();
+        m_rewriteMaterialTableOwner = nullptr;
+        m_rewriteMaterialWorld = m_rewriteMaterialMap = 0;
+        m_rewriteLastPackedLayout.clear();
+        m_rewriteLastCommittedPackedVertexBuffer = nullptr;
+        m_rewriteLastCommittedPackedIndexBuffer = nullptr;
+        m_rewriteLastCommittedPackedTriMatBuffer = nullptr;
+        m_rewriteLastCommittedPackedTriMatIndexBuffer = nullptr;
+        m_rewriteLastCommittedPackedInstanceBuffer = nullptr;
+        m_rewriteLastCommittedBlasTokens.clear();
+        m_rewriteLastPackedVertexCount = 0;
+        m_rewriteLastPackedIndexCount = 0;
+        m_rewriteLastPackedTriangleCount = 0;
+        m_rewriteLastStaticSignature = 0;
+        m_rewritePreviousSkinnedJoints.clear();
+        m_rewriteSkinnedSourceVertexBuffer = nullptr;
+        m_rewriteSkinnedIndexBuffer = nullptr;
+        m_rewriteSkinnedOutputVertexBuffer = nullptr;
+        m_rewriteSkinnedDispatchBuffer = nullptr;
+        m_rewriteSkinnedJointBuffer = nullptr;
+        m_rewriteSkinnedPreviousPositionBuffer = nullptr;
+        m_rewriteSkinnedHitRouteRecordBuffer = nullptr;
+        m_rewriteSkinnedGpuSkinningBindingSet = nullptr;
+        m_rewriteSkinnedHitRouteRecordCount = 0;
+        m_rewriteSkinnedHitRouteTriangleCount = 0;
+        m_rewriteSkinnedSourceIndexCount = 0;
+        m_rewriteSkinnedOutputVertexCount = 0;
+        m_rewriteSkinnedSourceIndexGeneration = 1;
+        m_rewriteSkinnedOutputStorageGeneration = 1;
+        m_rewriteSkinnedGpuComputeDispatched = false;
+        m_rewriteSkinnedGpuBytes = 0;
+        m_rewriteSkinnedLastJoinCount = 0;
+        m_rewriteEmptySkinnedHitRouteBuffer = nullptr;
+        m_rewriteEmptySkinnedHitRouteTriangleBuffer = nullptr;
+        m_rewriteSkinnedHitRouteTriangleBuffer = nullptr;
+        const RtCpuRewriteKeepLastTransition drainedKeepLast = RtCpuRewritePlanKeepLastTransition(
+            { m_rewriteSkinnedKeepLastStreak, m_rewriteKeepLastFamily, m_rewriteKeepLastWarned },
+            RtCpuRewriteKeepLastEvent::Drain);
+        m_rewriteSkinnedKeepLastStreak = drainedKeepLast.next.consecutive;
+        m_rewriteConsecutiveRejectedFrames = 0;
+        m_rewriteKeepLastFamily = drainedKeepLast.next.family;
+        m_rewriteKeepLastWarned = drainedKeepLast.next.warned;
+        m_rewriteSkinnedLastRejectReason = 0;
+        m_rewriteLastBindingSkinnedRecordBuffer = nullptr;
+        m_rewriteLastBindingSkinnedIndexBuffer = nullptr;
+        m_rewriteLastBindingSkinnedOutputBuffer = nullptr;
+        (void)service->Counters();
+        service->NotifyBackendDrained();
+        return true;
+    }
+    if (r_pathTracingUnifiedPtFrozenScene.GetInteger() != 0)
+    {
+        if (route == RtCpuProducerRewriteRoute::RewriteOnly ||
+            route == RtCpuProducerRewriteRoute::DrainingToLegacy)
+        {
+            service->NotifyGpuReuse();
+            (void)service->Counters();
+            return true;
+        }
+        return false;
+    }
+
+    const std::uint64_t worldGen = viewDef->renderWorld ? viewDef->renderWorld->pathTraceWorldLifecycleGeneration : 0;
+    const std::uint64_t mapGen = viewDef->renderWorld ? viewDef->renderWorld->mapLoadSerial : 0;
+    bool gotProduct = service->TryAcquireNewestCompatibleProduct(
+        service->LifecycleGeneration(), worldGen, mapGen, service->ConfigGeneration(), viewDef->pathTraceRewriteRootFrame);
+    const RtCpuRewriteFrozenProductView* view = gotProduct ? service->ProductView() : nullptr;
+
+    auto failWarmup = [&]() -> bool
+    {
+        if (gotProduct)
+        {
+            service->ReleaseConsumedProduct(true);
+        }
+        return false;
+    };
+    RtCpuRewriteKeepLastFamily frameKeepLastFamily = RtCpuRewriteKeepLastFamily::OtherScene;
+    auto keepRewrite = [&]() -> bool
+    {
+        if (gotProduct)
+        {
+            service->ReleaseConsumedProduct(true);
+        }
+        service->NotifyGpuReuse();
+        const RtCpuRewriteKeepLastTransition keepLast = RtCpuRewritePlanKeepLastTransition(
+            { m_rewriteSkinnedKeepLastStreak, m_rewriteKeepLastFamily, m_rewriteKeepLastWarned },
+            RtCpuRewriteKeepLastEvent::KeepLast, frameKeepLastFamily);
+        m_rewriteSkinnedKeepLastStreak = keepLast.next.consecutive;
+        m_rewriteKeepLastFamily = keepLast.next.family;
+        m_rewriteKeepLastWarned = keepLast.next.warned;
+        if (m_rewriteConsecutiveRejectedFrames < 120 && ++m_rewriteConsecutiveRejectedFrames == 120)
+            service->RequestRecovery(4);
+        OPTICK_TAG("rewriteConsecutiveRejectedFrames", m_rewriteConsecutiveRejectedFrames);
+        if (keepLast.warnNow)
+        {
+            common->Warning("CPU producer rewrite keep-last reached 120 frames (family %u, reason %u)",
+                static_cast<uint32_t>(m_rewriteKeepLastFamily), m_rewriteSkinnedLastRejectReason);
+        }
+        (void)service->Counters();
+        return true;
+    };
+
+    {
+        OPTICK_EVENT("PT CPU Material Resolve");
+        const bool materialReceiptValid = !m_rewriteMaterialBindings.empty() &&
+            m_rewriteMaterialTableOwner == m_sceneInputs.materials.materialTableBuffer &&
+            m_rewriteMaterialBindings.size() == static_cast<size_t>(m_sceneInputs.materials.materialTableEntryCount) &&
+            m_rewriteLastMaterialTable.materialIds.size() == m_rewriteMaterialBindings.size() &&
+            m_rewriteMaterialWorld == worldGen && m_rewriteMaterialMap == mapGen;
+        OPTICK_TAG("materialReceiptValid", materialReceiptValid ? 1u : 0u);
+        OPTICK_TAG("materialTableEntries", static_cast<uint32_t>(m_rewriteMaterialBindings.size()));
+        if (!materialReceiptValid)
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+    const uint64_t viewRootFrame = viewDef->pathTraceRewriteRootFrame;
+    bool overlayAcquired = false;
+    RtCpuRewriteJoinResult join = {};
+    RtSmokeRewriteMaterialMembership materialMembership;
+    uint32_t dependencyReason = 0, dependencyResult = 0, overlayScopeCount = 0;
+    {
+        OPTICK_EVENT("PT CPU Commit Rigid Acquire");
+        overlayAcquired = service->TryAcquireOverlay(viewRootFrame);
+    }
+    {
+        OPTICK_EVENT("PT CPU Frame Compatibility");
+        try
+        {
+            const bool membershipReady = CaptureSmokeRewriteMaterialMembership(viewDef, materialMembership);
+            auto hasMaterial = [&](const PtCanonicalInstanceKey& key, uint32_t baseId)
+            {
+                return materialMembership.membership.Contains(key.renderDefIndex, key.modelSurfaceIndex, baseId);
+            };
+            auto compatible = [&]() -> uint32_t
+            {
+                if (!membershipReady) return 7;
+                if (!gotProduct || !view) return 1;
+                if (!service->OverlayView() || view->staticRevision != service->OverlayView()->staticRevision) return 8;
+                {
+                    OPTICK_EVENT("PT CPU Commit Rigid Overlay");
+                    ++overlayScopeCount;
+                    if (!service->BuildJoinPlan(viewRootFrame, join) || join.instanceJoinMiss) return 2;
+                }
+                if (RtCpuRewriteValidateSkinnedPrepared(view, service->OverlayView(), join) !=
+                    RtCpuRewriteSkinnedRejectReason::None) return 3;
+                for (const auto& row : join.joined)
+                    if (!hasMaterial(row.instanceKey, row.route.materialId)) return 4;
+                for (const auto& row : join.skinned)
+                    if (!hasMaterial(row.instanceKey, row.materialLogicalId)) return 4;
+                for (uint32_t i = 0; i < view->StaticSourceCount(); ++i)
+                {
+                    const auto& row = view->StaticSources()[i];
+                    if (row.sourceClass != kRtCpuRewriteClassStaticWorld || !row.triangleCount) continue;
+                    if (!view->triangleMaterialIds || row.triangleBegin >= view->triangleCount ||
+                        row.triangleCount > view->triangleCount - row.triangleBegin ||
+                        !hasMaterial(row.instanceKey, view->triangleMaterialIds[row.triangleBegin])) return 4;
+                }
+                return 0;
+            };
+            dependencyReason = overlayAcquired ? compatible() : 5;
+            if (membershipReady && overlayAcquired && dependencyReason && (!view || view->rootFrame != viewRootFrame))
+            {
+                // Release obsolete bytes before waiting so a product slot is available.
+                // Stable frames do not enter this dependency boundary.
+                if (gotProduct) service->ReleaseConsumedProduct();
+                gotProduct = false;
+                view = nullptr;
+                gotProduct = service->TryAcquireExactProduct(viewRootFrame, worldGen, mapGen, 8);
+                view = gotProduct ? service->ProductView() : nullptr;
+                dependencyResult = gotProduct ? compatible() : 6;
+            }
+            else dependencyResult = dependencyReason;
+        }
+        catch (const std::bad_alloc&) { dependencyResult = 7; }
+        OPTICK_TAG("geometryDependencyReason", dependencyReason);
+        OPTICK_TAG("geometryDependencyResult", dependencyResult);
+        OPTICK_TAG("overlayActualRoot", service->OverlayView() ? service->OverlayView()->rootFrame : 0);
+        const auto counters = service->Counters();
+        OPTICK_TAG("overlayDrop", counters.overlayDrop);
+        OPTICK_TAG("overlayReclaimed", counters.overlayReclaimed);
+        OPTICK_TAG("inputReclaimed", counters.inputReclaimed);
+    }
+    if (dependencyResult)
+    {
+        if (overlayAcquired) service->ReleaseConsumedOverlay();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+    const bool haveStatic = gotProduct && view && view->vertexCount >= 3 && view->indexCount >= 3;
+    const bool haveRigidMeshes = gotProduct && view && view->rigidMeshCount > 0;
+    const bool haveSkinnedMeshes = gotProduct && view && view->skinnedMeshCount > 0;
+    if (!gotProduct)
+    {
+        if (route == RtCpuProducerRewriteRoute::RewriteOnly && m_rewriteHasRetainedPackage)
+        {
+            service->NoteLateGeometryReuse();
+        }
+        else
+        {
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+    }
+    else if (!haveStatic && !haveRigidMeshes && !haveSkinnedMeshes)
+    {
+        if (overlayAcquired) service->ReleaseConsumedOverlay();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+
+    OPTICK_EVENT("PT CPU GPU Geometry Commit");
+    RtCpuRewriteSkinnedTransaction skinnedTransaction;
+    struct RigidCommitAttribution
+    {
+        uint32_t physicalBuffers = 0, physicalBlases = 0, physicalDescriptorTables = 0;
+        uint32_t rigidOutcome = 0;
+        uint32_t rigidJoinedCount = 0;
+        uint32_t rigidRetainedHitCount = 0;
+        uint32_t rigidPackedFillSkipped = 0;
+        uint32_t rigidRoutePhysicalBufferCreateCount = 0;
+        uint32_t rigidBindingCreateCount = 0;
+        uint64_t rigidUploadBytes = 0;
+        uint32_t rigidColdBlasCount = 0;
+        uint32_t rigidBlasUpdateCount = 0;
+        uint32_t rigidTlasCreateCount = 0;
+        uint32_t rigidTlasBuildCount = 0;
+        uint32_t rigidMeshMissCount = 0;
+        uint32_t staticResizeCreateCount = 0;
+        uint32_t staticUploadCount = 0;
+        uint32_t packedUploadCount = 0;
+        uint32_t rigidWorkerProductConsumed = 0;
+        uint64_t rigidProductGeneration = 0;
+        uint64_t rigidProductAge = 0;
+        uint32_t rigidAcquireScopeCount = 0;
+        uint32_t rigidOverlayScopeCount = 0;
+        uint32_t rigidResolveScopeCount = 0;
+        uint32_t rigidDeriveScopeCount = 0;
+        uint32_t rigidUploadScopeCount = 0;
+        uint32_t rigidSubmitScopeCount = 0;
+    } rigidAttribution;
+    rigidAttribution.rigidOutcome = route == RtCpuProducerRewriteRoute::RewriteOnly ? 1u : 0u;
+    struct RigidCommitAttributionReporter
+    {
+        RigidCommitAttribution& value;
+        RtCpuRewriteSkinnedTransaction& skin;
+        uint32_t& skinReject;
+        uint64_t& serial;
+        int& currentSkinSlot;
+        ~RigidCommitAttributionReporter()
+        {
+            OPTICK_TAG("physicalBufferCreateCount", value.physicalBuffers + value.rigidRoutePhysicalBufferCreateCount + skin.bufferCreates);
+            OPTICK_TAG("physicalBindingCreateCount", value.rigidBindingCreateCount + skin.bindingCreates);
+            OPTICK_TAG("physicalDescriptorTableCreateCount", value.physicalDescriptorTables);
+            OPTICK_TAG("physicalBlasCreateCount", value.physicalBlases + skin.blasCreates);
+            OPTICK_TAG("physicalTlasCreateCount", value.rigidTlasCreateCount);
+            OPTICK_TAG("skinnedOutcome", skin.outcome);
+            OPTICK_TAG("skinnedSceneCommitted", value.rigidOutcome >= 2 ? 1 : 0);
+            OPTICK_TAG("skinnedRejectReason", skinReject);
+            OPTICK_TAG("skinnedCommitSerial", serial);
+            OPTICK_TAG("skinnedCurrentSlot", currentSkinSlot);
+            OPTICK_TAG("skinnedLayoutMiss", skin.layoutMiss ? 1 : 0);
+            OPTICK_TAG("skinnedLayoutMismatchReason", static_cast<uint32_t>(skin.layoutComparison.reason));
+            OPTICK_TAG("skinnedLayoutMismatchRow", skin.layoutComparison.row);
+            OPTICK_TAG("skinnedLayoutMismatchWord", skin.layoutComparison.word);
+            OPTICK_TAG("skinnedStableUploadBytes", skin.stableUploadBytes);
+            OPTICK_TAG("skinnedExactUploadBytes", skin.exactUploadBytes);
+            OPTICK_TAG("skinnedSelectedSlot", skin.selectedSlot);
+            OPTICK_TAG("skinnedCommandsRecorded", skin.recorded ? 1 : 0);
+            OPTICK_TAG("skinnedBufferCreates", skin.bufferCreates);
+            OPTICK_TAG("skinnedBindingCreates", skin.bindingCreates);
+            OPTICK_TAG("skinnedBlasCreates", skin.blasCreates);
+            OPTICK_TAG("skinnedBlasReuses", skin.blasReuses);
+            OPTICK_TAG("skinnedAllocationVertexCapacity", skin.allocationVertexCapacity);
+            OPTICK_TAG("skinnedFullBuilds", skin.fullBuilds);
+            OPTICK_TAG("skinnedUpdates", skin.updates);
+            OPTICK_TAG("skinnedGpuLogicalPeak", skin.gpuPeak);
+            OPTICK_TAG("skinnedCpuLogicalPeak", skin.cpuPeak);
+            OPTICK_TAG("skinnedProposedRetirementCount", skin.retirement.size());
+            OPTICK_TAG("skinnedSourceGeneration", skin.package ? skin.package->sourceGeneration : 0);
+            OPTICK_TAG("skinnedOutputGeneration", skin.package ? skin.package->outputGeneration : 0);
+            OPTICK_TAG("rigidOutcome", value.rigidOutcome);
+            OPTICK_TAG("rigidJoinedCount", value.rigidJoinedCount);
+            OPTICK_TAG("rigidRetainedHitCount", value.rigidRetainedHitCount);
+            OPTICK_TAG("rigidPackedFillSkipped", value.rigidPackedFillSkipped);
+            OPTICK_TAG("rigidRoutePhysicalBufferCreateCount", value.rigidRoutePhysicalBufferCreateCount);
+            OPTICK_TAG("rigidBindingCreateCount", value.rigidBindingCreateCount);
+            OPTICK_TAG("rigidUploadBytes", value.rigidUploadBytes);
+            OPTICK_TAG("rigidColdBlasCount", value.rigidColdBlasCount);
+            OPTICK_TAG("rigidBlasUpdateCount", value.rigidBlasUpdateCount);
+            OPTICK_TAG("rigidTlasCreateCount", value.rigidTlasCreateCount);
+            OPTICK_TAG("rigidTlasBuildCount", value.rigidTlasBuildCount);
+            OPTICK_TAG("rigidMeshMissCount", value.rigidMeshMissCount);
+            OPTICK_TAG("staticResizeCreateCount", value.staticResizeCreateCount);
+            OPTICK_TAG("staticUploadCount", value.staticUploadCount);
+            OPTICK_TAG("packedUploadCount", value.packedUploadCount);
+            OPTICK_TAG("rigidWorkerProductConsumed", value.rigidWorkerProductConsumed);
+            OPTICK_TAG("rigidProductGeneration", value.rigidProductGeneration);
+            OPTICK_TAG("rigidProductAge", value.rigidProductAge);
+            OPTICK_TAG("rigidAcquireScopeCount", value.rigidAcquireScopeCount);
+            OPTICK_TAG("rigidOverlayScopeCount", value.rigidOverlayScopeCount);
+            OPTICK_TAG("rigidResolveScopeCount", value.rigidResolveScopeCount);
+            OPTICK_TAG("rigidDeriveScopeCount", value.rigidDeriveScopeCount);
+            OPTICK_TAG("rigidUploadScopeCount", value.rigidUploadScopeCount);
+            OPTICK_TAG("rigidSubmitScopeCount", value.rigidSubmitScopeCount);
+        }
+    } rigidAttributionReporter { rigidAttribution, skinnedTransaction, m_rewriteSkinnedLastRejectReason,
+        m_rewriteTlasCommitSerial, m_rewriteCurrentSkinnedSlot };
+    rigidAttribution.rigidAcquireScopeCount = 1;
+    rigidAttribution.rigidOverlayScopeCount = overlayScopeCount;
+    rigidAttribution.rigidWorkerProductConsumed = 1;
+    rigidAttribution.rigidProductGeneration = view->ticket;
+    rigidAttribution.rigidProductAge = viewRootFrame - view->rootFrame;
+    rigidAttribution.rigidJoinedCount = join.joinedCount;
+    m_rewriteSkinnedLastJoinCount = join.skinnedCount;
+    // Retained-vector order is owner-private until commit. The worker owns only
+    // numeric identity facts, and overlaps the complete material preparation stage.
+    std::shared_ptr<RtCpuRigidResolveWork> rigidResolve;
+    std::shared_ptr<RtCpuRewriteLightJob> rigidResolveJob;
+    try
+    {
+        OPTICK_EVENT("PT CPU Rigid Resolve Snapshot");
+        const uint64_t rows = uint64_t(m_rewriteDedicatedMeshes.size()) + join.joined.size();
+        if (m_rewriteDedicatedMeshes.size() <= RtCpuRigidResolveWork::kMaxRows &&
+            join.joined.size() <= RtCpuRigidResolveWork::kMaxRows &&
+            rows * 512 <= RtCpuRigidResolveWork::kMaxBytes && join.joined.size() == join.joinedCount)
+        {
+            rigidResolve = std::make_shared<RtCpuRigidResolveWork>();
+            rigidResolve->root = viewRootFrame; rigidResolve->world = view->worldGeneration;
+            rigidResolve->commitSerial = m_rewriteTlasCommitSerial;
+            rigidResolve->haveProduct = gotProduct && view;
+            rigidResolve->retained.reserve(m_rewriteDedicatedMeshes.size());
+            for (const auto& rec : m_rewriteDedicatedMeshes)
+                rigidResolve->retained.push_back({ {rec.sourceAssetId,rec.sourceAssetGeneration,
+                    rec.topologySignature,rec.modelSurfaceIndex},rec.worldGeneration,rec.contentSignature,rec.blas != nullptr });
+            rigidResolve->queries.reserve(join.joinedCount);
+            for (const auto& inst : join.joined)
+            {
+                RtCpuRigidResolveQuery q;
+                q.earlyKey = {inst.meshKey.sourceAssetId,inst.meshKey.sourceAssetGeneration,
+                    inst.meshKey.topologySignature,inst.meshKey.modelSurfaceIndex};
+                q.validMesh = rigidResolve->haveProduct && inst.meshIndex < view->rigidMeshCount;
+                if (q.validMesh)
+                {
+                    const auto& mesh = view->rigidMeshes[inst.meshIndex];
+                    q.candidateKey = {mesh.meshKey.sourceAssetId,mesh.meshKey.sourceAssetGeneration,
+                        mesh.meshKey.topologySignature,mesh.meshKey.modelSurfaceIndex};
+                    q.signature = mesh.signature;
+                }
+                rigidResolve->queries.push_back(q);
+            }
+            rigidResolveJob = service->SubmitRigidPreparation(viewRootFrame, rigidResolve->ChargedBytes(),
+                [work = rigidResolve]() {
+                    const bool valid = BuildRtCpuRigidResolve(*work);
+                    OPTICK_TAG("rigidResolveInputRetained", static_cast<uint32_t>(work->retained.size()));
+                    OPTICK_TAG("rigidResolveOutputRows", static_cast<uint32_t>(work->rows.size()));
+                    return valid;
+                });
+        }
+    }
+    catch (const std::bad_alloc&) { rigidResolveJob.reset(); }
+    OPTICK_TAG("rigidResolveSnapshotRejected", rigidResolveJob ? 0u : 1u);
+    if (!rigidResolveJob)
+    {
+        if (overlayAcquired) service->ReleaseConsumedOverlay();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+    std::vector<RtCpuRewriteTextureMatrices> staticTextureMatrices;
+    RtSmokeMaterialTableBuild grownMaterialTable = std::move(m_rewriteFrameMaterialTable), authoredMaterialCandidate;
+    const bool reusableMaterialFrame = m_rewriteFrameMaterialConfiguration != 0 &&
+        m_rewriteFrameMaterialConfiguration == m_rewriteMaterialConfiguration &&
+        grownMaterialTable.materialIds == m_rewriteLastMaterialTable.materialIds;
+    m_rewriteFrameMaterialConfiguration = 0;
+    // Recycle storage on every return. Only a successful scene assigns its reuse stamp.
+    struct MaterialFrameStorageReturn
+    {
+        RtSmokeMaterialTableBuild& retained;
+        RtSmokeMaterialTableBuild& frame;
+        ~MaterialFrameStorageReturn() { retained = std::move(frame); }
+    } materialFrameStorageReturn { m_rewriteFrameMaterialTable, grownMaterialTable };
+    std::vector<RtCpuRewriteMaterialBinding> grownMaterialBindings;
+    std::vector<uint64_t> materialRowSignatures;
+    std::vector<PathTraceDynamicMaterialRecord> frameDynamicMaterials;
+    std::shared_ptr<RtCpuRewriteLightWork> lightWork;
+    std::shared_ptr<RtSmokeMaterialRecordWork> materialRecordWork;
+    std::shared_ptr<RtCpuRewriteLightJob> materialRecordJob;
+    std::vector<uint32_t> staticSourceMaterialIds;
+    bool materialGrowth = false, authoredMaterialChanged = false;
+    uint64_t materialConfiguration = 0;
+    {
+        OPTICK_EVENT("PT CPU Material Evaluate");
+        bool valid = true;
+        uint32_t missingMatches = 0, textureCapacityMisses = 0;
+        std::vector<uint32_t> activeMaterialIds, missingMaterialIds;
+        RtSmokeMaterialStats frameMaterialStats;
+        try
+        {
+            ProcessSmokeCrosshairMaterialDump(viewDef);
+            ProcessSmokeCrosshairZeroRoughnessToggle(viewDef);
+            ProcessSmokeCrosshairFullMetalToggle(viewDef);
+            RtCpuRewriteMaterialFrame materialFrame;
+            std::shared_ptr<RtSmokeMaterialBindingFrame> materialBindingsFrame;
+            std::vector<RtSmokeDynamicMaterialEvalSample> materialSamples;
+            valid = BuildSmokeRewriteMaterialSamples(viewDef, *service, materialSamples, materialFrame, materialBindingsFrame,
+                [&]() { return PrepareRewriteAnalyticLighting(viewDef, *view, service->OverlayView(),
+                    route == RtCpuProducerRewriteRoute::RewriteOnly, viewRootFrame, lightWork); }, materialMembership, commandList);
+            activeMaterialIds = std::move(materialFrame.activeIds);
+            const uint32_t materialStateSampleCount=static_cast<uint32_t>(materialFrame.recordSamples.size());
+            // Only emissive adapters need owner image/name resolution. The complete
+            // CPU state remains in the worker product and moves to record preparation.
+            frameMaterialStats.dynamicEvalMaterialSamples=std::move(materialSamples);
+            OPTICK_TAG("materialEvalSamples",materialStateSampleCount);
+            auto resolveSurface = [&](const PtCanonicalInstanceKey& key, uint32_t baseId, RtCpuRewriteTextureMatrices& matrices)
+            {
+                if (baseId == 0) return baseId;
+                const auto* found = materialFrame.Find(key.renderDefIndex, key.modelSurfaceIndex, baseId);
+                if (!found) { ++missingMatches; valid = false; return baseId; }
+                std::copy(found->primary, found->primary + 6, matrices.primary);
+                std::copy(found->normal, found->normal + 6, matrices.normal);
+                return found->id;
+            };
+            for (auto& instance : join.joined)
+                instance.route.materialId = resolveSurface(instance.instanceKey, instance.route.materialId, instance.textureMatrices);
+            for (auto& skin : join.skinned)
+            {
+                RtCpuRewriteTextureMatrices matrices;
+                skin.materialLogicalId = resolveSurface(skin.instanceKey, skin.materialLogicalId, matrices);
+                skin.hasTextureMatrix = true;
+                std::copy(matrices.primary, matrices.primary + 6, skin.textureMatrix);
+                std::copy(matrices.normal, matrices.normal + 6, skin.normalTextureMatrix);
+            }
+            if (haveStatic)
+            {
+                valid = valid && view->StaticSources() && view->triangleMaterialIds;
+                staticSourceMaterialIds.resize(view->StaticSourceCount());
+                staticTextureMatrices.resize(view->StaticSourceCount());
+                for (uint32_t i = 0; valid && i < view->StaticSourceCount(); ++i)
+                {
+                    const auto& source = view->StaticSources()[i];
+                    if (source.sourceClass != kRtCpuRewriteClassStaticWorld || source.triangleCount == 0) continue;
+                    valid = source.triangleBegin < view->triangleCount && source.triangleCount <= view->triangleCount - source.triangleBegin;
+                    if (valid) staticSourceMaterialIds[i] = resolveSurface(source.instanceKey, view->triangleMaterialIds[source.triangleBegin], staticTextureMatrices[i]);
+                }
+            }
+            for (uint32_t id : activeMaterialIds)
+            {
+                uint32_t index = 0;
+                if (!RtCpuRewriteResolveMaterial(m_rewriteMaterialBindings, id, index)) missingMaterialIds.push_back(id);
+            }
+            if (valid)
+            {
+                OPTICK_EVENT("PT CPU Material Membership");
+                RegisterSmokeRewriteMaterialHydration(missingMaterialIds, !missingMaterialIds.empty(), materialBindingsFrame.get());
+                const std::vector<uint32_t> noIds;
+                { OPTICK_EVENT("PT CPU Material Registry Refresh"); RefreshSmokeMaterialTextureHandlesForActiveIds(activeMaterialIds, noIds, materialBindingsFrame.get()); }
+                materialConfiguration = SmokeResidentMaterialConfigurationSignature();
+                materialGrowth = !missingMaterialIds.empty();
+                authoredMaterialChanged = materialGrowth || materialConfiguration != m_rewriteMaterialConfiguration;
+                if (!reusableMaterialFrame || authoredMaterialChanged)
+                {
+                    OPTICK_EVENT("PT CPU Material Authored Copy");
+                    grownMaterialTable = m_rewriteLastMaterialTable;
+                    OPTICK_TAG("materialFrameFullCopy", 1u);
+                }
+                else
+                {
+                    OPTICK_EVENT("PT CPU Material Frame Reset");
+                    // Exact reset of the only fields changed by runtime emission,
+                    // alpha application, runtime texture binding and binding diagnostics.
+                    grownMaterialTable.materials = m_rewriteLastMaterialTable.materials;
+                    grownMaterialTable.diffuseTextures = m_rewriteLastMaterialTable.diffuseTextures;
+                    grownMaterialTable.materialsOverTextureSlotLimit = m_rewriteLastMaterialTable.materialsOverTextureSlotLimit;
+                    grownMaterialTable.materialsWithEmissiveTextures = m_rewriteLastMaterialTable.materialsWithEmissiveTextures;
+                    grownMaterialTable.descriptorsReplacedWithFallback = m_rewriteLastMaterialTable.descriptorsReplacedWithFallback;
+                    OPTICK_TAG("materialFrameFullCopy", 0u);
+                }
+                if (materialGrowth)
+                {
+                    OPTICK_EVENT("PT CPU Material Grow");
+                    valid = AppendSmokeResidentMaterialRows(grownMaterialTable, missingMaterialIds, textureCapacityMisses) &&
+                        RtCpuRewriteBuildMaterialBindings(grownMaterialTable.materialIds, grownMaterialBindings);
+                }
+                if (valid && authoredMaterialChanged)
+                {
+                    OPTICK_EVENT("PT CPU Material Refresh Rows");
+                    materialRowSignatures = m_rewriteMaterialRowSignatures;
+                    valid = RefreshSmokeResidentMaterialRows(grownMaterialTable, materialRowSignatures, textureCapacityMisses);
+                    if (valid) authoredMaterialCandidate = grownMaterialTable;
+                }
+                if (valid)
+                {
+                    // Start from authored rows every time, never last frame's scaled emissive color.
+                    {
+                        OPTICK_EVENT("PT CPU Material Runtime Apply");
+                        ApplySmokeRuntimeMaterialRegistersToTable(viewDef, grownMaterialTable, frameMaterialStats, RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY);
+                    }
+                    materialRecordWork = std::make_shared<RtSmokeMaterialRecordWork>();
+                    materialRecordWork->input = SnapshotSmokeMaterialRecords(grownMaterialTable,{},viewDef);
+                    materialRecordWork->input.samples=std::move(materialFrame.recordSamples);
+                    OPTICK_TAG("materialRecordWorkerSamplesMoved",static_cast<uint32_t>(materialRecordWork->input.samples.size()));
+                    OPTICK_TAG("materialRecordOwnerSampleRecaptureSkipped",1u);
+                    const auto& recordInput=materialRecordWork->input;
+                    const uint64_t recordCharge=uint64_t(recordInput.rows.size())*4096+
+                        uint64_t(recordInput.samples.size())*(sizeof(RtCpuMaterialRecordSample)+1024)+
+                        uint64_t(recordInput.spectrumLights.size())*sizeof(RtCpuMaterialSpectrumLight);
+                    // Both task families share one planning slot: join before reusing it.
+                    const bool rigidResolved = service->FinishRigidPreparation(rigidResolveJob, viewRootFrame) &&
+                        rigidResolve->root == viewRootFrame && rigidResolve->commitSerial == m_rewriteTlasCommitSerial &&
+                        rigidResolve->retained.size() == m_rewriteDedicatedMeshes.size() &&
+                        rigidResolve->rows.size() == join.joinedCount;
+                    OPTICK_TAG("rigidResolveOwnerSearchesSkipped", rigidResolved ? 1u : 0u);
+                    OPTICK_TAG("rigidResolveOwnerRejected", rigidResolved ? 0u : 1u);
+                    if (!rigidResolved)
+                    {
+                        if (overlayAcquired) service->ReleaseConsumedOverlay();
+                        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                    }
+                    materialRecordJob=service->SubmitMaterialRecords(viewRootFrame,recordCharge,[owned=materialRecordWork] {
+                        owned->records=BuildRtCpuMaterialRecords(owned->input);
+                        OPTICK_TAG("materialRecordsInputSamples",static_cast<uint32_t>(owned->input.samples.size()));
+                        OPTICK_TAG("materialRecordsOutput",static_cast<uint32_t>(owned->records.size()));
+                        return owned->records.size()<=65535u;
+                    });
+                    valid=materialRecordJob != nullptr;
+                    materialConfiguration = SmokeResidentMaterialConfigurationSignature();
+                }
+            }
+        }
+        catch (const std::bad_alloc&) { valid = false; }
+        catch (const std::invalid_argument&) { valid = false; }
+        OPTICK_TAG("materialNewIds", static_cast<uint32_t>(missingMaterialIds.size()));
+        OPTICK_TAG("materialMissingSurfaceMatches", missingMatches);
+        OPTICK_TAG("materialTextureCapacityMisses", textureCapacityMisses);
+        OPTICK_TAG("materialGrowthPrepared", materialGrowth ? 1u : 0u);
+        OPTICK_TAG("materialGrowthRejected", valid ? 0u : 1u);
+        if (!valid)
+        {
+            if (overlayAcquired) service->ReleaseConsumedOverlay();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+    }
+    const auto& frameMaterialBindings = materialGrowth ? grownMaterialBindings : m_rewriteMaterialBindings;
+    {
+        OPTICK_EVENT("PT CPU Material Resolve");
+        uint32_t rigidMapped = 0, rigidFallback = 0, skinnedMapped = 0, skinnedFallback = 0;
+        bool lateMaterialChanged = false;
+        for (size_t i = 0; i < join.joined.size(); ++i)
+        {
+            auto& rec = join.joined[i].route;
+            if (RtCpuRewriteResolveMaterial(frameMaterialBindings, rec.materialId, rec.materialIndex)) ++rigidMapped;
+            else ++rigidFallback;
+            if (!gotProduct && (i >= m_rewriteLastPackedLayout.size() ||
+                rec.materialId != m_rewriteLastPackedLayout[i].materialId ||
+                rec.materialIndex != m_rewriteLastPackedLayout[i].materialIndex)) lateMaterialChanged = true;
+        }
+        for (auto& skin : join.skinned)
+        {
+            if (RtCpuRewriteResolveMaterial(frameMaterialBindings, skin.materialLogicalId, skin.materialIndex)) ++skinnedMapped;
+            else ++skinnedFallback;
+        }
+        OPTICK_TAG("materialRigidMapped", rigidMapped);
+        OPTICK_TAG("materialRigidFallback", rigidFallback);
+        OPTICK_TAG("materialSkinnedMapped", skinnedMapped);
+        OPTICK_TAG("materialSkinnedFallback", skinnedFallback);
+        OPTICK_TAG("materialLateChangeRejected", lateMaterialChanged ? 1u : 0u);
+        if (lateMaterialChanged)
+        {
+            if (overlayAcquired) service->ReleaseConsumedOverlay();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+    }
+    auto matrixSignature = [](const RtCpuRewriteTextureMatrices& matrices)
+    {
+        return RtCpuRewriteTextureMatrixSignature(matrices.primary, 6) ^
+            (RtCpuRewriteTextureMatrixSignature(matrices.normal, 6) * 1099511628211ull);
+    };
+    uint64_t staticMaterialSignature = 1469598103934665603ull;
+    std::vector<uint64_t> staticSurfaceMaterialSignatures(staticSourceMaterialIds.size(), 0);
+    for (size_t i = 0; i < staticSourceMaterialIds.size(); ++i)
+    {
+        if (view->StaticSources()[i].sourceClass != kRtCpuRewriteClassStaticWorld) continue;
+        const uint32_t id = staticSourceMaterialIds[i];
+        uint32_t index = 0;
+        RtCpuRewriteResolveMaterial(frameMaterialBindings, id, index);
+        staticSurfaceMaterialSignatures[i] = ((uint64_t(id) * 1099511628211ull) ^ index) * 1099511628211ull ^
+            matrixSignature(staticTextureMatrices[i]);
+        staticMaterialSignature = (staticMaterialSignature ^ id) * 1099511628211ull;
+        staticMaterialSignature = (staticMaterialSignature ^ index) * 1099511628211ull;
+        staticMaterialSignature = (staticMaterialSignature ^ matrixSignature(staticTextureMatrices[i])) * 1099511628211ull;
+    }
+    const bool staticMaterialChanged = haveStatic && staticMaterialSignature != m_rewriteStaticMaterialSignature;
+    uint64_t staticSignature = 0;
+    bool staticSignatureMatchesLastCommitted = false;
+    bool staticContentSignatureUnchanged = false;
+    bool allDedicatedHits = true;
+    std::vector<uint64_t> currentBlasTokens;
+    bool dedicatedSetUnchanged = false;
+    bool packedCountsUnchanged = false;
+    bool packedOffsetIdentity = false;
+    bool skipPackedGeometryFill = false;
+    bool partialPackedUpdate = false;
+    std::vector<uint8_t> reusePackedRows;
+    std::vector<RtCpuRewriteRigidAttributePatch> rigidAttributePatches;
+    uint32_t extraNeeded = 0;
+    int idleSlot = -1;
+    uint64_t nextSerial = 0;
+    bool extraFitsIdleSlot = false;
+    bool transformOnly = false;
+    {
+    OPTICK_EVENT("PT CPU Rigid Resolve Apply");
+    ++rigidAttribution.rigidResolveScopeCount;
+    staticSignature = haveStatic && view ? view->staticContentSignature : 0;
+    staticSignatureMatchesLastCommitted =
+        m_rewriteLastStaticSignature != 0 && staticSignature == m_rewriteLastStaticSignature;
+    staticContentSignatureUnchanged = !haveStatic || staticSignatureMatchesLastCommitted;
+    currentBlasTokens.resize(join.joinedCount, 0);
+    for (uint32_t ji = 0; ji < join.joinedCount; ++ji)
+    {
+        const int32_t retained = rigidResolve->rows[ji].early;
+        if (retained >= 0 && size_t(retained) < m_rewriteDedicatedMeshes.size())
+            currentBlasTokens[ji] = reinterpret_cast<uint64_t>(
+                static_cast<nvrhi::rt::IAccelStruct*>(m_rewriteDedicatedMeshes[retained].blas));
+        else allDedicatedHits = false;
+    }
+    dedicatedSetUnchanged = allDedicatedHits &&
+        currentBlasTokens.size() == m_rewriteLastCommittedBlasTokens.size();
+    if (dedicatedSetUnchanged)
+    {
+        for (size_t i = 0; i < currentBlasTokens.size(); ++i)
+        {
+            if (currentBlasTokens[i] != m_rewriteLastCommittedBlasTokens[i])
+            {
+                dedicatedSetUnchanged = false;
+                break;
+            }
+        }
+    }
+    packedCountsUnchanged =
+        join.rigidRouteVertexCount == m_rewriteLastPackedVertexCount &&
+        join.rigidRouteIndexCount == m_rewriteLastPackedIndexCount &&
+        join.rigidRouteTriangleCount == m_rewriteLastPackedTriangleCount;
+    packedOffsetIdentity = join.joinedCount == static_cast<uint32_t>(m_rewriteLastPackedLayout.size());
+    if (packedOffsetIdentity)
+    {
+        for (uint32_t i = 0; i < join.joinedCount; ++i)
+        {
+            const PathTraceRigidRouteInstance& rec = join.joined[i].route;
+            const RtCpuRewritePackedLayoutRecord& last = m_rewriteLastPackedLayout[i];
+            if (rec.vertexOffset != last.vertexOffset ||
+                rec.indexOffset != last.indexOffset ||
+                rec.triangleOffset != last.triangleOffset ||
+                rec.vertexCount != last.vertexCount ||
+                rec.indexCount != last.indexCount ||
+                rec.triangleCount != last.triangleCount)
+            {
+                packedOffsetIdentity = false;
+                break;
+            }
+        }
+    }
+    RtCpuRewritePackedLayoutPredicate packedPred;
+    packedPred.allDedicatedHits = allDedicatedHits;
+    packedPred.dedicatedSetUnchanged = dedicatedSetUnchanged;
+    packedPred.packedCountsUnchanged = packedCountsUnchanged;
+    packedPred.packedOffsetIdentity = packedOffsetIdentity;
+    skipPackedGeometryFill = !gotProduct ||
+        RtCpuRewriteShouldSkipPackedRouteGeometryFill(packedPred);
+    // Membership changes may leave many ranges byte-identical. Reuse only the
+    // exact committed buffers and ranges; growth/moved ranges take the full path.
+    auto bufferFits = [](const nvrhi::BufferHandle& current, const nvrhi::BufferHandle& committed, uint64_t bytes) {
+        return current && current == committed && current->getDesc().byteSize >= bytes;
+    };
+    partialPackedUpdate = !skipPackedGeometryFill && allDedicatedHits && !m_rewriteLastPackedLayout.empty() &&
+        bufferFits(m_rewritePackedRouteVertexBuffer,m_rewriteLastCommittedPackedVertexBuffer,
+            uint64_t(join.rigidRouteVertexCount)*sizeof(PathTraceSmokeVertex)) &&
+        bufferFits(m_rewritePackedRouteIndexBuffer,m_rewriteLastCommittedPackedIndexBuffer,
+            uint64_t(join.rigidRouteIndexCount)*sizeof(uint32_t)) &&
+        bufferFits(m_rewritePackedRouteTriMatBuffer,m_rewriteLastCommittedPackedTriMatBuffer,
+            uint64_t(join.rigidRouteTriangleCount)*sizeof(uint32_t)) &&
+        bufferFits(m_rewritePackedRouteTriMatIndexBuffer,m_rewriteLastCommittedPackedTriMatIndexBuffer,
+            uint64_t(join.rigidRouteTriangleCount)*sizeof(uint32_t));
+    if (partialPackedUpdate) {
+        reusePackedRows.resize(join.joinedCount,0);
+        uint32_t reused=0;
+        for (uint32_t i=0;i<join.joinedCount && i<m_rewriteLastPackedLayout.size();++i) {
+            const auto& instance=join.joined[i]; const auto& routeRow=instance.route;
+            RtCpuRewritePackedRangeWitness now;
+            now.textureMatrixSignature=matrixSignature(instance.textureMatrices);
+            now.sourceContentSignature=view->rigidMeshes[instance.meshIndex].sourceContentSignature;
+            now.blasToken=currentBlasTokens[i];
+            now.vertexOffset=routeRow.vertexOffset; now.indexOffset=routeRow.indexOffset; now.triangleOffset=routeRow.triangleOffset;
+            now.vertexCount=routeRow.vertexCount; now.indexCount=routeRow.indexCount; now.triangleCount=routeRow.triangleCount;
+            now.materialId=routeRow.materialId; now.materialIndex=routeRow.materialIndex;
+            reusePackedRows[i]=RtCpuRewritePackedRangeReusable(now,m_rewriteLastPackedLayout[i]) ? 1 : 0;
+            reused+=reusePackedRows[i];
+        }
+        partialPackedUpdate=reused!=0;
+        OPTICK_TAG("rigidPackedRangeReusedRows",reused);
+    }
+    extraNeeded = 1u + join.joinedCount;
+    if (m_rewriteTlasCommitSerial == UINT64_MAX)
+    {
+        m_rewriteSkinnedLastRejectReason = static_cast<uint32_t>(RtCpuRewriteSkinnedRejectReason::SerialOverflow);
+        if (overlayAcquired) service->ReleaseConsumedOverlay();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+    nextSerial = m_rewriteTlasCommitSerial + 1;
+    for (int slot = 0; slot < 3; ++slot)
+    {
+        if (m_rewriteTlasSlots[slot].lastCommittedSerial == 0 ||
+            (m_rewriteTlasSlots[slot].lastCommittedSerial <= m_rewriteTlasCommitSerial &&
+             nextSerial - m_rewriteTlasSlots[slot].lastCommittedSerial >= 3))
+        {
+            idleSlot = slot;
+            break;
+        }
+    }
+    extraFitsIdleSlot = idleSlot >= 0 &&
+        extraNeeded <= m_rewriteTlasSlots[idleSlot].maxInstances;
+    RtCpuRewriteCommitTailPredicate tailPred;
+    tailPred.rewriteOnly = route == RtCpuProducerRewriteRoute::RewriteOnly;
+    tailPred.allDedicatedHits = allDedicatedHits;
+    tailPred.dedicatedSetUnchanged = dedicatedSetUnchanged;
+    tailPred.staticSignatureUnchangedOrNoStatic = staticContentSignatureUnchanged;
+    tailPred.extraFitsIdleSlot = extraFitsIdleSlot;
+    tailPred.packedCountsUnchanged = packedCountsUnchanged;
+    transformOnly = RtCpuRewriteIsTransformOnlyCommit(tailPred);
+    rigidAttribution.rigidPackedFillSkipped = skipPackedGeometryFill ? 1u : 0u;
+    }
+    // Geometry identity is independent of exact-frame material/UV state. Only
+    // changed surfaces need new shading bytes; positions/index topology stay resident.
+    if (skipPackedGeometryFill && gotProduct && view)
+    {
+        OPTICK_EVENT("PT CPU Rigid Attribute Prepare");
+        bool valid = true;
+        try
+        {
+            for (uint32_t i = 0; i < join.joinedCount; ++i)
+            {
+                const auto& inst = join.joined[i];
+                const auto& last = m_rewriteLastPackedLayout[i];
+                const bool uvChanged = matrixSignature(inst.textureMatrices) != last.textureMatrixSignature;
+                const bool materialChanged = inst.route.materialId != last.materialId || inst.route.materialIndex != last.materialIndex;
+                if (!uvChanged && !materialChanged) continue;
+                RtCpuRewriteRigidAttributePatch patch;
+                if (inst.meshIndex >= view->rigidMeshCount ||
+                    !RtCpuRewriteBuildRigidAttributePatch(view->rigidMeshes[inst.meshIndex], inst.route,
+                        inst.textureMatrices, join.rigidRouteVertexCount, join.rigidRouteTriangleCount,
+                        uvChanged, materialChanged, patch)) { valid = false; break; }
+                rigidAttributePatches.push_back(std::move(patch));
+            }
+        }
+        catch (const std::bad_alloc&) { valid = false; }
+        if (!valid)
+        {
+            if (overlayAcquired) service->ReleaseConsumedOverlay();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+    }
+    bool lightSubmitted = false;
+    try
+    {
+        lightSubmitted = BeginRewriteLighting(viewDef, *view, service->OverlayView(), join,
+            staticSourceMaterialIds, staticTextureMatrices, frameMaterialBindings, grownMaterialTable,
+            join.skinnedCount != 0, idleSlot, viewRootFrame, *service, lightWork);
+    }
+    catch (const std::bad_alloc&) { m_rewriteLightHistoryValid = false; }
+    if (!lightSubmitted)
+    {
+        if (overlayAcquired) service->ReleaseConsumedOverlay();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+    if (!service->FinishMaterialRecords(materialRecordJob,viewRootFrame))
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    frameDynamicMaterials=std::move(materialRecordWork->records);
+    for (uint32_t row=0;row<grownMaterialTable.materials.size();++row)
+        ApplySmokeDynamicAlphaRecordToGpuMaterial(row,frameDynamicMaterials,grownMaterialTable.materials[row]);
+    OPTICK_TAG("materialDynamicRecords",static_cast<uint32_t>(frameDynamicMaterials.size()));
+    nvrhi::BufferHandle materialBuffers[4];
+    const PathTraceDynamicMaterialRecord emptyDynamicMaterial;
+    // Keep authored CPU rows and lighting inputs intact, matching the legacy route.
+    std::vector<PathTraceSmokeMaterial> flatLambertUploadMaterials;
+    const int lambertMode = idMath::ClampInt(0, 4, r_pathTracingUnifiedPtLambertDiagnostic.GetInteger());
+    if (lambertMode == 1 || lambertMode == 2)
+    {
+        flatLambertUploadMaterials = grownMaterialTable.materials;
+        ApplyFlatLambertMaterialUpload(flatLambertUploadMaterials);
+    }
+    const auto& uploadMaterials = (lambertMode == 1 || lambertMode == 2)
+        ? flatLambertUploadMaterials : grownMaterialTable.materials;
+    const void* materialData[4] = { uploadMaterials.data(), grownMaterialTable.materialFeatures.data(),
+        grownMaterialTable.materialFeatureParameters.data(), frameDynamicMaterials.empty() ? &emptyDynamicMaterial : frameDynamicMaterials.data() };
+    const uint32_t materialStrides[4] = { sizeof(PathTraceSmokeMaterial), sizeof(RtPathTraceMaterialFeatureRecord),
+        sizeof(RtPathTraceMaterialFeatureParameterRecord), sizeof(PathTraceDynamicMaterialRecord) };
+    const size_t materialBytes[4] = { grownMaterialTable.materials.size() * materialStrides[0],
+        grownMaterialTable.materialFeatures.size() * materialStrides[1], grownMaterialTable.materialFeatureParameters.size() * materialStrides[2],
+        Max(size_t(1), frameDynamicMaterials.size()) * materialStrides[3] };
+    bool materialUpload[4] = {};
+    std::vector<uint8_t> materialContents[4];
+    bool materialBuffersValid = idleSlot >= 0;
+    try
+    {
+        OPTICK_EVENT("PT CPU Material Buffers");
+        for (int i = 0; materialBuffersValid && i < 4; ++i)
+        {
+            const auto& slot = m_rewriteMaterialGpuSlots[idleSlot];
+            materialBuffers[i] = slot.buffers[i];
+            if (!materialBuffers[i] || materialBuffers[i]->getDesc().byteSize < materialBytes[i])
+            {
+                nvrhi::BufferDesc desc;
+                desc.debugName = "RewriteMaterialSlot";
+                size_t count = 1;
+                while (count < materialBytes[i] / materialStrides[i]) count *= 2;
+                desc.byteSize = count * materialStrides[i];
+                desc.structStride = materialStrides[i];
+                desc.initialState = nvrhi::ResourceStates::ShaderResource;
+                desc.keepInitialState = true;
+                materialBuffers[i] = device->createBuffer(desc);
+                rigidAttribution.physicalBuffers += materialBuffers[i] != nullptr;
+            }
+            materialBuffersValid = materialBuffers[i] != nullptr;
+            materialUpload[i] = slot.buffers[i] != materialBuffers[i] || slot.contents[i].size() != materialBytes[i] ||
+                (materialBytes[i] && std::memcmp(slot.contents[i].data(), materialData[i], materialBytes[i]) != 0);
+            if (materialUpload[i]) materialContents[i].assign(static_cast<const uint8_t*>(materialData[i]),
+                static_cast<const uint8_t*>(materialData[i]) + materialBytes[i]);
+        }
+    }
+    catch (const std::bad_alloc&) { materialBuffersValid = false; }
+    if (!materialBuffersValid)
+    {
+        if (overlayAcquired) service->ReleaseConsumedOverlay();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+    OPTICK_EVENT(transformOnly ? "PT CPU Commit Transform Only" : "PT CPU Commit Full");
+
+    RtSmokeDynamicGeometryBuffers dyn = m_rewriteStaticDynamic;
+    std::vector<RtCpuRewriteRetirementCandidate> staticRetirementBatch;
+    uint64_t candidateStaticLogicalBytes = 0;
+    bool haveDyn = haveStatic;
+    const bool rebuildStatic = haveStatic && !staticSignatureMatchesLastCommitted;
+    std::vector<uint32_t> staticMaterialIndexes, staticMaterialIds;
+    std::vector<PathTraceSmokeVertex> staticFrameVertices;
+    struct StaticSurfacePatch
+    {
+        uint32_t vertexBegin = 0, triangleBegin = 0;
+        std::vector<PathTraceSmokeVertex> vertices;
+        std::vector<uint32_t> ids, indexes;
+    };
+    std::vector<StaticSurfacePatch> staticSurfacePatches;
+    if (rebuildStatic || staticMaterialChanged)
+    {
+        OPTICK_EVENT("PT CPU Material Static Indexes");
+        try
+        {
+            if (rebuildStatic)
+            {
+                staticMaterialIds.resize(view->triangleCount);
+                staticMaterialIndexes.resize(view->triangleCount);
+                staticFrameVertices.assign(view->vertices, view->vertices + view->vertexCount);
+            }
+            uint32_t transformed = 0, mapped = 0, fallback = 0;
+            for (uint32_t i = 0; i < view->StaticSourceCount(); ++i)
+            {
+                const auto& source = view->StaticSources()[i];
+                if (source.sourceClass != kRtCpuRewriteClassStaticWorld || !source.triangleCount) continue;
+                if (!rebuildStatic && i < m_rewriteStaticSurfaceMaterialSignatures.size() &&
+                    staticSurfaceMaterialSignatures[i] == m_rewriteStaticSurfaceMaterialSignatures[i]) continue;
+                if (source.vertexBegin > view->vertexCount || source.vertexCount > view->vertexCount - source.vertexBegin ||
+                    source.triangleBegin > view->triangleCount || source.triangleCount > view->triangleCount - source.triangleBegin)
+                {
+                    if (overlayAcquired) service->ReleaseConsumedOverlay();
+                    return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                }
+                uint32_t materialIndex = 0;
+                if (RtCpuRewriteResolveMaterial(frameMaterialBindings, staticSourceMaterialIds[i], materialIndex)) mapped += source.triangleCount;
+                else fallback += source.triangleCount;
+                PathTraceSmokeVertex* vertices = nullptr;
+                if (rebuildStatic)
+                {
+                    vertices = staticFrameVertices.data() + source.vertexBegin;
+                    std::fill_n(staticMaterialIds.data() + source.triangleBegin, source.triangleCount, staticSourceMaterialIds[i]);
+                    std::fill_n(staticMaterialIndexes.data() + source.triangleBegin, source.triangleCount, materialIndex);
+                }
+                else
+                {
+                    StaticSurfacePatch patch;
+                    patch.vertexBegin = source.vertexBegin; patch.triangleBegin = source.triangleBegin;
+                    patch.vertices.assign(view->vertices + source.vertexBegin, view->vertices + source.vertexBegin + source.vertexCount);
+                    patch.ids.assign(source.triangleCount, staticSourceMaterialIds[i]);
+                    patch.indexes.assign(source.triangleCount, materialIndex);
+                    staticSurfacePatches.push_back(std::move(patch));
+                    vertices = staticSurfacePatches.back().vertices.data();
+                }
+                for (uint32_t v = 0; v < source.vertexCount; ++v)
+                {
+                    RtCpuRewriteApplyTextureMatrix(vertices[v].texCoord, staticTextureMatrices[i].primary);
+                    RtCpuRewriteApplyTextureMatrix(vertices[v].texCoord + 2, staticTextureMatrices[i].normal);
+                }
+                transformed += source.vertexCount;
+            }
+            OPTICK_TAG("materialStaticMatrixVertices", transformed);
+            OPTICK_TAG("materialStaticMappedTriangles", mapped);
+            OPTICK_TAG("materialStaticFallbackTriangles", fallback);
+            OPTICK_TAG("materialStaticPatchedSurfaces", staticSurfacePatches.size());
+        }
+        catch (const std::bad_alloc&)
+        {
+            if (overlayAcquired) service->ReleaseConsumedOverlay();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+    }
+    if (rebuildStatic)
+    {
+        OPTICK_EVENT("PT CPU Commit Rigid Upload");
+        ++rigidAttribution.rigidUploadScopeCount;
+        ++rigidAttribution.staticResizeCreateCount;
+        // A later skin/material/scene rejection must leave the committed arrays intact.
+        RtSmokeDynamicGeometryBuffers existingDynamic = {};
+        const size_t vertexBytes = static_cast<size_t>(view->vertexCount) * sizeof(PathTraceSmokeVertex);
+        const size_t indexBytes = static_cast<size_t>(view->indexCount) * sizeof(uint32_t);
+        const size_t triBytes = static_cast<size_t>(view->triangleCount) * sizeof(uint32_t);
+        dyn = ResizeOrCreateSmokeDynamicGeometryBuffers(
+            device, existingDynamic, vertexBytes, indexBytes, triBytes, triBytes, triBytes, &rigidAttribution.physicalBuffers);
+        if (!dyn.IsValid())
+        {
+            if (overlayAcquired)
+            {
+                service->ReleaseConsumedOverlay();
+            }
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+    }
+
+    RtSmokeBlasCreateResult blas = {};
+    if (rebuildStatic)
+    {
+        size_t vertexBytes = 0;
+        size_t indexBytes = 0;
+        size_t triBytes = 0;
+        {
+        OPTICK_EVENT("PT CPU Commit Rigid Upload");
+        ++rigidAttribution.rigidUploadScopeCount;
+        vertexBytes = static_cast<size_t>(view->vertexCount) * sizeof(PathTraceSmokeVertex);
+        indexBytes = static_cast<size_t>(view->indexCount) * sizeof(uint32_t);
+        triBytes = static_cast<size_t>(view->triangleCount) * sizeof(uint32_t);
+        RtSmokeBufferUploadItem uploads[5] = {};
+        uploads[0] = { dyn.vertexBuffer, staticFrameVertices.data(), "rewrite verts", vertexBytes, nvrhi::ResourceStates::AccelStructBuildInput };
+        uploads[1] = { dyn.indexBuffer, view->indexes, "rewrite indexes", indexBytes, nvrhi::ResourceStates::AccelStructBuildInput };
+        uploads[2] = { dyn.triangleClassBuffer, view->triangleClassAndFlags, "rewrite class", triBytes, nvrhi::ResourceStates::ShaderResource };
+        uploads[3] = { dyn.triangleMaterialBuffer, staticMaterialIds.data(), "rewrite matid", triBytes, nvrhi::ResourceStates::ShaderResource };
+        uploads[4] = { dyn.triangleMaterialIndexBuffer, staticMaterialIndexes.data(), "rewrite matidx", triBytes, nvrhi::ResourceStates::ShaderResource };
+        RtSmokeBufferUploadBatchDesc batch = {};
+        batch.commandList = commandList;
+        batch.items = uploads;
+        batch.itemCount = 5;
+        UploadSmokeAccelerationBuffers(batch);
+        ++rigidAttribution.staticUploadCount;
+        rigidAttribution.rigidUploadBytes += vertexBytes + indexBytes + triBytes * 3;
+        }
+
+        OPTICK_EVENT("PT CPU Commit Static BLAS");
+        {
+        OPTICK_EVENT("PT CPU Commit Rigid Submit");
+        ++rigidAttribution.rigidSubmitScopeCount;
+        RtSmokeBlasCreateDesc blasDesc = {};
+        blasDesc.device = device;
+        blasDesc.vertexBuffer = dyn.vertexBuffer;
+        blasDesc.indexBuffer = dyn.indexBuffer;
+        blasDesc.vertexCount = static_cast<int>(view->vertexCount);
+        blasDesc.indexCount = static_cast<int>(view->indexCount);
+        blasDesc.triangleMaterialIds = view->triangleMaterialIds;
+        blasDesc.triangleMaterialCount = static_cast<int>(view->triangleCount);
+        blasDesc.debugName = "PathTraceRewriteDynamicBLAS";
+        blas = CreateSmokeBlas(blasDesc);
+        rigidAttribution.physicalBlases += blas.accelStruct != nullptr;
+        if (!blas.Succeeded())
+        {
+            if (overlayAcquired)
+            {
+                service->ReleaseConsumedOverlay();
+            }
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+        ++rigidAttribution.rigidColdBlasCount;
+        candidateStaticLogicalBytes = static_cast<uint64_t>(vertexBytes) + static_cast<uint64_t>(indexBytes);
+        if (m_rewriteStaticBlas && m_rewriteStaticBlas != blas.accelStruct)
+        {
+            try
+            {
+                staticRetirementBatch.push_back({ m_rewriteTlasCommitSerial, m_rewriteStaticBlas,
+                    m_rewriteStaticDynamic.vertexBuffer, m_rewriteStaticDynamic.indexBuffer,
+                    m_rewriteStaticLogicalBytes, RtCpuRewriteRetirementKind::Static });
+            }
+            catch (const std::bad_alloc&)
+            {
+                ++m_rewriteRetirementLedger.metadataReserveFailures;
+                if (overlayAcquired) service->ReleaseConsumedOverlay();
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            }
+        }
+        // Allocation is not publication. Keep the candidate local through BLAS/TLAS
+        // submission and every remaining scene validation; publish only after commit.
+        }
+    }
+    else
+    {
+        blas.accelStruct = m_rewriteStaticBlas;
+        blas.accelStructDesc = m_rewriteStaticBlasDesc;
+        blas.status = m_rewriteStaticBlas ? RtSmokeBlasCreateStatus::Success : RtSmokeBlasCreateStatus::InvalidInput;
+    }
+
+
+    std::vector<nvrhi::rt::InstanceDesc> rewriteExtraTlas;
+    std::vector<PathTraceRigidRouteInstance> packedInstances;
+    std::vector<PathTraceSmokeVertex> packedVerts;
+    std::vector<uint32_t> packedIndexes;
+    std::vector<uint32_t> packedTriMat;
+    std::vector<uint32_t> packedTriMatIndex;
+    struct PackedRangeUpload {
+        uint32_t vertexSource, indexSource, triangleSource;
+        uint32_t vertexTarget, indexTarget, triangleTarget;
+        uint32_t vertices, indexes, triangles;
+    };
+    std::vector<PackedRangeUpload> packedRangeUploads;
+    bool skippedAllDedicated = true;
+    uint64_t newRetainBytes = 0;
+    bool retainUnreferencedDedicated = true;
+    std::vector<RtCpuRewriteRetainedDedicatedMesh> candidateDedicatedMeshes;
+    std::vector<bool> replacedDedicated;
+    {
+    OPTICK_EVENT("PT CPU Commit Rigid Resolve");
+    ++rigidAttribution.rigidResolveScopeCount;
+    candidateDedicatedMeshes = m_rewriteDedicatedMeshes;
+    replacedDedicated.resize(candidateDedicatedMeshes.size(), false);
+    for (size_t ri = 0; ri < candidateDedicatedMeshes.size(); ++ri)
+    {
+        candidateDedicatedMeshes[ri].referenced = false;
+    }
+    }
+    if (gotProduct && view)
+    {
+        for (uint32_t ji = 0; ji < join.joinedCount; ++ji)
+        {
+            const RtCpuRewriteJoinedInstance& inst = join.joined[ji];
+            if (inst.meshIndex >= view->rigidMeshCount)
+            {
+                continue;
+            }
+            const RtCpuRewriteRigidMeshView& mesh = view->rigidMeshes[inst.meshIndex];
+            const auto& resolved = rigidResolve->rows[ji];
+            if (resolved.candidate < 0 || (resolved.append
+                ? size_t(resolved.candidate) != candidateDedicatedMeshes.size()
+                : size_t(resolved.candidate) >= candidateDedicatedMeshes.size()))
+            {
+                OPTICK_TAG("rigidResolveCandidateRejected", 1u);
+                if (overlayAcquired) service->ReleaseConsumedOverlay();
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            }
+            const int retainIndex = resolved.append ? -1 : resolved.candidate;
+            nvrhi::rt::AccelStructHandle meshBlas;
+            if (retainIndex >= 0 && candidateDedicatedMeshes[retainIndex].contentSignature == mesh.signature &&
+                candidateDedicatedMeshes[retainIndex].blas)
+            {
+                OPTICK_EVENT("PT CPU Mesh GPU Hit");
+                service->NoteMeshGpuHit();
+                candidateDedicatedMeshes[retainIndex].referenced = true;
+                candidateDedicatedMeshes[retainIndex].packedVertexOffset = inst.route.vertexOffset;
+                candidateDedicatedMeshes[retainIndex].packedIndexOffset = inst.route.indexOffset;
+                candidateDedicatedMeshes[retainIndex].packedTriangleOffset = inst.route.triangleOffset;
+                meshBlas = candidateDedicatedMeshes[retainIndex].blas;
+                newRetainBytes += candidateDedicatedMeshes[retainIndex].bytes;
+                ++rigidAttribution.rigidRetainedHitCount;
+            }
+            else
+            {
+                OPTICK_EVENT("PT CPU Mesh GPU Miss");
+                skippedAllDedicated = false;
+                ++rigidAttribution.rigidMeshMissCount;
+                const size_t vBytes = static_cast<size_t>(mesh.vertexCount) * sizeof(PathTraceSmokeVertex);
+                const size_t iBytes = static_cast<size_t>(mesh.indexCount) * sizeof(uint32_t);
+                RtSmokeDynamicGeometryBuffers existingMesh = {};
+                RtSmokeDynamicGeometryBuffers meshDyn;
+                {
+                OPTICK_EVENT("PT CPU Commit Rigid Upload");
+                ++rigidAttribution.rigidUploadScopeCount;
+                meshDyn = ResizeOrCreateSmokeDynamicGeometryBuffers(
+                    device, existingMesh, vBytes, iBytes, sizeof(uint32_t), sizeof(uint32_t), sizeof(uint32_t), &rigidAttribution.physicalBuffers);
+                if (!meshDyn.IsValid())
+                {
+                    if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+                    return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                }
+                RtSmokeBufferUploadItem meshUploads[2] = {};
+                meshUploads[0] = { meshDyn.vertexBuffer, mesh.vertices, "rewrite dedicated verts", vBytes, nvrhi::ResourceStates::AccelStructBuildInput };
+                meshUploads[1] = { meshDyn.indexBuffer, mesh.indexes, "rewrite dedicated indexes", iBytes, nvrhi::ResourceStates::AccelStructBuildInput };
+                RtSmokeBufferUploadBatchDesc meshBatch = {};
+                meshBatch.commandList = commandList;
+                meshBatch.items = meshUploads;
+                meshBatch.itemCount = 2;
+                UploadSmokeAccelerationBuffers(meshBatch);
+                rigidAttribution.rigidUploadBytes += vBytes + iBytes;
+                }
+                RtSmokeBlasCreateResult meshBlasResult;
+                {
+                OPTICK_EVENT("PT CPU Commit Rigid Submit");
+                ++rigidAttribution.rigidSubmitScopeCount;
+                RtSmokeBlasCreateDesc meshBlasDesc = {};
+                meshBlasDesc.device = device;
+                meshBlasDesc.vertexBuffer = meshDyn.vertexBuffer;
+                meshBlasDesc.indexBuffer = meshDyn.indexBuffer;
+                meshBlasDesc.vertexCount = static_cast<int>(mesh.vertexCount);
+                meshBlasDesc.indexCount = static_cast<int>(mesh.indexCount);
+                meshBlasDesc.triangleMaterialIds = nullptr;
+                meshBlasDesc.triangleMaterialCount = 0;
+                meshBlasDesc.debugName = "PathTraceRewriteDedicatedBLAS";
+                meshBlasResult = CreateSmokeBlas(meshBlasDesc);
+                rigidAttribution.physicalBlases += meshBlasResult.accelStruct != nullptr;
+                if (!meshBlasResult.Succeeded())
+                {
+                    if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+                    return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                }
+                nvrhi::utils::BuildBottomLevelAccelStruct(commandList, meshBlasResult.accelStruct, meshBlasResult.accelStructDesc);
+                ++rigidAttribution.rigidColdBlasCount;
+                }
+                RtCpuRewriteRetainedDedicatedMesh rec = {};
+                {
+                OPTICK_EVENT("PT CPU Commit Rigid Derive");
+                ++rigidAttribution.rigidDeriveScopeCount;
+                rec.sourceAssetId = mesh.meshKey.sourceAssetId;
+                rec.sourceAssetGeneration = mesh.meshKey.sourceAssetGeneration;
+                rec.topologySignature = mesh.meshKey.topologySignature;
+                rec.worldGeneration = view->worldGeneration;
+                rec.contentSignature = mesh.signature;
+                rec.modelSurfaceIndex = mesh.meshKey.modelSurfaceIndex;
+                rec.vertexCount = mesh.vertexCount;
+                rec.indexCount = mesh.indexCount;
+                rec.packedVertexOffset = inst.route.vertexOffset;
+                rec.packedIndexOffset = inst.route.indexOffset;
+                rec.packedTriangleOffset = inst.route.triangleOffset;
+                rec.bytes = vBytes + iBytes;
+                rec.referenced = true;
+                rec.vertexBuffer = meshDyn.vertexBuffer;
+                rec.indexBuffer = meshDyn.indexBuffer;
+                rec.blas = meshBlasResult.accelStruct;
+                newRetainBytes += rec.bytes;
+                service->NoteMeshGpuMiss(static_cast<std::uint64_t>(vBytes), true);
+                if (retainIndex >= 0)
+                {
+                    candidateDedicatedMeshes[retainIndex] = rec;
+                    if (static_cast<size_t>(retainIndex) < replacedDedicated.size())
+                    {
+                        replacedDedicated[retainIndex] = true;
+                    }
+                }
+                else
+                {
+                    candidateDedicatedMeshes.push_back(rec);
+                    replacedDedicated.push_back(false);
+                    // Append order was checked against the worker reservation above.
+                }
+                meshBlas = rec.blas;
+                }
+            }
+            {
+            OPTICK_EVENT("PT CPU Commit Rigid Derive");
+            ++rigidAttribution.rigidDeriveScopeCount;
+            PathTraceRigidRouteInstance packed = inst.route;
+            packedInstances.push_back(packed);
+            if (!skipPackedGeometryFill && (!partialPackedUpdate || !reusePackedRows[ji]))
+            {
+                if (partialPackedUpdate) packedRangeUploads.push_back({
+                    static_cast<uint32_t>(packedVerts.size()),static_cast<uint32_t>(packedIndexes.size()),
+                    static_cast<uint32_t>(packedTriMat.size()),packed.vertexOffset,packed.indexOffset,packed.triangleOffset,
+                    mesh.vertexCount,mesh.indexCount,mesh.triangleCount});
+                const size_t vertexBegin = packedVerts.size();
+                packedVerts.insert(packedVerts.end(), mesh.vertices, mesh.vertices + mesh.vertexCount);
+                for (size_t v = vertexBegin; v < packedVerts.size(); ++v)
+                {
+                    RtCpuRewriteApplyTextureMatrix(packedVerts[v].texCoord, inst.textureMatrices.primary);
+                    RtCpuRewriteApplyTextureMatrix(packedVerts[v].texCoord + 2, inst.textureMatrices.normal);
+                }
+                packedIndexes.insert(packedIndexes.end(), mesh.indexes, mesh.indexes + mesh.indexCount);
+                for (uint32_t ti = 0; ti < mesh.triangleCount; ++ti)
+                {
+                    packedTriMat.push_back(inst.route.materialId);
+                    packedTriMatIndex.push_back(inst.route.materialIndex);
+                }
+            }
+            }
+            {
+            OPTICK_EVENT("PT CPU Commit Rigid Overlay");
+            ++rigidAttribution.rigidOverlayScopeCount;
+            nvrhi::rt::AffineTransform transform;
+            BuildRegistryAffineFromObjectToWorld(inst.currentObjectToWorld, transform);
+            nvrhi::rt::InstanceDesc extra;
+            extra.setInstanceID(2u + inst.routeRecordIndex)
+                .setInstanceMask(0x02)
+                .setInstanceContributionToHitGroupIndex(0)
+                .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
+                .setTransform(transform)
+                .setBLAS(meshBlas);
+            if (extra.instanceMask == 0)
+            {
+                if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+                service->NoteJoinCommitFail(kRtCpuRewriteJoinMaskZero);
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            }
+            rewriteExtraTlas.push_back(extra);
+            }
+        }
+    }
+    else if (join.joinedCount > 0)
+    {
+        for (uint32_t ji = 0; ji < join.joinedCount; ++ji)
+        {
+            const RtCpuRewriteJoinedInstance& inst = join.joined[ji];
+            const int retainIndex = rigidResolve->rows[ji].candidate;
+            if (retainIndex >= 0 && size_t(retainIndex) >= candidateDedicatedMeshes.size())
+            {
+                OPTICK_TAG("rigidResolveCandidateRejected", 1u);
+                if (overlayAcquired) service->ReleaseConsumedOverlay();
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            }
+            if (retainIndex < 0)
+            {
+                continue;
+            }
+            candidateDedicatedMeshes[retainIndex].referenced = true;
+            newRetainBytes += candidateDedicatedMeshes[retainIndex].bytes;
+            ++rigidAttribution.rigidRetainedHitCount;
+            {
+            OPTICK_EVENT("PT CPU Commit Rigid Derive");
+            ++rigidAttribution.rigidDeriveScopeCount;
+            packedInstances.push_back(inst.route);
+            }
+            {
+            OPTICK_EVENT("PT CPU Commit Rigid Overlay");
+            ++rigidAttribution.rigidOverlayScopeCount;
+            nvrhi::rt::AffineTransform transform;
+            BuildRegistryAffineFromObjectToWorld(inst.currentObjectToWorld, transform);
+            nvrhi::rt::InstanceDesc extra;
+            extra.setInstanceID(2u + inst.routeRecordIndex)
+                .setInstanceMask(0x02)
+                .setInstanceContributionToHitGroupIndex(0)
+                .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
+                .setTransform(transform)
+                .setBLAS(candidateDedicatedMeshes[retainIndex].blas);
+            if (extra.instanceMask == 0)
+            {
+                if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+                service->NoteJoinCommitFail(kRtCpuRewriteJoinMaskZero);
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            }
+            rewriteExtraTlas.push_back(extra);
+            }
+        }
+    }
+    uint32_t rigidExtraCount = 0;
+    {
+    OPTICK_EVENT("PT CPU Commit Rigid Submit");
+    ++rigidAttribution.rigidSubmitScopeCount;
+    std::vector<RtCpuRewriteRetirementCandidate> dedicatedReplacementBatch;
+    for (size_t i = 0; i < replacedDedicated.size() && i < m_rewriteDedicatedMeshes.size(); ++i)
+    {
+        if (!replacedDedicated[i]) continue;
+        const RtCpuRewriteRetainedDedicatedMesh& old = m_rewriteDedicatedMeshes[i];
+        dedicatedReplacementBatch.push_back({ m_rewriteTlasCommitSerial, old.blas,
+            old.vertexBuffer, old.indexBuffer, old.bytes, RtCpuRewriteRetirementKind::Dedicated });
+    }
+    RtCpuRewriteRetirementDecision dedicatedDecision = RtCpuRewriteRetirementDecision::Admit;
+    bool dedicatedEnqueued = true;
+    if (!dedicatedReplacementBatch.empty())
+    {
+        dedicatedEnqueued = TryRetireRewriteGpuGeometryBatch(
+            dedicatedReplacementBatch, false, &dedicatedDecision);
+    }
+    const RtCpuRewriteRetirementMemberApplyPlan dedicatedApply =
+        RtCpuRewritePlanRetirementMemberApply({ dedicatedDecision, dedicatedEnqueued });
+    if (dedicatedApply.preservePrevious)
+    {
+        if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+        frameKeepLastFamily = RtCpuRewriteKeepLastFamily::OtherScene;
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+    rigidExtraCount = static_cast<uint32_t>(rewriteExtraTlas.size());
+    m_rewriteRetirementRejectedThisAttempt = false;
+    }
+    if (!CommitRewriteSkinnedGpuSkinAndHitRoute(device, commandList, gotProduct ? view : nullptr, join, rigidExtraCount, idleSlot, skinnedTransaction, rewriteExtraTlas))
+    {
+        frameKeepLastFamily = m_rewriteRetirementRejectedThisAttempt
+            ? RtCpuRewriteKeepLastFamily::OtherScene : RtCpuRewriteKeepLastFamily::LocalSkinned;
+        if (route == RtCpuProducerRewriteRoute::RewriteOnly &&
+            frameKeepLastFamily == RtCpuRewriteKeepLastFamily::LocalSkinned &&
+            m_rewriteKeepLastFamily == RtCpuRewriteKeepLastFamily::LocalSkinned &&
+            m_rewriteSkinnedKeepLastStreak >= 120)
+        {
+            RtCpuRewriteJoinResult zeroSkinnedJoin = join;
+            zeroSkinnedJoin.skinnedCount = 0;
+            zeroSkinnedJoin.skinned.clear();
+            RtCpuRewriteSkinnedTransaction zeroTransaction;
+            if (CommitRewriteSkinnedGpuSkinAndHitRoute(
+                    device, commandList, gotProduct ? view : nullptr, zeroSkinnedJoin, rigidExtraCount, idleSlot, zeroTransaction, rewriteExtraTlas))
+            {
+                zeroTransaction.bufferCreates += skinnedTransaction.bufferCreates;
+                zeroTransaction.bindingCreates += skinnedTransaction.bindingCreates;
+                zeroTransaction.blasCreates += skinnedTransaction.blasCreates;
+                skinnedTransaction = std::move(zeroTransaction);
+                ++m_rewriteSkinnedDegradedCommits;
+                frameKeepLastFamily = RtCpuRewriteKeepLastFamily::OtherScene;
+            }
+            else
+            {
+                if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+                return keepRewrite();
+            }
+        }
+        else
+        {
+            if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+    }
+    if (!staticRetirementBatch.empty())
+    {
+        RtCpuRewriteRetirementDecision decision = RtCpuRewriteRetirementDecision::Admit;
+        bool admitted = false;
+        try
+        {
+            std::vector<RtCpuRewriteRetirementCandidate> mandatoryRetirement = skinnedTransaction.retirement;
+            mandatoryRetirement.insert(mandatoryRetirement.end(), staticRetirementBatch.begin(), staticRetirementBatch.end());
+            admitted = PreflightRewriteGpuGeometryBatch(mandatoryRetirement, &decision);
+        }
+        catch (const std::bad_alloc&)
+        {
+            ++m_rewriteRetirementLedger.metadataReserveFailures;
+            decision = RtCpuRewriteRetirementDecision::ArithmeticOverflow;
+        }
+        if (!admitted)
+        {
+            RtCpuRewriteRetirementLedgerReject(m_rewriteRetirementLedger, decision);
+            PublishRewriteRetirementTelemetry();
+            OPTICK_TAG("staticCandidateRetirementRejected", static_cast<uint32_t>(decision));
+            frameKeepLastFamily = RtCpuRewriteKeepLastFamily::OtherScene;
+            if (overlayAcquired) service->ReleaseConsumedOverlay();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+    }
+    const RtCpuRewriteSkinnedPackage& candidateSkin = skinnedTransaction.zero
+        ? skinnedTransaction.replacement : *skinnedTransaction.package;
+    uint64_t packedBytes = 0;
+    RtCpuRewriteIsolatedTlasSlot* tlasSlot = nullptr;
+    nvrhi::rt::AccelStructHandle candidateTlas;
+    RtSmokeAccelSubmitDesc submitDesc = {};
+    RtSmokeSceneBufferHandles buffers = {};
+    {
+    OPTICK_EVENT("PT CPU Commit Rigid Submit");
+    ++rigidAttribution.rigidSubmitScopeCount;
+    {
+        newRetainBytes = 0;
+        for (const auto& rec : candidateDedicatedMeshes)
+        {
+            if (rec.bytes > UINT64_MAX - newRetainBytes) { newRetainBytes = UINT64_MAX; break; }
+            newRetainBytes += rec.bytes;
+        }
+    }
+    packedBytes =
+        packedVerts.size() * sizeof(PathTraceSmokeVertex) +
+        packedIndexes.size() * sizeof(uint32_t) +
+        packedTriMat.size() * sizeof(uint32_t) +
+        packedTriMatIndex.size() * sizeof(uint32_t) +
+        packedInstances.size() * sizeof(PathTraceRigidRouteInstance);
+    if (partialPackedUpdate) packedBytes = join.packedBytes; // GPU footprint, not just changed staging bytes.
+    retainUnreferencedDedicated = RtCpuRewriteFitsResidentRigidBudget(newRetainBytes, packedBytes);
+    if (!retainUnreferencedDedicated)
+    {
+        newRetainBytes = 0;
+        for (const auto& rec : candidateDedicatedMeshes)
+        {
+            if (!rec.referenced) continue;
+            if (rec.bytes > UINT64_MAX - newRetainBytes) { newRetainBytes = UINT64_MAX; break; }
+            newRetainBytes += rec.bytes;
+        }
+    }
+    OPTICK_TAG("rigidRetainUnreferenced", retainUnreferencedDedicated ? 1u : 0u);
+    if (!RtCpuRewriteFitsGpuRetainCap(newRetainBytes, packedBytes, RtCpuProducerRewriteService::kGpuRigidRetainCapBytes))
+    {
+        if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+        service->NoteJoinCommitFail(kRtCpuRewriteJoinRetainCap);
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+    if (skippedAllDedicated && !packedInstances.empty())
+    {
+        service->NoteSkippedUploadFrame();
+    }
+
+
+    if (idleSlot < 0)
+    {
+        if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+    tlasSlot = &m_rewriteTlasSlots[idleSlot];
+    const uint32_t neededInstances = 1u + static_cast<uint32_t>(rewriteExtraTlas.size());
+    candidateTlas = tlasSlot->tlas;
+    if (!candidateTlas || neededInstances > tlasSlot->maxInstances)
+    {
+        OPTICK_EVENT("PT CPU Commit TLAS Create");
+        const uint32_t newMax = cpu_producer_publish::ChooseSmokeTlasGrowMax(tlasSlot->maxInstances, neededInstances);
+        candidateTlas = device->createAccelStruct(
+            nvrhi::rt::AccelStructDesc()
+                .setTopLevelMaxInstances(newMax)
+                .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
+                .setDebugName("PathTraceRewriteCandidateTLAS"));
+        if (!candidateTlas)
+        {
+            if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+        tlasSlot->tlas = candidateTlas;
+        tlasSlot->maxInstances = newMax;
+        ++rigidAttribution.rigidTlasCreateCount;
+    }
+
+    submitDesc.commandList = commandList;
+    submitDesc.tlas = candidateTlas;
+    submitDesc.dynamicBlas = blas.accelStruct;
+    submitDesc.dynamicBlasDesc = blas.accelStructDesc;
+    submitDesc.hasDynamicBlas = blas.accelStruct != nullptr;
+    submitDesc.dynamicBlasCacheHit = RtCpuRewriteDynamicBlasCacheHit(
+        haveStatic, staticSignatureMatchesLastCommitted, submitDesc.hasDynamicBlas);
+    submitDesc.hasStaticBlas = false;
+    submitDesc.includeStaticBlasInTlas = false;
+    submitDesc.extraTlasInstances = rewriteExtraTlas.empty() ? nullptr : &rewriteExtraTlas;
+    submitDesc.tlasMaxInstances = tlasSlot->maxInstances;
+    RtSmokeAccelSubmitTiming timing = {};
+    if (!SubmitSmokeAccelerationBuilds(submitDesc, timing))
+    {
+        if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+    ++rigidAttribution.rigidTlasBuildCount;
+
+    buffers.dynamicVertexBuffer = dyn.vertexBuffer;
+    buffers.dynamicIndexBuffer = dyn.indexBuffer;
+    buffers.dynamicTriangleClassBuffer = dyn.triangleClassBuffer;
+    buffers.dynamicTriangleMaterialBuffer = dyn.triangleMaterialBuffer;
+    buffers.dynamicTriangleMaterialIndexBuffer = dyn.triangleMaterialIndexBuffer;
+    if (m_rewritePlaceholderStaticVertex)
+    {
+        buffers.staticVertexBuffer = m_rewritePlaceholderStaticVertex;
+        buffers.staticIndexBuffer = m_sceneInputs.geometry.staticIndexBuffer;
+        buffers.staticTriangleClassBuffer = m_sceneInputs.geometry.staticTriangleClassBuffer;
+        buffers.staticTriangleMaterialBuffer = m_sceneInputs.geometry.staticTriangleMaterialBuffer;
+        buffers.staticTriangleMaterialIndexBuffer = m_sceneInputs.geometry.staticTriangleMaterialIndexBuffer;
+    }
+    else
+    {
+        RtSmokeSceneBufferCreateDesc staticDesc = {};
+        staticDesc.device = device;
+        staticDesc.staticVertexBytes = sizeof(PathTraceSmokeVertex);
+        staticDesc.staticIndexBytes = sizeof(uint32_t) * 3;
+        staticDesc.staticTriangleClassBytes = sizeof(uint32_t);
+        staticDesc.staticTriangleMaterialBytes = sizeof(uint32_t);
+        staticDesc.staticTriangleMaterialIndexBytes = sizeof(uint32_t);
+        staticDesc.previousStaticVertexBytes = staticDesc.staticVertexBytes;
+        staticDesc.previousStaticIndexBytes = staticDesc.staticIndexBytes;
+        staticDesc.previousStaticTriangleClassBytes = staticDesc.staticTriangleClassBytes;
+        staticDesc.previousStaticTriangleMaterialBytes = staticDesc.staticTriangleMaterialBytes;
+        staticDesc.previousStaticTriangleMaterialIndexBytes = staticDesc.staticTriangleMaterialIndexBytes;
+        const RtSmokeSceneBufferCreateResult staticCreated = CreateSmokeSceneBuffers(staticDesc);
+        rigidAttribution.physicalBuffers += staticCreated.physicalBufferCreateCount;
+        if (!staticCreated.buffers.staticVertexBuffer)
+        {
+            if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+        m_rewritePlaceholderStaticVertex = staticCreated.buffers.staticVertexBuffer;
+        buffers.staticVertexBuffer = staticCreated.buffers.staticVertexBuffer;
+        buffers.staticIndexBuffer = staticCreated.buffers.staticIndexBuffer;
+        buffers.staticTriangleClassBuffer = staticCreated.buffers.staticTriangleClassBuffer;
+        buffers.staticTriangleMaterialBuffer = staticCreated.buffers.staticTriangleMaterialBuffer;
+        buffers.staticTriangleMaterialIndexBuffer = staticCreated.buffers.staticTriangleMaterialIndexBuffer;
+    }
+    buffers.previousStaticVertexBuffer = buffers.staticVertexBuffer;
+    buffers.previousStaticIndexBuffer = buffers.staticIndexBuffer;
+    buffers.previousStaticTriangleClassBuffer = buffers.staticTriangleClassBuffer;
+    buffers.previousStaticTriangleMaterialBuffer = buffers.staticTriangleMaterialBuffer;
+    buffers.previousStaticTriangleMaterialIndexBuffer = buffers.staticTriangleMaterialIndexBuffer;
+    buffers.materialTableBuffer = materialBuffers[0];
+    buffers.materialFeatureBuffer = materialBuffers[1];
+    buffers.materialFeatureParameterBuffer = materialBuffers[2];
+    buffers.dynamicMaterialBuffer = materialBuffers[3];
+    }
+    if (!packedInstances.empty())
+    {
+        RtSmokeSceneBufferCreateDesc routeDesc = {};
+        {
+        OPTICK_EVENT("PT CPU Commit Rigid Derive");
+        ++rigidAttribution.rigidDeriveScopeCount;
+        if (rigidExtraCount != packedInstances.size())
+        {
+            if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+            service->NoteJoinCommitFail(kRtCpuRewriteJoinInstanceIdUnresolved);
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+        routeDesc.device = device;
+        routeDesc.existingBuffers.rigidRouteVertexBuffer = m_rewritePackedRouteVertexBuffer;
+        routeDesc.existingBuffers.rigidRouteIndexBuffer = m_rewritePackedRouteIndexBuffer;
+        routeDesc.existingBuffers.rigidRouteTriangleMaterialBuffer = m_rewritePackedRouteTriMatBuffer;
+        routeDesc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer = m_rewritePackedRouteTriMatIndexBuffer;
+        routeDesc.existingBuffers.rigidRouteInstanceBuffer = m_rewritePackedRouteInstanceBuffer;
+        if (skipPackedGeometryFill || partialPackedUpdate)
+        {
+            routeDesc.rigidRouteVertexBytes = static_cast<size_t>(join.rigidRouteVertexCount) * sizeof(PathTraceSmokeVertex);
+            routeDesc.rigidRouteIndexBytes = static_cast<size_t>(join.rigidRouteIndexCount) * sizeof(uint32_t);
+            routeDesc.rigidRouteTriangleMaterialBytes = static_cast<size_t>(join.rigidRouteTriangleCount) * sizeof(uint32_t);
+            routeDesc.rigidRouteTriangleMaterialIndexBytes = static_cast<size_t>(join.rigidRouteTriangleCount) * sizeof(uint32_t);
+        }
+        else
+        {
+            routeDesc.rigidRouteVertexBytes = packedVerts.size() * sizeof(PathTraceSmokeVertex);
+            routeDesc.rigidRouteIndexBytes = packedIndexes.size() * sizeof(uint32_t);
+            routeDesc.rigidRouteTriangleMaterialBytes = packedTriMat.size() * sizeof(uint32_t);
+            routeDesc.rigidRouteTriangleMaterialIndexBytes = packedTriMatIndex.size() * sizeof(uint32_t);
+        }
+        routeDesc.rigidRouteInstanceBytes = packedInstances.size() * sizeof(PathTraceRigidRouteInstance);
+        }
+        {
+        OPTICK_EVENT("PT CPU Commit Rigid Upload");
+        ++rigidAttribution.rigidUploadScopeCount;
+        const RtSmokeRigidRouteBufferResolveDesc routeResolveDesc = {
+            routeDesc.device,
+            { routeDesc.existingBuffers.rigidRouteVertexBuffer,
+              routeDesc.existingBuffers.rigidRouteIndexBuffer,
+              routeDesc.existingBuffers.rigidRouteTriangleMaterialBuffer,
+              routeDesc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer,
+              routeDesc.existingBuffers.rigidRouteInstanceBuffer },
+            routeDesc.rigidRouteVertexBytes,
+            routeDesc.rigidRouteIndexBytes,
+            routeDesc.rigidRouteTriangleMaterialBytes,
+            routeDesc.rigidRouteTriangleMaterialIndexBytes,
+            routeDesc.rigidRouteInstanceBytes
+        };
+        RtSmokeRigidRouteBufferResolveResult routeCreated;
+        {
+            OPTICK_EVENT("PT CPU Commit Rigid Route Resolve");
+            routeCreated = ResolveOrCreateSmokeRigidRouteBuffers(routeResolveDesc);
+        }
+        rigidAttribution.rigidRoutePhysicalBufferCreateCount += routeCreated.rigidRoutePhysicalBufferCreateCount;
+        if (!routeCreated.buffers.rigidRouteVertexBuffer || !routeCreated.buffers.rigidRouteInstanceBuffer)
+        {
+            if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+        if (skipPackedGeometryFill)
+        {
+            if (routeCreated.buffers.rigidRouteVertexBuffer != m_rewriteLastCommittedPackedVertexBuffer ||
+                routeCreated.buffers.rigidRouteIndexBuffer != m_rewriteLastCommittedPackedIndexBuffer ||
+                routeCreated.buffers.rigidRouteTriangleMaterialBuffer != m_rewriteLastCommittedPackedTriMatBuffer ||
+                routeCreated.buffers.rigidRouteTriangleMaterialIndexBuffer != m_rewriteLastCommittedPackedTriMatIndexBuffer ||
+                routeCreated.buffers.rigidRouteInstanceBuffer != m_rewriteLastCommittedPackedInstanceBuffer)
+            {
+                if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            }
+        }
+        if (partialPackedUpdate &&
+            (routeCreated.buffers.rigidRouteVertexBuffer != m_rewriteLastCommittedPackedVertexBuffer ||
+             routeCreated.buffers.rigidRouteIndexBuffer != m_rewriteLastCommittedPackedIndexBuffer ||
+             routeCreated.buffers.rigidRouteTriangleMaterialBuffer != m_rewriteLastCommittedPackedTriMatBuffer ||
+             routeCreated.buffers.rigidRouteTriangleMaterialIndexBuffer != m_rewriteLastCommittedPackedTriMatIndexBuffer))
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        m_rewritePackedRouteVertexBuffer = routeCreated.buffers.rigidRouteVertexBuffer;
+        m_rewritePackedRouteIndexBuffer = routeCreated.buffers.rigidRouteIndexBuffer;
+        m_rewritePackedRouteTriMatBuffer = routeCreated.buffers.rigidRouteTriangleMaterialBuffer;
+        m_rewritePackedRouteTriMatIndexBuffer = routeCreated.buffers.rigidRouteTriangleMaterialIndexBuffer;
+        m_rewritePackedRouteInstanceBuffer = routeCreated.buffers.rigidRouteInstanceBuffer;
+        RtSmokeBufferUploadItem routeUploads[5] = {};
+        uint32_t uploadCount = 0;
+        if (!skipPackedGeometryFill && !partialPackedUpdate)
+        {
+            routeUploads[uploadCount++] = { m_rewritePackedRouteVertexBuffer, packedVerts.data(), "rewrite route verts", routeDesc.rigidRouteVertexBytes, nvrhi::ResourceStates::ShaderResource };
+            routeUploads[uploadCount++] = { m_rewritePackedRouteIndexBuffer, packedIndexes.data(), "rewrite route indexes", routeDesc.rigidRouteIndexBytes, nvrhi::ResourceStates::ShaderResource };
+            routeUploads[uploadCount++] = { m_rewritePackedRouteTriMatBuffer, packedTriMat.data(), "rewrite route trimat", routeDesc.rigidRouteTriangleMaterialBytes, nvrhi::ResourceStates::ShaderResource };
+            routeUploads[uploadCount++] = { m_rewritePackedRouteTriMatIndexBuffer, packedTriMatIndex.data(), "rewrite route trimatidx", routeDesc.rigidRouteTriangleMaterialIndexBytes, nvrhi::ResourceStates::ShaderResource };
+        }
+        if (!rigidAttributePatches.empty())
+        {
+            OPTICK_EVENT("PT CPU Rigid Attribute Upload");
+            uint64_t patchBytes = 0;
+            uint32_t patchVertices = 0, patchTriangles = 0;
+            // On a later failure the next attempt must repack these mutated buffers.
+            // The final successful commit publishes the new layout proof below.
+            m_rewriteLastPackedLayout.clear();
+            for (const auto& patch : rigidAttributePatches)
+            {
+                const size_t vertexBytes = patch.vertices.size() * sizeof(PathTraceSmokeVertex);
+                const size_t triangleBytes = patch.materialIds.size() * sizeof(uint32_t);
+                if (vertexBytes) commandList->writeBuffer(m_rewritePackedRouteVertexBuffer,
+                    patch.vertices.data(), vertexBytes, size_t(patch.vertexOffset) * sizeof(PathTraceSmokeVertex));
+                if (triangleBytes)
+                {
+                    commandList->writeBuffer(m_rewritePackedRouteTriMatBuffer, patch.materialIds.data(),
+                        triangleBytes, size_t(patch.triangleOffset) * sizeof(uint32_t));
+                    commandList->writeBuffer(m_rewritePackedRouteTriMatIndexBuffer, patch.materialIndexes.data(),
+                        triangleBytes, size_t(patch.triangleOffset) * sizeof(uint32_t));
+                }
+                patchBytes += vertexBytes + triangleBytes * 2;
+                patchVertices += static_cast<uint32_t>(patch.vertices.size());
+                patchTriangles += static_cast<uint32_t>(patch.materialIds.size());
+            }
+            rigidAttribution.rigidUploadBytes += patchBytes;
+            OPTICK_TAG("rigidAttributePatchSurfaces", static_cast<uint32_t>(rigidAttributePatches.size()));
+            OPTICK_TAG("rigidAttributePatchVertices", patchVertices);
+            OPTICK_TAG("rigidAttributePatchTriangles", patchTriangles);
+            OPTICK_TAG("rigidAttributePatchBytes", patchBytes);
+        }
+        if (!skipPackedGeometryFill) m_rewriteLastPackedLayout.clear();
+        service->NotePackedGeometryFill(skipPackedGeometryFill);
+        routeUploads[uploadCount++] = { m_rewritePackedRouteInstanceBuffer, packedInstances.data(), "rewrite route instances", routeDesc.rigidRouteInstanceBytes, nvrhi::ResourceStates::ShaderResource };
+        {
+            OPTICK_EVENT("PT CPU Commit Packed Upload");
+            RtSmokeBufferUploadBatchDesc routeBatch = {};
+            routeBatch.commandList = commandList;
+            routeBatch.items = routeUploads;
+            routeBatch.itemCount = uploadCount;
+            UploadSmokeAccelerationBuffers(routeBatch);
+        }
+        ++rigidAttribution.packedUploadCount;
+        rigidAttribution.rigidUploadBytes += routeDesc.rigidRouteInstanceBytes;
+        if (!skipPackedGeometryFill && !partialPackedUpdate)
+        {
+            rigidAttribution.rigidUploadBytes += routeDesc.rigidRouteVertexBytes + routeDesc.rigidRouteIndexBytes +
+                routeDesc.rigidRouteTriangleMaterialBytes + routeDesc.rigidRouteTriangleMaterialIndexBytes;
+        }
+        }
+        {
+        OPTICK_EVENT("PT CPU Commit Rigid Submit");
+        ++rigidAttribution.rigidSubmitScopeCount;
+        buffers.rigidRouteVertexBuffer = m_rewritePackedRouteVertexBuffer;
+        buffers.rigidRouteIndexBuffer = m_rewritePackedRouteIndexBuffer;
+        buffers.rigidRouteTriangleMaterialBuffer = m_rewritePackedRouteTriMatBuffer;
+        buffers.rigidRouteTriangleMaterialIndexBuffer = m_rewritePackedRouteTriMatIndexBuffer;
+        buffers.rigidRouteInstanceBuffer = m_rewritePackedRouteInstanceBuffer;
+        }
+    }
+    else
+    {
+        OPTICK_EVENT("PT CPU Commit Rigid Submit");
+        ++rigidAttribution.rigidSubmitScopeCount;
+        buffers.rigidRouteVertexBuffer = m_rewritePackedRouteVertexBuffer ? m_rewritePackedRouteVertexBuffer : m_sceneInputs.geometry.rigidRouteVertexBuffer;
+        buffers.rigidRouteIndexBuffer = m_rewritePackedRouteIndexBuffer ? m_rewritePackedRouteIndexBuffer : m_sceneInputs.geometry.rigidRouteIndexBuffer;
+        buffers.rigidRouteTriangleMaterialBuffer = m_rewritePackedRouteTriMatBuffer ? m_rewritePackedRouteTriMatBuffer : m_sceneInputs.geometry.rigidRouteTriangleMaterialBuffer;
+        buffers.rigidRouteTriangleMaterialIndexBuffer = m_rewritePackedRouteTriMatIndexBuffer ? m_rewritePackedRouteTriMatIndexBuffer : m_sceneInputs.geometry.rigidRouteTriangleMaterialIndexBuffer;
+        buffers.rigidRouteInstanceBuffer = m_rewritePackedRouteInstanceBuffer ? m_rewritePackedRouteInstanceBuffer : m_sceneInputs.geometry.rigidRouteInstanceBuffer;
+    }
+    {
+    OPTICK_EVENT("PT CPU Commit Rigid Submit");
+    ++rigidAttribution.rigidSubmitScopeCount;
+    // Skinned routing on the rewrite path is owned by the rewrite. The shader
+    // derives the skinned route count and base id from record[0] of the bound
+    // record buffer, so with no rewrite skinned records an all-zero record must
+    // be bound: binding the legacy warmup records would let stale ids claim
+    // rewrite rigid hits, and binding nothing fails IsValid() and stops commits.
+    const bool haveRewriteSkinnedRoute =
+        candidateSkin.records && candidateSkin.recordCount > 0;
+    if (!m_rewriteEmptySkinnedHitRouteBuffer)
+    {
+        nvrhi::BufferDesc emptyDesc;
+        emptyDesc.byteSize = sizeof(PathTraceSkinnedHitRouteGpuRecord);
+        emptyDesc.structStride = sizeof(PathTraceSkinnedHitRouteGpuRecord);
+        emptyDesc.debugName = "PathTraceRewriteEmptySkinnedHitRoute";
+        emptyDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+        emptyDesc.keepInitialState = true;
+        m_rewriteEmptySkinnedHitRouteBuffer = device->createBuffer(emptyDesc);
+        rigidAttribution.physicalBuffers += m_rewriteEmptySkinnedHitRouteBuffer != nullptr;
+        if (m_rewriteEmptySkinnedHitRouteBuffer)
+        {
+            const PathTraceSkinnedHitRouteGpuRecord zeroRecord = {};
+            commandList->writeBuffer(m_rewriteEmptySkinnedHitRouteBuffer, &zeroRecord, sizeof(zeroRecord));
+        }
+    }
+    if (!m_rewriteEmptySkinnedHitRouteTriangleBuffer)
+    {
+        nvrhi::BufferDesc emptyTriangleDesc;
+        emptyTriangleDesc.byteSize = sizeof(PathTraceSkinnedHitRouteGpuTriangle);
+        emptyTriangleDesc.structStride = sizeof(PathTraceSkinnedHitRouteGpuTriangle);
+        emptyTriangleDesc.debugName = "PathTraceRewriteEmptySkinnedHitRouteTriangle";
+        emptyTriangleDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+        emptyTriangleDesc.keepInitialState = true;
+        m_rewriteEmptySkinnedHitRouteTriangleBuffer = device->createBuffer(emptyTriangleDesc);
+        rigidAttribution.physicalBuffers += m_rewriteEmptySkinnedHitRouteTriangleBuffer != nullptr;
+        if (m_rewriteEmptySkinnedHitRouteTriangleBuffer)
+        {
+            const PathTraceSkinnedHitRouteGpuTriangle zeroTriangle = {};
+            commandList->writeBuffer(m_rewriteEmptySkinnedHitRouteTriangleBuffer, &zeroTriangle, sizeof(zeroTriangle));
+        }
+    }
+    RtCpuRewriteSkinnedHandleSelectionInput skinnedHandleInput;
+    skinnedHandleInput.haveLiveRoute = haveRewriteSkinnedRoute;
+    skinnedHandleInput.liveRecord = candidateSkin.records != nullptr;
+    skinnedHandleInput.liveTriangle = candidateSkin.triangles != nullptr;
+    skinnedHandleInput.livePrevious = candidateSkin.previous != nullptr;
+    skinnedHandleInput.liveDispatch = candidateSkin.dispatch != nullptr;
+    skinnedHandleInput.liveSourceIndex = candidateSkin.indexes != nullptr;
+    skinnedHandleInput.persistentZeroRecord = m_rewriteEmptySkinnedHitRouteBuffer != nullptr;
+    skinnedHandleInput.persistentZeroTriangle = m_rewriteEmptySkinnedHitRouteTriangleBuffer != nullptr;
+    skinnedHandleInput.persistentSharedTriangleDispatch = m_smokeSkinnedTriangleDispatchIndexBuffer != nullptr;
+    skinnedHandleInput.persistentSharedEmissive = m_smokeSkinnedEmissiveWorkBuffer != nullptr;
+    skinnedHandleInput.recordCount = static_cast<uint32_t>(candidateSkin.recordCount);
+    skinnedHandleInput.triangleCount = static_cast<uint32_t>(candidateSkin.triangleCount);
+    skinnedHandleInput.sourceIndexCount = static_cast<uint32_t>(candidateSkin.sourceIndexCount);
+    skinnedHandleInput.previousPositionCount = static_cast<uint32_t>(candidateSkin.outputCount);
+    const RtCpuRewriteSkinnedHandleSelection skinnedHandles = RtCpuRewriteSelectSkinnedHandles(skinnedHandleInput);
+    buffers.skinnedHitRouteRecordBuffer = skinnedHandles.record == RtCpuRewriteSkinnedHandleSource::LiveRewrite
+        ? candidateSkin.records : m_rewriteEmptySkinnedHitRouteBuffer;
+    buffers.skinnedHitRouteTriangleBuffer = skinnedHandles.triangle == RtCpuRewriteSkinnedHandleSource::LiveRewrite
+        ? candidateSkin.triangles : m_rewriteEmptySkinnedHitRouteTriangleBuffer;
+    buffers.skinnedPreviousPositionBuffer = skinnedHandles.previous == RtCpuRewriteSkinnedHandleSource::LiveRewrite
+        ? candidateSkin.previous : m_rewriteEmptySkinnedHitRouteBuffer;
+    buffers.skinnedSurfaceDispatchBuffer = skinnedHandles.dispatch == RtCpuRewriteSkinnedHandleSource::LiveRewrite
+        ? candidateSkin.dispatch : m_rewriteEmptySkinnedHitRouteBuffer;
+    buffers.skinnedTriangleDispatchIndexBuffer = skinnedHandles.triangleDispatch ==
+        RtCpuRewriteSkinnedHandleSource::PersistentSharedTriangleDispatch
+        ? m_smokeSkinnedTriangleDispatchIndexBuffer : nullptr;
+    if (haveRewriteSkinnedRoute)
+    {
+        buffers.skinnedSourceVertexBuffer = candidateSkin.source;
+        buffers.skinnedCurrentOutputVertexBuffer = candidateSkin.output;
+        buffers.skinnedCurrentJointMatrixBuffer = candidateSkin.joints;
+        buffers.skinnedPreviousJointMatrixBuffer = candidateSkin.joints;
+    }
+    buffers.skinnedEmissiveWorkBuffer = skinnedHandles.emissive == RtCpuRewriteSkinnedHandleSource::PersistentSharedEmissive
+        ? m_smokeSkinnedEmissiveWorkBuffer : nullptr;
+    if (!skinnedHandles.valid || skinnedHandles.usesWarmupGeometry)
+    {
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+
+    RtCpuRewriteLightCandidate lighting;
+    bool lightsReady = false;
+    try {
+        lightsReady = FinishRewriteLighting(device, commandList, idleSlot, viewRootFrame, *service, lightWork, lighting);
+    } catch (const std::bad_alloc&) { m_rewriteLightHistoryValid = false; }
+    OPTICK_TAG("lightRejected", lightsReady ? 0u : 1u);
+    if (!lightsReady) return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    buffers.emissiveTriangleBuffer = lighting.inputs.emissiveTriangleBuffer;
+    buffers.previousEmissiveTriangleBuffer = lighting.inputs.previousEmissiveTriangleBuffer;
+    buffers.emissiveRemapBuffer = lighting.inputs.emissiveRemapBuffer;
+    buffers.emissiveDistributionBuffer = lighting.inputs.emissiveDistributionBuffer;
+    buffers.lightCandidateBuffer = lighting.inputs.lightCandidateBuffer;
+    buffers.doomAnalyticLightBuffer = lighting.inputs.doomAnalyticLightBuffer;
+    buffers.doomAnalyticPreviousLightBuffer = lighting.inputs.doomAnalyticPreviousLightBuffer;
+    buffers.doomAnalyticCurrentIdentityBuffer = lighting.inputs.doomAnalyticCurrentIdentityBuffer;
+    buffers.doomAnalyticPreviousIdentityBuffer = lighting.inputs.doomAnalyticPreviousIdentityBuffer;
+    buffers.doomAnalyticRemapBuffer = lighting.inputs.doomAnalyticRemapBuffer;
+    buffers.unifiedLightBuffer = lighting.inputs.unifiedLightBuffer;
+    buffers.unifiedPreviousLightBuffer = lighting.inputs.unifiedPreviousLightBuffer;
+    buffers.unifiedLightRemapBuffer = lighting.inputs.unifiedLightRemapBuffer;
+    buffers.restirLightManagerCurrentPayloadBuffer = lighting.inputs.restirLightManagerCurrentPayloadBuffer;
+    buffers.restirLightManagerPreviousPayloadBuffer = lighting.inputs.restirLightManagerPreviousPayloadBuffer;
+    buffers.restirLightManagerPreviousToCurrentBuffer = lighting.inputs.restirLightManagerPreviousToCurrentBuffer;
+    buffers.unifiedPtEmissiveLookupBuffer = lighting.inputs.unifiedPtEmissiveLookupBuffer;
+    buffers.unifiedPtEmissiveGeometryBuffer = lighting.inputs.unifiedPtEmissiveGeometryBuffer;
+    buffers.restirLightManagerCurrentToPreviousBuffer = lighting.gpu.buffers[18];
+    if (!buffers.IsValid()) return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+
+    const nvrhi::TextureHandle fallbackTexture = globalImages && globalImages->whiteImage ? globalImages->whiteImage->GetTextureHandle() : nullptr;
+    RtSmokeBindingBuildDesc bindingBuildDesc = {};
+    bindingBuildDesc.device = device;
+    bindingBuildDesc.tlas = candidateTlas;
+    bindingBuildDesc.outputTexture = m_frameResources.outputTexture;
+    bindingBuildDesc.accumulationTexture = m_frameResources.accumulationTexture;
+    bindingBuildDesc.restirPTReflectionTexture = m_frameResources.restirPTReflectionTexture;
+    bindingBuildDesc.rrInputColorTexture = m_frameResources.rrInputColorTexture;
+    bindingBuildDesc.motionVectorTexture = m_frameResources.motionVectorTexture;
+    bindingBuildDesc.rrMotionVectorTexture = m_frameResources.rrMotionVectorTexture;
+    bindingBuildDesc.motionVectorMaskTexture = m_frameResources.motionVectorMaskTexture;
+    bindingBuildDesc.rrGuideAlbedoTexture = m_frameResources.rrGuideAlbedoTexture;
+    bindingBuildDesc.rrGuideSpecularAlbedoTexture = m_frameResources.rrGuideSpecularAlbedoTexture;
+    bindingBuildDesc.rrGuideNormalRoughnessTexture = m_frameResources.rrGuideNormalRoughnessTexture;
+    bindingBuildDesc.rrGuideDepthTexture = m_frameResources.rrGuideDepthTexture;
+    bindingBuildDesc.rrGuideHitDistanceTexture = m_frameResources.rrGuideHitDistanceTexture;
+    bindingBuildDesc.rrGuideResetMaskTexture = m_frameResources.rrGuideResetMaskTexture;
+    bindingBuildDesc.rrGuidePositionTexture = m_frameResources.rrGuidePositionTexture;
+    bindingBuildDesc.fallbackTexture = fallbackTexture;
+    bindingBuildDesc.skyEnvironmentCube = m_smokeSkyEnvironmentCube;
+    bindingBuildDesc.constantsBuffer = m_smokeConstantsBuffer;
+    bindingBuildDesc.boundsOverlayLineBuffer = m_smokeBoundsOverlayLineBuffer;
+    bindingBuildDesc.liquidPoolStatusBuffer = m_liquidPoolStatusBuffer;
+    bindingBuildDesc.unifiedPtPrimaryReceiverBuffer = m_frameResources.unifiedPtPrimaryReceiverBuffer;
+    bindingBuildDesc.unifiedPtPrimaryReceiver32Buffer = m_frameResources.unifiedPtPrimaryReceiver32Buffer;
+    bindingBuildDesc.unifiedPtPrimaryHistorySidecarCurrentBuffer = m_frameResources.unifiedPtPrimaryHistorySidecarCurrentBuffer;
+    bindingBuildDesc.bindingLayout = m_smokeBindingLayout;
+    bindingBuildDesc.textureBindlessLayout = m_smokeTextureBindlessLayout;
+    bindingBuildDesc.existingTextureDescriptorTable = m_smokeTextureDescriptorTable;
+    bindingBuildDesc.existingActiveTextureTable = &m_smokeActiveTextureTable;
+    bindingBuildDesc.sampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
+    bindingBuildDesc.buffers = buffers;
+    bindingBuildDesc.skinnedSourceIndexBuffer = skinnedHandles.sourceIndex == RtCpuRewriteSkinnedHandleSource::LiveRewrite
+        ? candidateSkin.indexes : m_rewriteEmptySkinnedHitRouteTriangleBuffer;
+    bindingBuildDesc.primarySurfaceHistoryBuffers = m_frameResources.primarySurfaceHistoryBuffers;
+    RtSmokeMaterialTableBuild& materialTable = grownMaterialTable;
+    bindingBuildDesc.enableTextureProbe = true;
+    bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
+    bindingBuildDesc.maxActiveTextures = RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP;
+    bindingBuildDesc.allowExistingTextureDescriptorTableWrites = false;
+    RtSmokeBindingBuildResult bindingBuildResult = {};
+    bindingBuildDesc.existingBindingReceipt = &tlasSlot->sceneBindingReceipt;
+    {
+        OPTICK_EVENT("PT CPU Commit Binding");
+        bindingBuildResult = CreateSmokeBindingResources(bindingBuildDesc, materialTable);
+        OPTICK_TAG("sceneBindingMismatchReason", static_cast<uint32_t>(bindingBuildResult.bindingComparison.reason));
+        OPTICK_TAG("sceneBindingMismatchItem", bindingBuildResult.bindingComparison.item);
+        OPTICK_TAG("sceneBindingMismatchSlot", bindingBuildResult.bindingComparison.slot);
+        rigidAttribution.rigidBindingCreateCount += bindingBuildResult.physicalBindingCreateCount;
+        rigidAttribution.physicalDescriptorTables += bindingBuildResult.physicalDescriptorTableCreateCount;
+        if (!bindingBuildResult.Succeeded())
+        {
+            if (overlayAcquired) service->ReleaseConsumedOverlay();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+    }
+
+    RtPathTraceSceneInputs sceneInputs = m_sceneInputs;
+    sceneInputs.lights = lighting.inputs;
+    sceneInputs.diagnostics.lightUploadBytes = lighting.uploadBytes;
+    sceneInputs.signatures.lightMembership = lighting.inputs.restirLightManagerStructuralSignature;
+    sceneInputs.signatures.reservoirScene = ComputeSmokeReservoirStructuralSignature(
+        sceneInputs.signatures.materialTable, staticSignature, sceneInputs.signatures.lightMembership);
+    {
+        sceneInputs.materials.materialTableBuffer = materialBuffers[0];
+        sceneInputs.materials.materialFeatureBuffer = materialBuffers[1];
+        sceneInputs.materials.materialFeatureParameterBuffer = materialBuffers[2];
+        sceneInputs.materials.dynamicMaterialBuffer = materialBuffers[3];
+        sceneInputs.materials.dynamicMaterialRecordCount = static_cast<int>(frameDynamicMaterials.size());
+        sceneInputs.materials.materialTableGpuStable = false;
+        sceneInputs.materials.materialTableEntryCount = static_cast<int>(grownMaterialTable.materials.size());
+        sceneInputs.materials.materialFeatureRecordCount = static_cast<int>(grownMaterialTable.materialFeatures.size());
+        sceneInputs.materials.materialFeatureParameterRecordCount = static_cast<int>(grownMaterialTable.materialFeatureParameters.size());
+        sceneInputs.materials.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
+        sceneInputs.materials.activeTextureCount = static_cast<int>(bindingBuildResult.activeTextureTable.size());
+        sceneInputs.materials.logicalTextureDescriptorCount = Max(0, sceneInputs.materials.activeTextureCount - 1);
+        sceneInputs.materials.textureDescriptorGeneration = m_smokeTextureDescriptorGeneration +
+            ((bindingBuildResult.textureDescriptorTableCreated || bindingBuildResult.textureDescriptorTableWritten) ? 1ull : 0ull);
+        sceneInputs.materials.materialTablePath = "rewrite-resident";
+    }
+    sceneInputs.geometry.tlas = candidateTlas;
+    sceneInputs.geometry.dynamicBlas = blas.accelStruct;
+    sceneInputs.geometry.dynamicVertexBuffer = dyn.vertexBuffer;
+    sceneInputs.geometry.dynamicIndexBuffer = dyn.indexBuffer;
+    sceneInputs.geometry.dynamicTriangleClassBuffer = dyn.triangleClassBuffer;
+    sceneInputs.geometry.dynamicTriangleMaterialBuffer = dyn.triangleMaterialBuffer;
+    sceneInputs.geometry.dynamicTriangleMaterialIndexBuffer = dyn.triangleMaterialIndexBuffer;
+    sceneInputs.geometry.staticVertexBuffer = buffers.staticVertexBuffer;
+    sceneInputs.geometry.staticIndexBuffer = buffers.staticIndexBuffer;
+    sceneInputs.geometry.staticTriangleClassBuffer = buffers.staticTriangleClassBuffer;
+    sceneInputs.geometry.staticTriangleMaterialBuffer = buffers.staticTriangleMaterialBuffer;
+    sceneInputs.geometry.staticTriangleMaterialIndexBuffer = buffers.staticTriangleMaterialIndexBuffer;
+    sceneInputs.geometry.previousStaticVertexBuffer = buffers.previousStaticVertexBuffer;
+    sceneInputs.geometry.previousStaticIndexBuffer = buffers.previousStaticIndexBuffer;
+    sceneInputs.geometry.previousStaticTriangleClassBuffer = buffers.previousStaticTriangleClassBuffer;
+    sceneInputs.geometry.previousStaticTriangleMaterialBuffer = buffers.previousStaticTriangleMaterialBuffer;
+    sceneInputs.geometry.previousStaticTriangleMaterialIndexBuffer = buffers.previousStaticTriangleMaterialIndexBuffer;
+    sceneInputs.geometry.dynamicVertexCount = haveStatic ? static_cast<int>(view->vertexCount) : 0;
+    sceneInputs.geometry.dynamicIndexCount = haveStatic ? static_cast<int>(view->indexCount) : 0;
+    sceneInputs.geometry.dynamicTriangleCount = haveStatic ? static_cast<int>(view->triangleCount) : 0;
+    sceneInputs.geometry.staticVertexCount = 0;
+    sceneInputs.geometry.staticIndexCount = 0;
+    sceneInputs.geometry.staticTriangleCount = 0;
+    sceneInputs.geometry.previousStaticVertexCount = 0;
+    sceneInputs.geometry.previousStaticIndexCount = 0;
+    sceneInputs.geometry.previousStaticTriangleCount = 0;
+    sceneInputs.geometry.staticPreviousBuffersAliasCurrent = true;
+    sceneInputs.geometry.currentGeometryValid = true;
+    sceneInputs.geometry.rigidRouteVertexBuffer = buffers.rigidRouteVertexBuffer;
+    sceneInputs.geometry.rigidRouteIndexBuffer = buffers.rigidRouteIndexBuffer;
+    sceneInputs.geometry.rigidRouteTriangleMaterialBuffer = buffers.rigidRouteTriangleMaterialBuffer;
+    sceneInputs.geometry.rigidRouteTriangleMaterialIndexBuffer = buffers.rigidRouteTriangleMaterialIndexBuffer;
+    sceneInputs.geometry.rigidRouteInstanceBuffer = buffers.rigidRouteInstanceBuffer;
+    sceneInputs.geometry.rigidRouteVertexCount = static_cast<int>(join.rigidRouteVertexCount ? join.rigidRouteVertexCount : packedVerts.size());
+    sceneInputs.geometry.rigidRouteIndexCount = static_cast<int>(join.rigidRouteIndexCount ? join.rigidRouteIndexCount : packedIndexes.size());
+    sceneInputs.geometry.rigidRouteTriangleCount = static_cast<int>(join.rigidRouteTriangleCount ? join.rigidRouteTriangleCount : packedTriMat.size());
+    sceneInputs.geometry.rigidRouteInstanceCount = static_cast<int>(join.rigidRouteInstanceCount ? join.rigidRouteInstanceCount : rigidExtraCount);
+    // Committed scene inputs must keep valid skinned handles: the next rewrite
+    // frame sources its fallback handles from m_sceneInputs and IsValid() rejects
+    // null ones (that rejection froze commits and left a stale TLAS live in R3-001).
+    sceneInputs.geometry.skinnedHitRouteRecordBuffer = buffers.skinnedHitRouteRecordBuffer;
+    sceneInputs.geometry.skinnedHitRouteRecordCount = static_cast<int>(skinnedHandles.recordCount);
+    sceneInputs.geometry.skinnedHitRouteTriangleBuffer = buffers.skinnedHitRouteTriangleBuffer;
+    sceneInputs.geometry.skinnedHitRouteTriangleCount = static_cast<int>(skinnedHandles.triangleCount);
+    sceneInputs.geometry.skinnedSourceIndexBuffer = bindingBuildDesc.skinnedSourceIndexBuffer;
+    sceneInputs.geometry.skinnedSourceIndexCount = static_cast<int>(skinnedHandles.sourceIndexCount);
+    sceneInputs.geometry.skinnedPreviousPositionBuffer = buffers.skinnedPreviousPositionBuffer;
+    sceneInputs.geometry.skinnedPreviousPositionCount = static_cast<int>(skinnedHandles.previousPositionCount);
+    sceneInputs.geometry.skinnedSurfaceDispatchBuffer = buffers.skinnedSurfaceDispatchBuffer;
+    sceneInputs.geometry.skinnedSurfaceDispatchCount = static_cast<int>(skinnedHandles.surfaceDispatchCount);
+    sceneInputs.geometry.skinnedTriangleDispatchIndexBuffer = buffers.skinnedTriangleDispatchIndexBuffer;
+    sceneInputs.geometry.skinnedTriangleDispatchIndexCount = static_cast<int>(skinnedHandles.triangleDispatchIndexCount);
+    if (haveRewriteSkinnedRoute)
+    {
+        sceneInputs.geometry.skinnedSourceVertexBuffer = candidateSkin.source;
+        sceneInputs.geometry.skinnedCurrentOutputVertexBuffer = candidateSkin.output;
+        sceneInputs.geometry.skinnedCurrentJointMatrixBuffer = candidateSkin.joints;
+        sceneInputs.geometry.skinnedPreviousJointMatrixBuffer = candidateSkin.joints;
+    }
+    else
+    {
+        sceneInputs.geometry.skinnedSourceVertexBuffer = nullptr;
+        sceneInputs.geometry.skinnedCurrentOutputVertexBuffer = nullptr;
+        sceneInputs.geometry.skinnedCurrentJointMatrixBuffer = nullptr;
+        sceneInputs.geometry.skinnedPreviousJointMatrixBuffer = nullptr;
+    }
+    sceneInputs.geometry.skinnedGpuComputeDispatched = haveRewriteSkinnedRoute && skinnedTransaction.recorded;
+    if (rigidExtraCount > 0 && sceneInputs.geometry.rigidRouteInstanceCount == 0)
+    {
+        if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+        service->NoteJoinCommitFail(kRtCpuRewriteJoinInstanceIdUnresolved);
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+    const uint32_t extraCount = static_cast<uint32_t>(rewriteExtraTlas.size());
+    std::vector<uint32_t> extraMasks(extraCount);
+    for (uint32_t i = 0; i < extraCount; ++i)
+    {
+        extraMasks[i] = rewriteExtraTlas[i].instanceMask;
+    }
+    uint32_t routeFail = kRtCpuRewriteJoinOk;
+    if (!RtCpuRewriteValidatePackedRouteCommit(
+            static_cast<uint32_t>(sceneInputs.geometry.rigidRouteVertexCount),
+            static_cast<uint32_t>(sceneInputs.geometry.rigidRouteIndexCount),
+            static_cast<uint32_t>(sceneInputs.geometry.rigidRouteTriangleCount),
+            static_cast<uint32_t>(sceneInputs.geometry.rigidRouteInstanceCount),
+            extraCount,
+            extraCount ? extraMasks.data() : nullptr,
+            &routeFail,
+            rigidExtraCount))
+    {
+        if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
+        service->NoteJoinCommitFail(routeFail);
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    }
+
+    RtSmokeSceneResourceCommitBuildDesc resourceCommitBuildDesc = {};
+    resourceCommitBuildDesc.sceneInputs = sceneInputs;
+    resourceCommitBuildDesc.buffers = buffers;
+    resourceCommitBuildDesc.dynamicBlas = blas.accelStruct;
+    resourceCommitBuildDesc.tlas = candidateTlas;
+    resourceCommitBuildDesc.tlasMaxInstances = submitDesc.tlasMaxInstances;
+    resourceCommitBuildDesc.hasStaticBlas = false;
+    resourceCommitBuildDesc.bindingSet = bindingBuildResult.bindingSet;
+    resourceCommitBuildDesc.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
+    resourceCommitBuildDesc.activeTextureTable = &bindingBuildResult.activeTextureTable;
+    resourceCommitBuildDesc.skyEnvironmentCube = m_smokeSkyEnvironmentCube;
+    resourceCommitBuildDesc.textureDescriptorTableCreated = bindingBuildResult.textureDescriptorTableCreated;
+    resourceCommitBuildDesc.textureDescriptorTableWritten = bindingBuildResult.textureDescriptorTableWritten;
+    resourceCommitBuildDesc.materialTableEntryCount = sceneInputs.materials.materialTableEntryCount;
+    resourceCommitBuildDesc.emissiveTriangleCount = sceneInputs.lights.emissiveTriangleCount;
+    resourceCommitBuildDesc.lightCandidateCount = sceneInputs.lights.lightCandidateCount;
+    resourceCommitBuildDesc.doomAnalyticLightCount = sceneInputs.lights.doomAnalyticLightCount;
+    resourceCommitBuildDesc.doomAnalyticPreviousLightCount = sceneInputs.lights.doomAnalyticPreviousLightCount;
+    resourceCommitBuildDesc.doomAnalyticCurrentIdentityCount = sceneInputs.lights.doomAnalyticCurrentIdentityCount;
+    resourceCommitBuildDesc.doomAnalyticPreviousIdentityCount = sceneInputs.lights.doomAnalyticPreviousIdentityCount;
+    resourceCommitBuildDesc.doomAnalyticRemapCount = sceneInputs.lights.doomAnalyticRemapCount;
+    resourceCommitBuildDesc.previousEmissiveTriangleCount = sceneInputs.lights.previousEmissiveTriangleCount;
+    resourceCommitBuildDesc.unifiedLightCount = sceneInputs.lights.unifiedLightCount;
+    resourceCommitBuildDesc.unifiedPreviousLightCount = sceneInputs.lights.unifiedPreviousLightCount;
+    resourceCommitBuildDesc.unifiedLightRemapCount = sceneInputs.lights.unifiedLightRemapCount;
+    resourceCommitBuildDesc.emissiveStaticTriangleCount = sceneInputs.lights.emissiveStaticTriangleCount;
+    resourceCommitBuildDesc.doomAnalyticPortalRegionLightCount = lighting.portalAnalyticCount;
+    resourceCommitBuildDesc.restirLightManagerCurrentPayloadCount = sceneInputs.lights.restirLightManagerCurrentPayloadCount;
+    resourceCommitBuildDesc.restirLightManagerPreviousPayloadCount = sceneInputs.lights.restirLightManagerPreviousPayloadCount;
+    resourceCommitBuildDesc.unifiedPtEmissiveLookupCount = sceneInputs.lights.unifiedPtEmissiveLookupCount;
+    resourceCommitBuildDesc.skinnedOutputStorageGeneration = haveRewriteSkinnedRoute
+        ? candidateSkin.outputGeneration : 0;
+    const RtSmokeSceneResourceCommitDesc resourceCommitDesc = CreateSmokeSceneResourceCommitDesc(resourceCommitBuildDesc);
+    size_t unreferencedDedicatedCount = 0;
+    for (const RtCpuRewriteRetainedDedicatedMesh& rec : candidateDedicatedMeshes)
+    {
+        if (!retainUnreferencedDedicated && !rec.referenced) ++unreferencedDedicatedCount;
+    }
+    std::vector<RtCpuRewriteRetirementCandidate> unreferencedDedicatedBatch;
+    bool evictionLocalReserveSucceeded = true;
+    if (unreferencedDedicatedCount != 0)
+    {
+        try
+        {
+            unreferencedDedicatedBatch.reserve(unreferencedDedicatedCount);
+        }
+        catch (const std::bad_alloc&)
+        {
+            ++m_rewriteRetirementLedger.metadataReserveFailures;
+            evictionLocalReserveSucceeded = false;
+        }
+    }
+    if (evictionLocalReserveSucceeded)
+    {
+        for (const RtCpuRewriteRetainedDedicatedMesh& rec : candidateDedicatedMeshes)
+        {
+            if (!retainUnreferencedDedicated && !rec.referenced)
+            {
+                unreferencedDedicatedBatch.push_back({ m_rewriteTlasCommitSerial, rec.blas,
+                    rec.vertexBuffer, rec.indexBuffer, rec.bytes, RtCpuRewriteRetirementKind::Dedicated });
+            }
+        }
+    }
+    RtCpuRewriteRetirementDecision evictionDecision = RtCpuRewriteRetirementDecision::Admit;
+    bool evictionPreflightSucceeded = unreferencedDedicatedCount == 0;
+    if (unreferencedDedicatedCount != 0 && evictionLocalReserveSucceeded)
+    {
+        try
+        {
+            std::vector<RtCpuRewriteRetirementCandidate> combined = skinnedTransaction.retirement;
+            combined.insert(combined.end(), staticRetirementBatch.begin(), staticRetirementBatch.end());
+            combined.insert(combined.end(), unreferencedDedicatedBatch.begin(), unreferencedDedicatedBatch.end());
+            evictionPreflightSucceeded = PreflightRewriteGpuGeometryBatch(combined, &evictionDecision);
+        }
+        catch (const std::bad_alloc&)
+        {
+            ++m_rewriteRetirementLedger.metadataReserveFailures;
+            evictionPreflightSucceeded = false;
+        }
+    }
+    const RtCpuRewriteRetirementSite4Plan evictionPlan = RtCpuRewritePlanRetirementSite4({
+        unreferencedDedicatedCount != 0, evictionLocalReserveSucceeded, evictionPreflightSucceeded });
+    assert(evictionPlan.allowCommit);
+    if (evictionPlan.evictionDeferred)
+    {
+        // Eviction is optional only while all resident bytes fit the cap.
+        RtCpuRewriteRetirementLedgerEvictionDeferred(m_rewriteRetirementLedger);
+        PublishRewriteRetirementTelemetry();
+        if (!retainUnreferencedDedicated)
+        {
+            service->NoteJoinCommitFail(kRtCpuRewriteJoinRetainCap);
+            if (overlayAcquired) service->ReleaseConsumedOverlay();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        }
+    }
+    if (partialPackedUpdate) {
+        OPTICK_EVENT("PT CPU Packed Range Upload");
+        // All rejecting checks have passed. Packed shading buffers are not
+        // BLAS build inputs, so writes can wait until this commit boundary.
+        m_rewriteLastPackedLayout.clear();
+        commandList->beginTrackingBufferState(m_rewritePackedRouteVertexBuffer, nvrhi::ResourceStates::Common);
+        commandList->beginTrackingBufferState(m_rewritePackedRouteIndexBuffer, nvrhi::ResourceStates::Common);
+        commandList->beginTrackingBufferState(m_rewritePackedRouteTriMatBuffer, nvrhi::ResourceStates::Common);
+        commandList->beginTrackingBufferState(m_rewritePackedRouteTriMatIndexBuffer, nvrhi::ResourceStates::Common);
+        uint64_t bytes=0;
+        for (const auto& range:packedRangeUploads) {
+            const uint64_t vb=uint64_t(range.vertices)*sizeof(PathTraceSmokeVertex);
+            const uint64_t ib=uint64_t(range.indexes)*sizeof(uint32_t);
+            const uint64_t tb=uint64_t(range.triangles)*sizeof(uint32_t);
+            commandList->writeBuffer(m_rewritePackedRouteVertexBuffer,packedVerts.data()+range.vertexSource,
+                vb,uint64_t(range.vertexTarget)*sizeof(PathTraceSmokeVertex));
+            commandList->writeBuffer(m_rewritePackedRouteIndexBuffer,packedIndexes.data()+range.indexSource,
+                ib,uint64_t(range.indexTarget)*sizeof(uint32_t));
+            commandList->writeBuffer(m_rewritePackedRouteTriMatBuffer,packedTriMat.data()+range.triangleSource,
+                tb,uint64_t(range.triangleTarget)*sizeof(uint32_t));
+            commandList->writeBuffer(m_rewritePackedRouteTriMatIndexBuffer,packedTriMatIndex.data()+range.triangleSource,
+                tb,uint64_t(range.triangleTarget)*sizeof(uint32_t));
+            bytes+=vb+ib+2*tb;
+        }
+        commandList->setBufferState(m_rewritePackedRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_rewritePackedRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_rewritePackedRouteTriMatBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_rewritePackedRouteTriMatIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->commitBarriers();
+        rigidAttribution.rigidUploadBytes+=bytes;
+        OPTICK_TAG("rigidPackedPartialRows",static_cast<uint32_t>(packedRangeUploads.size()));
+        OPTICK_TAG("rigidPackedPartialBytes",bytes);
+    }
+    if (!staticSurfacePatches.empty())
+    {
+        OPTICK_EVENT("PT CPU Material Static Upload");
+        uint64_t bytes = 0;
+        commandList->beginTrackingBufferState(dyn.vertexBuffer, nvrhi::ResourceStates::Common);
+        commandList->beginTrackingBufferState(dyn.triangleMaterialBuffer, nvrhi::ResourceStates::Common);
+        commandList->beginTrackingBufferState(dyn.triangleMaterialIndexBuffer, nvrhi::ResourceStates::Common);
+        for (const auto& patch : staticSurfacePatches)
+        {
+            const size_t vertexBytes = patch.vertices.size() * sizeof(PathTraceSmokeVertex);
+            const size_t triangleBytes = patch.ids.size() * sizeof(uint32_t);
+            commandList->writeBuffer(dyn.vertexBuffer, patch.vertices.data(), vertexBytes,
+                size_t(patch.vertexBegin) * sizeof(PathTraceSmokeVertex));
+            commandList->writeBuffer(dyn.triangleMaterialBuffer, patch.ids.data(), triangleBytes,
+                size_t(patch.triangleBegin) * sizeof(uint32_t));
+            commandList->writeBuffer(dyn.triangleMaterialIndexBuffer, patch.indexes.data(), triangleBytes,
+                size_t(patch.triangleBegin) * sizeof(uint32_t));
+            bytes += vertexBytes + triangleBytes * 2;
+        }
+        // Same final upload boundary as before: every rejecting check has passed.
+        // Only UV/material bytes differ; retained BLAS position/index data is intact.
+        commandList->setBufferState(dyn.vertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
+        commandList->setBufferState(dyn.triangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(dyn.triangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->commitBarriers();
+        OPTICK_TAG("materialStaticPatchBytes", bytes);
+    }
+    {
+        OPTICK_EVENT("PT CPU Material Upload");
+        uint64_t uploadedBytes = 0;
+        for (int i = 0; i < 4; ++i)
+        {
+            if (!materialUpload[i]) continue;
+            RtSmokeBufferUploadItem item = { materialBuffers[i], materialData[i], "rewrite material slot", materialBytes[i], nvrhi::ResourceStates::ShaderResource };
+            RtSmokeBufferUploadBatchDesc batch = {};
+            batch.commandList = commandList; batch.items = &item; batch.itemCount = 1;
+            UploadSmokeAccelerationBuffers(batch);
+            uploadedBytes += materialBytes[i];
+        }
+        OPTICK_TAG("materialUploadBytes", uploadedBytes);
+    }
+    CommitRayTracingSmokeSceneResources(resourceCommitDesc);
+    m_rewriteLightGpuSlots[idleSlot] = std::move(lighting.gpu);
+    m_rewritePreviousEmissives = std::move(lighting.emissives);
+    m_remixLightManager.ApplyPrepareResult(std::move(lighting.manager));
+    m_remixFramePrepare = lighting.frame;
+    m_rewriteLightHistoryValid = true;
+    m_rewriteLightWorld = view->worldGeneration;
+    m_rewriteLightMap = view->mapGeneration;
+    OPTICK_TAG("lightCommitted", uint32_t(1));
+    m_rewriteDedicatedMeshes.swap(candidateDedicatedMeshes);
+    m_rewriteGpuRigidRetainBytes = newRetainBytes + packedBytes;
+    service->NoteGpuRetainBytes(m_rewriteGpuRigidRetainBytes);
+    if (rebuildStatic)
+    {
+        if (!staticRetirementBatch.empty()) EnqueuePreflightedRewriteGpuGeometryBatch(staticRetirementBatch);
+        m_rewriteStaticDynamic = dyn;
+        m_rewriteStaticBlas = blas.accelStruct;
+        m_rewriteStaticBlasDesc = std::move(blas.accelStructDesc);
+        m_rewriteStaticLogicalBytes = candidateStaticLogicalBytes;
+        OPTICK_TAG("staticCandidateCommitted", uint32_t(1));
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        auto& slot = m_rewriteMaterialGpuSlots[idleSlot];
+        slot.buffers[i] = materialBuffers[i];
+        if (materialUpload[i]) slot.contents[i] = std::move(materialContents[i]);
+    }
+    if (authoredMaterialChanged)
+    {
+        m_rewriteLastMaterialTable = std::move(authoredMaterialCandidate);
+        m_rewriteMaterialRowSignatures = std::move(materialRowSignatures);
+    }
+    if (materialGrowth) m_rewriteMaterialBindings = std::move(grownMaterialBindings);
+    m_rewriteMaterialConfiguration = materialConfiguration;
+    m_rewriteFrameMaterialConfiguration = materialConfiguration;
+    m_rewriteMaterialTableOwner = materialBuffers[0];
+    if (haveStatic)
+    {
+        m_rewriteStaticMaterialSignature = staticMaterialSignature;
+        m_rewriteStaticSurfaceMaterialSignatures = std::move(staticSurfaceMaterialSignatures);
+    }
+    OPTICK_TAG("materialGrowthCommitted", materialGrowth ? 1u : 0u);
+    tlasSlot->lastCommittedSerial = ++m_rewriteTlasCommitSerial;
+    tlasSlot->sceneBindingReceipt = std::move(bindingBuildResult.bindingReceipt);
+    // Finalize is a diagnostic child: subtract it from Rigid Submit attribution.
+    FinalizeRewriteSkinnedTransaction(skinnedTransaction);
+    rigidAttribution.rigidOutcome = transformOnly ? 2u : 3u;
+    const RtCpuRewriteKeepLastTransition committedKeepLast = RtCpuRewritePlanKeepLastTransition(
+        { m_rewriteSkinnedKeepLastStreak, m_rewriteKeepLastFamily, m_rewriteKeepLastWarned },
+        RtCpuRewriteKeepLastEvent::SceneCommit);
+    m_rewriteSkinnedKeepLastStreak = committedKeepLast.next.consecutive;
+    m_rewriteConsecutiveRejectedFrames = 0;
+    m_rewriteKeepLastFamily = committedKeepLast.next.family;
+    m_rewriteKeepLastWarned = committedKeepLast.next.warned;
+    m_rewriteSkinnedLastRejectReason = 0;
+    // Buffer rotation and ordinary scene updates preserve temporal reconstruction.
+    // True lifecycle/resize resets are still set by their existing owners.
+    const bool rewriteHistoryReset = route == RtCpuProducerRewriteRoute::RewriteWarmup;
+    OPTICK_TAG("rewriteHistoryReset", rewriteHistoryReset ? 1u : 0u);
+    if (rewriteHistoryReset) m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES);
+    if (route == RtCpuProducerRewriteRoute::RewriteWarmup)
+    {
+        ResetPathTraceProducerLanes();
+    }
+    m_rewriteHasRetainedPackage = true;
+
+    m_rewriteLastStaticSignature = staticSignature;
+    if (evictionPlan.enqueueAndCompact)
+    {
+        if (!unreferencedDedicatedBatch.empty())
+        {
+            EnqueuePreflightedRewriteGpuGeometryBatch(unreferencedDedicatedBatch);
+        }
+        // The TLAS just committed references only meshes marked referenced this
+        // frame. Anything else leaves the retained set now, but its BLAS is
+        // retired (frame-delayed release), not destroyed, because older TLASes
+        // may still be tracing on the GPU.
+        size_t keptMeshes = 0;
+        for (size_t i = 0; i < m_rewriteDedicatedMeshes.size(); ++i)
+        {
+            RtCpuRewriteRetainedDedicatedMesh& rec = m_rewriteDedicatedMeshes[i];
+            if (!retainUnreferencedDedicated && !rec.referenced)
+            {
+                continue;
+            }
+            if (keptMeshes != i)
+            {
+                m_rewriteDedicatedMeshes[keptMeshes] = rec;
+            }
+            ++keptMeshes;
+        }
+        m_rewriteDedicatedMeshes.resize(keptMeshes);
+    }
+    if (gotProduct)
+    {
+        m_rewriteLastCommittedBlasTokens = currentBlasTokens;
+        m_rewriteLastPackedVertexCount = join.rigidRouteVertexCount;
+        m_rewriteLastPackedIndexCount = join.rigidRouteIndexCount;
+        m_rewriteLastPackedTriangleCount = join.rigidRouteTriangleCount;
+        m_rewriteLastPackedLayout.resize(join.joinedCount);
+        for (uint32_t i = 0; i < join.joinedCount; ++i)
+        {
+            const PathTraceRigidRouteInstance& rec = join.joined[i].route;
+            RtCpuRewritePackedLayoutRecord& last = m_rewriteLastPackedLayout[i];
+            last.vertexOffset = rec.vertexOffset;
+            last.indexOffset = rec.indexOffset;
+            last.triangleOffset = rec.triangleOffset;
+            last.vertexCount = rec.vertexCount;
+            last.indexCount = rec.indexCount;
+            last.triangleCount = rec.triangleCount;
+            last.textureMatrixSignature = matrixSignature(join.joined[i].textureMatrices);
+            last.sourceContentSignature = view->rigidMeshes[join.joined[i].meshIndex].sourceContentSignature;
+            last.blasToken = i < currentBlasTokens.size() ? currentBlasTokens[i] : 0;
+            last.materialId = rec.materialId;
+            last.materialIndex = rec.materialIndex;
+        }
+        m_rewriteLastCommittedPackedVertexBuffer = m_rewritePackedRouteVertexBuffer;
+        m_rewriteLastCommittedPackedIndexBuffer = m_rewritePackedRouteIndexBuffer;
+        m_rewriteLastCommittedPackedTriMatBuffer = m_rewritePackedRouteTriMatBuffer;
+        m_rewriteLastCommittedPackedTriMatIndexBuffer = m_rewritePackedRouteTriMatIndexBuffer;
+        m_rewriteLastCommittedPackedInstanceBuffer = m_rewritePackedRouteInstanceBuffer;
+    }
+    // Keep immutable source ownership until the final layout witnesses are recorded.
+    if (gotProduct && view)
+    {
+        service->NotifyGpuCommit(view->ticket);
+        service->ReleaseConsumedProduct(true);
+    }
+    else
+    {
+        service->NotifyGpuReuse();
+    }
+    if (overlayAcquired)
+    {
+        service->ReleaseConsumedOverlay(true);
+    }
+    service->NoteCommitTail(transformOnly, packedVerts.size() * sizeof(PathTraceSmokeVertex));
+    (void)service->Counters();
+    }
+    return true;
+}
+
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
+
 {
 #if USE_OPTICK
     static bool optickCaptureRequestArmed = false;
@@ -7263,6 +12084,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 #endif
 
     OPTICK_EVENT("PT Build Scene");
+    const uint64 cpuProducerPackBuildStartUs = Sys_Microseconds();
+    RtPathTraceCommittedSemanticConfig committedSemanticConfig;
 
     const int frozenSceneRequest = idMath::ClampInt(
         0, 5, r_pathTracingUnifiedPtFrozenScene.GetInteger());
@@ -7326,6 +12149,79 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingUnifiedPtFrozenScene.SetInteger(1);
         common->Printf(
             "PathTraceUnifiedPt: frozen production replay requested without a snapshot; capturing one frame first\n");
+    }
+
+    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.rrMotionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_frameResources.rrGuidePositionTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
+    {
+        return;
+    }
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    if (!renderWorld)
+    {
+        if (m_smokeSceneRenderWorld || m_smokeSceneMapName.Length() > 0)
+        {
+            ResetPathTraceProducerLanes();
+            m_smokeAccelCpuResidentPublisher.Reset();
+            m_smokeProducerLaneBBootstrapComplete = false;
+            g_pathTraceProducerLaneConfiguredMode = -1;
+            g_pathTraceProducerLaneConfiguredMask = -1;
+            common->Printf("PathTracePrimaryPass: PT render world unavailable; clearing scene caches for '%s'\n",
+                m_smokeSceneMapName.c_str());
+            nvrhi::IDevice* resetDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
+            if (resetDevice)
+            {
+                resetDevice->waitForIdle();
+            }
+            ResetRayTracingSmokeSceneResources();
+            m_smokeGeometryUniverse.ClearRetiredRigidBlas();
+            m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES);
+        }
+        return;
+    }
+    const bool renderWorldChanged = m_smokeSceneRenderWorld != renderWorld;
+    const bool mapChanged = m_smokeSceneMapName.Icmp(renderWorld->mapName) != 0 || m_smokeSceneMapTimeStamp != renderWorld->mapTimeStamp;
+    const bool mapLoadChanged = m_smokeSceneMapLoadSerial != renderWorld->mapLoadSerial;
+    if (renderWorldChanged || mapChanged || mapLoadChanged)
+    {
+        ResetPathTraceProducerLanes();
+        m_smokeAccelCpuResidentPublisher.Reset();
+        m_smokeProducerLaneBBootstrapComplete = false;
+        g_pathTraceProducerLaneConfiguredMode = -1;
+        g_pathTraceProducerLaneConfiguredMask = -1;
+        if (m_smokeSceneRenderWorld || m_smokeSceneMapName.Length() > 0)
+        {
+            common->Printf("PathTracePrimaryPass: PT render world map changed '%s' -> '%s' serial %llu -> %llu; clearing scene caches\n",
+                m_smokeSceneMapName.c_str(),
+                renderWorld->mapName.c_str(),
+                static_cast<unsigned long long>(m_smokeSceneMapLoadSerial),
+                static_cast<unsigned long long>(renderWorld->mapLoadSerial));
+        }
+        nvrhi::IDevice* resetDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
+        if (resetDevice)
+        {
+            resetDevice->waitForIdle();
+        }
+        ResetRayTracingSmokeSceneResources();
+        m_smokeGeometryUniverse.ClearRetiredRigidBlas();
+        m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES);
+        m_smokeSceneRenderWorld = renderWorld;
+        m_smokeSceneMapName = renderWorld->mapName;
+        m_smokeSceneMapTimeStamp = renderWorld->mapTimeStamp;
+        m_smokeSceneMapLoadSerial = renderWorld->mapLoadSerial;
+    }
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return;
+    }
+    nvrhi::ICommandList* commandList = m_backend ? m_backend->GL_GetCommandList() : nullptr;
+    if (!commandList)
+    {
+        return;
+    }
+    if (TryBuildCpuProducerRewriteScene(viewDef, device, commandList))
+    {
+        return;
     }
 
     BuildPathTraceParticleCompositeCapture(viewDef, m_particleCapture);
@@ -7396,59 +12292,120 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         cleanRtxdiDiMaterialValidationRoute ||
         neeCacheSceneBuildRluEmissives;
 
-    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.rrMotionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_frameResources.rrGuidePositionTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
+    const int producerLaneRequestedMode = idMath::ClampInt(
+        0, 2, r_pathTracingProducerLanes.GetInteger());
+    const int producerLaneRequestedMask =
+        r_pathTracingProducerLaneMask.GetInteger() & 0x7;
+    if (RtPathTraceProducerConfigurationChanged(
+            g_pathTraceProducerLaneConfiguredMode,
+            g_pathTraceProducerLaneConfiguredMask,
+            producerLaneRequestedMode,
+            producerLaneRequestedMask))
     {
-        return;
+        ConfigurePathTraceProducerLanes(
+            producerLaneRequestedMode,
+            producerLaneRequestedMask);
+        g_pathTraceProducerLaneConfiguredMode = producerLaneRequestedMode;
+        g_pathTraceProducerLaneConfiguredMask = producerLaneRequestedMask;
     }
-    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
-    if (!renderWorld)
+    const int producerLaneMode = PathTraceProducerLaneEffectiveMode();
+    const bool producerLaneActive = producerLaneMode == 1 || producerLaneMode == 2;
+    const bool producerLaneShadow = producerLaneMode == 1;
+    const bool producerLaneConsume = producerLaneMode == 2;
+    const bool producerLaneBActive = PathTraceProducerLaneBActive();
+    const RtPathTraceProducerLaneBOwnershipDecision laneBOwnership =
+        RtPathTraceResolveProducerLaneBOwnership(
+            m_smokeProducerLaneBOwnershipActive, producerLaneBActive);
+    if (laneBOwnership.entering || laneBOwnership.leaving)
     {
-        if (m_smokeSceneRenderWorld || m_smokeSceneMapName.Length() > 0)
+        m_smokeAccelCpuResidentPublisher.Reset();
+        m_smokeProducerLaneBBootstrapComplete = false;
+        if (laneBOwnership.entering)
         {
-            common->Printf("PathTracePrimaryPass: PT render world unavailable; clearing scene caches for '%s'\n",
-                m_smokeSceneMapName.c_str());
-            nvrhi::IDevice* resetDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
-            if (resetDevice)
+            if (m_smokeAccelerationPlanFuture.valid())
             {
-                resetDevice->waitForIdle();
+                m_smokeAccelerationPlanFuture.Stop();
             }
-            ResetRayTracingSmokeSceneResources();
-            m_smokeGeometryUniverse.ClearRetiredRigidBlas();
-            m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES);
+            if (m_smokeRigidTlasPlanFuture.valid())
+            {
+                m_smokeRigidTlasPlanFuture.Stop();
+            }
+            if (m_smokeRigidRouteBuildFuture.valid())
+            {
+                m_smokeRigidRouteBuildFuture.Stop();
+            }
+            if (m_smokeRigidTlasBackendJob.jobList)
+            {
+                StopPathTraceRigidTlasBackendJob(m_smokeRigidTlasBackendJob);
+            }
+            RtPathTraceCpuWorkDiscardStoppedWorkerGeneration(
+                m_smokeAccelerationPlanAsyncGenerationValid);
+            RtPathTraceCpuWorkDiscardStoppedWorkerGeneration(
+                m_smokeRigidTlasPlanAsyncGenerationValid);
+            RtPathTraceCpuWorkDiscardStoppedWorkerGeneration(
+                m_smokeRigidRouteBuildAsyncGenerationValid);
+            m_backendParallelV1RigidTlasPending = false;
+            m_backendParallelV1RigidTlasReady = false;
         }
-        return;
-    }
-    const bool renderWorldChanged = m_smokeSceneRenderWorld != renderWorld;
-    const bool mapChanged = m_smokeSceneMapName.Icmp(renderWorld->mapName) != 0 || m_smokeSceneMapTimeStamp != renderWorld->mapTimeStamp;
-    const bool mapLoadChanged = m_smokeSceneMapLoadSerial != renderWorld->mapLoadSerial;
-    if (renderWorldChanged || mapChanged || mapLoadChanged)
-    {
-        if (m_smokeSceneRenderWorld || m_smokeSceneMapName.Length() > 0)
+        else if (laneBOwnership.leaving)
         {
-            common->Printf("PathTracePrimaryPass: PT render world map changed '%s' -> '%s' serial %llu -> %llu; clearing scene caches\n",
-                m_smokeSceneMapName.c_str(),
-                renderWorld->mapName.c_str(),
-                static_cast<unsigned long long>(m_smokeSceneMapLoadSerial),
-                static_cast<unsigned long long>(renderWorld->mapLoadSerial));
+            m_smokeAccelerationPlanFuture.Reset();
+            m_smokeRigidTlasPlanFuture.Reset();
+            m_smokeRigidRouteBuildFuture.Reset();
+            m_smokeRigidTlasDedicatedWorkerDisabledForBackendPool = false;
+            m_smokeRigidRouteDedicatedWorkerDisabledForBackendV1 = false;
         }
-        nvrhi::IDevice* resetDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
-        if (resetDevice)
-        {
-            resetDevice->waitForIdle();
-        }
-        ResetRayTracingSmokeSceneResources();
-        m_smokeGeometryUniverse.ClearRetiredRigidBlas();
-        m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES);
-        m_smokeSceneRenderWorld = renderWorld;
-        m_smokeSceneMapName = renderWorld->mapName;
-        m_smokeSceneMapTimeStamp = renderWorld->mapTimeStamp;
-        m_smokeSceneMapLoadSerial = renderWorld->mapLoadSerial;
+        m_smokeProducerLaneBOwnershipActive = laneBOwnership.active;
+        RecordPathTraceProducerLaneBOwnershipTransition();
     }
-    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
-    if (!device)
+    if (producerLaneActive || producerLaneBActive)
     {
-        return;
+        PollPathTraceProducerLanes(
+            m_smokeGeometryFrameIndex,
+            r_pathTracingProducerLaneLog.GetInteger() != 0 &&
+                (m_smokeGeometryFrameIndex % 120ull) == 1ull);
     }
+    const bool backendParallelVulkan =
+        deviceManager &&
+        deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
+    const bool backendParallelV1Requested =
+        r_pathTracingBackendParallelV1.GetInteger() != 0 &&
+        backendParallelVulkan;
+    if (!backendParallelV1Requested && m_backendParallelV1JobList)
+    {
+        ResetBackendParallelV1JobList();
+    }
+    const bool backendParallelV1 =
+        backendParallelV1Requested &&
+        EnsureBackendParallelV1JobList();
+    const bool rigidRouteAppendJobRequested =
+        backendParallelV1 &&
+        r_pathTracingRigidRouteAppendJob.GetInteger() != 0;
+    if (!rigidRouteAppendJobRequested && m_rigidRouteAppendJobList)
+    {
+        ResetRigidRouteAppendJobList();
+    }
+    const bool rigidRouteAppendJobEnabled =
+        rigidRouteAppendJobRequested &&
+        EnsureRigidRouteAppendJobList();
+    const bool backendParallelV0Only =
+        !backendParallelV1Requested &&
+        r_pathTracingBackendParallelV0.GetInteger() != 0 &&
+        backendParallelVulkan;
+    const bool backendParallelV0 =
+        backendParallelV1 || backendParallelV0Only;
+    PathTraceDoomAnalyticLightBuildOptions doomAnalyticBuildOptions;
+    if (backendParallelV0)
+    {
+        doomAnalyticBuildOptions = BuildCurrentDoomAnalyticLightOptions(
+            unifiedPtScenePublicationRequested);
+    }
+    PathTraceDoomLightBackendJob doomLightBackendJob;
+    bool doomLightBackendSubmitted = false;
+    bool backendParallelV1T1Submitted = false;
+    bool backendParallelV1RigidTlasSubmitted = false;
+    bool backendParallelV1T3Submitted = false;
+    int doomLightSnapshotMs = 0;
     if (!m_smokeTextureDescriptorTable)
     {
         m_smokeTextureDescriptorTable = device->createDescriptorTable(m_smokeTextureBindlessLayout);
@@ -7469,11 +12426,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeBoundsOverlayViewValid = true;
     }
 
-    nvrhi::ICommandList* commandList = m_backend ? m_backend->GL_GetCommandList() : nullptr;
-    if (!commandList)
-    {
-        return;
-    }
     for (GeometrySkinnedGpuTimerSlot& timer :
         m_geometrySkinnedGpuTimers)
     {
@@ -7526,6 +12478,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<uint32_t> dynamicTriangleInstanceData;
     std::vector<uint32_t> dynamicTriangleIdentityData;
     std::vector<RtSmokeSkinnedSurfaceRecord> currentSkinnedSurfaceRecords;
+    std::vector<RtSmokeRigidCaptureSkipRecord> rigidCaptureSkips;
+    std::vector<uint64_t> rigidCaptureWalked;
+    std::vector<uint32_t> rigidCaptureWalkedTriangles;
+    std::vector<RtSmokeMergedWalkedRange> mergedWalkedRanges;
+    std::vector<uint64_t> staticWalkedIds;
+    std::vector<uint32_t> staticWalkedTriangles;
     std::vector<RtSmokeCapturedSurfaceRecord>
         currentCapturedSurfaceRecords;
     uint64 skinnedCaptureViewSignature = 0;
@@ -7693,8 +12651,59 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bool drawSurfMirrorFrameProducedFromDynamicCapture = false;
     const bool geometrySourceDumpRequested =
         r_pathTracingGeometryShadowRegistryDump.GetInteger() != 0;
+    if (backendParallelV0)
+    {
+        OPTICK_EVENT("PT Backend Parallel Doom Light Submit");
+        const int snapshotStartMs = Sys_Milliseconds();
+        PathTraceDoomAnalyticLightSnapshot snapshot;
+        const bool snapshotAvailable =
+            CapturePathTraceDoomAnalyticLightSnapshot(
+                viewDef,
+                doomAnalyticBuildOptions,
+                snapshot);
+        doomLightSnapshotMs = Sys_Milliseconds() - snapshotStartMs;
+        if (snapshotAvailable && backendParallelV1)
+        {
+            if (RtPathTraceBackendJobListCanPopulate(
+                    m_backendParallelV1PhaseState))
+            {
+                doomLightBackendJob.snapshot = std::move(snapshot);
+                doomLightBackendJob.startUs = Sys_Microseconds();
+                m_backendParallelV1JobList->AddJob(
+                    RunPathTraceDoomLightBackendJob,
+                    &doomLightBackendJob);
+                doomLightBackendSubmitted = true;
+                if (m_backendParallelV1RigidTlasPending &&
+                    !m_backendParallelV1RigidTlasReady)
+                {
+                    m_backendParallelV1JobList->AddJob(
+                        RunPathTraceRigidTlasBackendJob,
+                        &m_smokeRigidTlasBackendJob);
+                    backendParallelV1RigidTlasSubmitted = true;
+                    m_backendParallelV1RigidTlasPending = false;
+                }
+                if (RtPathTraceBackendJobListMarkSubmitted(
+                        m_backendParallelV1PhaseState))
+                {
+                    OPTICK_EVENT("PT Backend Parallel V1 Submit");
+                    m_backendParallelV1JobList->Submit(
+                        nullptr,
+                        RT_PT_BACKEND_JOB_PARALLELISM);
+                    backendParallelV1T1Submitted = true;
+                }
+            }
+        }
+        else if (snapshotAvailable)
+        {
+            doomLightBackendSubmitted =
+                StartPathTraceDoomLightBackendJob(
+                    doomLightBackendJob,
+                    std::move(snapshot));
+        }
+    }
     {
         OPTICK_EVENT("PT Capture Doom Surfaces");
+        PtCpuProducerApplyGate::BeginFrame(viewDef, &m_smokeSkinnedSurfaceRecords);
         m_smokeGeometryUniverse.BeginFrame(++m_smokeGeometryFrameIndex, viewDef ? viewDef->renderWorld : nullptr);
         m_smokeGeometryUniverse.ImportCanonicalSourceSnapshot(
             viewDef ? viewDef->pathTraceGeometrySourceSnapshot : nullptr);
@@ -7788,6 +12797,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     {
                         skinnedCaptureAdmissionRoutes =
                             &routeSet.acceptedBuild.records;
+                        PtCpuProducerApplyGate::SetAcceptedSkinnedBuildLive(true);
                     }
                     else
                     {
@@ -7892,7 +12902,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             {
                 OPTICK_EVENT("PT Capture Visible Doom Surfaces");
-                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeCaptureAnchor, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, &currentSkinnedSurfaceRecords, false, false, true);
+                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeCaptureAnchor, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, &currentSkinnedSurfaceRecords, false, false, true, &staticWalkedIds, &staticWalkedTriangles);
             }
             const bool staticAreaPreloadEnabled =
                 r_pathTracingStaticAreaPreload.GetInteger() != 0 ||
@@ -7952,7 +12962,450 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 r_pathTracingSmokeLog.GetInteger() != 0 ||
                 r_pathTracingSceneBoundsOverlay.GetInteger() != 0 ||
                 rigidResidencyBoundsDebug;
-            const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, &currentSkinnedSurfaceRecords, r_pathTracingGeometryRenderedAttributeSurveyDump.GetInteger() != 0 ? &currentCapturedSurfaceRecords : nullptr, nullptr, &m_instanceUniverse, &m_smokeBoundsOverlayLines, drawSurfMirrorFullDiagnostics, skinnedCaptureAdmissionRoutes);
+            const int producerDebugMode = NormalizePathTraceDebugMode(
+                idMath::ClampInt(0, 58,
+                    r_pathTracingDebugMode.GetInteger()));
+            const bool producerRouteMode18 = producerDebugMode == 18 &&
+                r_pathTracingRigidRouteMode18.GetInteger() != 0;
+            const bool producerRouteResidency =
+                r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
+                r_pathTracingRigidResidency.GetInteger() != 0;
+            const bool producerRemoveRoutedRigidDynamic =
+                (producerRouteResidency ||
+                    PathTraceDebugModeRemovesRoutedRigidDynamic(
+                        producerDebugMode) || producerRouteMode18) &&
+                r_pathTracingRigidRouteRemoveDynamic.GetInteger() != 0 &&
+                r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
+                r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
+                r_pathTracingRigidBlasGpuBuild.GetInteger() != 0;
+            const bool producerRigidRouteEmissiveCards =
+                r_pathTracingRigidRouteEmissiveCards.GetInteger() != 0;
+            bool producerLaneDispatched = false;
+            bool producerOraclePrepared = false;
+            bool producerOwnerHarvested = false;
+            bool producerOwnerDecisionsAttached = false;
+            bool producerMode2DiagnosticFallback = false;
+            bool producerRigidDeferralActive = false;
+            std::vector<RtPathTraceRigidMeshCandidateObservation>
+                producerDeferredRigidCandidates;
+            uint64 producerSnapshotUs = 0;
+            uint64 producerSerialStartUs = 0;
+            RtPathTracePlanningSnapshotEpoch producerEpoch;
+            RtPathTraceLateConsumeToken producerCurrentToken;
+            RtPathTraceOwnerHarvest producerOwnerHarvest;
+            if (producerLaneActive)
+            {
+                const uint64 producerSnapshotStartUs = Sys_Microseconds();
+                producerEpoch.generation = m_smokeGeometryFrameIndex;
+                producerEpoch.frameIndex = m_smokeGeometryFrameIndex;
+                producerEpoch.mapTimeStamp =
+                    static_cast<uint64>(m_smokeSceneMapTimeStamp);
+                producerEpoch.mapLoadSerial = m_smokeSceneMapLoadSerial;
+                RtPathTracePlanningCopyName(
+                    producerEpoch.mapName,
+                    sizeof(producerEpoch.mapName),
+                    m_smokeSceneMapName.c_str());
+                producerEpoch.capturedAfterBeginFrame = true;
+                producerEpoch.capturedAfterStaticPreload = true;
+                producerEpoch.capturedBeforeSerialMutate = true;
+                RtPathTraceCaptureOwnerSnapshot producerSnapshot;
+                size_t producerSlotBytes = 0;
+                if (CapturePathTraceOwnerSnapshot(
+                        viewDef,
+                        m_smokeGeometryUniverse,
+                        m_instanceUniverse,
+                        producerEpoch,
+                        drawSurfMirrorFullDiagnostics,
+                        producerRemoveRoutedRigidDynamic,
+                        producerRigidRouteEmissiveCards,
+                        skinnedCaptureAdmissionRoutes != nullptr &&
+                                !skinnedCaptureAdmissionRoutes->empty()
+                            ? skinnedCaptureAdmissionRoutes->data() : nullptr,
+                        skinnedCaptureAdmissionRoutes != nullptr
+                            ? skinnedCaptureAdmissionRoutes->size() : 0,
+                        SmokeSkinnedCaptureSplitGateEnabled(
+                            skinnedCaptureAdmissionRoutes != nullptr),
+                        producerSnapshot,
+                        producerSlotBytes))
+                {
+                    producerSnapshotUs = Sys_Microseconds() -
+                        producerSnapshotStartUs;
+                    const uint64 viewIdentity = producerSnapshot.viewIdentity;
+                    producerCurrentToken = producerSnapshot.lateConsumeToken;
+                    committedSemanticConfig.recordAllInstanceClasses =
+                        drawSurfMirrorFullDiagnostics;
+                    committedSemanticConfig.removeRoutedRigidDynamic =
+                        producerRemoveRoutedRigidDynamic;
+                    committedSemanticConfig.rigidRouteEmissiveCards =
+                        producerRigidRouteEmissiveCards;
+                    committedSemanticConfig.admissionMaxSurfaces =
+                        producerSnapshot.admissionMaxSurfaces;
+                    committedSemanticConfig.admissionMaxBytes =
+                        producerSnapshot.admissionMaxBytes;
+                    committedSemanticConfig.configFingerprint =
+                        producerCurrentToken.configFingerprint;
+                    committedSemanticConfig.configComplete =
+                        producerCurrentToken.configFingerprint != 0;
+                    const RtPathTraceCaptureCapacityCounts producerCapacityCounts =
+                        producerSnapshot.capacityCounts;
+                    RtPathTraceCaptureProductCapacityPlan producerCapacityPlan;
+                    const bool producerCapacityPlanned =
+                        PlanPathTraceCompleteSlotCapacity(producerCapacityCounts,
+                            sizeof(producerSnapshot), producerCapacityPlan);
+                    producerMode2DiagnosticFallback = producerLaneConsume &&
+                        (drawSurfMirrorFullDiagnostics ||
+                            r_pathTracingCaptureFixNObserveR1.GetInteger() != 0 ||
+                            r_pathTracingMaterialClassifyRingParity.GetInteger() != 0 ||
+                            r_pathTracingGeometryRenderedAttributeSurveyDump.GetInteger() != 0 ||
+                            r_pathTracingRigidRouteOverlapDump.GetInteger() != 0 ||
+                            viewDef->pathTraceCommittedGeometryProduct != nullptr);
+                    if (producerLaneConsume && !producerMode2DiagnosticFallback)
+                    {
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+                        try
+                        {
+#endif
+                            const size_t drawSurfCount =
+                                static_cast<size_t>(Max(0,
+                                    viewDef->numDrawSurfs));
+                            if (drawSurfCount >
+                                producerDeferredRigidCandidates.max_size() / 2u)
+                                throw std::length_error(
+                                    "rigid deferral reserve overflow");
+                            // A partial harvest may be replayed before a full
+                            // fallback capture appends the same frame again.
+                            producerDeferredRigidCandidates.reserve(
+                                drawSurfCount * 2u);
+                            producerRigidDeferralActive = true;
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+                        }
+                        catch (const std::bad_alloc&)
+                        {
+                            producerMode2DiagnosticFallback = true;
+                        }
+                        catch (const std::length_error&)
+                        {
+                            producerMode2DiagnosticFallback = true;
+                        }
+#endif
+                    }
+                    if (producerLaneShadow)
+                    {
+                        producerOraclePrepared = producerCapacityPlanned &&
+                            BeginPathTraceCaptureSerialOracle(
+                                producerEpoch, viewIdentity,
+                                producerCapacityCounts,
+                                producerSnapshot.OwnedBytes() +
+                                    producerCapacityPlan.candidateBytes +
+                                    producerCapacityPlan.finalProductBytes,
+                                &producerSnapshot.reservedOracleBytes);
+                        producerOraclePrepared = producerOraclePrepared &&
+                            SeedPathTraceCaptureSerialOracleSources(producerSnapshot);
+                    }
+                    if ((producerLaneConsume || producerOraclePrepared) &&
+                        !producerMode2DiagnosticFallback)
+                    {
+                        producerOwnerHarvested =
+                            CapturePathTraceDynamicFrameFromDrawSurfMirror(
+                                viewDef, nullptr, &m_smokeGeometryUniverse,
+                                dynamicVertexData, dynamicIndexData,
+                                dynamicTriangleClassData,
+                                dynamicTriangleMaterialData,
+                                &dynamicTriangleInstanceData,
+                                &dynamicTriangleIdentityData,
+                                mirrorSourceSurfaces, mirrorSourceVerts,
+                                mirrorSourceIndexes, mirrorClassStats,
+                                mirrorSkipStats, mirrorDynamicStats,
+                                mirrorAttributeStats, mirrorMaterialStats,
+                                mirrorBucketRanges, mirrorCaptureTiming,
+                                &currentSkinnedSurfaceRecords, nullptr, nullptr,
+                                &m_instanceUniverse, &m_smokeBoundsOverlayLines,
+                                drawSurfMirrorFullDiagnostics,
+                                skinnedCaptureAdmissionRoutes,
+                                &rigidCaptureSkips, &rigidCaptureWalked,
+                                &rigidCaptureWalkedTriangles,
+                                 &mergedWalkedRanges, &producerOwnerHarvest,
+                                 producerRigidDeferralActive
+                                    ? &producerDeferredRigidCandidates : nullptr);
+                        RecordPathTraceProducerHarvestTiming(
+                            producerOwnerHarvest.harvestUs);
+                        if (producerOwnerHarvested)
+                        {
+                            producerOwnerDecisionsAttached =
+                                CopyPathTraceOwnerHarvestDecisionsToSnapshot(
+                                    producerOwnerHarvest, producerSnapshot);
+                        }
+                    }
+                    const RtPathTraceOwnerDecisionHandoffState handoffState = {
+                        producerOwnerHarvested,
+                        producerOwnerDecisionsAttached
+                    };
+                    if (RtPathTraceOwnerDecisionHandoffCanDispatch(
+                            handoffState) &&
+                        (producerLaneConsume || producerOraclePrepared))
+                    {
+                        producerLaneDispatched = DispatchPathTraceProducerLaneA(
+                            std::move(producerSnapshot));
+                    }
+                    if (producerLaneShadow && !producerLaneDispatched &&
+                        producerOraclePrepared)
+                    {
+                        CancelPathTraceCaptureSerialOracle();
+                        producerOraclePrepared = false;
+                    }
+                    if (producerLaneDispatched)
+                    {
+                        producerSerialStartUs = Sys_Microseconds();
+                    }
+                    else
+                    {
+                        if (!producerOraclePrepared)
+                        {
+                            RecordPathTraceProducerSnapshotFallback(0);
+                        }
+                        RecordPathTraceProducerCoordinatorTiming(
+                            producerSnapshotUs, 0);
+                    }
+                }
+                else
+                {
+                    RecordPathTraceProducerSnapshotFallback(
+                        Sys_Microseconds() - producerSnapshotStartUs);
+                }
+            }
+            const RtPathTraceOwnerDecisionHandoffState producerHandoffState = {
+                producerOwnerHarvested,
+                producerOwnerDecisionsAttached
+            };
+            bool usingMirrorDynamicFrame = false;
+            bool producerRigidCompactApplied = false;
+            size_t producerRigidAppliedCount = 0;
+            size_t producerRigidReplayCount = 0;
+            size_t producerInitialDeferredRigidCount = 0;
+            RtPathTraceCaptureProduct producerConsumedProduct;
+            uint32 producerConsumedAge = UINT32_MAX;
+            const bool producerProductReady = producerLaneConsume &&
+                RtPathTraceOwnerDecisionHandoffCanDispatch(
+                    producerHandoffState) &&
+                TryConsumeLatestPathTraceProducerLaneA(
+                    producerEpoch.generation,
+                    producerCurrentToken,
+                    producerOwnerHarvest.membershipReceipt,
+                    producerConsumedProduct,
+                    producerConsumedAge) &&
+                PathTraceOwnerHarvestProductEligible(
+                    producerOwnerHarvest, producerConsumedProduct);
+            if (producerProductReady)
+            {
+                RtPathTraceOwnerFrameStaging staging;
+                bool stagingCaptured = false;
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+                try
+                {
+#endif
+                    staging.vertices = dynamicVertexData;
+                    staging.indexes = dynamicIndexData;
+                    staging.triangleClasses = dynamicTriangleClassData;
+                    staging.triangleMaterials = dynamicTriangleMaterialData;
+                    staging.triangleInstances = dynamicTriangleInstanceData;
+                    staging.triangleIdentities = dynamicTriangleIdentityData;
+                    staging.bucketRanges = mirrorBucketRanges;
+                    staging.sourceSurfaces = mirrorSourceSurfaces;
+                    staging.sourceVerts = mirrorSourceVerts;
+                    staging.sourceIndexes = mirrorSourceIndexes;
+                    staging.classStats = mirrorClassStats;
+                    staging.skipStats = mirrorSkipStats;
+                    staging.dynamicStats = mirrorDynamicStats;
+                    staging.materialStats = mirrorMaterialStats;
+                    staging.captureTiming = mirrorCaptureTiming;
+                    staging.rigidCaptureWalked = rigidCaptureWalked;
+                    staging.rigidCaptureWalkedTriangles =
+                        rigidCaptureWalkedTriangles;
+                    staging.mergedWalkedRanges = mergedWalkedRanges;
+                    stagingCaptured = true;
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+                }
+                catch (const std::bad_alloc&)
+                {
+                    stagingCaptured = false;
+                }
+                catch (const std::length_error&)
+                {
+                    stagingCaptured = false;
+                }
+#endif
+                usingMirrorDynamicFrame = stagingCaptured &&
+                    BuildPathTraceOwnerFrameStagedTransaction(staging,
+                        [&](RtPathTraceOwnerFrameStaging& candidate)
+                        {
+                            return ApplyPathTraceCaptureProductToDynamicFrame(
+                                producerConsumedProduct,
+                                candidate.vertices,
+                                candidate.indexes,
+                                candidate.triangleClasses,
+                                candidate.triangleMaterials,
+                                candidate.triangleInstances,
+                                candidate.triangleIdentities,
+                                candidate.bucketRanges,
+                                candidate.sourceSurfaces,
+                                candidate.sourceVerts,
+                                candidate.sourceIndexes);
+                        },
+                        [&](RtPathTraceOwnerFrameStaging& candidate)
+                        {
+                            return FinalizePathTraceOwnerHarvestWithProduct(
+                                producerOwnerHarvest,
+                                producerConsumedProduct,
+                                candidate.sourceSurfaces,
+                                candidate.sourceVerts,
+                                candidate.sourceIndexes,
+                                candidate.classStats,
+                                candidate.skipStats,
+                                candidate.dynamicStats,
+                                candidate.materialStats,
+                                candidate.bucketRanges,
+                                candidate.captureTiming,
+                                &candidate.rigidCaptureWalked,
+                                &candidate.rigidCaptureWalkedTriangles,
+                                &candidate.mergedWalkedRanges);
+                        });
+                if (usingMirrorDynamicFrame && producerRigidDeferralActive)
+                {
+                    OPTICK_EVENT("PT Lane A Rigid Compact Apply");
+                    producerRigidAppliedCount =
+                        producerConsumedProduct.preparedRigidPayloads.size();
+                    const bool compatible =
+                        RtPathTraceRigidPreparedPayloadsCompatible(
+                            producerConsumedProduct.preparedRigidPayloads,
+                            producerDeferredRigidCandidates);
+                    if (compatible &&
+                        producerConsumedProduct.preparedRigidPayloads.empty())
+                    {
+                        producerRigidCompactApplied = true;
+                    }
+                    else if (compatible)
+                    {
+                        RtSmokeGeometryUniverse::RigidPreparedApplyDelta
+                            rigidDelta;
+                        const bool rigidPrepared =
+                            m_smokeGeometryUniverse.PrepareRigidPreparedPayloadApply(
+                                producerConsumedProduct.preparedRigidPayloads,
+                                producerDeferredRigidCandidates,
+                                producerConsumedProduct.OwnedBytes(),
+                                RT_PT_CAPTURE_PRODUCT_SLOT_MAX_BYTES,
+                                rigidDelta);
+                        producerRigidCompactApplied = rigidPrepared &&
+                            m_smokeGeometryUniverse.CommitRigidPreparedPayloadApply(
+                                rigidDelta);
+                    }
+                    usingMirrorDynamicFrame = producerRigidCompactApplied;
+                }
+                if (usingMirrorDynamicFrame)
+                {
+                    staging.CommitTo(dynamicVertexData, dynamicIndexData,
+                        dynamicTriangleClassData, dynamicTriangleMaterialData,
+                        dynamicTriangleInstanceData, dynamicTriangleIdentityData,
+                        mirrorBucketRanges, mirrorSourceSurfaces,
+                        mirrorSourceVerts, mirrorSourceIndexes,
+                        mirrorClassStats, mirrorSkipStats, mirrorDynamicStats,
+                        mirrorMaterialStats, mirrorCaptureTiming,
+                        rigidCaptureWalked, rigidCaptureWalkedTriangles,
+                        mergedWalkedRanges);
+                }
+            }
+            producerInitialDeferredRigidCount =
+                producerDeferredRigidCandidates.size();
+            if (producerRigidDeferralActive && !producerRigidCompactApplied &&
+                !producerDeferredRigidCandidates.empty())
+            {
+                OPTICK_EVENT("PT Lane A Rigid Deferred Replay");
+                producerRigidReplayCount +=
+                    ReplayPathTraceDeferredRigidCandidates(
+                        m_smokeGeometryUniverse,
+                        producerRigidDeferralActive,
+                        producerRigidCompactApplied,
+                        producerDeferredRigidCandidates);
+            }
+            if (!usingMirrorDynamicFrame &&
+                RtPathTraceOwnerDecisionHandoffUsesHarvestFallback(
+                    producerHandoffState))
+            {
+                usingMirrorDynamicFrame = AppendPathTraceOwnerHarvestGeometry(
+                    producerOwnerHarvest,
+                    dynamicVertexData,
+                    dynamicIndexData,
+                    dynamicTriangleClassData,
+                    dynamicTriangleMaterialData,
+                    &dynamicTriangleInstanceData,
+                    &dynamicTriangleIdentityData,
+                    mirrorSourceSurfaces,
+                    mirrorSourceVerts,
+                    mirrorSourceIndexes,
+                    mirrorClassStats,
+                    mirrorSkipStats,
+                    mirrorDynamicStats,
+                    mirrorAttributeStats,
+                    mirrorMaterialStats,
+                    mirrorBucketRanges,
+                    mirrorCaptureTiming,
+                    &currentSkinnedSurfaceRecords,
+                    nullptr,
+                    &rigidCaptureWalked,
+                    &rigidCaptureWalkedTriangles,
+                    &mergedWalkedRanges);
+            }
+            if (!usingMirrorDynamicFrame &&
+                RtPathTraceOwnerDecisionHandoffUsesFullCapture(
+                    producerHandoffState))
+            {
+                usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, &currentSkinnedSurfaceRecords, r_pathTracingGeometryRenderedAttributeSurveyDump.GetInteger() != 0 ? &currentCapturedSurfaceRecords : nullptr, nullptr, &m_instanceUniverse, &m_smokeBoundsOverlayLines, drawSurfMirrorFullDiagnostics, skinnedCaptureAdmissionRoutes, &rigidCaptureSkips, &rigidCaptureWalked, &rigidCaptureWalkedTriangles, &mergedWalkedRanges, nullptr,
+                    producerRigidReplayCount != 0
+                        ? &producerDeferredRigidCandidates : nullptr);
+                if (producerRigidReplayCount != 0 &&
+                    producerDeferredRigidCandidates.size() >
+                        producerInitialDeferredRigidCount)
+                {
+                    OPTICK_EVENT("PT Lane A Rigid Deferred Replay");
+                    producerRigidReplayCount +=
+                        ReplayPathTraceDeferredRigidCandidates(
+                            m_smokeGeometryUniverse,
+                            producerRigidDeferralActive,
+                            producerRigidCompactApplied,
+                            producerDeferredRigidCandidates,
+                            producerInitialDeferredRigidCount,
+                            producerInitialDeferredRigidCount);
+                }
+            }
+            if (producerRigidDeferralActive)
+            {
+                RecordPathTraceProducerLaneARigidOutcome(
+                    producerDeferredRigidCandidates.size(),
+                    producerRigidReplayCount,
+                    producerRigidCompactApplied
+                        ? producerRigidAppliedCount : 0,
+                    !producerRigidCompactApplied);
+            }
+            if (producerLaneDispatched && producerOraclePrepared)
+            {
+                RtPathTraceCaptureOracle oracle =
+                    FinishPathTraceCaptureSerialOracle(
+                        dynamicVertexData,
+                        dynamicIndexData,
+                        dynamicTriangleClassData,
+                        dynamicTriangleMaterialData,
+                        dynamicTriangleInstanceData,
+                        dynamicTriangleIdentityData);
+                RecordPathTraceProducerSerialOracle(std::move(oracle));
+                RecordPathTraceProducerCoordinatorTiming(
+                    producerSnapshotUs,
+                    Sys_Microseconds() - producerSerialStartUs);
+            }
+            else if (producerLaneDispatched)
+            {
+                RecordPathTraceProducerCoordinatorTiming(
+                    producerSnapshotUs,
+                    Sys_Microseconds() - producerSerialStartUs);
+            }
 
             {
                 OPTICK_EVENT("PT Merge Mirror Capture Stats");
@@ -8028,15 +13481,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             {
                 OPTICK_EVENT("PT Capture Legacy Doom Surfaces");
-                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeCaptureAnchor, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0);
+                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeCaptureAnchor, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0, false, &staticWalkedIds, &staticWalkedTriangles);
             }
         }
         {
+        PtCpuProducerPacker::MaybeCaptureFrame(
+            viewDef,
+            captureTiming,
+            Sys_Microseconds() - cpuProducerPackBuildStartUs,
+            &currentSkinnedSurfaceRecords);
+        PtCpuProducerApplyGate::MaybeLog();
             OPTICK_EVENT("PT DrawSurf Mirror");
             if (drawSurfMirrorFrameProducedFromDynamicCapture)
             {
-                OPTICK_EVENT("PT DrawSurf Mirror EndFrame");
-                m_instanceUniverse.EndFrame();
+                // The dynamic capture already began the frame.  End it only
+                // after the entity-feed observations below are committed.
             }
             else
             {
@@ -8067,6 +13526,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     idMath::ClampInt(0, 8, r_pathTracingRigidResidencyPortalSteps.GetInteger()),
                     !residencyV2,
                     &materialStats);
+            }
+            {
+                OPTICK_EVENT("PT Instance Universe Committed EndFrame");
+                m_instanceUniverse.EndFrame();
             }
             m_smokeBoundsOverlayLineCount = static_cast<int>(m_smokeBoundsOverlayLines.size());
         }
@@ -8100,6 +13563,120 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             OPTICK_EVENT("PT Prune Missing Static Surfaces");
             staticCacheChanged = m_smokeGeometryUniverse.PruneMissingStaticSurfaces() || staticCacheChanged;
+        }
+
+        // Phase 1 only: publish the immutable N-1 planning authority after
+        // both owners have ended the root frame and static pruning is final.
+        // No shipping consumer exists until the phase-3 acceptance path.
+        if (viewDef != nullptr && !viewDef->isSubview &&
+            viewDef->pathTraceSealedPrimaryViewToken != 0)
+        {
+            RtPathTraceCommittedPlanningBaseline baseline;
+            baseline.epoch.committedViewToken =
+                viewDef->pathTraceSealedPrimaryViewToken;
+            baseline.epoch.sealedPrimaryViewToken =
+                viewDef->pathTraceSealedPrimaryViewToken;
+            baseline.epoch.baselineFrameIndex =
+                viewDef->pathTraceSealedPrimaryViewFrameIndex;
+            baseline.epoch.ownerUniverseFrameIndex =
+                m_smokeGeometryFrameIndex;
+            baseline.epoch.worldLifecycleGeneration =
+                viewDef->pathTraceWorldLifecycleGeneration;
+            baseline.epoch.mapLoadSerial =
+                viewDef->pathTraceSealedMapLoadSerial;
+            baseline.epoch.mapTimeStamp = static_cast<uint64>(
+                viewDef->pathTraceSealedMapTimeStamp);
+            RtPathTracePlanningCopyName(baseline.epoch.mapName,
+                sizeof(baseline.epoch.mapName),
+                viewDef->renderWorld != nullptr
+                    ? viewDef->renderWorld->mapName.c_str() : "");
+            baseline.epoch.barrierGeneration =
+                PathTraceCommittedBaselineBarrierGeneration();
+            baseline.epoch.materialRegistryGeneration =
+                SmokeMaterialTextureRegistryGeneration();
+            baseline.epoch.residentMaterialFactsGeneration =
+                SmokeResidentMaterialFactsGeneration();
+            baseline.epoch.instanceUniverseGeneration =
+                m_instanceUniverse.Generation();
+            baseline.epoch.geometryUniverseGeneration =
+                m_smokeGeometryUniverse.Generation();
+            baseline.epoch.staticMaterialGeneration =
+                m_smokeGeometryUniverse.StaticMaterialGeneration();
+            baseline.epoch.canonicalSourceIndexPoolGeneration =
+                m_smokeGeometryUniverse.CanonicalSourceIndexPoolGeneration();
+            baseline.epoch.staticResidentPayloadGeneration =
+                m_smokeGeometryUniverse.StaticResidentPayloadGeneration();
+            baseline.epoch.capturedAfterRootEndFrame = true;
+            baseline.epoch.capturedAfterStaticPrune = true;
+            baseline.dispatchGuard.baselineSkinnedSplitGate =
+                SmokeSkinnedCaptureSplitGateEnabled(
+                    skinnedCaptureAdmissionRoutes != nullptr);
+            baseline.dispatchGuard.baselineAdmissionRoutesPresent =
+                skinnedCaptureAdmissionRoutes != nullptr &&
+                !skinnedCaptureAdmissionRoutes->empty();
+            baseline.semanticConfig = committedSemanticConfig;
+
+            RtPathTraceCommittedBaselineCarrierCounts carrierCounts;
+            carrierCounts.applyGateKeys =
+                PtCpuProducerApplyGate::SnapshotKeyCount();
+            carrierCounts.priorSkinnedRecords =
+                m_smokeSkinnedSurfaceRecords.size();
+            RtPathTraceCommittedPlanningBaseline candidate;
+            if (RtPathTraceCommittedBaselineMayDispatch(
+                    baseline.dispatchGuard) &&
+                RtPathTraceBuildCommittedBaselineCarrierTransaction(
+                    std::move(baseline), carrierCounts,
+                    RT_PT_COMMITTED_BASELINE_MAX_BYTES, candidate,
+                    [&](RtPathTraceCommittedPlanningBaseline& building,
+                        size_t& baselineBytes)
+                    {
+                        building.applyGateComplete =
+                            PtCpuProducerApplyGate::FillSnapshotPreReserved(
+                                building.applyGate,
+                                carrierCounts.applyGateKeys);
+                        if (!building.applyGateComplete)
+                        {
+                            return false;
+                        }
+                        for (const RtSmokeSkinnedSurfaceRecord& source :
+                            m_smokeSkinnedSurfaceRecords)
+                        {
+                            RtPathTraceCommittedSkinnedRecordPod row;
+                            row.worldGeneration =
+                                source.canonicalInstance.worldGeneration;
+                            row.renderDefIndex =
+                                source.canonicalInstance.renderDefIndex;
+                            row.renderDefGeneration =
+                                source.canonicalInstance.renderDefGeneration;
+                            row.subInstanceKind = static_cast<uint32_t>(
+                                source.canonicalInstance.subInstanceKind);
+                            row.modelSurfaceIndex =
+                                source.canonicalInstance.modelSurfaceIndex;
+                            row.jointSubmeshIndex =
+                                source.canonicalInstance.jointSubmeshIndex;
+                            row.jointCacheHandle = source.jointCacheHandle;
+                            row.jointSource = source.jointSource;
+                            row.jointCount = source.jointCount;
+                            row.vertexCount = source.vertexCount;
+                            row.indexCount = source.indexCount;
+                            row.triangleCount = source.triangleCount;
+                            row.rtCpuSkinned = source.rtCpuSkinned;
+                            building.priorSkinnedRecords.push_back(row);
+                        }
+                        building.priorSkinnedRecordsComplete = true;
+                        return m_instanceUniverse.
+                                CaptureCommittedInstanceUniverseSnapshot(
+                                    building.instanceUniverse, building.epoch,
+                                    baselineBytes) &&
+                            m_smokeGeometryUniverse.
+                                CaptureCommittedGeometryUniverseSnapshot(
+                                    building.geometryUniverse, building.epoch,
+                                    baselineBytes);
+                    }))
+            {
+                PublishPathTraceCommittedPlanningBaselinePhase1(
+                    std::move(candidate));
+            }
         }
     }
     if (r_pathTracingGeometryAdmissionDump.GetInteger() != 0)
@@ -8552,6 +14129,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRigidTlasPlanDump.SetInteger(0);
     }
     const int captureMs = Sys_Milliseconds() - captureStartMs;
+    if (backendParallelV1T1Submitted)
+    {
+        OPTICK_EVENT("PT Backend Job V1 Wait");
+        m_backendParallelV1JobList->Wait();
+        RtPathTraceBackendJobListMarkWaited(
+            m_backendParallelV1PhaseState);
+        if (backendParallelV1RigidTlasSubmitted)
+        {
+            m_backendParallelV1RigidTlasReady = true;
+        }
+    }
     if (dumpInstanceUniverse || r_pathTracingSmokeLog.GetInteger() != 0)
     {
         OPTICK_EVENT("PT Instance Universe Diagnostics");
@@ -8676,6 +14264,34 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool asyncCpuPlanning =
         asyncBvhFramePlanning ||
         r_pathTracingCpuPlanningAsync.GetInteger() != 0;
+    const bool rigidTlasBackendPool =
+        laneBOwnership.legacyWorkersMayStart && backendParallelV0 && enableRigidRouteForMode;
+    const bool asyncRigidTlasPlanning =
+        laneBOwnership.legacyWorkersMayStart && (asyncCpuPlanning || rigidTlasBackendPool);
+    if (rigidTlasBackendPool)
+    {
+        if (!m_smokeRigidTlasDedicatedWorkerDisabledForBackendPool)
+        {
+            m_smokeRigidTlasPlanFuture.Stop();
+            RtPathTraceCpuWorkDiscardStoppedWorkerGeneration(
+                m_smokeRigidTlasPlanAsyncGenerationValid);
+            m_smokeRigidTlasDedicatedWorkerDisabledForBackendPool = true;
+        }
+    }
+    else
+    {
+        if (m_smokeRigidTlasDedicatedWorkerDisabledForBackendPool)
+        {
+            m_smokeRigidTlasPlanFuture.Reset();
+            m_smokeRigidTlasDedicatedWorkerDisabledForBackendPool = false;
+        }
+        if (m_smokeRigidTlasBackendJob.jobList)
+        {
+            StopPathTraceRigidTlasBackendJob(m_smokeRigidTlasBackendJob);
+            RtPathTraceCpuWorkDiscardStoppedWorkerGeneration(
+                m_smokeRigidTlasPlanAsyncGenerationValid);
+        }
+    }
     RtSmokeRigidTlasPlanSnapshot rigidTlasSnapshot;
     RtSmokeRigidTlasPlan rigidTlasPlan;
     uint64_t rigidTlasPlanInputToken = 0;
@@ -8713,14 +14329,32 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         rigidTlasPlanGeneration.lightGeneration = rigidTlasPlanInputToken;
         RtPathTraceCpuWorkPublishSnapshot(m_smokeRigidTlasCpuWorkState, rigidTlasPlanGeneration);
 
-        if (asyncCpuPlanning && m_smokeRigidTlasPlanFuture.valid())
+        const bool rigidTlasAsyncJobValid = rigidTlasBackendPool
+            ? (backendParallelV1
+                ? m_backendParallelV1RigidTlasReady
+                : m_smokeRigidTlasBackendJob.jobList != nullptr)
+            : m_smokeRigidTlasPlanFuture.valid();
+        if (asyncRigidTlasPlanning && rigidTlasAsyncJobValid)
         {
             OPTICK_EVENT("PT Rigid TLAS Async Accept");
-            const std::future_status futureStatus =
-                m_smokeRigidTlasPlanFuture.wait_for(std::chrono::seconds(0));
+            const std::future_status futureStatus = rigidTlasBackendPool
+                ? (backendParallelV1 ||
+                        PathTraceRigidTlasBackendJobReady(
+                            m_smokeRigidTlasBackendJob)
+                    ? std::future_status::ready
+                    : std::future_status::timeout)
+                : m_smokeRigidTlasPlanFuture.wait_for(std::chrono::seconds(0));
             if (futureStatus == std::future_status::ready)
             {
-                const RtSmokeRigidTlasPlanTimedResult timedResult = m_smokeRigidTlasPlanFuture.get();
+                const RtSmokeRigidTlasPlanTimedResult timedResult =
+                    rigidTlasBackendPool
+                        ? (backendParallelV1
+                            ? std::move(m_smokeRigidTlasBackendJob.result)
+                            : TakePathTraceRigidTlasBackendJob(
+                                m_smokeRigidTlasBackendJob))
+                        : m_smokeRigidTlasPlanFuture.get();
+                backendParallelV1RigidTlasSubmitted = false;
+                m_backendParallelV1RigidTlasReady = false;
                 m_smokeRigidTlasPlanAsyncGenerationValid = false;
                 RtPathTraceCpuWorkResultEnvelope asyncEnvelope;
                 asyncEnvelope.completed = true;
@@ -8752,7 +14386,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
 
         if (!rigidTlasPlanValid &&
-            asyncCpuPlanning &&
+            asyncRigidTlasPlanning &&
             m_smokeRigidTlasPlanAsyncCachedPlanValid &&
             RtPathTraceCpuWorkGenerationEquals(m_smokeRigidTlasPlanAsyncCachedGeneration, rigidTlasPlanGeneration))
         {
@@ -8791,23 +14425,51 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const bool rigidAsyncPlanAlreadyQueued =
             m_smokeRigidTlasPlanAsyncGenerationValid &&
             RtPathTraceCpuWorkGenerationEquals(m_smokeRigidTlasPlanAsyncGeneration, rigidTlasPlanGeneration);
-        if (asyncCpuPlanning &&
-            !m_smokeRigidTlasPlanFuture.valid() &&
-            !rigidAsyncPlanAlreadyCached &&
-            !rigidAsyncPlanAlreadyQueued)
+        const bool rigidTlasAsyncJobStillValid = rigidTlasBackendPool
+            ? (backendParallelV1
+                ? m_backendParallelV1RigidTlasPending
+                : m_smokeRigidTlasBackendJob.jobList != nullptr)
+            : m_smokeRigidTlasPlanFuture.valid();
+        if (asyncRigidTlasPlanning &&
+            RtPathTraceCpuWorkShouldStartWorker(
+                rigidTlasAsyncJobStillValid,
+                rigidAsyncPlanAlreadyCached,
+                rigidAsyncPlanAlreadyQueued))
         {
             OPTICK_EVENT("PT Rigid TLAS Queue");
             m_smokeRigidTlasPlanAsyncTiming = RtPathTraceCpuWorkTiming();
             m_smokeRigidTlasPlanAsyncTiming.snapshotCaptureMs = static_cast<double>(rigidTlasSnapshotMs);
             m_smokeRigidTlasPlanAsyncGeneration = rigidTlasPlanGeneration;
-            m_smokeRigidTlasPlanAsyncGenerationValid = true;
             m_smokeRigidTlasPlanAsyncLaunchMs = Sys_Milliseconds();
-            m_smokeRigidTlasPlanFuture.Start(
-                [rigidTlasSnapshot]() {
-                    return BuildSmokeRigidTlasPlanTimedResult(rigidTlasSnapshot);
-                });
+            bool rigidTlasAsyncJobStarted = false;
+            if (backendParallelV1)
+            {
+                m_smokeRigidTlasBackendJob.snapshot = rigidTlasSnapshot;
+                m_backendParallelV1RigidTlasPending = true;
+                rigidTlasAsyncJobStarted = true;
+            }
+            else if (rigidTlasBackendPool)
+            {
+                rigidTlasAsyncJobStarted = StartPathTraceRigidTlasBackendJob(
+                    m_smokeRigidTlasBackendJob,
+                    rigidTlasSnapshot);
+            }
+            else
+            {
+                rigidTlasAsyncJobStarted = m_smokeRigidTlasPlanFuture.Start(
+                    [rigidTlasSnapshot]() {
+                        return BuildSmokeRigidTlasPlanTimedResult(
+                            rigidTlasSnapshot);
+                    });
+            }
+            m_smokeRigidTlasPlanAsyncGenerationValid =
+                rigidTlasAsyncJobStarted;
         }
-        rigidTlasAsyncPlanQueued = m_smokeRigidTlasPlanFuture.valid();
+        rigidTlasAsyncPlanQueued = rigidTlasBackendPool
+            ? (backendParallelV1
+                ? m_backendParallelV1RigidTlasPending
+                : m_smokeRigidTlasBackendJob.jobList != nullptr)
+            : m_smokeRigidTlasPlanFuture.valid();
     }
     std::vector<uint32_t> fullLevelStaticEmissiveMaterialIds;
     if (r_pathTracingWorldStaticEmissives.GetInteger() != 0)
@@ -8908,7 +14570,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         materialHydrationIds = &m_smokeMaterialHydrationIds;
         const RtSmokeMaterialMetadataRegistrationTiming cachedStaticMetadataTiming =
-            RegisterSmokeMaterialTextureInfoForMaterialIds(
+            RegisterSmokeRewriteMaterialHydration(
                 *materialHydrationIds,
                 enableTextureProbe ||
                     staticBucketResidentMaterialRoute);
@@ -8974,6 +14636,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     const RtSmokeMaterialTableCacheStats materialTableCacheStats = GetSmokeMaterialTableCacheStats();
+    DumpSmokeMaterialTableCacheTelemetryIfNeeded();
     const RtSmokeMaterialTableBuildStats materialTableBuildStats = GetSmokeMaterialTableBuildStats();
     const RtMaterialClassifierStats materialClassifierStats = GetPathTraceMaterialClassifierStats();
     const RtSmokeMaterialUniverseStats materialUniverseStats = GetSmokeMaterialUniverseStats();
@@ -9118,27 +14781,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         // authored material-controlled operation so the remaining camera-angle
         // cost belongs to geometry admission/traversal and fixed UPT ray work.
         flatLambertGpuMaterialTableMaterials = productionGpuMaterialTableMaterials;
-        for (PathTraceSmokeMaterial& material : flatLambertGpuMaterialTableMaterials)
-        {
-            material.debugAlbedo[0] = 0.8f;
-            material.debugAlbedo[1] = 0.8f;
-            material.debugAlbedo[2] = 0.8f;
-            material.debugAlbedo[3] = 1.0f;
-            material.emissiveColor[0] = 0.0f;
-            material.emissiveColor[1] = 0.0f;
-            material.emissiveColor[2] = 0.0f;
-            material.emissiveColor[3] = 0.0f;
-            material.diffuseTextureIndex = UINT32_MAX;
-            material.alphaTextureIndex = UINT32_MAX;
-            material.normalTextureIndex = UINT32_MAX;
-            material.specularTextureIndex = UINT32_MAX;
-            material.emissiveTextureIndex = UINT32_MAX;
-            material.alphaCutoff = 0.0f;
-            material.flags = 0u;
-            material.padding0 = 0u;
-            material.padding1 = 0u;
-            material.padding2 = 0u;
-        }
+        ApplyFlatLambertMaterialUpload(flatLambertGpuMaterialTableMaterials);
     }
     const std::vector<PathTraceSmokeMaterial>& gpuMaterialTableMaterials =
         flatLambertMaterialTable
@@ -9174,6 +14817,119 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     materialDiagnosticDesc.materialTable = &materialTable;
     materialDiagnosticDesc.enableTextureProbe = enableTextureProbe;
     const bool buildRigidRouteBuffers = enableRigidRouteForMode;
+    RtPathTraceAccelCpuSnapshot producerLaneBSnapshot;
+    RtPathTraceAccelCpuProduct producerLaneBFrameProduct;
+    RtSmokeAccelerationPlanInput laneBAccelerationInput;
+    RtPathTraceLaneBProductReleaseGuard producerLaneBProductGuard{
+        producerLaneBActive ? &producerLaneBFrameProduct : nullptr};
+    bool producerLaneBLoadBearingHit = false;
+    if (producerLaneBActive)
+    {
+        OPTICK_EVENT("PT Lane B Snapshot");
+        producerLaneBSnapshot.epoch.generation = m_smokeGeometryFrameIndex;
+        producerLaneBSnapshot.epoch.frameIndex = m_smokeGeometryFrameIndex;
+        producerLaneBSnapshot.epoch.mapTimeStamp =
+            static_cast<uint64>(m_smokeSceneMapTimeStamp);
+        producerLaneBSnapshot.epoch.mapLoadSerial = m_smokeSceneMapLoadSerial;
+        RtPathTracePlanningCopyName(
+            producerLaneBSnapshot.epoch.mapName,
+            sizeof(producerLaneBSnapshot.epoch.mapName),
+            m_smokeSceneMapName.c_str());
+        producerLaneBSnapshot.epoch.capturedAfterBeginFrame = true;
+        producerLaneBSnapshot.epoch.capturedAfterStaticPreload = true;
+        producerLaneBSnapshot.epoch.capturedBeforeSerialMutate = false;
+        producerLaneBSnapshot.compatibility.mapTimeStamp =
+            producerLaneBSnapshot.epoch.mapTimeStamp;
+        producerLaneBSnapshot.compatibility.mapLoadSerial =
+            producerLaneBSnapshot.epoch.mapLoadSerial;
+        RtPathTracePlanningCopyName(
+            producerLaneBSnapshot.compatibility.mapName,
+            sizeof(producerLaneBSnapshot.compatibility.mapName),
+            producerLaneBSnapshot.epoch.mapName);
+        producerLaneBSnapshot.compatibility.lifecycleEpoch =
+            m_smokeSceneMapLoadSerial;
+
+        laneBAccelerationInput.staticSignature.vertices =
+            staticVertexCache.empty() ? nullptr : staticVertexCache.data();
+        laneBAccelerationInput.staticSignature.vertexStride =
+            sizeof(PathTraceSmokeVertex);
+        laneBAccelerationInput.staticSignature.totalVertexCount =
+            static_cast<int>(staticVertexCache.size());
+        laneBAccelerationInput.staticSignature.indexes =
+            staticIndexCache.empty() ? nullptr : staticIndexCache.data();
+        laneBAccelerationInput.staticSignature.totalIndexCount =
+            static_cast<int>(staticIndexCache.size());
+        laneBAccelerationInput.staticSignature.triangleClasses =
+            staticTriangleClassCache.empty()
+                ? nullptr : staticTriangleClassCache.data();
+        laneBAccelerationInput.staticSignature.triangleMaterials =
+            staticTriangleMaterialCache.empty()
+                ? nullptr : staticTriangleMaterialCache.data();
+        laneBAccelerationInput.staticSignature.totalTriangleCount =
+            static_cast<int>(Min(staticTriangleClassCache.size(),
+                staticTriangleMaterialCache.size()));
+        const RtSmokeBucketRange& laneBStaticRange = bucketRanges.buckets[0];
+        laneBAccelerationInput.staticSignature.staticRange.vertexOffset =
+            laneBStaticRange.vertexOffset;
+        laneBAccelerationInput.staticSignature.staticRange.vertexCount =
+            laneBStaticRange.vertexCount;
+        laneBAccelerationInput.staticSignature.staticRange.indexOffset =
+            laneBStaticRange.indexOffset;
+        laneBAccelerationInput.staticSignature.staticRange.indexCount =
+            laneBStaticRange.indexCount;
+        laneBAccelerationInput.staticSignature.staticRange.triangleOffset =
+            laneBStaticRange.triangleOffset;
+        laneBAccelerationInput.staticSignature.staticRange.triangleCount =
+            laneBStaticRange.triangleCount;
+        const RtSmokeGeometryUniverseStats laneBGeometryStats =
+            m_smokeGeometryUniverse.GetStats(false);
+        const bool laneBHardwareOpaque =
+            r_pathTracingHardwareOpaqueGeometry.GetInteger() != 0;
+        const uint64 laneBOpacitySignature = ComputeSmokeBlasOpacitySignature(
+            staticTriangleMaterialCache.empty()
+                ? nullptr : staticTriangleMaterialCache.data(),
+            static_cast<int>(staticTriangleMaterialCache.size()),
+            laneBHardwareOpaque);
+        laneBAccelerationInput.staticCache.hasStaticBlas =
+            laneBStaticRange.indexCount > 0;
+        laneBAccelerationInput.staticCache.cacheValid =
+            m_smokeStaticBlasCacheValid;
+        laneBAccelerationInput.staticCache.cacheResourcesReady =
+            m_smokeStaticBlas && m_smokeStaticVertexBuffer &&
+            m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer &&
+            m_smokeStaticTriangleMaterialBuffer &&
+            m_smokeStaticTriangleMaterialIndexBuffer;
+        laneBAccelerationInput.staticCache.staticCacheChanged =
+            staticCacheChanged ||
+            r_pathTracingStaticBlasForceRebuild.GetInteger() != 0 ||
+            (r_pathTracingStaticBlasGenerationGuard.GetBool() &&
+                m_smokeStaticBlasCacheValid &&
+                m_smokeStaticBlasGeometryGeneration !=
+                    laneBGeometryStats.staticGeometryGeneration) ||
+            r_pathTracingHardwareOpaqueGeometry.IsModified() ||
+            (m_smokeStaticBlasCacheValid &&
+                m_smokeStaticBlasOpacitySignature != laneBOpacitySignature);
+        laneBAccelerationInput.staticCache.previousSignatureHash =
+            m_smokeStaticBlasSignature;
+        laneBAccelerationInput.staticCache.opacitySignature =
+            laneBOpacitySignature;
+        laneBAccelerationInput.staticVertexCount =
+            static_cast<int>(staticVertexCache.size());
+        laneBAccelerationInput.staticIndexCount = laneBStaticRange.indexCount;
+        laneBAccelerationInput.dynamicVertexCount =
+            static_cast<int>(dynamicVertexData.size());
+        laneBAccelerationInput.dynamicIndexCount =
+            bucketRanges.buckets[1].indexCount +
+            bucketRanges.buckets[2].indexCount +
+            bucketRanges.buckets[3].indexCount +
+            bucketRanges.buckets[4].indexCount;
+        producerLaneBSnapshot.compatibility.configFingerprint =
+            BuildSmokeLaneBAccelerationPublishSignature(laneBAccelerationInput) ^
+            (static_cast<uint64>(staticBucketRouteMode & 0xffff) << 48) ^
+            (static_cast<uint64>(producerLaneRequestedMode & 0xff) << 40) ^
+            (static_cast<uint64>(producerLaneRequestedMask & 0xff) << 32) ^
+            static_cast<uint64>(buildRigidRouteBuffers ? 1u : 0u);
+    }
     // The accepted rigid route is already persistent cache state. Use that
     // storage directly so a stable frame does not deep-copy its complete
     // vertex/index payload into a temporary and back again. Preserve the old
@@ -9192,10 +14948,140 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     uint64_t rigidRouteInstanceUploadSignature = 0;
     bool rigidRouteGeometryUploadSignatureValid = false;
     bool rigidRouteInstanceUploadSignatureValid = false;
-    if (buildRigidRouteBuffers)
+    PathTraceRigidRouteBackendJob backendParallelV1RigidRouteJob;
+    RtPathTraceCpuWorkGeneration backendParallelV1RigidRouteGeneration;
+    bool backendParallelV1RigidRouteRequested = false;
+    bool backendParallelV1RigidRouteAccepted = false;
+    const int maxEmissiveRecords = idMath::ClampInt(
+        1,
+        RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS,
+        r_pathTracingEmissiveInventoryMaxTriangles.GetInteger());
+    PathTraceRigidRouteEmissiveAppendBackendInput
+        rigidRouteEmissiveAppendInput;
+    PathTraceRigidRouteEmissiveAppendBackendJob
+        rigidRouteEmissiveAppendJob;
+    bool rigidRouteEmissiveAppendSubmitted = false;
+    const bool rigidRouteEmissiveAppendConsumerRequested =
+        enableRigidRouteForMode &&
+        (unifiedPtScenePublicationRequested ||
+            cleanRtxdiDiSceneBuildRluEmissives ||
+            neeCacheSceneBuildRluEmissives);
+    const auto TrySubmitRigidRouteEmissiveAppendJob = [&]()
+    {
+        if (rigidRouteEmissiveAppendSubmitted ||
+            !rigidRouteAppendJobEnabled ||
+            backendParallelV1RigidRouteRequested ||
+            !rigidRouteBuildAsyncCached ||
+            !rigidRouteEmissiveAppendConsumerRequested ||
+            rigidRouteBuild.instances.empty() ||
+            rigidRouteBuild.instanceObjectToWorld.empty() ||
+            materialTable.materialIds.size() !=
+                materialTable.materials.size() ||
+            materialTable.materialIds.size() !=
+                materialTable.materialFacts.size() ||
+            !m_rigidRouteAppendJobList ||
+            !RtPathTraceBackendJobListCanPopulate(
+                m_rigidRouteAppendJobPhaseState))
+        {
+            return;
+        }
+
+        OPTICK_EVENT("PT Rigid Route Append Submit");
+        rigidRouteEmissiveAppendInput.materialIds =
+            materialTable.materialIds;
+        rigidRouteEmissiveAppendInput.materials =
+            materialTable.materials;
+        rigidRouteEmissiveAppendInput.materialUniverseIndexes.reserve(
+            materialTable.materialFacts.size());
+        for (const RtSmokeMaterialUniverseFacts& facts :
+             materialTable.materialFacts)
+        {
+            rigidRouteEmissiveAppendInput.materialUniverseIndexes.push_back(
+                facts.universeIndex);
+        }
+        rigidRouteEmissiveAppendInput.rigidRouteBuild = &rigidRouteBuild;
+        rigidRouteEmissiveAppendInput.emissiveMaterialFlag =
+            RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE;
+        rigidRouteEmissiveAppendInput.maxRecords = maxEmissiveRecords;
+        rigidRouteEmissiveAppendJob.input =
+            &rigidRouteEmissiveAppendInput;
+        m_rigidRouteAppendJobList->AddJob(
+            RunPathTraceRigidRouteEmissiveAppendBackendJob,
+            &rigidRouteEmissiveAppendJob);
+        if (RtPathTraceBackendJobListMarkSubmitted(
+                m_rigidRouteAppendJobPhaseState))
+        {
+            m_rigidRouteAppendJobList->Submit(nullptr, 1);
+            rigidRouteEmissiveAppendSubmitted = true;
+        }
+    };
+    if (backendParallelV1)
+    {
+        if (!m_smokeRigidRouteDedicatedWorkerDisabledForBackendV1)
+        {
+            m_smokeRigidRouteBuildFuture.Stop();
+            RtPathTraceCpuWorkDiscardStoppedWorkerGeneration(
+                m_smokeRigidRouteBuildAsyncGenerationValid);
+            m_smokeRigidRouteDedicatedWorkerDisabledForBackendV1 = true;
+        }
+    }
+    else if (m_smokeRigidRouteDedicatedWorkerDisabledForBackendV1)
+    {
+        m_smokeRigidRouteBuildFuture.Reset();
+        m_smokeRigidRouteDedicatedWorkerDisabledForBackendV1 = false;
+    }
+    const bool laneBMode2PreserveOnly = producerLaneBActive &&
+        PathTraceProducerLaneBEffectiveMode() == 2 &&
+        m_smokeProducerLaneBBootstrapComplete;
+    if (buildRigidRouteBuffers && !laneBMode2PreserveOnly)
     {
         OPTICK_EVENT("PT Rigid Route Buffers");
-        if (asyncBvhFramePlanning)
+        if (laneBOwnership.legacyWorkersMayStart && backendParallelV1)
+        {
+            OPTICK_EVENT("PT Rigid Route V1 Snapshot");
+            backendParallelV1RigidRouteJob.snapshot =
+                m_smokeGeometryUniverse.CaptureRigidRouteBuildSnapshot(
+                    rigidTlasPlan,
+                    materialTable.materialIds,
+                    true);
+            backendParallelV1RigidRouteGeneration.frameIndex = 0;
+            backendParallelV1RigidRouteGeneration.sceneGeneration =
+                m_smokeSceneUniverseStaticBuildGeneration;
+            backendParallelV1RigidRouteGeneration.geometryGeneration =
+                BuildSmokeRigidRoutePayloadToken(
+                    backendParallelV1RigidRouteJob.snapshot);
+            backendParallelV1RigidRouteGeneration.materialGeneration =
+                BuildSmokeRigidRouteMaterialBindingSignature(
+                    backendParallelV1RigidRouteJob.snapshot);
+            backendParallelV1RigidRouteGeneration.lightGeneration =
+                BuildSmokeRigidRouteStructureToken(rigidTlasPlan);
+            RtPathTraceCpuWorkPublishSnapshot(
+                m_smokeRigidRouteBuildCpuWorkState,
+                backendParallelV1RigidRouteGeneration);
+            if (m_smokeRigidRouteBuildAsyncCachedBuildValid &&
+                RtPathTraceCpuWorkGenerationEquals(
+                    m_smokeRigidRouteBuildAsyncCachedGeneration,
+                    backendParallelV1RigidRouteGeneration))
+            {
+                rigidRouteGeometryUploadSignature =
+                    m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature;
+                rigidRouteInstanceUploadSignature =
+                    m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature;
+                rigidRouteGeometryUploadSignatureValid =
+                    m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid;
+                rigidRouteInstanceUploadSignatureValid =
+                    m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignatureValid;
+                rigidRouteBuildAcceptedFromAsync = true;
+                rigidRouteBuildAsyncCached = true;
+                backendParallelV1RigidRouteAccepted = true;
+            }
+            else
+            {
+                backendParallelV1RigidRouteRequested = true;
+                rigidRouteBuildAsyncQueued = true;
+            }
+        }
+        else if (asyncBvhFramePlanning)
         {
             OPTICK_EVENT("PT Rigid Route Async Orchestration");
             int rigidRouteSnapshotMs = 0;
@@ -9358,6 +15244,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 }
 
                 bool geometryMaterialIndexesChanged = false;
+                {
+                    OPTICK_EVENT("PT Rigid Route Instance Rebuild");
+                    RebuildRigidRouteInstancesFromSnapshot(
+                        rigidRouteBuild,
+                        rigidRouteMetadataSnapshot);
+                }
                 if (rigidRouteMaterialsDirty)
                 {
                     OPTICK_EVENT("PT Rigid Route Material Remap");
@@ -9365,13 +15257,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                         RemapRigidRouteMaterialIndexes(
                             rigidRouteBuild,
                             rigidRouteMetadataSnapshot.materialTableIds);
-                }
-
-                {
-                    OPTICK_EVENT("PT Rigid Route Instance Rebuild");
-                    RebuildRigidRouteInstancesFromSnapshot(
-                        rigidRouteBuild,
-                        rigidRouteMetadataSnapshot);
                 }
 
                 if (geometryPayloadChanged ||
@@ -9479,6 +15364,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     rigidRouteInstanceUploadSignatureValid = false;
                 }
             }
+            TrySubmitRigidRouteEmissiveAppendJob();
             rigidRouteBuildAsyncQueued = m_smokeRigidRouteBuildFuture.valid();
         }
         else
@@ -9490,7 +15376,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
             rigidRouteBuildMs = Sys_Milliseconds() - rigidRouteBuildStartMs;
         }
-        if (r_pathTracingSmokeLog.GetInteger() != 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+        if (laneBOwnership.legacyWorkersMayStart && !backendParallelV1RigidRouteRequested &&
+            r_pathTracingSmokeLog.GetInteger() != 0 &&
+            (m_smokeGeometryFrameIndex % 120ull) == 1ull)
         {
             const uint64_t rigidRouteGeometryBytes =
                 rigidRouteBuild.vertices.size() * sizeof(PathTraceSmokeVertex) +
@@ -9521,6 +15409,43 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 rigidRouteBuild.stats.missingMaterialTableIndex);
         }
     }
+    else if (buildRigidRouteBuffers &&
+        m_smokeRigidRouteBuildAsyncCachedBuildValid)
+    {
+        rigidRouteGeometryUploadSignature =
+            m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature;
+        rigidRouteInstanceUploadSignature =
+            m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature;
+        rigidRouteGeometryUploadSignatureValid =
+            m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid;
+        rigidRouteInstanceUploadSignatureValid =
+            m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignatureValid;
+        rigidRouteBuildAcceptedFromAsync = true;
+        rigidRouteBuildAsyncCached = true;
+    }
+    if (producerLaneBActive && buildRigidRouteBuffers &&
+        !laneBMode2PreserveOnly)
+    {
+        if (!rigidRouteGeometryUploadSignatureValid)
+        {
+            rigidRouteGeometryUploadSignature =
+                BuildRigidRouteGeometryUploadSignature(rigidRouteBuild);
+            rigidRouteGeometryUploadSignatureValid = true;
+        }
+        if (!rigidRouteInstanceUploadSignatureValid)
+        {
+            rigidRouteInstanceUploadSignature =
+                BuildRigidRouteInstanceUploadSignature(rigidRouteBuild);
+            rigidRouteInstanceUploadSignatureValid = true;
+        }
+        m_smokeRigidRouteBuildAsyncCachedBuildValid = true;
+        m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature =
+            rigidRouteGeometryUploadSignature;
+        m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature =
+            rigidRouteInstanceUploadSignature;
+        m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid = true;
+        m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignatureValid = true;
+    }
     const int dynamicTexMatrixVertices = [&]() {
         OPTICK_EVENT("PT Dynamic Tex Matrix Apply");
         return ApplySmokeDynamicMaterialTexMatricesToVertices(
@@ -9550,13 +15475,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         rigidRouteGeometryUploadSignatureValid = false;
     }
-    if (buildRigidRouteBuffers && !rigidRouteGeometryUploadSignatureValid)
+    if (laneBOwnership.legacyWorkersMayStart && buildRigidRouteBuffers &&
+        !backendParallelV1RigidRouteRequested &&
+        !rigidRouteGeometryUploadSignatureValid)
     {
         OPTICK_EVENT("PT Rigid Route Geometry Upload Signature");
         rigidRouteGeometryUploadSignature = BuildRigidRouteGeometryUploadSignature(rigidRouteBuild);
         rigidRouteGeometryUploadSignatureValid = true;
     }
-    if (buildRigidRouteBuffers && !rigidRouteInstanceUploadSignatureValid)
+    if (laneBOwnership.legacyWorkersMayStart && buildRigidRouteBuffers &&
+        !backendParallelV1RigidRouteRequested &&
+        !rigidRouteInstanceUploadSignatureValid)
     {
         OPTICK_EVENT("PT Rigid Route Instance Upload Signature");
         rigidRouteInstanceUploadSignature = BuildRigidRouteInstanceUploadSignature(rigidRouteBuild);
@@ -9614,14 +15543,111 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 viewDef,
                 m_sceneUniverse,
                 m_staticBucketGeometryUniverse,
+                m_smokeGeometryUniverse,
+                rigidTlasPlan,
+                laneBAccelerationInput,
                 materialTable.materialIds,
                 device,
                 commandList,
                 m_smokeGeometryFrameIndex,
                 m_smokeSceneMapTimeStamp,
                 staticBucketPortalSteps,
-                staticBucketSecondaryOpticalPortalHalo,
-                staticBucketConsumerProbe);
+                 staticBucketSecondaryOpticalPortalHalo,
+                 staticBucketConsumerProbe,
+                 !m_smokeProducerLaneBBootstrapComplete,
+                 producerLaneBActive ? &m_smokeAccelCpuResidentPublisher : nullptr,
+                 producerLaneBActive ? &producerLaneBSnapshot : nullptr,
+                 producerLaneBActive ? &producerLaneBFrameProduct : nullptr,
+                 producerLaneBActive ? &producerLaneBLoadBearingHit : nullptr);
+    if (producerLaneBActive &&
+        r_pathTracingProducerLaneLog.GetInteger() != 0 &&
+        (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+    {
+        const RtPathTraceAccelCpuResidentPublishStats laneBPublishStats =
+            m_smokeAccelCpuResidentPublisher.Stats();
+        common->Printf(
+            "PathTracePrimaryPass: producerLaneB publish/reuse/cow/leasedRetiredReject/residentCapReject/allocFail/fillFail/ticketValidationFail/ticketBuildFail/fail=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu publishUs=%llu resident/retired/highWater/attempted=%llu/%llu/%llu/%llu loadBearing/preserve/bootstrap=%d/%d/%d\n",
+            static_cast<unsigned long long>(laneBPublishStats.publishes),
+            static_cast<unsigned long long>(laneBPublishStats.reuses),
+            static_cast<unsigned long long>(laneBPublishStats.cowPublishes),
+            static_cast<unsigned long long>(laneBPublishStats.leaseRejects),
+            static_cast<unsigned long long>(laneBPublishStats.residentCapRejects),
+            static_cast<unsigned long long>(laneBPublishStats.allocationFailures),
+            static_cast<unsigned long long>(laneBPublishStats.fillFailures),
+            static_cast<unsigned long long>(laneBPublishStats.ticketValidationFailures),
+            static_cast<unsigned long long>(laneBPublishStats.ticketBuildFailures),
+            static_cast<unsigned long long>(laneBPublishStats.failures),
+            static_cast<unsigned long long>(laneBPublishStats.publishUs),
+            static_cast<unsigned long long>(laneBPublishStats.residentBytes),
+            static_cast<unsigned long long>(laneBPublishStats.cowBytes),
+            static_cast<unsigned long long>(laneBPublishStats.highWaterBytes),
+            static_cast<unsigned long long>(laneBPublishStats.attemptedResidentBytes),
+            producerLaneBLoadBearingHit ? 1 : 0,
+            !producerLaneBLoadBearingHit &&
+                m_smokeProducerLaneBBootstrapComplete ? 1 : 0,
+            m_smokeProducerLaneBBootstrapComplete ? 1 : 0);
+    }
+    if (producerLaneBActive && buildRigidRouteBuffers)
+    {
+        OPTICK_EVENT("PT Lane B Rigid Route Apply");
+        const uint64 laneBRigidApplyStartUs = Sys_Microseconds();
+        if (producerLaneBFrameProduct.complete)
+        {
+            rigidRouteBuild = std::move(producerLaneBFrameProduct.rigidBuild);
+            rigidRouteGeometryUploadSignature =
+                producerLaneBFrameProduct.rigidGeometrySignature;
+            rigidRouteInstanceUploadSignature =
+                producerLaneBFrameProduct.rigidInstanceSignature;
+            rigidRouteGeometryUploadSignatureValid = true;
+            rigidRouteInstanceUploadSignatureValid = true;
+            rigidRouteBuildAcceptedFromAsync = producerLaneBLoadBearingHit;
+            rigidRouteBuildAsyncCached = producerLaneBLoadBearingHit;
+            bool geometryMaterialIndexesChanged = false;
+            bool instanceMaterialIndexesChanged = false;
+            RemapRigidRouteMaterialIndexes(
+                rigidRouteBuild,
+                materialTable.materialIds,
+                &geometryMaterialIndexesChanged,
+                &instanceMaterialIndexesChanged);
+            if (geometryMaterialIndexesChanged)
+            {
+                rigidRouteGeometryUploadSignature =
+                    BuildRigidRouteGeometryUploadSignature(rigidRouteBuild);
+                rigidRouteGeometryUploadSignatureValid = true;
+            }
+            if (instanceMaterialIndexesChanged)
+            {
+                rigidRouteInstanceUploadSignature =
+                    BuildRigidRouteInstanceUploadSignature(rigidRouteBuild);
+                rigidRouteInstanceUploadSignatureValid = true;
+            }
+        }
+        RecordPathTraceProducerLaneBRigidApplyOutcome(
+            producerLaneBFrameProduct.complete);
+        {
+            OPTICK_EVENT("PT Rigid Route Refresh Transforms");
+            if (RefreshSmokeRigidRouteBuildInstanceTransforms(
+                    rigidRouteBuild, rigidTlasPlan))
+            {
+                rigidRouteInstanceUploadSignature =
+                    BuildRigidRouteInstanceUploadSignature(rigidRouteBuild);
+                rigidRouteInstanceUploadSignatureValid = true;
+            }
+        }
+        m_smokeRigidRouteBuildAsyncCachedBuildValid = true;
+        m_smokeRigidRouteBuildAsyncCachedBuild = rigidRouteBuild;
+        m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature =
+            rigidRouteGeometryUploadSignature;
+        m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature =
+            rigidRouteInstanceUploadSignature;
+        m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid =
+            rigidRouteGeometryUploadSignatureValid;
+        m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignatureValid =
+            rigidRouteInstanceUploadSignatureValid;
+        TrySubmitRigidRouteEmissiveAppendJob();
+        RecordPathTraceProducerLaneBTiming(
+            0, Sys_Microseconds() - laneBRigidApplyStartUs, 0);
+    }
     ReleaseCompletedRetiredStaticBucketGpuResources(
         m_smokeGeometryFrameIndex);
     RtSmokeRetiredStaticBucketGpuResources
@@ -9716,14 +15742,135 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         staticBucketRouteAccepted &&
         !staticBucketPrimaryOpaqueProbe;
     const int emissiveStartMs = Sys_Milliseconds();
+    PathTraceEmissiveInventoryBackendInput backendParallelV1EmissiveInput;
+    PathTraceEmissiveInventoryBackendJob
+        backendParallelV1EmissiveJobs[RT_PT_BACKEND_JOB_PARALLELISM];
+    int backendParallelV1EmissiveJobCount = 0;
+    if (backendParallelV1)
+    {
+        // staticVertexFrameData is the mutable tex-matrix copy. The job reads
+        // staticVertexCache and the already-completed dynamic/publication
+        // arrays, none of which the owner overlap below mutates.
+        assert(staticVertexFrameData.empty() ||
+            staticVertexCache.empty() ||
+            staticVertexFrameData.data() != staticVertexCache.data());
+        backendParallelV1EmissiveInput.materialIds = materialTable.materialIds;
+        backendParallelV1EmissiveInput.materials = materialTable.materials;
+        backendParallelV1EmissiveInput.materialUniverseIndexes.reserve(
+            materialTable.materialFacts.size());
+        for (const RtSmokeMaterialUniverseFacts& facts :
+             materialTable.materialFacts)
+        {
+            backendParallelV1EmissiveInput.materialUniverseIndexes.push_back(
+                facts.universeIndex);
+        }
+        backendParallelV1EmissiveInput.staticMaterialIndexes =
+            materialTable.staticMaterialIndexes;
+        backendParallelV1EmissiveInput.dynamicMaterialIndexes =
+            materialTable.dynamicMaterialIndexes;
+        backendParallelV1EmissiveInput.staticVertices = &staticVertexCache;
+        backendParallelV1EmissiveInput.staticIndexes = &staticIndexCache;
+        backendParallelV1EmissiveInput.staticTriangleClasses =
+            &staticTriangleClassCache;
+        backendParallelV1EmissiveInput.staticBucketGeometryPack =
+            staticBucketEmissiveRouteAccepted
+                ? staticBucketFramePublication.geometryPack
+                : nullptr;
+        backendParallelV1EmissiveInput.staticBucketTriangleMaterialIndexes =
+            staticBucketEmissiveRouteAccepted
+                ? staticBucketFramePublication.materialIndexes
+                : nullptr;
+        backendParallelV1EmissiveInput.staticBucketPublication =
+            staticBucketEmissiveRouteAccepted
+                ? &staticBucketFramePublication.activePublication
+                : nullptr;
+        backendParallelV1EmissiveInput.dynamicVertices = &dynamicVertexData;
+        backendParallelV1EmissiveInput.dynamicIndexes = &dynamicIndexData;
+        backendParallelV1EmissiveInput.dynamicTriangleClasses =
+            &dynamicTriangleClassData;
+        backendParallelV1EmissiveInput.dynamicTriangleInstanceIds =
+            &dynamicTriangleInstanceData;
+        backendParallelV1EmissiveInput.dynamicTriangleIdentityIds =
+            &dynamicTriangleIdentityData;
+        backendParallelV1EmissiveInput.emissiveMaterialFlag =
+            RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE;
+        backendParallelV1EmissiveInput.triangleClassMask =
+            RT_SMOKE_TRIANGLE_CLASS_MASK;
+        backendParallelV1EmissiveInput.skinnedSurfaceClassId =
+            static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed);
+        backendParallelV1EmissiveInput.maxRecords = maxEmissiveRecords;
+
+        const size_t staticSourceUnits =
+            staticBucketEmissiveRouteAccepted
+                ? staticBucketFramePublication.
+                    activePublication.routeRecords.size()
+                : Min(
+                    materialTable.staticMaterialIndexes.size(),
+                    staticIndexCache.size() / 3);
+        const size_t dynamicSourceUnits = Min(
+            materialTable.dynamicMaterialIndexes.size(),
+            dynamicIndexData.size() / 3);
+        RtSmokeEmissiveInventorySourceRange
+            sourceRanges[RT_PT_BACKEND_JOB_PARALLELISM];
+        if (backendParallelV1EmissiveInput.materialUniverseIndexes.size() ==
+                backendParallelV1EmissiveInput.materialIds.size() &&
+            backendParallelV1EmissiveInput.materialUniverseIndexes.size() ==
+                backendParallelV1EmissiveInput.materials.size())
+        {
+            backendParallelV1EmissiveJobCount =
+                BuildSmokeEmissiveInventoryPartitionRanges(
+                    staticSourceUnits,
+                    dynamicSourceUnits,
+                    idMath::ClampInt(
+                        1,
+                        RT_PT_BACKEND_JOB_PARALLELISM,
+                        r_pathTracingBackendParallelV1EmissivePartitions.
+                            GetInteger()),
+                    sourceRanges,
+                    RT_PT_BACKEND_JOB_PARALLELISM);
+        }
+        for (int partitionIndex = 0;
+             partitionIndex < backendParallelV1EmissiveJobCount;
+             ++partitionIndex)
+        {
+            backendParallelV1EmissiveJobs[partitionIndex].input =
+                &backendParallelV1EmissiveInput;
+            backendParallelV1EmissiveJobs[partitionIndex].sourceRange =
+                sourceRanges[partitionIndex];
+        }
+
+        if (backendParallelV1EmissiveJobCount > 0 &&
+            RtPathTraceBackendJobListCanPopulate(
+                m_backendParallelV1PhaseState))
+        {
+            for (int partitionIndex = 0;
+                 partitionIndex < backendParallelV1EmissiveJobCount;
+                 ++partitionIndex)
+            {
+                m_backendParallelV1JobList->AddJob(
+                    RunPathTraceEmissiveInventoryBackendJob,
+                    &backendParallelV1EmissiveJobs[partitionIndex]);
+            }
+            if (backendParallelV1RigidRouteRequested)
+            {
+                m_backendParallelV1JobList->AddJob(
+                    RunPathTraceRigidRouteBackendJob,
+                    &backendParallelV1RigidRouteJob);
+            }
+            if (RtPathTraceBackendJobListMarkSubmitted(
+                    m_backendParallelV1PhaseState))
+            {
+                OPTICK_EVENT("PT Backend Parallel V1 Submit");
+                m_backendParallelV1JobList->Submit(
+                    nullptr,
+                    RT_PT_BACKEND_JOB_PARALLELISM);
+                backendParallelV1T3Submitted = true;
+            }
+        }
+    }
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
     std::vector<PathTraceUptEmissiveGeometry> uptEmissiveGeometry;
-    std::vector<PathTraceSmokeEmissiveTriangle>
-        previousEmissiveTriangles =
-            m_sceneInputs.valid
-                ? m_smokePreviousEmissiveTriangles
-                : std::vector<
-                    PathTraceSmokeEmissiveTriangle>();
+    std::vector<PathTraceSmokeEmissiveTriangle> previousEmissiveTriangles;
     std::vector<PtSkinnedEmissiveAuditTriangle>
         skinnedEmissiveSourceTriangles;
     PtSkinnedEmissiveAuditInventory
@@ -9732,49 +15879,62 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         skinnedEmissiveGpuWork;
     size_t skinnedEmissiveCurrentBase = 0;
     size_t skinnedEmissivePreviousBase = 0;
-    const int skinnedEmissiveAuditCountdown =
-        r_pathTracingGeometrySkinnedEmissiveAudit.
-            GetInteger();
-    const bool skinnedEmissivePublishValidationRequested =
-        skinnedEmissiveAuditCountdown == 1;
-    bool skinnedEmissiveCpuReferenceReady =
-        skinnedEmissivePublishValidationRequested &&
-        !skinnedHitRouteUploadBuild.records.empty();
-    for (const PtSkinnedHitRouteRecord& route :
-        skinnedHitRouteUploadBuild.records)
+    int skinnedEmissiveAuditCountdown = 0;
+    bool skinnedEmissivePublishValidationRequested = false;
+    bool skinnedEmissiveCpuReferenceReady = false;
+    bool skinnedEmissivePublishValidation = false;
     {
-        bool foundCpuReference = false;
-        for (const RtSmokeSkinnedSurfaceRecord& record :
-            currentSkinnedSurfaceRecords)
+        OPTICK_EVENT_DYNAMIC(
+            backendParallelV1T3Submitted
+                ? "PT Backend Parallel V1 Owner Overlap"
+                : "PT Emissive Owner Setup");
+        previousEmissiveTriangles =
+            m_sceneInputs.valid
+                ? m_smokePreviousEmissiveTriangles
+                : std::vector<PathTraceSmokeEmissiveTriangle>();
+        skinnedEmissiveAuditCountdown =
+            r_pathTracingGeometrySkinnedEmissiveAudit.GetInteger();
+        skinnedEmissivePublishValidationRequested =
+            skinnedEmissiveAuditCountdown == 1;
+        skinnedEmissiveCpuReferenceReady =
+            skinnedEmissivePublishValidationRequested &&
+            !skinnedHitRouteUploadBuild.records.empty();
+        for (const PtSkinnedHitRouteRecord& route :
+            skinnedHitRouteUploadBuild.records)
         {
-            if (record.canonicalInstance == route.instanceKey)
+            bool foundCpuReference = false;
+            for (const RtSmokeSkinnedSurfaceRecord& record :
+                currentSkinnedSurfaceRecords)
             {
-                foundCpuReference =
-                    !record.cpuCaptureOmitted &&
-                    SmokeSkinnedCurrentVertexRangeValid(
-                        record,
-                        dynamicVertexData) &&
-                    record.previousValid &&
-                    record.previousVertexOffset >= 0 &&
-                    record.previousVertexOffset <=
-                        static_cast<int>(
-                            previousSkinnedVertexData.size()) &&
-                    record.vertexCount <=
-                        static_cast<int>(
-                            previousSkinnedVertexData.size()) -
+                if (record.canonicalInstance == route.instanceKey)
+                {
+                    foundCpuReference =
+                        !record.cpuCaptureOmitted &&
+                        SmokeSkinnedCurrentVertexRangeValid(
+                            record,
+                            dynamicVertexData) &&
+                        record.previousValid &&
+                        record.previousVertexOffset >= 0 &&
+                        record.previousVertexOffset <=
+                            static_cast<int>(
+                                previousSkinnedVertexData.size()) &&
+                        record.vertexCount <=
+                            static_cast<int>(
+                                previousSkinnedVertexData.size()) -
                             record.previousVertexOffset;
+                    break;
+                }
+            }
+            if (!foundCpuReference)
+            {
+                skinnedEmissiveCpuReferenceReady = false;
                 break;
             }
         }
-        if (!foundCpuReference)
-        {
-            skinnedEmissiveCpuReferenceReady = false;
-            break;
-        }
+        skinnedEmissivePublishValidation =
+            skinnedEmissivePublishValidationRequested &&
+            skinnedEmissiveCpuReferenceReady;
     }
-    const bool skinnedEmissivePublishValidation =
-        skinnedEmissivePublishValidationRequested &&
-        skinnedEmissiveCpuReferenceReady;
     int skinnedEmissivePublishValidationForcedMaterials = 0;
     uint32 skinnedEmissivePublishValidationFallbackMaterial =
         UINT32_MAX;
@@ -9782,37 +15942,187 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<PathTraceSmokeLightCandidate> lightCandidates;
     std::vector<PathTraceDoomAnalyticLightCandidate> doomAnalyticLights;
     PathTraceDoomAnalyticLightGpuRemap doomAnalyticRemap;
-    const int maxEmissiveRecords = idMath::ClampInt(1, RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS, r_pathTracingEmissiveInventoryMaxTriangles.GetInteger());
     {
         OPTICK_EVENT("PT Emissive Inventory");
-        emissiveTriangles = BuildSmokeEmissiveTriangleInventory(
-            materialTable.materialIds,
-            materialTable.materials,
-            staticVertexCache,
-            staticIndexCache,
-            staticTriangleClassCache,
-            materialTable.staticMaterialIndexes,
-            staticBucketEmissiveRouteAccepted
-                ? staticBucketFramePublication.geometryPack
-                : nullptr,
-            staticBucketEmissiveRouteAccepted
-                ? staticBucketFramePublication.materialIndexes
-                : nullptr,
-            staticBucketEmissiveRouteAccepted
-                ? &staticBucketFramePublication.activePublication
-                : nullptr,
-            dynamicVertexData,
-            dynamicIndexData,
-            dynamicTriangleClassData,
-            materialTable.dynamicMaterialIndexes,
-            dynamicTriangleInstanceData,
-            dynamicTriangleIdentityData,
-            RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
-            RT_SMOKE_TRIANGLE_CLASS_MASK,
-            static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
-            maxEmissiveRecords,
-            uptEmissiveGeometry,
-            emissiveInventoryStats);
+        if (backendParallelV1)
+        {
+            if (backendParallelV1T3Submitted)
+            {
+                OPTICK_EVENT("PT Backend Job V1 Wait");
+                m_backendParallelV1JobList->Wait();
+                RtPathTraceBackendJobListMarkWaited(
+                    m_backendParallelV1PhaseState);
+            }
+            else
+            {
+                for (int partitionIndex = 0;
+                     partitionIndex < backendParallelV1EmissiveJobCount;
+                     ++partitionIndex)
+                {
+                    RunPathTraceEmissiveInventoryBackendJob(
+                        &backendParallelV1EmissiveJobs[partitionIndex]);
+                }
+                if (backendParallelV1RigidRouteRequested)
+                {
+                    RunPathTraceRigidRouteBackendJob(
+                        &backendParallelV1RigidRouteJob);
+                }
+            }
+            // Publication is the dependency boundary: no owner code above
+            // reads or writes these job-owned products.
+            RtSmokeEmissiveInventoryPartitionResult*
+                partitionResults[RT_PT_BACKEND_JOB_PARALLELISM] = {};
+            for (int partitionIndex = 0;
+                 partitionIndex < backendParallelV1EmissiveJobCount;
+                 ++partitionIndex)
+            {
+                partitionResults[partitionIndex] =
+                    &backendParallelV1EmissiveJobs[partitionIndex].result;
+            }
+            const bool emissivePartitionsMerged =
+                MergeSmokeEmissiveInventoryPartitions(
+                    materialTable.materialIds,
+                    partitionResults,
+                    static_cast<size_t>(
+                        backendParallelV1EmissiveJobCount),
+                    maxEmissiveRecords,
+                    emissiveTriangles,
+                    uptEmissiveGeometry,
+                    emissiveInventoryStats);
+            if (!emissivePartitionsMerged)
+            {
+                // Any range/merge invariant failure falls back to the exact
+                // serial producer before publication.
+                emissiveTriangles = BuildSmokeEmissiveTriangleInventory(
+                    materialTable.materialIds,
+                    materialTable.materials,
+                    staticVertexCache,
+                    staticIndexCache,
+                    staticTriangleClassCache,
+                    materialTable.staticMaterialIndexes,
+                    staticBucketEmissiveRouteAccepted
+                        ? staticBucketFramePublication.geometryPack
+                        : nullptr,
+                    staticBucketEmissiveRouteAccepted
+                        ? staticBucketFramePublication.materialIndexes
+                        : nullptr,
+                    staticBucketEmissiveRouteAccepted
+                        ? &staticBucketFramePublication.activePublication
+                        : nullptr,
+                    dynamicVertexData,
+                    dynamicIndexData,
+                    dynamicTriangleClassData,
+                    materialTable.dynamicMaterialIndexes,
+                    dynamicTriangleInstanceData,
+                    dynamicTriangleIdentityData,
+                    RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
+                    RT_SMOKE_TRIANGLE_CLASS_MASK,
+                    static_cast<uint32_t>(
+                        RtSmokeSurfaceClass::SkinnedDeformed),
+                    maxEmissiveRecords,
+                    uptEmissiveGeometry,
+                    emissiveInventoryStats);
+            }
+
+            if (backendParallelV1RigidRouteRequested)
+            {
+                const RtPathTraceRigidRouteBuildTimedResult& timedResult =
+                    backendParallelV1RigidRouteJob.result;
+                rigidRouteBuild = std::move(
+                    backendParallelV1RigidRouteJob.result.build);
+                rigidRouteGeometryUploadSignature =
+                    timedResult.geometryUploadSignature;
+                rigidRouteInstanceUploadSignature =
+                    timedResult.instanceUploadSignature;
+                rigidRouteGeometryUploadSignatureValid =
+                    timedResult.geometryUploadSignatureValid;
+                rigidRouteInstanceUploadSignatureValid =
+                    timedResult.instanceUploadSignatureValid;
+                rigidRouteBuildMs = static_cast<int>(
+                    (timedResult.buildTimeMicros + 500ull) / 1000ull);
+                m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature =
+                    rigidRouteGeometryUploadSignature;
+                m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature =
+                    rigidRouteInstanceUploadSignature;
+                m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid =
+                    rigidRouteGeometryUploadSignatureValid;
+                m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignatureValid =
+                    rigidRouteInstanceUploadSignatureValid;
+                m_smokeRigidRouteBuildAsyncCachedGeneration =
+                    backendParallelV1RigidRouteGeneration;
+                m_smokeRigidRouteBuildAsyncCachedBuildValid = true;
+                backendParallelV1RigidRouteAccepted = true;
+                rigidRouteBuildAcceptedFromAsync =
+                    backendParallelV1T3Submitted;
+                rigidRouteBuildAsyncQueued = false;
+            }
+            if (buildRigidRouteBuffers &&
+                backendParallelV1RigidRouteAccepted)
+            {
+                OPTICK_EVENT("PT Rigid Route Refresh Transforms");
+                if (RefreshSmokeRigidRouteBuildInstanceTransforms(
+                        rigidRouteBuild,
+                        rigidTlasPlan))
+                {
+                    rigidRouteInstanceUploadSignatureValid = false;
+                }
+                if (!rigidRouteGeometryUploadSignatureValid)
+                {
+                    rigidRouteGeometryUploadSignature =
+                        BuildRigidRouteGeometryUploadSignature(rigidRouteBuild);
+                    rigidRouteGeometryUploadSignatureValid = true;
+                }
+                if (!rigidRouteInstanceUploadSignatureValid)
+                {
+                    rigidRouteInstanceUploadSignature =
+                        BuildRigidRouteInstanceUploadSignature(rigidRouteBuild);
+                    rigidRouteInstanceUploadSignatureValid = true;
+                }
+                m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature =
+                    rigidRouteGeometryUploadSignature;
+                m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature =
+                    rigidRouteInstanceUploadSignature;
+                m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid =
+                    rigidRouteGeometryUploadSignatureValid;
+                m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignatureValid =
+                    rigidRouteInstanceUploadSignatureValid;
+            }
+            if (!backendParallelV1RigidRouteRequested)
+            {
+                TrySubmitRigidRouteEmissiveAppendJob();
+            }
+        }
+        else
+        {
+            emissiveTriangles = BuildSmokeEmissiveTriangleInventory(
+                materialTable.materialIds,
+                materialTable.materials,
+                staticVertexCache,
+                staticIndexCache,
+                staticTriangleClassCache,
+                materialTable.staticMaterialIndexes,
+                staticBucketEmissiveRouteAccepted
+                    ? staticBucketFramePublication.geometryPack
+                    : nullptr,
+                staticBucketEmissiveRouteAccepted
+                    ? staticBucketFramePublication.materialIndexes
+                    : nullptr,
+                staticBucketEmissiveRouteAccepted
+                    ? &staticBucketFramePublication.activePublication
+                    : nullptr,
+                dynamicVertexData,
+                dynamicIndexData,
+                dynamicTriangleClassData,
+                materialTable.dynamicMaterialIndexes,
+                dynamicTriangleInstanceData,
+                dynamicTriangleIdentityData,
+                RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
+                RT_SMOKE_TRIANGLE_CLASS_MASK,
+                static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
+                maxEmissiveRecords,
+                uptEmissiveGeometry,
+                emissiveInventoryStats);
+        }
         if (staticBucketFramePublication.auditReady &&
             !staticBucketEmissiveRouteAccepted &&
             staticBucketFramePublication.geometryPack != nullptr &&
@@ -10175,15 +16485,35 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 cleanRtxdiDiSceneBuildRluEmissives ||
                 neeCacheSceneBuildRluEmissives))
         {
-            AppendSmokeRigidRouteEmissiveTriangleInventory(
-                materialTable.materialIds,
-                materialTable.materials,
-                rigidRouteBuild,
-                RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
-                maxEmissiveRecords,
-                emissiveTriangles,
-                uptEmissiveGeometry,
-                emissiveInventoryStats);
+            bool rigidRouteEmissiveAppendMerged = false;
+            if (rigidRouteEmissiveAppendSubmitted)
+            {
+                {
+                    OPTICK_EVENT("PT Rigid Route Append Wait");
+                    m_rigidRouteAppendJobList->Wait();
+                }
+                RtPathTraceBackendJobListMarkWaited(
+                    m_rigidRouteAppendJobPhaseState);
+                rigidRouteEmissiveAppendMerged =
+                    MergeSmokeRigidRouteEmissiveAppendResult(
+                        rigidRouteEmissiveAppendJob.result,
+                        maxEmissiveRecords,
+                        emissiveTriangles,
+                        uptEmissiveGeometry,
+                        emissiveInventoryStats);
+            }
+            if (!rigidRouteEmissiveAppendMerged)
+            {
+                AppendSmokeRigidRouteEmissiveTriangleInventory(
+                    materialTable.materialIds,
+                    materialTable.materials,
+                    rigidRouteBuild,
+                    RT_SMOKE_MATERIAL_EMISSIVE_LIGHT_CANDIDATE,
+                    maxEmissiveRecords,
+                    emissiveTriangles,
+                    uptEmissiveGeometry,
+                    emissiveInventoryStats);
+            }
         }
         if (!staticBucketEmissiveRouteAccepted &&
             r_pathTracingWorldStaticEmissives.GetInteger() != 0)
@@ -10720,34 +17050,42 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
         (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16);
     const int regirSceneLightDomain = idMath::ClampInt(0, 2, r_pathTracingReGIRLightDomain.GetInteger());
-    const bool regirAnalyticLightUniverseRequested =
-        r_pathTracingReGIREnable.GetInteger() != 0 &&
-        r_pathTracingReGIRMode.GetInteger() != 0 &&
-        (regirSceneLightDomain == 0 || regirSceneLightDomain == 2);
     const bool enableDoomAnalyticLightCandidates = r_pathTracingAnalyticLightCandidates.GetInteger() != 0;
-    PathTraceDoomAnalyticLightBuildOptions doomAnalyticBuildOptions;
-    if (cleanRtxdiDiRealAnalyticRoute)
-    {
-        doomAnalyticBuildOptions.forceBuild = true;
-        doomAnalyticBuildOptions.requireProvenContinuity = r_pathTracingCleanRtxdiDiRequireProvenDoomLights.GetInteger() != 0;
-    }
-    if (regirAnalyticLightUniverseRequested)
-    {
-        doomAnalyticBuildOptions.forceBuild = true;
-        doomAnalyticBuildOptions.stableReservoirOrder = true;
-        doomAnalyticBuildOptions.includeOutOfSelectedArea = true;
-        doomAnalyticBuildOptions.ignoreConfiguredCandidateCap = true;
-    }
-    if (unifiedPtScenePublicationRequested)
-    {
-        doomAnalyticBuildOptions.forceBuild = true;
-        doomAnalyticBuildOptions.stableReservoirOrder = true;
-        doomAnalyticBuildOptions.includeOutOfSelectedArea = true;
-        doomAnalyticBuildOptions.ignoreConfiguredCandidateCap = true;
-    }
+    const PathTraceDoomAnalyticLightBuildOptions
+        doomAnalyticBuildOptionsAtPublish = backendParallelV0
+            ? doomAnalyticBuildOptions
+            : BuildCurrentDoomAnalyticLightOptions(
+                unifiedPtScenePublicationRequested);
     {
         OPTICK_EVENT("PT Doom Analytic Lights");
-        doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(viewDef, doomAnalyticBuildOptions);
+        if (doomLightBackendSubmitted)
+        {
+            PathTraceDoomAnalyticLightCollectionResult collection =
+                backendParallelV1
+                    ? std::move(doomLightBackendJob.result)
+                    : FinishPathTraceDoomLightBackendJob(
+                        doomLightBackendJob);
+            if (collection.IsValid())
+            {
+                OPTICK_EVENT("PT Doom Analytic Lights Pool Publish");
+                doomAnalyticLights =
+                    PublishPathTraceDoomAnalyticLightsFromCollection(
+                        viewDef,
+                        std::move(collection));
+            }
+            else
+            {
+                doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(
+                    viewDef,
+                    doomAnalyticBuildOptionsAtPublish);
+            }
+        }
+        else
+        {
+            doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(
+                viewDef,
+                doomAnalyticBuildOptionsAtPublish);
+        }
         doomAnalyticRemap = GetPathTraceDoomAnalyticLightGpuRemap();
         if (cleanRtxdiDiRealAnalyticRoute && r_pathTracingCleanRtxdiDiBypassLightUniverse.GetInteger() != 0)
         {
@@ -10769,7 +17107,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         ++doomAnalyticPortalRegionLightCount;
     }
-    if (r_pathTracingSmokeLog.GetInteger() != 0 && enableDoomAnalyticLightCandidates && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+    if (r_pathTracingSmokeLog.GetInteger() != 0 &&
+        (enableDoomAnalyticLightCandidates || backendParallelV0) &&
+        (m_smokeGeometryFrameIndex % 120ull) == 1ull)
     {
         common->Printf("PathTracePrimaryPass: Doom analytic lights gpu=%d bytes=%d intensityScale=%.3f uptPreserveLegacyPower=%d uptRadiusIntensity=%d emitterRadius(upt/legacyScale/min/max)=%.3f/%.3f/%.3f/%.3f\n",
             static_cast<int>(doomAnalyticLights.size()),
@@ -10783,6 +17123,23 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             Max(
                 Max(0.0f, r_pathTracingAnalyticSphereLightRadiusMin.GetFloat()),
                 r_pathTracingAnalyticSphereLightRadiusMax.GetFloat()));
+        const uint64 doomLightPoolWallUs =
+            doomLightBackendJob.finishUs >= doomLightBackendJob.startUs
+                ? doomLightBackendJob.finishUs - doomLightBackendJob.startUs
+                : 0;
+        common->Printf(
+            "PathTracePrimaryPass: backendParallelV0 gate=%d v1(requested/active/t1Submitted/t3Submitted/routeAccepted)=%d/%d/%d/%d/%d light(poolSubmitted/snapshotMs/poolWallUs)=%d/%d/%llu rigidPool=%d parallelism=%d\n",
+            backendParallelV0 ? 1 : 0,
+            backendParallelV1Requested ? 1 : 0,
+            backendParallelV1 ? 1 : 0,
+            backendParallelV1T1Submitted ? 1 : 0,
+            backendParallelV1T3Submitted ? 1 : 0,
+            backendParallelV1RigidRouteAccepted ? 1 : 0,
+            doomLightBackendSubmitted ? 1 : 0,
+            doomLightSnapshotMs,
+            static_cast<unsigned long long>(doomLightPoolWallUs),
+            backendParallelV0 ? 1 : 0,
+            RT_PT_BACKEND_JOB_PARALLELISM);
     }
     const int emissiveMs = Sys_Milliseconds() - emissiveStartMs;
     {
@@ -11498,15 +17855,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int bufferCreateMs = Sys_Milliseconds() - bufferCreateStartMs;
 
     const int staticVertexCount = static_cast<int>(staticVertexCache.size());
-    const int dynamicVertexCount = static_cast<int>(dynamicVertexData.size());
+    int dynamicVertexCount = static_cast<int>(dynamicVertexData.size());
     const int staticIndexCount = bucketRanges.buckets[0].indexCount;
-    const int dynamicIndexCount =
+    int dynamicIndexCount =
         bucketRanges.buckets[1].indexCount +
         bucketRanges.buckets[2].indexCount +
         bucketRanges.buckets[3].indexCount +
         bucketRanges.buckets[4].indexCount;
-    const bool hasStaticBlas = staticIndexCount > 0;
-    const bool hasDynamicBlas = dynamicIndexCount > 0;
+    bool hasStaticBlas = staticIndexCount > 0;
+    bool hasDynamicBlas = dynamicIndexCount > 0;
     const RtSmokeBucketRange& staticBucketRange = bucketRanges.buckets[0];
     RtSmokePlanGeometryRange staticGeometryRange;
     staticGeometryRange.vertexOffset = staticBucketRange.vertexOffset;
@@ -11646,7 +18003,31 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     bool accelerationPlanAcceptedFromAsync = false;
     int staticBlasSignatureMs = 0;
-    if (asyncCpuPlanning && m_smokeAccelerationPlanFuture.valid())
+    if (producerLaneBActive && producerLaneBFrameProduct.complete)
+    {
+        OPTICK_EVENT("PT Lane B Acceleration Plan Apply");
+        const uint64 laneBAccelerationApplyStartUs = Sys_Microseconds();
+        accelerationPlan = producerLaneBFrameProduct.accelerationPlan;
+        accelerationPlanAcceptedFromAsync = true;
+        if (RtPathTraceProducerLaneBShouldArmBootstrap(
+                producerLaneBActive,
+                PathTraceProducerLaneBEffectiveMode(),
+                producerLaneBLoadBearingHit,
+                producerLaneBFrameProduct.complete))
+        {
+            m_smokeProducerLaneBBootstrapComplete = true;
+        }
+        RecordPathTraceProducerLaneBTiming(
+            0, Sys_Microseconds() - laneBAccelerationApplyStartUs, 0);
+    }
+    else if (laneBMode2PreserveOnly &&
+        m_smokeAccelerationPlanAsyncCachedPlanValid)
+    {
+        accelerationPlan = m_smokeAccelerationPlanAsyncCachedPlan;
+        accelerationPlanAcceptedFromAsync = true;
+    }
+    if (laneBOwnership.legacyWorkersMayStart && asyncCpuPlanning &&
+        m_smokeAccelerationPlanFuture.valid())
     {
         OPTICK_EVENT("PT Acceleration Async Accept");
         const std::future_status futureStatus =
@@ -11682,7 +18063,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RtPathTraceCpuWorkAcceptLatest(m_smokeCpuWorkState, accelerationPlanGeneration, nullptr, true);
         }
     }
-    if (!accelerationPlanAcceptedFromAsync &&
+    if (laneBOwnership.legacyWorkersMayStart && !accelerationPlanAcceptedFromAsync &&
         asyncCpuPlanning &&
         m_smokeAccelerationPlanAsyncCachedPlanValid &&
         RtPathTraceCpuWorkGenerationEquals(m_smokeAccelerationPlanAsyncCachedGeneration, accelerationPlanGeneration))
@@ -11716,6 +18097,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeAccelerationPlanAsyncCachedGeneration = accelerationPlanGeneration;
         m_smokeAccelerationPlanAsyncCachedPlanValid = true;
     }
+    OverlaySmokeCurrentDynamicAccelerationPlan(
+        accelerationPlan, dynamicVertexCount, dynamicIndexCount);
+    hasDynamicBlas = accelerationPlan.hasDynamicBlas;
 
     const bool asyncPlanAlreadyCached =
         m_smokeAccelerationPlanAsyncCachedPlanValid &&
@@ -11723,7 +18107,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool asyncPlanAlreadyQueued =
         m_smokeAccelerationPlanAsyncGenerationValid &&
         RtPathTraceCpuWorkGenerationEquals(m_smokeAccelerationPlanAsyncGeneration, accelerationPlanGeneration);
-    if (asyncCpuPlanning &&
+    if (laneBOwnership.legacyWorkersMayStart && asyncCpuPlanning &&
         !m_smokeAccelerationPlanFuture.valid() &&
         !asyncPlanAlreadyCached &&
         !asyncPlanAlreadyQueued)
@@ -11819,21 +18203,38 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
             if (!staticBlasCreateResult.Succeeded())
             {
-                common->Printf("PathTracePrimaryPass: failed to create RT smoke static BLAS\n");
-                return;
+                const RtSmokeBlasComponentPolicyState createPolicy =
+                    ApplySmokeBlasCreateStatus(
+                        {hasStaticBlas, hasDynamicBlas, true},
+                        true, staticBlasCreateResult.status);
+                hasStaticBlas = createPolicy.hasStaticBlas;
+                hasDynamicBlas = createPolicy.hasDynamicBlas;
+                if (!createPolicy.continueFrame)
+                {
+                    common->Printf("PathTracePrimaryPass: failed to create RT smoke static BLAS\n");
+                    return;
+                }
+                smokeStaticBlasDesc = nvrhi::rt::AccelStructDesc();
+                smokeStaticBlas = nullptr;
+                accelerationPlan.hasStaticBlas = false;
+                accelerationPlan.staticBlas.enabled = false;
+                staticBlasCacheHit = false;
             }
-            smokeStaticBlasDesc = staticBlasCreateResult.accelStructDesc;
-            smokeStaticBlas = staticBlasCreateResult.accelStruct;
-            if (r_pathTracingSmokeLog.GetInteger() != 0)
+            else
             {
-                common->Printf(
-                    "PathTracePrimaryPass: static BLAS geometry chunks=%d opaque=%d programmable=%d hardwareOpaqueMode=%d\n",
-                    staticBlasCreateResult.geometryCount,
-                    staticBlasCreateResult.opaqueGeometryCount,
-                    staticBlasCreateResult.nonOpaqueGeometryCount,
-                    staticBlasCreateDesc.enableOpaqueGeometry ? 1 : 0);
+                smokeStaticBlasDesc = staticBlasCreateResult.accelStructDesc;
+                smokeStaticBlas = staticBlasCreateResult.accelStruct;
+                if (r_pathTracingSmokeLog.GetInteger() != 0)
+                {
+                    common->Printf(
+                        "PathTracePrimaryPass: static BLAS geometry chunks=%d opaque=%d programmable=%d hardwareOpaqueMode=%d\n",
+                        staticBlasCreateResult.geometryCount,
+                        staticBlasCreateResult.opaqueGeometryCount,
+                        staticBlasCreateResult.nonOpaqueGeometryCount,
+                        staticBlasCreateDesc.enableOpaqueGeometry ? 1 : 0);
+                }
+                ++m_smokeStaticBlasCacheMissCount;
             }
-            ++m_smokeStaticBlasCacheMissCount;
         }
     }
 
@@ -11863,20 +18264,36 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         if (!dynamicBlasCreateResult.Succeeded())
         {
-            common->Printf("PathTracePrimaryPass: failed to create RT smoke dynamic BLAS\n");
-            return;
+            const RtSmokeBlasComponentPolicyState createPolicy =
+                ApplySmokeBlasCreateStatus(
+                    {hasStaticBlas, hasDynamicBlas, true},
+                    false, dynamicBlasCreateResult.status);
+            hasStaticBlas = createPolicy.hasStaticBlas;
+            hasDynamicBlas = createPolicy.hasDynamicBlas;
+            if (!createPolicy.continueFrame)
+            {
+                common->Printf("PathTracePrimaryPass: failed to create RT smoke dynamic BLAS\n");
+                return;
+            }
+            smokeDynamicBlasDesc = nvrhi::rt::AccelStructDesc();
+            smokeDynamicBlas = nullptr;
+            accelerationPlan.hasDynamicBlas = false;
+            accelerationPlan.dynamicBlas.enabled = false;
         }
-        smokeDynamicBlasDesc = dynamicBlasCreateResult.accelStructDesc;
-        smokeDynamicBlas = dynamicBlasCreateResult.accelStruct;
-        if (r_pathTracingSmokeLog.GetInteger() != 0 &&
-            (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+        else
         {
-            common->Printf(
-                "PathTracePrimaryPass: dynamic BLAS geometry chunks=%d opaque=%d programmable=%d hardwareOpaqueMode=%d\n",
-                dynamicBlasCreateResult.geometryCount,
-                dynamicBlasCreateResult.opaqueGeometryCount,
-                dynamicBlasCreateResult.nonOpaqueGeometryCount,
-                dynamicBlasCreateDesc.enableOpaqueGeometry ? 1 : 0);
+            smokeDynamicBlasDesc = dynamicBlasCreateResult.accelStructDesc;
+            smokeDynamicBlas = dynamicBlasCreateResult.accelStruct;
+            if (r_pathTracingSmokeLog.GetInteger() != 0 &&
+                (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: dynamic BLAS geometry chunks=%d opaque=%d programmable=%d hardwareOpaqueMode=%d\n",
+                    dynamicBlasCreateResult.geometryCount,
+                    dynamicBlasCreateResult.opaqueGeometryCount,
+                    dynamicBlasCreateResult.nonOpaqueGeometryCount,
+                    dynamicBlasCreateDesc.enableOpaqueGeometry ? 1 : 0);
+            }
         }
     }
     r_pathTracingHardwareOpaqueGeometry.ClearModified();
@@ -12226,11 +18643,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokePreviousStaticTriangleClassBuffer, previousStaticTriangleClassCache, nvrhi::ResourceStates::ShaderResource, skipPreviousStaticGeometryUpload),
         MakeSmokeVectorUploadItem(smokePreviousStaticTriangleMaterialBuffer, previousStaticTriangleMaterialCache, nvrhi::ResourceStates::ShaderResource, skipPreviousStaticGeometryUpload),
         MakeSmokeVectorUploadItem(smokePreviousStaticTriangleMaterialIndexBuffer, previousStaticTriangleMaterialIndexCache, nvrhi::ResourceStates::ShaderResource, skipPreviousStaticMaterialIndexUpload),
-        MakeSmokeVectorUploadItem(smokeDynamicVertexBuffer, *dynamicVertexUploadData, skinnedGpuComputeReady && skinnedGpuComputeTargetsDynamicVertices ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::AccelStructBuildInput, false),
-        MakeSmokeVectorUploadItem(smokeDynamicIndexBuffer, dynamicIndexData, nvrhi::ResourceStates::AccelStructBuildInput, false),
-        MakeSmokeVectorUploadItem(smokeDynamicTriangleClassBuffer, dynamicTriangleClassData, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeDynamicVertexBuffer, *dynamicVertexUploadData, skinnedGpuComputeReady && skinnedGpuComputeTargetsDynamicVertices ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::AccelStructBuildInput, false, -1, 0, "PT Merged Dynamic Upload Vertices"),
+        MakeSmokeVectorUploadItem(smokeDynamicIndexBuffer, dynamicIndexData, nvrhi::ResourceStates::AccelStructBuildInput, false, -1, 0, "PT Merged Dynamic Upload Indexes"),
+        MakeSmokeVectorUploadItem(smokeDynamicTriangleClassBuffer, dynamicTriangleClassData, nvrhi::ResourceStates::ShaderResource, false, -1, 0, "PT Merged Dynamic Upload Triangle Classes"),
+        MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData, nvrhi::ResourceStates::ShaderResource, false, -1, 0, "PT Merged Dynamic Upload Triangle Materials"),
+        MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false, -1, 0, "PT Merged Dynamic Upload Material Indexes"),
         MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, gpuMaterialTableMaterials, nvrhi::ResourceStates::ShaderResource, skipMaterialTableUpload, materialTableUploadOffset, materialTableUploadCount),
         MakeSmokeVectorUploadItem(smokeMaterialFeatureBuffer, materialTable.materialFeatures, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeMaterialFeatureParameterBuffer, materialTable.materialFeatureParameters, nvrhi::ResourceStates::ShaderResource, false),
@@ -13462,6 +19879,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     RtSmokeAccelSubmitDesc accelSubmitDesc;
     std::vector<nvrhi::rt::InstanceDesc> rigidTlasRouteInstances;
+    cpu_producer_publish::RigidSubmitBoundaryList rigidSubmitBoundary;
+    std::vector<RtSmokeRigidBuilderInstanceResult> rigidBuilderResults;
+    std::vector<uint64_t> rigidCaptureSkipInstanceIds;
+    std::unordered_set<uint64_t> rigidRestoreCommittedIds;
+    cpu_producer_publish::RigidPublishCounters rigidPublishCounters;
+    bool rigidCompletenessPending = false;
     bool canonicalRigidTraversalSelected = false;
     const bool routeRigidTlasInstances = enableRigidRouteForMode;
     {
@@ -13482,7 +19905,293 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 rigidTlasPlanValid = true;
             }
             const int routedRigidInstances =
-                m_smokeGeometryUniverse.BuildRigidTlasInstanceDescs(rigidTlasPlan, rigidTlasRouteInstances);
+                m_smokeGeometryUniverse.BuildRigidTlasInstanceDescs(
+                    rigidTlasPlan, rigidTlasRouteInstances, &rigidBuilderResults,
+                    &rigidSubmitBoundary.records);
+            rigidSubmitBoundary.rigidPhysicalCount =
+                static_cast<uint32_t>(rigidSubmitBoundary.records.size());
+            {
+                cpu_producer_publish::RigidPublishCounters rigidCounters;
+                std::unordered_set<uint64_t> skipIds;
+                std::vector<const RtSmokeRigidCaptureSkipRecord*> restoreSkips;
+                for (const RtSmokeRigidCaptureSkipRecord& skip : rigidCaptureSkips)
+                {
+                    if (skipIds.insert(skip.instanceId).second)
+                    {
+                        restoreSkips.push_back(&skip);
+                        rigidCaptureSkipInstanceIds.push_back(skip.instanceId);
+                    }
+                }
+                std::unordered_set<uint64_t> traceableIds;
+                std::unordered_map<uint64_t, const RtSmokeRigidBuilderInstanceResult*> builderById;
+                for (const RtSmokeRigidBuilderInstanceResult& result : rigidBuilderResults)
+                {
+                    builderById[result.sourceInstanceId] = &result;
+                    if (result.traceable)
+                    {
+                        traceableIds.insert(result.sourceInstanceId);
+                    }
+                }
+                std::unordered_set<uint64_t> preselectDroppedIds;
+                for (const RtSmokeRigidPreselectDrop& drop : rigidTlasSnapshot.preselectDropped)
+                {
+                    preselectDroppedIds.insert(drop.instanceId);
+                }
+                std::unordered_set<uint64_t> planTruncatedIds;
+                for (uint64_t id : rigidTlasPlan.planTruncatedInstanceIds)
+                {
+                    planTruncatedIds.insert(id);
+                }
+                std::unordered_set<uint64_t> planAcceptedIds;
+                for (const RtSmokePlanTlasInstance& inst : rigidTlasPlan.instances)
+                {
+                    planAcceptedIds.insert(inst.sourceInstanceId);
+                }
+
+                std::vector<uint64_t> candidates = rigidTlasSnapshot.preselectAllInstanceIds;
+                if (candidates.empty())
+                {
+                    for (const RtSmokeRigidTlasObservation& obs : rigidTlasSnapshot.observations)
+                    {
+                        candidates.push_back(obs.instanceId);
+                    }
+                }
+                std::unordered_set<uint64_t> seenCand;
+                for (uint64_t id : candidates)
+                {
+                    if (!seenCand.insert(id).second)
+                    {
+                        continue;
+                    }
+                    ++rigidCounters.rigidPublishCandidates;
+                    const RtSmokeRigidBuilderInstanceResult* built =
+                        builderById.find(id) != builderById.end() ? builderById[id] : nullptr;
+                    if (built && built->traceable)
+                    {
+                        ++rigidCounters.rigidPublishSuppressed;
+                        continue;
+                    }
+                    if (preselectDroppedIds.find(id) != preselectDroppedIds.end())
+                    {
+                        ++rigidCounters.capTruncatedPreselect;
+                    }
+                    else if (planTruncatedIds.find(id) != planTruncatedIds.end())
+                    {
+                        ++rigidCounters.capTruncatedPlan;
+                    }
+                    else if (built && built->appended && !built->traceable)
+                    {
+                        ++rigidCounters.maskZeroNonTraceable;
+                    }
+                    else if (built && !built->appended)
+                    {
+                        switch (built->decline)
+                        {
+                        case RtSmokeRigidBuilderDecline::CachedTlasDisabled:
+                            ++rigidCounters.builderDeclinedCachedTlas;
+                            break;
+                        case RtSmokeRigidBuilderDecline::RouteRecordIndex:
+                            ++rigidCounters.builderDeclinedRouteIndex;
+                            break;
+                        case RtSmokeRigidBuilderDecline::PlanRecordMismatch:
+                            ++rigidCounters.builderDeclinedPlanMismatch;
+                            break;
+                        case RtSmokeRigidBuilderDecline::MissingBlas:
+                            ++rigidCounters.builderDeclinedMissingBlas;
+                            break;
+                        case RtSmokeRigidBuilderDecline::CachedTlasInvalid:
+                            ++rigidCounters.builderDeclinedCachedInvalid;
+                            break;
+                        default:
+                            ++rigidCounters.builderDeclinedMissingBlas;
+                            break;
+                        }
+                    }
+                    else if (planAcceptedIds.find(id) == planAcceptedIds.end())
+                    {
+                        bool classified = false;
+                        for (const RtSmokeRigidTlasObservation& obs : rigidTlasSnapshot.observations)
+                        {
+                            if (obs.instanceId != id)
+                            {
+                                continue;
+                            }
+                            const RtSmokeRigidTlasObservationCategory category =
+                                ClassifyRigidTlasObservation(obs, rigidTlasSnapshot.rigidSourceMask);
+                            if (category == RT_SMOKE_RIGID_TLAS_REJECT_NON_RIGID)
+                            {
+                                ++rigidCounters.rejectedNonRigid;
+                            }
+                            else if (category == RT_SMOKE_RIGID_TLAS_REJECT_MISSING_MESH)
+                            {
+                                ++rigidCounters.rejectedMissingMesh;
+                            }
+                            else if (category == RT_SMOKE_RIGID_TLAS_REJECT_STALE_MESH)
+                            {
+                                ++rigidCounters.rejectedStaleMesh;
+                            }
+                            else
+                            {
+                                ++rigidCounters.rejectedMissingBlas;
+                            }
+                            classified = true;
+                            break;
+                        }
+                        if (!classified)
+                        {
+                            ++rigidCounters.rejectedMissingBlas;
+                        }
+                    }
+                    else
+                    {
+                        ++rigidCounters.builderDeclinedMissingBlas;
+                    }
+                }
+                rigidCounters.rigidPublishEmitted = 0;
+
+                const int publishMode = DecodeCpuProducerPublishMode();
+                if (publishMode == 1)
+                {
+                    std::vector<const RtSmokeRigidCaptureSkipRecord*> pendingRestore;
+                    for (const RtSmokeRigidCaptureSkipRecord* skip : restoreSkips)
+                    {
+                        if (traceableIds.find(skip->instanceId) != traceableIds.end())
+                        {
+                            continue;
+                        }
+                        pendingRestore.push_back(skip);
+                    }
+                    int restoreExtraVertices = 0;
+                    int restoreExtraIndexes = 0;
+                    std::vector<uint64_t> pendingRestoreIds;
+                    for (const RtSmokeRigidCaptureSkipRecord* skip : pendingRestore)
+                    {
+                        int emittedIndexes = 0;
+                        const size_t vertexStart = dynamicVertexData.size();
+                        if (viewDef != nullptr && skip->entityIndex >= 0)
+                        {
+                            for (int si = 0; si < viewDef->numDrawSurfs; ++si)
+                            {
+                                const drawSurf_t* ds = viewDef->drawSurfs[si];
+                                if (!ds || !ds->space || !ds->space->entityDef)
+                                {
+                                    continue;
+                                }
+                                if (ds->space->entityDef->index != skip->entityIndex ||
+                                    ds->modelSurfaceIndex != skip->modelSurfaceIndex)
+                                {
+                                    continue;
+                                }
+                                const srfTriangles_t* tri = nullptr;
+                                if (!ValidateSmokeDrawSurface(viewDef, ds, tri, &skipStats) || !tri)
+                                {
+                                    continue;
+                                }
+                                emittedIndexes = AppendSmokeSurfaceGeometry(
+                                    ds, tri, skip->surfaceClassId, skip->materialId,
+                                    RT_SMOKE_CLASS_COUNT, RT_SMOKE_TRIANGLE_CLASS_MASK,
+                                    static_cast<uint32_t>(RtSmokeSurfaceClass::ParticleAlpha),
+                                    0u, dynamicVertexData, dynamicIndexData,
+                                    dynamicTriangleClassData, dynamicTriangleMaterialData,
+                                    skipStats, attributeStats);
+                                break;
+                            }
+                        }
+                        if (emittedIndexes > 0)
+                        {
+                            pendingRestoreIds.push_back(skip->instanceId);
+                            restoreExtraVertices += static_cast<int>(dynamicVertexData.size() - vertexStart);
+                            restoreExtraIndexes += emittedIndexes;
+                        }
+                    }
+                    if (restoreExtraIndexes > 0)
+                    {
+                        RebuildSmokeMaterialIndexesFromCachedTable(
+                            materialTable,
+                            materialTableStaticIds,
+                            dynamicTriangleMaterialData);
+                        bool materialIndexesReady =
+                            materialTable.dynamicMaterialIndexes.size() ==
+                                dynamicTriangleMaterialData.size() &&
+                            ValidateSmokeMaterialIndexes(materialTable);
+                        if (materialIndexesReady)
+                        {
+                            for (uint32_t materialIndex : materialTable.dynamicMaterialIndexes)
+                            {
+                                if (materialIndex == UINT32_MAX)
+                                {
+                                    materialIndexesReady = false;
+                                    break;
+                                }
+                            }
+                        }
+                        SmokeRestoreDynamicGpuCommitDesc restoreGpu;
+                        restoreGpu.device = device;
+                        restoreGpu.commandList = commandList;
+                        restoreGpu.vertices = &dynamicVertexData;
+                        restoreGpu.indexes = &dynamicIndexData;
+                        restoreGpu.triangleClasses = &dynamicTriangleClassData;
+                        restoreGpu.triangleMaterials = &dynamicTriangleMaterialData;
+                        restoreGpu.materialIndexes = &materialTable.dynamicMaterialIndexes;
+                        restoreGpu.vertexBuffer = smokeDynamicVertexBuffer;
+                        restoreGpu.indexBuffer = smokeDynamicIndexBuffer;
+                        restoreGpu.classBuffer = smokeDynamicTriangleClassBuffer;
+                        restoreGpu.materialBuffer = smokeDynamicTriangleMaterialBuffer;
+                        restoreGpu.materialIndexBuffer = smokeDynamicTriangleMaterialIndexBuffer;
+                        restoreGpu.dynamicBlas = smokeDynamicBlas;
+                        restoreGpu.dynamicBlasDesc = smokeDynamicBlasDesc;
+                        restoreGpu.accelerationPlan = &accelerationPlan;
+                        restoreGpu.bucketRanges = &bucketRanges;
+                        restoreGpu.extraVertexCount = restoreExtraVertices;
+                        restoreGpu.extraIndexCount = restoreExtraIndexes;
+                        if (materialIndexesReady &&
+                            CommitRestoredDynamicGeometryThisFrame(restoreGpu))
+                        {
+                            smokeDynamicVertexBuffer = restoreGpu.vertexBuffer;
+                            smokeDynamicIndexBuffer = restoreGpu.indexBuffer;
+                            smokeDynamicTriangleClassBuffer = restoreGpu.classBuffer;
+                            smokeDynamicTriangleMaterialBuffer = restoreGpu.materialBuffer;
+                            smokeDynamicTriangleMaterialIndexBuffer = restoreGpu.materialIndexBuffer;
+                            smokeDynamicBlas = restoreGpu.dynamicBlas;
+                            smokeDynamicBlasDesc = restoreGpu.dynamicBlasDesc;
+                            smokeBuffers.dynamicVertexBuffer = restoreGpu.vertexBuffer;
+                            smokeBuffers.dynamicIndexBuffer = restoreGpu.indexBuffer;
+                            smokeBuffers.dynamicTriangleClassBuffer = restoreGpu.classBuffer;
+                            smokeBuffers.dynamicTriangleMaterialBuffer = restoreGpu.materialBuffer;
+                            smokeBuffers.dynamicTriangleMaterialIndexBuffer = restoreGpu.materialIndexBuffer;
+                            dynamicVertexCount = static_cast<int>(dynamicVertexData.size());
+                            dynamicIndexCount =
+                                bucketRanges.buckets[1].indexCount +
+                                bucketRanges.buckets[2].indexCount +
+                                bucketRanges.buckets[3].indexCount +
+                                bucketRanges.buckets[4].indexCount;
+                            OverlaySmokeCurrentDynamicAccelerationPlan(
+                                accelerationPlan,
+                                dynamicVertexCount,
+                                dynamicIndexCount);
+                            hasDynamicBlas = accelerationPlan.hasDynamicBlas;
+                            const bool handlesPropagated =
+                                smokeBuffers.dynamicVertexBuffer == smokeDynamicVertexBuffer &&
+                                smokeBuffers.dynamicIndexBuffer == smokeDynamicIndexBuffer &&
+                                smokeBuffers.dynamicTriangleClassBuffer == smokeDynamicTriangleClassBuffer &&
+                                smokeBuffers.dynamicTriangleMaterialBuffer == smokeDynamicTriangleMaterialBuffer &&
+                                smokeBuffers.dynamicTriangleMaterialIndexBuffer ==
+                                    smokeDynamicTriangleMaterialIndexBuffer;
+                            if (handlesPropagated)
+                            {
+                                rigidCounters.rigidRestoreCaptured +=
+                                    static_cast<uint32_t>(pendingRestoreIds.size());
+                                for (uint64_t id : pendingRestoreIds)
+                                {
+                                    rigidRestoreCommittedIds.insert(id);
+                                }
+                            }
+                        }
+                    }
+                    rigidPublishCounters = rigidCounters;
+                    rigidCompletenessPending = true;
+                }
+            }
             const bool canonicalRigidTraversalRequested =
                 r_pathTracingGeometryCanonicalRigidTraversal.GetInteger() != 0;
             if (canonicalRigidTraversalRequested ||
@@ -13531,6 +20240,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     rigidTlasRouteInstances.swap(
                         canonicalRigidTlasInstances);
                     canonicalRigidTraversalSelected = true;
+                    rigidSubmitBoundary.records.clear();
+                    rigidSubmitBoundary.rigidPhysicalCount =
+                        static_cast<uint32_t>(rigidTlasRouteInstances.size());
                 }
                 else if (canonicalRigidTraversalRequested &&
                     (m_smokeGeometryFrameIndex % 120ull) == 1ull)
@@ -13671,6 +20383,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         rigidTlasRouteInstances.size();
     uint32 skinnedTlasValidatedDescriptorCount = 0;
     uint32 skinnedTlasActiveDescriptorCount = 0;
+    uint32_t compareSkinnedPublishEmitted = 0;
+    uint32_t compareSkinnedRestoreCaptured = 0;
+    std::vector<uint64_t> skinnedRestoreCommittedIds;
+    std::vector<PtCanonicalInstanceKey> skinnedFinalDescriptorKeys;
     if (skinnedTlasPlan.result ==
         PtSkinnedTlasRouteResult::Accepted)
     {
@@ -13736,12 +20452,244 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             rigidTlasRouteInstances.push_back(
                 instanceDesc);
             ++skinnedTlasActiveDescriptorCount;
+            skinnedFinalDescriptorKeys.push_back(route.instanceKey);
         }
     }
     const uint32 skinnedTlasDescriptorCount =
         static_cast<uint32>(
             rigidTlasRouteInstances.size() -
             firstSkinnedTlasDesc);
+    {
+        const int publishMode = DecodeCpuProducerPublishMode();
+        cpu_producer_publish::PublishCounters publishCounters;
+        std::vector<PtCanonicalInstanceKey> omittedKeys;
+        for (const RtSmokeSkinnedSurfaceRecord& rec : currentSkinnedSurfaceRecords)
+        {
+            if (rec.cpuCaptureOmitted)
+            {
+                bool seen = false;
+                for (const PtCanonicalInstanceKey& key : omittedKeys)
+                {
+                    if (key == rec.canonicalInstance)
+                    {
+                        seen = true;
+                        break;
+                    }
+                }
+                if (!seen)
+                {
+                    omittedKeys.push_back(rec.canonicalInstance);
+                }
+            }
+        }
+        if (publishMode == 1)
+        {
+            publishCounters.publishCandidates =
+                static_cast<uint32_t>(omittedKeys.size());
+            if (skinnedTlasPlan.result != PtSkinnedTlasRouteResult::Accepted)
+            {
+                publishCounters.rejectedTlasPlan =
+                    publishCounters.publishCandidates;
+            }
+            else
+            {
+                for (const PtCanonicalInstanceKey& key : omittedKeys)
+                {
+                    bool have = false;
+                    for (const PtCanonicalInstanceKey& d : skinnedFinalDescriptorKeys)
+                    {
+                        if (d == key)
+                        {
+                            have = true;
+                            break;
+                        }
+                    }
+                    if (have)
+                    {
+                        ++publishCounters.publishSuppressed;
+                    }
+                    else
+                    {
+                        ++publishCounters.rejectedMissingOrCurrentRoute;
+                    }
+                }
+            }
+            std::vector<PtCanonicalInstanceKey> pendingRestoreKeys;
+            int restoreExtraVertices = 0;
+            int restoreExtraIndexes = 0;
+            for (const RtSmokeSkinnedSurfaceRecord& rec : currentSkinnedSurfaceRecords)
+            {
+                if (!rec.cpuCaptureOmitted)
+                {
+                    continue;
+                }
+                bool have = false;
+                for (const PtCanonicalInstanceKey& d : skinnedFinalDescriptorKeys)
+                {
+                    if (d == rec.canonicalInstance)
+                    {
+                        have = true;
+                        break;
+                    }
+                }
+                if (have)
+                {
+                    continue;
+                }
+                const size_t vertexStart = dynamicVertexData.size();
+                int emittedIndexes = 0;
+                if (viewDef != nullptr && rec.entityIndex >= 0)
+                {
+                    for (int si = 0; si < viewDef->numDrawSurfs; ++si)
+                    {
+                        const drawSurf_t* ds = viewDef->drawSurfs[si];
+                        if (!ds || !ds->space || !ds->space->entityDef)
+                        {
+                            continue;
+                        }
+                        if (ds->space->entityDef->index != rec.entityIndex ||
+                            ds->modelSurfaceIndex != rec.modelSurfaceIndex)
+                        {
+                            continue;
+                        }
+                        const srfTriangles_t* tri = nullptr;
+                        if (!ValidateSmokeDrawSurface(viewDef, ds, tri, &skipStats) || !tri)
+                        {
+                            continue;
+                        }
+                        const uint32_t surfaceClassId = rec.triangleClassAndFlags;
+                        emittedIndexes = AppendSmokeSurfaceGeometry(
+                            ds, tri, surfaceClassId, rec.materialId,
+                            RT_SMOKE_CLASS_COUNT, RT_SMOKE_TRIANGLE_CLASS_MASK,
+                            static_cast<uint32_t>(RtSmokeSurfaceClass::ParticleAlpha),
+                            0u, dynamicVertexData, dynamicIndexData,
+                            dynamicTriangleClassData, dynamicTriangleMaterialData,
+                            skipStats, attributeStats);
+                        break;
+                    }
+                }
+                if (emittedIndexes > 0)
+                {
+                    pendingRestoreKeys.push_back(rec.canonicalInstance);
+                    restoreExtraVertices += static_cast<int>(dynamicVertexData.size() - vertexStart);
+                    restoreExtraIndexes += emittedIndexes;
+                }
+                else
+                {
+                    ++publishCounters.omittedThisFrameWithoutFinalDescriptor;
+                }
+            }
+            if (restoreExtraIndexes > 0)
+            {
+                RebuildSmokeMaterialIndexesFromCachedTable(
+                    materialTable,
+                    materialTableStaticIds,
+                    dynamicTriangleMaterialData);
+                bool materialIndexesReady =
+                    materialTable.dynamicMaterialIndexes.size() ==
+                        dynamicTriangleMaterialData.size() &&
+                    ValidateSmokeMaterialIndexes(materialTable);
+                if (materialIndexesReady)
+                {
+                    for (uint32_t materialIndex : materialTable.dynamicMaterialIndexes)
+                    {
+                        if (materialIndex == UINT32_MAX)
+                        {
+                            materialIndexesReady = false;
+                            break;
+                        }
+                    }
+                }
+                SmokeRestoreDynamicGpuCommitDesc restoreGpu;
+                restoreGpu.device = device;
+                restoreGpu.commandList = commandList;
+                restoreGpu.vertices = &dynamicVertexData;
+                restoreGpu.indexes = &dynamicIndexData;
+                restoreGpu.triangleClasses = &dynamicTriangleClassData;
+                restoreGpu.triangleMaterials = &dynamicTriangleMaterialData;
+                restoreGpu.materialIndexes = &materialTable.dynamicMaterialIndexes;
+                restoreGpu.vertexBuffer = smokeDynamicVertexBuffer;
+                restoreGpu.indexBuffer = smokeDynamicIndexBuffer;
+                restoreGpu.classBuffer = smokeDynamicTriangleClassBuffer;
+                restoreGpu.materialBuffer = smokeDynamicTriangleMaterialBuffer;
+                restoreGpu.materialIndexBuffer = smokeDynamicTriangleMaterialIndexBuffer;
+                restoreGpu.dynamicBlas = smokeDynamicBlas;
+                restoreGpu.dynamicBlasDesc = smokeDynamicBlasDesc;
+                restoreGpu.accelerationPlan = &accelerationPlan;
+                restoreGpu.bucketRanges = &bucketRanges;
+                restoreGpu.extraVertexCount = restoreExtraVertices;
+                restoreGpu.extraIndexCount = restoreExtraIndexes;
+                if (materialIndexesReady &&
+                    CommitRestoredDynamicGeometryThisFrame(restoreGpu))
+                {
+                    smokeDynamicVertexBuffer = restoreGpu.vertexBuffer;
+                    smokeDynamicIndexBuffer = restoreGpu.indexBuffer;
+                    smokeDynamicTriangleClassBuffer = restoreGpu.classBuffer;
+                    smokeDynamicTriangleMaterialBuffer = restoreGpu.materialBuffer;
+                    smokeDynamicTriangleMaterialIndexBuffer = restoreGpu.materialIndexBuffer;
+                    smokeDynamicBlas = restoreGpu.dynamicBlas;
+                    smokeDynamicBlasDesc = restoreGpu.dynamicBlasDesc;
+                    smokeBuffers.dynamicVertexBuffer = restoreGpu.vertexBuffer;
+                    smokeBuffers.dynamicIndexBuffer = restoreGpu.indexBuffer;
+                    smokeBuffers.dynamicTriangleClassBuffer = restoreGpu.classBuffer;
+                    smokeBuffers.dynamicTriangleMaterialBuffer = restoreGpu.materialBuffer;
+                    smokeBuffers.dynamicTriangleMaterialIndexBuffer = restoreGpu.materialIndexBuffer;
+                    dynamicVertexCount = static_cast<int>(dynamicVertexData.size());
+                    dynamicIndexCount =
+                        bucketRanges.buckets[1].indexCount +
+                        bucketRanges.buckets[2].indexCount +
+                        bucketRanges.buckets[3].indexCount +
+                        bucketRanges.buckets[4].indexCount;
+                    OverlaySmokeCurrentDynamicAccelerationPlan(
+                        accelerationPlan,
+                        dynamicVertexCount,
+                        dynamicIndexCount);
+                    hasDynamicBlas = accelerationPlan.hasDynamicBlas;
+                    const bool handlesPropagated =
+                        smokeBuffers.dynamicVertexBuffer == smokeDynamicVertexBuffer &&
+                        smokeBuffers.dynamicIndexBuffer == smokeDynamicIndexBuffer &&
+                        smokeBuffers.dynamicTriangleClassBuffer == smokeDynamicTriangleClassBuffer &&
+                        smokeBuffers.dynamicTriangleMaterialBuffer == smokeDynamicTriangleMaterialBuffer &&
+                        smokeBuffers.dynamicTriangleMaterialIndexBuffer ==
+                            smokeDynamicTriangleMaterialIndexBuffer;
+                    if (handlesPropagated)
+                    {
+                        for (const PtCanonicalInstanceKey& key : pendingRestoreKeys)
+                        {
+                            ++publishCounters.restoreCaptured;
+                            skinnedFinalDescriptorKeys.push_back(key);
+                            skinnedRestoreCommittedIds.push_back(
+                                PtHashCanonicalInstanceKey(key) | (1ull << 63));
+                        }
+                    }
+                    else
+                    {
+                        publishCounters.omittedThisFrameWithoutFinalDescriptor +=
+                            static_cast<uint32_t>(pendingRestoreKeys.size());
+                    }
+                }
+                else
+                {
+                    publishCounters.omittedThisFrameWithoutFinalDescriptor +=
+                        static_cast<uint32_t>(pendingRestoreKeys.size());
+                }
+            }
+            compareSkinnedPublishEmitted = publishCounters.publishEmitted;
+            compareSkinnedRestoreCaptured = publishCounters.restoreCaptured;
+            common->Printf(
+                "PathTraceCpuProducerPublish: mode=1 cand=%u emit=%u supp=%u rej(pend/route/res/blas/plan)=%u/%u/%u/%u/%u restore=%u omittedWithout=%u\n",
+                publishCounters.publishCandidates,
+                publishCounters.publishEmitted,
+                publishCounters.publishSuppressed,
+                publishCounters.rejectedPendingState,
+                publishCounters.rejectedMissingOrCurrentRoute,
+                publishCounters.rejectedResourceContract,
+                publishCounters.rejectedMissingBlas,
+                publishCounters.rejectedTlasPlan,
+                publishCounters.restoreCaptured,
+                publishCounters.omittedThisFrameWithoutFinalDescriptor);
+        }
+    }
     if (r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0 &&
         !skinnedHitRouteUploadBuild.records.empty() &&
         skinnedTlasPlan.result == PtSkinnedTlasRouteResult::Accepted)
@@ -14507,6 +21455,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_unifiedPtFrozenSceneCapturedMode != frozenSceneRequest;
     std::vector<nvrhi::rt::InstanceDesc>
         liveExtraTlasInstances;
+    std::vector<cpu_producer_publish::RegistryCompareObservation>
+        registryWalkObservations;
+    std::vector<cpu_producer_publish::RegistryCompareObservation>
+        registryHookObservations;
+    size_t walkExtraEnd = 0;
+    {
+        OPTICK_EVENT("PT Smoke Submit Boundary Build");
     liveExtraTlasInstances.reserve(
         rigidTlasRouteInstances.size() +
         (staticBucketRouteAccepted
@@ -14524,10 +21479,32 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     if (!frozenStaticCapture)
     {
+        const size_t rigidPrefix = liveExtraTlasInstances.size();
         liveExtraTlasInstances.insert(
             liveExtraTlasInstances.end(),
             rigidTlasRouteInstances.begin(),
             rigidTlasRouteInstances.end());
+        walkExtraEnd = liveExtraTlasInstances.size();
+        rigidSubmitBoundary.rigidPhysicalCount = firstSkinnedTlasDesc;
+        for (size_t metaIndex = 0; metaIndex < rigidSubmitBoundary.records.size(); ++metaIndex)
+        {
+            rigidSubmitBoundary.records[metaIndex].descriptorIndex =
+                static_cast<uint32_t>(rigidPrefix + metaIndex);
+        }
+        cpu_producer_publish::RegistryPublishCounters registryPublishCounters;
+        EmitCoalescedRegistryExtrasIntoLiveTlas(
+            viewDef,
+            m_smokeGeometryUniverse,
+            liveExtraTlasInstances,
+            rigidSubmitBoundary,
+            registryPublishCounters,
+            registryWalkObservations,
+            registryHookObservations);
+    }
+    else
+    {
+        rigidSubmitBoundary = cpu_producer_publish::RigidSubmitBoundaryList();
+    }
     }
 
     accelSubmitDesc.commandList = commandList;
@@ -14547,11 +21524,524 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     accelSubmitDesc.hasStaticBlas = hasStaticBlas;
     accelSubmitDesc.hasDynamicBlas = frozenStaticCapture
         ? false : hasDynamicBlas;
+    if (rigidCompletenessPending)
+    {
+        std::unordered_set<uint32_t> submittedPlanIds;
+        if (accelSubmitDesc.extraTlasInstances != nullptr)
+        {
+            for (const nvrhi::rt::InstanceDesc& desc : *accelSubmitDesc.extraTlasInstances)
+            {
+                submittedPlanIds.insert(static_cast<uint32_t>(desc.instanceID));
+            }
+        }
+        std::unordered_set<uint64_t> submittedExtraSourceIds;
+        for (const RtSmokeRigidBuilderInstanceResult& result : rigidBuilderResults)
+        {
+            if (result.appended && result.traceable &&
+                submittedPlanIds.find(result.planInstanceId) != submittedPlanIds.end())
+            {
+                submittedExtraSourceIds.insert(result.sourceInstanceId);
+            }
+        }
+        const bool submittedDynamicBlas = accelSubmitDesc.hasDynamicBlas;
+        rigidPublishCounters.rigidOmittedThisFrameWithoutFinalDescriptor = 0;
+        std::unordered_set<uint64_t> seenSkip;
+        for (uint64_t skipId : rigidCaptureSkipInstanceIds)
+        {
+            if (!seenSkip.insert(skipId).second)
+            {
+                continue;
+            }
+            const bool restoreCommitted =
+                rigidRestoreCommittedIds.find(skipId) != rigidRestoreCommittedIds.end();
+            if (!cpu_producer_publish::RigidSkipHasSubmittedThisFrameProduct(
+                    skipId,
+                    submittedExtraSourceIds,
+                    restoreCommitted,
+                    submittedDynamicBlas))
+            {
+                ++rigidPublishCounters.rigidOmittedThisFrameWithoutFinalDescriptor;
+            }
+        }
+        common->Printf(
+            "PathTraceCpuProducerPublish: rigid mode=1 cand=%u emit=%u supp=%u rej(n/m/s/b/capP/capL/bld/mask)=%u/%u/%u/%u/%u/%u/%u/%u restore=%u omittedWithout=%u\n",
+            rigidPublishCounters.rigidPublishCandidates,
+            rigidPublishCounters.rigidPublishEmitted,
+            rigidPublishCounters.rigidPublishSuppressed,
+            rigidPublishCounters.rejectedNonRigid,
+            rigidPublishCounters.rejectedMissingMesh,
+            rigidPublishCounters.rejectedStaleMesh,
+            rigidPublishCounters.rejectedMissingBlas,
+            rigidPublishCounters.capTruncatedPreselect,
+            rigidPublishCounters.capTruncatedPlan,
+            rigidPublishCounters.builderDeclinedCachedTlas +
+                rigidPublishCounters.builderDeclinedRouteIndex +
+                rigidPublishCounters.builderDeclinedPlanMismatch +
+                rigidPublishCounters.builderDeclinedMissingBlas +
+                rigidPublishCounters.builderDeclinedCachedInvalid,
+            rigidPublishCounters.maskZeroNonTraceable,
+            rigidPublishCounters.rigidRestoreCaptured,
+            rigidPublishCounters.rigidOmittedThisFrameWithoutFinalDescriptor);
+    }
     accelSubmitDesc.staticBlasCacheHit = staticBlasCacheHit;
     accelSubmitDesc.includeStaticBlasInTlas =
         frozenStaticCapture || !staticBucketRouteAccepted;
     accelSubmitDesc.diagnosticMarkers =
         r_pathTracingNsightGpuMarkers.GetInteger() != 0;
+
+    RtSmokeTlasCapacityCandidate tlasCandidate;
+    tlasCandidate.tlas = m_smokeTlas;
+    tlasCandidate.maxInstances = m_smokeTlasMaxInstances;
+    {
+        using namespace cpu_producer_publish;
+        uint32_t extraWithBlas = 0;
+        for (const nvrhi::rt::InstanceDesc& extra : liveExtraTlasInstances)
+        {
+            if (extra.bottomLevelAS)
+            {
+                ++extraWithBlas;
+            }
+        }
+        const uint32_t baseCount =
+            (accelSubmitDesc.hasStaticBlas && accelSubmitDesc.includeStaticBlasInTlas ? 1u : 0u) +
+            (accelSubmitDesc.hasDynamicBlas ? 1u : 0u);
+        uint32_t submitted = CountSmokeTlasSubmitInstances(baseCount, extraWithBlas);
+        bool grew = false;
+        bool suppressed = false;
+        if (submitted > tlasCandidate.maxInstances)
+        {
+            grew = EnsureSmokeTlasCapacity(submitted, tlasCandidate);
+        }
+        if (submitted > tlasCandidate.maxInstances &&
+            liveExtraTlasInstances.size() > walkExtraEnd)
+        {
+            while (liveExtraTlasInstances.size() > walkExtraEnd &&
+                submitted > tlasCandidate.maxInstances)
+            {
+                if (liveExtraTlasInstances.back().bottomLevelAS && submitted > 0)
+                {
+                    --submitted;
+                }
+                liveExtraTlasInstances.pop_back();
+                if (!rigidSubmitBoundary.records.empty())
+                {
+                    const uint32_t provenance = rigidSubmitBoundary.records.back().provenance;
+                    if ((provenance & kOriginRegistryHook) != 0 &&
+                        (provenance & kOriginCaptureWalk) == 0)
+                    {
+                        rigidSubmitBoundary.records.pop_back();
+                        if (rigidSubmitBoundary.rigidPhysicalCount > 0)
+                        {
+                            --rigidSubmitBoundary.rigidPhysicalCount;
+                        }
+                    }
+                }
+            }
+            suppressed = true;
+        }
+        accelSubmitDesc.tlas = tlasCandidate.tlas;
+        accelSubmitDesc.tlasMaxInstances = tlasCandidate.maxInstances;
+        accelSubmitDesc.extraTlasInstances =
+            !liveExtraTlasInstances.empty()
+                ? &liveExtraTlasInstances
+                : nullptr;
+        static bool smokeTlasCapacityLogged = false;
+        if ((grew || suppressed) && !smokeTlasCapacityLogged)
+        {
+            const char* action = "suppressed";
+            if (grew && suppressed)
+            {
+                action = "grew+suppressed";
+            }
+            else if (grew)
+            {
+                action = "grew";
+            }
+            common->Printf(
+                "PathTracePrimaryPass: smoke TLAS capacity submitted=%u max=%u grew-or-suppressed=%s\n",
+                submitted,
+                tlasCandidate.maxInstances,
+                action);
+            smokeTlasCapacityLogged = true;
+        }
+    }
+
+    const int compareMode = DecodeCpuProducerPublishMode();
+    cpu_producer_publish::CompareFrameInput compareIn;
+    cpu_producer_publish::CompareDumpConfig compareDumpCfg;
+    {
+        OPTICK_EVENT("PT Smoke Compare Input Build");
+        compareIn.decodedMode = compareMode;
+        std::unordered_map<uint32_t, uint32_t> extraPlanCounts;
+        if (accelSubmitDesc.extraTlasInstances != nullptr)
+        {
+            for (const nvrhi::rt::InstanceDesc& desc : *accelSubmitDesc.extraTlasInstances)
+            {
+                ++extraPlanCounts[static_cast<uint32_t>(desc.instanceID)];
+            }
+        }
+        for (const RtSmokeRigidBuilderInstanceResult& result : rigidBuilderResults)
+        {
+            const auto found = extraPlanCounts.find(result.planInstanceId);
+            if (found == extraPlanCounts.end())
+            {
+                continue;
+            }
+            if (result.appended && result.traceable)
+            {
+                for (uint32_t n = 0; n < found->second; ++n)
+                {
+                    compareIn.extraSourceIds.push_back(result.sourceInstanceId);
+                }
+            }
+            else if (result.appended)
+            {
+                compareIn.extraMaskZeroSourceIds.push_back(result.sourceInstanceId);
+            }
+        }
+        if (!frozenStaticCapture)
+        {
+            for (const PtCanonicalInstanceKey& key : skinnedFinalDescriptorKeys)
+            {
+                compareIn.submittedSkinnedIds.push_back(
+                    PtHashCanonicalInstanceKey(key) | (1ull << 63));
+            }
+        }
+        compareIn.restoreCommittedIds.assign(
+            rigidRestoreCommittedIds.begin(), rigidRestoreCommittedIds.end());
+        compareIn.hasDynamicBlas = accelSubmitDesc.hasDynamicBlas;
+        compareIn.rigidCandidates = rigidTlasSnapshot.preselectAllInstanceIds;
+        for (const RtSmokeSkinnedSurfaceRecord& rec : currentSkinnedSurfaceRecords)
+        {
+            if (rec.cpuCaptureOmitted)
+            {
+                compareIn.skinnedCandidates.push_back(
+                    PtHashCanonicalInstanceKey(rec.canonicalInstance) | (1ull << 63));
+            }
+        }
+        compareIn.captureSkipIds = rigidCaptureSkipInstanceIds;
+        for (const RtSmokeRigidPreselectDrop& drop : rigidTlasSnapshot.preselectDropped)
+        {
+            compareIn.capDroppedIds.push_back(drop.instanceId);
+        }
+        for (uint64_t id : rigidTlasPlan.planTruncatedInstanceIds)
+        {
+            compareIn.capDroppedIds.push_back(id);
+        }
+        compareIn.publishEmitted = compareSkinnedPublishEmitted;
+        compareIn.rigidPublishEmitted = rigidPublishCounters.rigidPublishEmitted;
+        cpu_producer_publish::FillCompareRestoreFired(
+            compareIn,
+            rigidRestoreCommittedIds,
+            skinnedRestoreCommittedIds,
+            compareSkinnedRestoreCaptured);
+        std::unordered_set<uint64_t> headroomSubmitted;
+        for (uint64_t id : compareIn.extraSourceIds)
+        {
+            headroomSubmitted.insert(id);
+        }
+        for (uint64_t id : compareIn.submittedSkinnedIds)
+        {
+            headroomSubmitted.insert(id);
+        }
+        std::unordered_set<uint64_t> headroomSkip(
+            rigidCaptureSkipInstanceIds.begin(), rigidCaptureSkipInstanceIds.end());
+        std::unordered_set<uint64_t> headroomOmitSkin;
+        std::vector<uint64_t> walkedSkinnedIds;
+        for (const RtSmokeSkinnedSurfaceRecord& rec : currentSkinnedSurfaceRecords)
+        {
+            const uint64_t sid =
+                PtHashCanonicalInstanceKey(rec.canonicalInstance) | (1ull << 63);
+            if (rec.cpuCaptureOmitted)
+            {
+                headroomOmitSkin.insert(sid);
+            }
+            else
+            {
+                walkedSkinnedIds.push_back(sid);
+            }
+        }
+        const cpu_producer_publish::HeadroomResult headroom =
+            cpu_producer_publish::CountHeadroom(
+                rigidCaptureWalked,
+                walkedSkinnedIds,
+                headroomSkip,
+                headroomOmitSkin,
+                headroomSubmitted,
+                rigidRestoreCommittedIds,
+                accelSubmitDesc.hasDynamicBlas);
+        cpu_producer_publish::MaybeDumpHeadroom(headroom);
+        std::vector<cpu_producer_publish::WalkedSurface> caseCWalkedStatic;
+        caseCWalkedStatic.reserve(staticWalkedIds.size());
+        for (size_t i = 0; i < staticWalkedIds.size(); ++i)
+        {
+            cpu_producer_publish::WalkedSurface surf;
+            surf.id = staticWalkedIds[i];
+            surf.triangles = (i < staticWalkedTriangles.size())
+                ? staticWalkedTriangles[i] : 0u;
+            surf.domain = cpu_producer_publish::CaseCIdentityDomain::StaticSurface;
+            caseCWalkedStatic.push_back(surf);
+        }
+        std::vector<cpu_producer_publish::WalkedSurface> caseCWalkedMerged;
+        caseCWalkedMerged.reserve(
+            rigidCaptureWalked.size() + walkedSkinnedIds.size());
+        for (size_t i = 0; i < rigidCaptureWalked.size(); ++i)
+        {
+            cpu_producer_publish::WalkedSurface surf;
+            surf.id = rigidCaptureWalked[i];
+            surf.triangles = (i < rigidCaptureWalkedTriangles.size())
+                ? rigidCaptureWalkedTriangles[i] : 0u;
+            caseCWalkedMerged.push_back(surf);
+        }
+        for (const RtSmokeSkinnedSurfaceRecord& rec : currentSkinnedSurfaceRecords)
+        {
+            if (rec.cpuCaptureOmitted)
+            {
+                continue;
+            }
+            cpu_producer_publish::WalkedSurface surf;
+            surf.id = PtHashCanonicalInstanceKey(rec.canonicalInstance) | (1ull << 63);
+            surf.triangles = rec.triangleCount > 0
+                ? static_cast<uint32_t>(rec.triangleCount) : 0u;
+            caseCWalkedMerged.push_back(surf);
+        }
+        const cpu_producer_publish::StaticSurfaceProductSet
+            submittedStaticSurfaces =
+            BuildCaseCSubmittedStaticSurfaceProduct(
+                m_staticBucketGeometryUniverse,
+                staticBucketFramePublication,
+                accelSubmitDesc.extraTlasInstances);
+        const cpu_producer_publish::CaseCWalkSet caseCWalk =
+            cpu_producer_publish::CountCaseCWalkSet(
+                caseCWalkedStatic,
+                caseCWalkedMerged,
+                headroomSkip,
+                headroomOmitSkin,
+                headroomSubmitted,
+                rigidRestoreCommittedIds,
+                accelSubmitDesc.hasDynamicBlas,
+                submittedStaticSurfaces);
+        common->Printf(
+            "PathTraceCpuProducerPublish: caseCWalk static=%u merged=%u (tri s/m=%u/%u)\n",
+            caseCWalk.staticBakeOnly(),
+            caseCWalk.mergedDynamicOnly(),
+            caseCWalk.staticBakeTriangles,
+            caseCWalk.mergedDynamicTriangles);
+        cpu_producer_publish::MaybeDumpCaseCWalk(caseCWalk);
+        cpu_producer_publish::MergedSubmittedProduct mergedProduct;
+        mergedProduct.hasDynamicBlas = accelSubmitDesc.hasDynamicBlas;
+        mergedProduct.dynamicBlasNonNull = accelSubmitDesc.dynamicBlas != nullptr;
+        mergedProduct.dynamicBlasBuiltThisFrameFromVectors =
+            accelSubmitDesc.hasDynamicBlas &&
+            accelSubmitDesc.dynamicBlas != nullptr &&
+            accelSubmitDesc.dynamicBlas == smokeDynamicBlas;
+        mergedProduct.tlasTraceable =
+            accelSubmitDesc.hasDynamicBlas &&
+            accelSubmitDesc.dynamicBlas != nullptr;
+        mergedProduct.instanceMask =
+            mergedProduct.tlasTraceable
+                ? cpu_producer_publish::kMergedDynamicTlasInstanceMask
+                : 0u;
+        std::vector<cpu_producer_publish::MergedSubmittedBlasGeometry> submittedGeoms;
+        for (const nvrhi::rt::GeometryDesc& geom :
+            accelSubmitDesc.dynamicBlasDesc.bottomLevelGeometries)
+        {
+            if (geom.geometryType != nvrhi::rt::GeometryType::Triangles)
+            {
+                continue;
+            }
+            cpu_producer_publish::MergedSubmittedBlasGeometry part;
+            part.vertexCount = geom.geometryData.triangles.vertexCount;
+            part.indexCount = geom.geometryData.triangles.indexCount;
+            submittedGeoms.push_back(part);
+        }
+        const cpu_producer_publish::MergedBlasExtent submittedBlasExtent =
+            cpu_producer_publish::ReadSubmittedDynamicBlasExtents(submittedGeoms);
+        mergedProduct.blasVertexCount = submittedBlasExtent.vertexCount;
+        mergedProduct.blasIndexCount = submittedBlasExtent.indexCount;
+        for (int bucketIndex = 1; bucketIndex <= 4; ++bucketIndex)
+        {
+            const RtSmokeBucketRange& br = bucketRanges.buckets[bucketIndex];
+            if (br.indexCount <= 0 && br.vertexCount <= 0)
+            {
+                continue;
+            }
+            cpu_producer_publish::MergedBucketInterval interval;
+            interval.indexBegin = static_cast<uint32_t>(std::max(0, br.indexOffset));
+            interval.indexCount = static_cast<uint32_t>(std::max(0, br.indexCount));
+            interval.vertexBegin = static_cast<uint32_t>(std::max(0, br.vertexOffset));
+            interval.vertexCount = static_cast<uint32_t>(std::max(0, br.vertexCount));
+            mergedProduct.bucketIntervals.push_back(interval);
+        }
+        std::vector<cpu_producer_publish::MergedWalkedRange> mergedWalked;
+        mergedWalked.reserve(mergedWalkedRanges.size());
+        for (const RtSmokeMergedWalkedRange& src : mergedWalkedRanges)
+        {
+            cpu_producer_publish::MergedWalkedRange dst;
+            dst.id = src.id;
+            dst.domain = cpu_producer_publish::CaseCIdentityDomain::MergedDynamic;
+            dst.vertexBegin = static_cast<uint32_t>(std::max(0, src.vertexBegin));
+            dst.vertexCount = static_cast<uint32_t>(std::max(0, src.vertexCount));
+            dst.indexBegin = static_cast<uint32_t>(std::max(0, src.indexBegin));
+            dst.indexCount = static_cast<uint32_t>(std::max(0, src.indexCount));
+            dst.triangleBegin = static_cast<uint32_t>(std::max(0, src.triangleBegin));
+            dst.triangleCount = static_cast<uint32_t>(std::max(0, src.triangleCount));
+            dst.particle = src.particle;
+            dst.trueDeform = src.trueDeform;
+            dst.stableThisFrame = false;
+            dst.stabilityMeasured = false;
+            dst.companionRigidId = src.companionRigidId;
+            dst.companionSkinnedId = src.companionSkinnedId;
+            mergedWalked.push_back(dst);
+        }
+        std::unordered_set<uint64_t> rigidSubmittedExtras(
+            compareIn.extraSourceIds.begin(), compareIn.extraSourceIds.end());
+        std::unordered_set<uint64_t> submittedSkinnedSet(
+            compareIn.submittedSkinnedIds.begin(), compareIn.submittedSkinnedIds.end());
+        const cpu_producer_publish::MergedDynamicExclusionSets mergedExclusions =
+            cpu_producer_publish::BuildMergedDynamicExclusionSets(
+                mergedWalked,
+                headroomSkip,
+                headroomOmitSkin,
+                rigidSubmittedExtras,
+                submittedSkinnedSet);
+        const cpu_producer_publish::MergedCaseCWalkSet mergedWalk =
+            cpu_producer_publish::CountMergedCaseCWalkSet(
+                mergedWalked,
+                mergedExclusions.skipIds,
+                mergedExclusions.omitIds,
+                mergedExclusions.descriptorIds,
+                mergedProduct);
+        common->Printf(
+            "PathTraceCpuProducerPublish: mergedWalk covered=%u stable=%u (tri c/s=%u/%u excl p/d=%u/%u)\n",
+            mergedWalk.covered(),
+            mergedWalk.stable(),
+            mergedWalk.coveredTriangles,
+            mergedWalk.stableTriangles,
+            mergedWalk.excludedParticle,
+            mergedWalk.excludedDeform);
+        cpu_producer_publish::MaybeDumpMergedWalk(mergedWalk);
+        compareDumpCfg.frameIndex = geometryUniverseStats.frameIndex;
+        compareDumpCfg.frozenStaticCapture = frozenStaticCapture;
+        compareDumpCfg.removeDynamic = r_pathTracingRigidRouteRemoveDynamic.GetInteger();
+        compareDumpCfg.residencyV2 = r_pathTracingGeometryResidencyV2.GetInteger();
+        compareDumpCfg.routeReadyCount = static_cast<uint32_t>(
+            rigidTlasSnapshot.preselectAllInstanceIds.size());
+        compareDumpCfg.capValue = rigidRouteMaxInstances;
+        compareDumpCfg.headroomCandidates = headroom.total();
+        compareDumpCfg.headroomRigid = headroom.rigid();
+        compareDumpCfg.headroomSkinned = headroom.skinned();
+    }
+
+    const char* registryGapDumpName =
+        r_pathTracingCpuProducerRegistryGapDump.GetString();
+    if (registryGapDumpName != nullptr && registryGapDumpName[0] != '\0')
+    {
+        const cpu_producer_publish::RegistryGapResult registryGap =
+            BuildRegistryGapAtSubmitBoundary(
+                viewDef,
+                rigidSubmitBoundary,
+                m_smokeGeometryUniverse);
+        cpu_producer_publish::MaybeDumpRegistryGap(registryGap);
+    }
+
+    {
+        OPTICK_EVENT("PT Smoke Final Physical Join + Compare");
+        using namespace cpu_producer_publish;
+        const uint32_t extrasBefore = static_cast<uint32_t>(liveExtraTlasInstances.size());
+        uint32_t droppedNull = 0;
+        uint32_t builtExtras = 0;
+        std::vector<nvrhi::rt::InstanceDesc> keptExtras;
+        keptExtras.reserve(liveExtraTlasInstances.size());
+        try
+        {
+            for (size_t extraIndex = 0; extraIndex < liveExtraTlasInstances.size(); ++extraIndex)
+            {
+                if (!SmokeTlasKeepExtraInstance(
+                        liveExtraTlasInstances[extraIndex].bottomLevelAS != nullptr))
+                {
+                    ++droppedNull;
+                    continue;
+                }
+                keptExtras.push_back(liveExtraTlasInstances[extraIndex]);
+                ++builtExtras;
+            }
+        }
+        catch (...)
+        {
+            keptExtras.clear();
+            droppedNull = extrasBefore;
+            builtExtras = 0;
+        }
+        liveExtraTlasInstances.swap(keptExtras);
+        const uint32_t baseCount =
+            (accelSubmitDesc.hasStaticBlas && accelSubmitDesc.includeStaticBlasInTlas ? 1u : 0u) +
+            (accelSubmitDesc.hasDynamicBlas ? 1u : 0u);
+        uint32_t submitted = CountSmokeTlasSubmitInstances(
+            baseCount,
+            static_cast<uint32_t>(liveExtraTlasInstances.size()));
+        while (!SmokeTlasSubmitAllowed(submitted, tlasCandidate.maxInstances) &&
+            liveExtraTlasInstances.size() > walkExtraEnd)
+        {
+            liveExtraTlasInstances.pop_back();
+            if (submitted > 0)
+            {
+                --submitted;
+            }
+            ++droppedNull;
+            if (!rigidSubmitBoundary.records.empty())
+            {
+                const uint32_t provenance = rigidSubmitBoundary.records.back().provenance;
+                if ((provenance & kOriginRegistryHook) != 0 &&
+                    (provenance & kOriginCaptureWalk) == 0)
+                {
+                    rigidSubmitBoundary.records.pop_back();
+                    if (rigidSubmitBoundary.rigidPhysicalCount > 0)
+                    {
+                        --rigidSubmitBoundary.rigidPhysicalCount;
+                    }
+                }
+            }
+        }
+        accelSubmitDesc.tlas = tlasCandidate.tlas;
+        accelSubmitDesc.tlasMaxInstances = tlasCandidate.maxInstances;
+        accelSubmitDesc.extraTlasInstances =
+            !liveExtraTlasInstances.empty()
+                ? &liveExtraTlasInstances
+                : nullptr;
+        FillRegistryCompareFromFinalPhysical(
+            viewDef,
+            m_smokeGeometryUniverse,
+            rigidSubmitBoundary,
+            liveExtraTlasInstances,
+            registryWalkObservations,
+            registryHookObservations,
+            compareIn);
+        const cpu_producer_publish::CompareFrameResult compareOut =
+            cpu_producer_publish::CompareSubmitSets(compareIn);
+        if (compareMode == 1 || compareIn.registryDecodedMode == 1)
+        {
+            common->Printf(
+                "PathTraceCpuProducerCompare: %s\n",
+                cpu_producer_publish::FormatCompareSizeLine(compareOut).c_str());
+        }
+        cpu_producer_publish::MaybeDumpCpuProducerCompare(
+            compareIn, compareOut, compareDumpCfg);
+        cpu_producer_publish::MaybeDumpCpuProducerRegistry(compareIn, compareOut);
+        static bool smokeTlasSubmitListLogged = false;
+        if (!smokeTlasSubmitListLogged)
+        {
+            common->Printf(
+                "PathTracePrimaryPass: smoke TLAS extras=%u built=%u dropped=%u submitted=%u max=%u\n",
+                extrasBefore,
+                builtExtras,
+                droppedNull,
+                submitted,
+                tlasCandidate.maxInstances);
+            smokeTlasSubmitListLogged = true;
+        }
+    }
+
     RtSmokeAccelSubmitTiming accelSubmitTiming;
     bool accelSubmitSucceeded = false;
     if (optickGpuMarkers)
@@ -14703,7 +22193,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         OPTICK_EVENT("PT Binding Desc Build");
     bindingBuildDesc.device = device;
-    bindingBuildDesc.tlas = m_smokeTlas;
+    bindingBuildDesc.tlas = tlasCandidate.tlas;
     bindingBuildDesc.outputTexture = m_frameResources.outputTexture;
     bindingBuildDesc.accumulationTexture = m_frameResources.accumulationTexture;
     bindingBuildDesc.restirPTReflectionTexture = m_frameResources.restirPTReflectionTexture;
@@ -14891,7 +22381,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         sceneInputs.portalPolicy.staticAreaPreloadSteps == sceneInputs.portalPolicy.rigidResidencySteps &&
         sceneInputs.portalPolicy.rigidResidencySteps == sceneInputs.portalPolicy.lightAreaSteps;
 
-    sceneInputs.geometry.tlas = m_smokeTlas;
+    sceneInputs.geometry.tlas = tlasCandidate.tlas;
     sceneInputs.geometry.staticBlas = smokeStaticBlas;
     sceneInputs.geometry.dynamicBlas = smokeDynamicBlas;
     sceneInputs.geometry.staticVertexBuffer =
@@ -15223,7 +22713,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.staticBlasDesc = smokeStaticBlasDesc;
     resourceCommitBuildDesc.staticBlas = smokeStaticBlas;
     resourceCommitBuildDesc.dynamicBlas = smokeDynamicBlas;
-    resourceCommitBuildDesc.tlas = m_smokeTlas;
+    resourceCommitBuildDesc.tlas = tlasCandidate.tlas;
+    resourceCommitBuildDesc.tlasMaxInstances = tlasCandidate.maxInstances;
     resourceCommitBuildDesc.hasStaticBlas = hasStaticBlas;
     resourceCommitBuildDesc.staticBlasSignature = staticSignature.hash;
     resourceCommitBuildDesc.staticBlasOpacitySignature =
@@ -15266,6 +22757,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         OPTICK_EVENT("PT Commit Scene Resources");
         CommitRayTracingSmokeSceneResources(resourceCommitDesc);
+    }
+    if (auto* rewrite = RtCpuProducerRewrite_GetService())
+    {
+        if (rewrite->Route() == RtCpuProducerRewriteRoute::RewriteWarmup)
+        {
+            OPTICK_EVENT("PT CPU Material Warmup Receipt");
+            bool valid = materialTable.materialIds.size() == materialTable.materials.size() &&
+                materialTable.materialIds.size() == static_cast<size_t>(m_sceneInputs.materials.materialTableEntryCount);
+            try
+            {
+                valid = valid && RtCpuRewriteBuildMaterialBindings(materialTable.materialIds, m_rewriteMaterialBindings);
+                if (valid) { m_rewriteLastMaterialTable = materialTable; m_rewriteFrameMaterialConfiguration = 0; }
+            }
+            catch (const std::bad_alloc&) { valid = false; }
+            m_rewriteMaterialTableOwner = valid ? m_sceneInputs.materials.materialTableBuffer : nullptr;
+            m_rewriteMaterialWorld = viewDef && viewDef->renderWorld ? viewDef->renderWorld->pathTraceWorldLifecycleGeneration : 0;
+            m_rewriteMaterialMap = viewDef && viewDef->renderWorld ? viewDef->renderWorld->mapLoadSerial : 0;
+            OPTICK_TAG("materialWarmupReceiptValid", valid ? 1u : 0u);
+        }
     }
     const int completedFrozenRequest = idMath::ClampInt(
         0, 5, r_pathTracingUnifiedPtFrozenScene.GetInteger());

@@ -36,7 +36,142 @@ idCVar image_pixelLook( "image_pixelLook", "0", CVAR_BOOL | CVAR_ARCHIVE | CVAR_
 
 #include "sys/DeviceManager.h"
 
+#include <atomic>
+#include <mutex>
+
 extern DeviceManager* deviceManager;
+
+namespace
+{
+	std::mutex g_pathTracingImageBindingMutex;
+	std::atomic<uint64> g_pathTracingImageBindingEpoch( 1u );
+	std::atomic<uint64> g_pathTracingImageBindingCreateCount( 0u );
+	std::atomic<uint64> g_pathTracingImageBindingPurgeCount( 0u );
+
+	bool NotePathTracingImageBindingCreate(
+		std::atomic<uint64>& epoch,
+		std::atomic<uint64>& createCount,
+		bool hasCreatedHandle )
+	{
+		if( !hasCreatedHandle )
+		{
+			return false;
+		}
+		createCount.fetch_add( 1u, std::memory_order_relaxed );
+		epoch.fetch_add( 1u, std::memory_order_release );
+		return true;
+	}
+
+	bool NotePathTracingImageBindingUnpublish(
+		std::atomic<uint64>& epoch,
+		std::atomic<uint64>& purgeCount,
+		bool hadHandle )
+	{
+		if( !hadHandle )
+		{
+			return false;
+		}
+		purgeCount.fetch_add( 1u, std::memory_order_relaxed );
+		epoch.fetch_add( 1u, std::memory_order_release );
+		return true;
+	}
+
+	bool PublishPathTracingImageBinding(
+		nvrhi::TextureHandle& destination,
+		nvrhi::TextureHandle& created,
+		nvrhi::TextureHandle& previous )
+	{
+		if( !created )
+		{
+			return NotePathTracingImageBindingCreate(
+				g_pathTracingImageBindingEpoch,
+				g_pathTracingImageBindingCreateCount,
+				false );
+		}
+		std::lock_guard<std::mutex> lock( g_pathTracingImageBindingMutex );
+		previous.Swap( destination );
+		destination.Swap( created );
+		return NotePathTracingImageBindingCreate(
+			g_pathTracingImageBindingEpoch,
+			g_pathTracingImageBindingCreateCount,
+			true );
+	}
+
+	bool UnpublishPathTracingImageBinding(
+		nvrhi::TextureHandle& destination,
+		nvrhi::TextureHandle& previous )
+	{
+		std::lock_guard<std::mutex> lock( g_pathTracingImageBindingMutex );
+		if( !destination )
+		{
+			return NotePathTracingImageBindingUnpublish(
+				g_pathTracingImageBindingEpoch,
+				g_pathTracingImageBindingPurgeCount,
+				false );
+		}
+		previous.Swap( destination );
+		return NotePathTracingImageBindingUnpublish(
+			g_pathTracingImageBindingEpoch,
+			g_pathTracingImageBindingPurgeCount,
+			true );
+	}
+}
+
+uint64 GetPathTracingImageBindingEpoch()
+{
+	return g_pathTracingImageBindingEpoch.load( std::memory_order_acquire );
+}
+
+uint64 GetPathTracingImageBindingCreateCount()
+{
+	return g_pathTracingImageBindingCreateCount.load( std::memory_order_acquire );
+}
+
+uint64 GetPathTracingImageBindingPurgeCount()
+{
+	return g_pathTracingImageBindingPurgeCount.load( std::memory_order_acquire );
+}
+
+bool PathTracingImageBindingPublicationSelfTest()
+{
+	std::atomic<uint64> epoch( 1u );
+	std::atomic<uint64> createCount( 0u );
+	std::atomic<uint64> purgeCount( 0u );
+	if( NotePathTracingImageBindingCreate(
+			epoch, createCount, false ) ||
+		epoch.load( std::memory_order_acquire ) != 1u ||
+		createCount.load( std::memory_order_acquire ) != 0u ||
+		NotePathTracingImageBindingUnpublish(
+			epoch, purgeCount, false ) ||
+		epoch.load( std::memory_order_acquire ) != 1u ||
+		purgeCount.load( std::memory_order_acquire ) != 0u)
+	{
+		return false;
+	}
+	return NotePathTracingImageBindingCreate(
+			epoch, createCount, true ) &&
+		epoch.load( std::memory_order_acquire ) == 2u &&
+		createCount.load( std::memory_order_acquire ) == 1u &&
+		NotePathTracingImageBindingUnpublish(
+			epoch, purgeCount, true ) &&
+		epoch.load( std::memory_order_acquire ) == 3u &&
+		purgeCount.load( std::memory_order_acquire ) == 1u;
+}
+
+idPathTracingTextureBindingSnapshot idImage::GetPathTracingTextureBindingSnapshot() const
+{
+	idPathTracingTextureBindingSnapshot snapshot;
+	std::lock_guard<std::mutex> lock( g_pathTracingImageBindingMutex );
+	snapshot.texture = texture;
+	if( snapshot.texture )
+	{
+		const nvrhi::TextureDesc& desc = snapshot.texture->getDesc();
+		snapshot.width = desc.width;
+		snapshot.height = desc.height;
+	}
+	snapshot.epoch = g_pathTracingImageBindingEpoch.load( std::memory_order_acquire );
+	return snapshot;
+}
 
 #if defined( USE_AMD_ALLOCATOR )
 #include "vk_mem_alloc.h"
@@ -618,12 +753,26 @@ void idImage::AllocImage()
 		VkResult result = vmaCreateImage( m_VmaAllocator, &imageCreateInfo, &allocCreateInfo, &image, &allocation, NULL );
 		assert( result == VK_SUCCESS );
 
-		texture = deviceManager->GetDevice()->createHandleForNativeTexture( nvrhi::ObjectTypes::VK_Image, image, textureDesc );
+		nvrhi::TextureHandle createdTexture = deviceManager->GetDevice()->createHandleForNativeTexture( nvrhi::ObjectTypes::VK_Image, image, textureDesc );
+		assert( createdTexture );
+		if( createdTexture )
+		{
+			nvrhi::TextureHandle previousTexture;
+			PublishPathTracingImageBinding( texture, createdTexture, previousTexture );
+			previousTexture.Reset();
+		}
 	}
 	else
 #endif
 	{
-		texture = deviceManager->GetDevice()->createTexture( textureDesc );
+		nvrhi::TextureHandle createdTexture = deviceManager->GetDevice()->createTexture( textureDesc );
+		assert( createdTexture );
+		if( createdTexture )
+		{
+			nvrhi::TextureHandle previousTexture;
+			PublishPathTracingImageBinding( texture, createdTexture, previousTexture );
+			previousTexture.Reset();
+		}
 	}
 
 	assert( texture );
@@ -636,7 +785,9 @@ idImage::PurgeImage
 */
 void idImage::PurgeImage()
 {
-	texture.Reset();
+	nvrhi::TextureHandle previousTexture;
+	UnpublishPathTracingImageBinding( texture, previousTexture );
+	previousTexture.Reset();
 
 #if defined( USE_AMD_ALLOCATOR )
 	if( m_VmaAllocator && image != VK_NULL_HANDLE )

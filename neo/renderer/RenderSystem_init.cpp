@@ -43,7 +43,11 @@ If you have questions concerning this license or the applicable additional terms
 #endif
 
 #include "RenderCommon.h"
+#include "NVRHI/PathTraceCommittedBaseline.h"
+#include "NVRHI/PathTraceCpuProducerRewrite.h"
 #include "NVRHI/PathTraceDynamicMaterialState.h"
+#include "NVRHI/PathTraceCaptureDeriveRing.h"
+#include "NVRHI/PathTraceCommittedCapture.h"
 
 #include "sys/DeviceManager.h"
 
@@ -1588,6 +1592,11 @@ void R_VidRestart_f( const idCmdArgs& args )
 		return;
 	}
 
+	DrainPathTraceCommittedBaselinePhase1(
+		RtPathTraceCommittedBaselineDrainReason::VidRestart );
+	commonLocal.WaitGameThread();
+	RtCpuProducerRewrite_Invalidate( RtCpuRewriteInvalidReason::VidRestart );
+
 	// set the mode without re-initializing the context
 	R_SetNewMode( false );
 }
@@ -1792,6 +1801,7 @@ void idRenderSystemLocal::Clear()
 	}
 
 	frontEndJobList = NULL;
+	cpuProducerRewriteService = NULL;
 
 	// RB
 	envprobeJobList = NULL;
@@ -2298,6 +2308,7 @@ void idRenderSystemLocal::Init()
 	}
 
 	frontEndJobList = parallelJobManager->AllocJobList( JOBLIST_RENDERER_FRONTEND, JOBLIST_PRIORITY_MEDIUM, 2048, 0, NULL );
+	RtCpuProducerRewrite_InitService();
 	envprobeJobList = parallelJobManager->AllocJobList( JOBLIST_UTILITY, JOBLIST_PRIORITY_MEDIUM, 2048, 0, NULL ); // RB
 
 	if( deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN )
@@ -2337,6 +2348,13 @@ idRenderSystemLocal::Shutdown
 void idRenderSystemLocal::Shutdown()
 {
 	common->Printf( "idRenderSystem::Shutdown()\n" );
+	// Common shutdown sets com_shuttingDown before reaching renderer shutdown.
+	// Drain the last Game/Draw invocation before handing the proven-idle list
+	// to MainThread for its one allowed FreeJobList call.
+	commonLocal.WaitGameThread();
+	RtCpuProducerRewrite_ShutdownService();
+	ShutdownPathTraceMaterialClassifyLane();
+	ShutdownPathTraceCommittedCaptureLane();
 
 	fonts.DeleteContents();
 
@@ -2410,6 +2428,7 @@ idRenderSystemLocal::BeginLevelLoad
 */
 void idRenderSystemLocal::BeginLevelLoad()
 {
+	RtCpuProducerRewrite_BeginLevelLoad();
 	// clear binding sets for previous level images and light data #676
 	backEnd.ClearCaches();
 
@@ -2452,6 +2471,7 @@ idRenderSystemLocal::EndLevelLoad
 */
 void idRenderSystemLocal::EndLevelLoad()
 {
+	RtCpuProducerRewrite_EndLevelLoad();
 	renderModelManager->EndLevelLoad();
 	globalImages->EndLevelLoad();
 }

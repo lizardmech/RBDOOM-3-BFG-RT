@@ -29,8 +29,11 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "precompiled.h"
 #pragma hdrstop
+#include "NVRHI/PathTraceCommittedBaseline.h"
 
 #include "RenderCommon.h"
+#include "NVRHI/PathTraceCaptureDeriveRing.h"
+#include "NVRHI/PathTraceCommittedCapture.h"
 #include "NVRHI/PathTraceGeometryLifecycle.h"
 
 #include <sys/DeviceManager.h>
@@ -143,6 +146,7 @@ idRenderWorldLocal::idRenderWorldLocal
 */
 idRenderWorldLocal::idRenderWorldLocal()
 {
+	pathTraceWorldLifecycleGeneration = NextPathTraceRenderWorldLifecycleGeneration();
 	pathTraceGeometryLifecycleRegistry = PtGeometryLifecycle::CreateWorldRegistry( this );
 
 	mapName.Clear();
@@ -1136,7 +1140,14 @@ void idRenderWorldLocal::RenderScene( const renderView_t* renderView )
 	// for mirrors / portals / shadows / environment maps
 	// this will also cause any necessary entities and lights to be
 	// updated to the demo file
+	BeginPathTraceMaterialClassifyFrame();
+	BeginPathTraceCommittedCaptureFrame();
 	R_RenderView( parms );
+	// R_RenderView has returned from every recursive portal/mirror subview.
+	// The same Game/Draw owner that queued those jobs joins and frees the list
+	// before any frame-owned sealed-view input can rotate.
+	JoinPathTraceMaterialClassifyFrame();
+	JoinPathTraceCommittedCaptureFrame();
 
 	// render any post processing after the view and all its subviews has been draw
 	R_RenderPostProcess( parms );

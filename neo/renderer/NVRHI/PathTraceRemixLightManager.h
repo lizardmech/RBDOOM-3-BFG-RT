@@ -184,9 +184,10 @@ public:
     const PathTraceRemixLightManagerStats& GetStats() const;
 
 private:
+    struct IdentityIndexes;
     void RebuildPreviousToCurrentMap();
-    uint32_t RebuildCurrentToPreviousMapByStableIdentity();
-    void RebuildAnalyticStabilityClassification();
+    uint32_t RebuildCurrentToPreviousMapByStableIdentity(const IdentityIndexes& identities);
+    void RebuildAnalyticStabilityClassification(const IdentityIndexes& identities);
     void SortCurrentDoomAnalyticRangeByCacheability(
         uint32_t currentEmissiveCount,
         uint32_t currentAnalyticCount);
@@ -195,7 +196,8 @@ private:
         uint32_t currentAnalyticCount,
         uint32_t emissiveSampleCount,
         uint32_t doomAnalyticSampleCount);
-    void RebuildStats(const PathTraceRemixFramePrepareObservationPackage& framePackage);
+    void RebuildStats(const PathTraceRemixFramePrepareObservationPackage& framePackage,
+        const IdentityIndexes& identities);
     void RebuildSignatures();
 
     std::vector<PathTraceUnifiedLightRecord> m_currentLightPayloads;

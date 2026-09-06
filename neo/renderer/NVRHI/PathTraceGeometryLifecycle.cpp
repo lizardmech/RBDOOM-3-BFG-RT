@@ -2,10 +2,15 @@
 #pragma hdrstop
 
 #include "PathTraceGeometryLifecycle.h"
+#include "PathTraceGeometryUniverse.h"
+#include "PathTraceRigidMeshIdentity.h"
+#include "PathTraceRigidInstanceRecord.h"
+#include "PathTraceCpuProducerPackFormat.h"
 #include "PathTraceCVars.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGeometryAttributeSurvey.h"
 #include "PathTraceGeometryIdentityTransport.h"
+#include "PathTraceGeometryIdentityReplay.h"
 #include "PathTraceGeometrySourceRegistry.h"
 #include "PathTraceGeometrySourceTransport.h"
 #include "../Material.h"
@@ -18,6 +23,7 @@
 #include <cstring>
 #include <mutex>
 #include <limits>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -52,6 +58,8 @@ struct PtGeometryLifecycleSlotState
     std::uint32_t modelEpoch = 1;
     bool alive = false;
     PtGeometryLifecycleClass geometryClass = PtGeometryLifecycleClass::Unknown;
+    uint32_t dirtyThisFrame = 0;
+    cpu_producer_publish::RigidRegistryInstanceRecord rigidInstance;
 };
 
 struct PtGeometryLifecycleEventSample
@@ -113,6 +121,7 @@ struct PtGeometryShadowInstanceRecord
     std::uint64_t hash = 0;
     PtCanonicalMeshKey meshKey;
     std::uint64_t meshHash = 0;
+	std::uint64_t lastUpsertSequence = 0;
     std::uint32_t materialId = 0;
     std::uint32_t vertexCount = 0;
     std::uint32_t indexCount = 0;
@@ -160,6 +169,8 @@ struct PtGeometryShadowStats
 };
 
 PtGeometryLifecycleStats g_lifecycleStats;
+
+PtGeometryLifecycle::FrameCounters g_lifecycleFrameCounters;
 
 bool LifecycleDiagnosticsEnabled()
 {
@@ -291,6 +302,99 @@ void CopyShadowTransform(const idRenderEntityLocal* entity, float origin[3], flo
     }
 }
 
+cpu_producer_publish::RigidRegistryClass RigidRegistryClassFromLifecycle(
+    PtGeometryLifecycleClass geometryClass)
+{
+    switch (geometryClass)
+    {
+        case PtGeometryLifecycleClass::RigidAtRest:
+        case PtGeometryLifecycleClass::RigidMoving:
+            return cpu_producer_publish::RigidRegistryClass::Rigid;
+        case PtGeometryLifecycleClass::World:
+            return cpu_producer_publish::RigidRegistryClass::World;
+        case PtGeometryLifecycleClass::Deforming:
+            return cpu_producer_publish::RigidRegistryClass::Deforming;
+        case PtGeometryLifecycleClass::Transient:
+            return cpu_producer_publish::RigidRegistryClass::Transient;
+        default:
+            return cpu_producer_publish::RigidRegistryClass::Unknown;
+    }
+}
+
+cpu_producer_publish::RigidRegistryInstanceKey MakeRigidRegistryInstanceKey(const PtRenderDefKey& key)
+{
+    cpu_producer_publish::RigidRegistryInstanceKey instanceId;
+    instanceId.world = key.world;
+    instanceId.worldGeneration = key.worldGeneration;
+    instanceId.index = key.index;
+    instanceId.generation = key.generation;
+    return instanceId;
+}
+
+void CopyRigidRegistryXformFromEntity(
+    cpu_producer_publish::RigidRegistryXform& xform,
+    const idRenderEntityLocal* entity)
+{
+    CopyShadowTransform(entity, xform.origin, xform.axis);
+}
+
+void ResolveAuthoritativeRigidMeshIds(
+    const idRenderEntityLocal* entity,
+    uint32_t modelEpoch,
+    std::vector<uint64_t>& outMeshIds)
+{
+    outMeshIds.clear();
+    const idRenderModel* model = entity ? entity->parms.hModel : nullptr;
+    std::vector<uint64> hashes;
+    RtSmokeGeometryUniverse::ComputeRigidMeshHashesFromPresent(model, modelEpoch, hashes);
+    outMeshIds.assign(hashes.begin(), hashes.end());
+}
+
+void WriteAuthoritativeRigidInstancePresent(
+    PtGeometryLifecycleSlotState& slot,
+    const PtRenderDefKey& key,
+    const std::vector<uint64_t>& meshIds,
+    const idRenderEntityLocal* entity)
+{
+    if (!cpu_producer_publish::RigidRegistryMeshIdsComplete(meshIds) ||
+        !cpu_producer_publish::RigidRegistryInstanceKeyValid(MakeRigidRegistryInstanceKey(key)))
+    {
+        return;
+    }
+    cpu_producer_publish::RigidRegistryXform xform;
+    CopyRigidRegistryXformFromEntity(xform, entity);
+    cpu_producer_publish::FillRigidRegistryInstancePresent(
+        slot.rigidInstance,
+        MakeRigidRegistryInstanceKey(key),
+        meshIds,
+        xform);
+}
+
+void WriteAuthoritativeRigidInstanceUpdate(
+    PtGeometryLifecycleSlotState& slot,
+    const PtRenderDefKey& key,
+    const std::vector<uint64_t>& meshIds,
+    const idRenderEntityLocal* entity,
+    bool remesh)
+{
+    if (!slot.rigidInstance.alive)
+    {
+        WriteAuthoritativeRigidInstancePresent(slot, key, meshIds, entity);
+        return;
+    }
+    cpu_producer_publish::RigidRegistryXform xform;
+    CopyRigidRegistryXformFromEntity(xform, entity);
+    cpu_producer_publish::FillRigidRegistryInstanceUpdate(
+        slot.rigidInstance, meshIds, xform, remesh);
+    slot.rigidInstance.instanceId = MakeRigidRegistryInstanceKey(key);
+    slot.rigidInstance.generation = key.generation;
+}
+
+void RetireAuthoritativeRigidInstance(PtGeometryLifecycleSlotState& slot)
+{
+    cpu_producer_publish::RetireRigidRegistryInstanceRecord(slot.rigidInstance);
+}
+
 bool ShadowTransformEquals(const PtGeometryShadowInstanceRecord& record, const idRenderEntityLocal* entity)
 {
     float origin[3];
@@ -360,21 +464,13 @@ PtCanonicalMeshSourceDomain ShadowSourceDomain(
     {
         return PtCanonicalMeshSourceDomain::Invalid;
     }
-    if (model->IsStaticWorldModel())
-    {
-        return PtCanonicalMeshSourceDomain::StaticWorldMap;
-    }
-    if (model->IsDynamicModel() == DM_CONTINUOUS)
-    {
-        return PtCanonicalMeshSourceDomain::UnsupportedTransient;
-    }
-    if (model->IsDynamicModel() == DM_CACHED ||
-        entity->parms.joints != nullptr ||
-        entity->parms.numJoints > 0)
-    {
-        return PtCanonicalMeshSourceDomain::SkinnedBindSource;
-    }
-    return PtCanonicalMeshSourceDomain::RegisteredRenderModel;
+    PtSourceDomainFacts facts;
+    facts.sourcePresent = true;
+    facts.staticWorld = model->IsStaticWorldModel();
+    facts.continuous = model->IsDynamicModel() == DM_CONTINUOUS;
+    facts.cached = model->IsDynamicModel() == DM_CACHED;
+    facts.entityJointed = entity->parms.joints != nullptr || entity->parms.numJoints > 0;
+    return PtClassifySourceDomain(facts);
 }
 
 PtCanonicalDeformationClass ShadowDeformationClass(PtCanonicalMeshSourceDomain sourceDomain)
@@ -483,6 +579,7 @@ public:
 
     void BeginMap(std::uint64_t newMapLoadSerial)
     {
+		std::lock_guard<std::recursive_mutex> lock(shadowRecordsMutex);
         std::uint64_t liveInstances = 0;
         for (const PtGeometryShadowInstanceRecord& record : instances)
         {
@@ -532,6 +629,7 @@ public:
 
     void SetShadowTracking(const idRenderWorldLocal* world, bool enabled)
     {
+		std::lock_guard<std::recursive_mutex> lock(shadowRecordsMutex);
         if (!enabled)
         {
             if (shadowTracking)
@@ -573,6 +671,7 @@ public:
         bool allowCallbackSource = false,
         const idRenderModel* resolvedSurfaceModel = nullptr)
     {
+		std::lock_guard<std::recursive_mutex> lock(shadowRecordsMutex);
         if (!shadowTracking || !entity || worldGeneration == 0)
         {
             return;
@@ -688,6 +787,7 @@ public:
         const idRenderEntityLocal* entity,
         const idRenderModel* resolvedSurfaceModel)
     {
+		std::lock_guard<std::recursive_mutex> lock(shadowRecordsMutex);
         if (!shadowTracking || !entity || !resolvedSurfaceModel || worldGeneration == 0)
         {
             return;
@@ -738,6 +838,7 @@ public:
 
     void CaptureSourceDelta(viewDef_t* viewDef)
     {
+		std::lock_guard<std::recursive_mutex> lock(shadowRecordsMutex);
         if (viewDef == nullptr || viewDef->isSubview || !shadowTracking ||
             worldGeneration == 0)
         {
@@ -868,13 +969,39 @@ public:
 
     void CaptureIdentityDelta(viewDef_t* viewDef)
     {
-        if (viewDef == nullptr || viewDef->isSubview || !shadowTracking ||
-            worldGeneration == 0)
-        {
-            return;
-        }
+		std::lock_guard<std::recursive_mutex> lock(shadowRecordsMutex);
+		if (viewDef == nullptr || viewDef->isSubview)
+		{
+			return;
+		}
 
-        MaybeCompactIdentityJournal();
+		const bool s1Enabled =
+			r_pathTracingCpuProducerCanonicalIdentityS1.GetInteger() != 0;
+		PtGeometryPresentIdentitySnapshot* presentSnapshot = nullptr;
+		if (s1Enabled)
+		{
+			presentSnapshot = const_cast<PtGeometryPresentIdentitySnapshot*>(
+				viewDef->pathTraceGeometryPresentIdentitySnapshot);
+			if (presentSnapshot == nullptr)
+			{
+				presentSnapshot =
+					new (R_ClearedFrameAlloc(
+						sizeof(PtGeometryPresentIdentitySnapshot),
+						FRAME_ALLOC_VIEW_DEF))
+						PtGeometryPresentIdentitySnapshot();
+			}
+			viewDef->pathTraceGeometryPresentIdentitySnapshot = presentSnapshot;
+		}
+		if (!shadowTracking || worldGeneration == 0)
+		{
+			return;
+		}
+
+		MaybeCompactIdentityJournal();
+		if (s1Enabled)
+		{
+			CapturePresentIdentitySnapshot(presentSnapshot);
+		}
         const int budgetMB = idMath::ClampInt(
             1,
             32,
@@ -937,6 +1064,7 @@ public:
 
     void RemoveEntity(const idRenderEntityLocal* entity, std::uint32_t generation)
     {
+		std::lock_guard<std::recursive_mutex> lock(shadowRecordsMutex);
         if (!shadowTracking || !entity)
         {
             return;
@@ -960,6 +1088,7 @@ public:
 
     void DumpAttributeSurvey(std::uint64_t frameIndex, int requestedPage)
     {
+		std::lock_guard<std::recursive_mutex> lock(shadowRecordsMutex);
         PtGeometryAttributeSurvey survey;
         PtSurveyGeometrySourceRegistry(sourceRegistry, survey);
         const PtGeometryAttributeSurveyStats& totals = survey.totals;
@@ -1221,6 +1350,7 @@ public:
 
     void Dump(std::uint64_t frameIndex)
     {
+		std::lock_guard<std::recursive_mutex> lock(shadowRecordsMutex);
         std::uint64_t liveInstances = 0;
         std::uint64_t liveVertices = 0;
         std::uint64_t liveIndexes = 0;
@@ -1465,7 +1595,157 @@ public:
     std::vector<PtGeometryLifecycleSlotState> entitySlots;
     std::vector<PtGeometryLifecycleSlotState> lightSlots;
 
+    uint64_t MeshIdForEntityIndex(int index) const
+    {
+        std::lock_guard<std::recursive_mutex> lock(shadowRecordsMutex);
+        if (index < 0)
+        {
+            return 0;
+        }
+        for (const PtGeometryShadowInstanceRecord& record : instances)
+        {
+            if (record.valid && record.key.renderDefIndex == static_cast<uint32_t>(index))
+            {
+                return record.meshHash;
+            }
+        }
+        return 0;
+    }
+
+    bool ResolveFrontendCanonicalAuthority(
+        int renderDefIndex,
+        const idRenderModel* model,
+        PtCanonicalMeshSourceDomain sourceDomain,
+        PtGeometryLifecycle::PtFrontendCanonicalAuthority& outAuthority)
+    {
+        std::lock_guard<std::recursive_mutex> lock(shadowRecordsMutex);
+        if (!model || worldGeneration == 0 || renderDefIndex < 0)
+        {
+            return false;
+        }
+        const PtGeometryShadowAssetRecord& asset = FindOrCreateAsset(model, sourceDomain);
+        if (asset.sourceAssetId == 0 || asset.sourceAssetGeneration == 0)
+        {
+            return false;
+        }
+        PtGeometryLifecycleSlotState& slot = EnsureSlot(entitySlots, renderDefIndex);
+        if (slot.generation == 0)
+        {
+            return false;
+        }
+        outAuthority.sourceAssetId = asset.sourceAssetId;
+        outAuthority.sourceAssetGeneration = asset.sourceAssetGeneration;
+        outAuthority.worldGeneration = worldGeneration;
+        outAuthority.renderDefGeneration = slot.generation;
+        return true;
+    }
+
 private:
+	void CapturePresentIdentitySnapshot(
+		PtGeometryPresentIdentitySnapshot* snapshot) const
+	{
+		if (snapshot == nullptr)
+		{
+			return;
+		}
+		const uint64 captureStartUs = Sys_Microseconds();
+		std::uint64_t recordCount = 0;
+		std::uint64_t modelNameBytes = 0;
+		for (const PtGeometryShadowInstanceRecord& record : instances)
+		{
+			if (!record.valid ||
+				record.key.subInstanceKind !=
+					PtCanonicalSubInstanceKind::RigidSurface ||
+				(record.geometryClass != PtGeometryLifecycleClass::RigidAtRest &&
+					record.geometryClass != PtGeometryLifecycleClass::RigidMoving))
+			{
+				continue;
+			}
+			const int modelNameLength = record.modelName.Length();
+			if (modelNameLength < 0 ||
+				modelNameBytes > std::numeric_limits<std::uint32_t>::max() -
+					static_cast<std::uint64_t>(modelNameLength))
+			{
+				snapshot->captureMicroseconds =
+					Sys_Microseconds() - captureStartUs;
+				return;
+			}
+			modelNameBytes += static_cast<std::uint64_t>(modelNameLength);
+			++recordCount;
+		}
+
+		if (recordCount >
+				static_cast<std::uint64_t>(std::numeric_limits<int>::max()) /
+					sizeof(PtGeometryPresentIdentityRecord) ||
+			modelNameBytes >
+				static_cast<std::uint64_t>(std::numeric_limits<int>::max()))
+		{
+			snapshot->captureMicroseconds = Sys_Microseconds() - captureStartUs;
+			return;
+		}
+
+		PtGeometryPresentIdentityRecord* records = nullptr;
+		char* modelNames = nullptr;
+		if (recordCount != 0)
+		{
+			records = static_cast<PtGeometryPresentIdentityRecord*>(
+				R_ClearedFrameAlloc(
+					static_cast<int>(recordCount *
+						sizeof(PtGeometryPresentIdentityRecord)),
+					FRAME_ALLOC_VIEW_ENTITY));
+		}
+		if (modelNameBytes != 0)
+		{
+			modelNames = static_cast<char*>(R_FrameAlloc(
+				static_cast<int>(modelNameBytes), FRAME_ALLOC_VIEW_ENTITY));
+		}
+
+		std::uint64_t recordIndex = 0;
+		std::uint32_t modelNameOffset = 0;
+		for (const PtGeometryShadowInstanceRecord& record : instances)
+		{
+			if (!record.valid ||
+				record.key.subInstanceKind !=
+					PtCanonicalSubInstanceKind::RigidSurface ||
+				(record.geometryClass != PtGeometryLifecycleClass::RigidAtRest &&
+					record.geometryClass != PtGeometryLifecycleClass::RigidMoving))
+			{
+				continue;
+			}
+			PtGeometryPresentIdentityRecord& dto = records[recordIndex++];
+			dto.valid = 1;
+			dto.instanceKey = record.key;
+			dto.instanceHash = record.hash;
+			dto.meshKey = record.meshKey;
+			dto.meshHash = record.meshHash;
+			dto.lastUpsertSequence = record.lastUpsertSequence;
+			dto.modelNameOffset = modelNameOffset;
+			dto.modelNameLength =
+				static_cast<std::uint32_t>(record.modelName.Length());
+			if (dto.modelNameLength != 0)
+			{
+				std::memcpy(
+					modelNames + modelNameOffset,
+					record.modelName.c_str(),
+					dto.modelNameLength);
+				modelNameOffset += dto.modelNameLength;
+			}
+		}
+
+		snapshot->available = 1;
+		snapshot->worldGeneration = worldGeneration;
+		snapshot->publicationGeneration = identityPublicationGeneration;
+		snapshot->recordCount = recordCount;
+		snapshot->modelNameBytes = modelNameBytes;
+		snapshot->packedBytes =
+			sizeof(PtGeometryPresentIdentitySnapshot) +
+			recordCount * sizeof(PtGeometryPresentIdentityRecord) +
+			modelNameBytes;
+		snapshot->records = records;
+		snapshot->modelNames = modelNames;
+		snapshot->captureMicroseconds = Sys_Microseconds() - captureStartUs;
+	}
+
     void ObserveImmutableSource(
         const PtCanonicalMeshKey& meshKey,
         std::uint64_t sourceContentRevision,
@@ -1741,11 +2021,14 @@ private:
             added.materialName = material ? material->GetName() : "<none>";
             CopyShadowTransform(entity, added.origin, added.axis);
             const size_t recordIndex = instances.size();
-            instances.push_back(added);
-            instanceLookup.emplace(instanceHash, recordIndex);
-            AppendIdentityEvent(
-                PtGeometryIdentityOperation::Upsert,
-                added);
+			instances.push_back(added);
+			instanceLookup.emplace(instanceHash, recordIndex);
+			PtA8S1AppendUpsertAndStore(
+				instances[recordIndex],
+				[this](const PtGeometryShadowInstanceRecord& instance) {
+					return AppendIdentityEvent(
+						PtGeometryIdentityOperation::Upsert, instance);
+				});
             ++mesh->liveReferences;
             mesh->evictionDeferred = false;
             ++stats.added;
@@ -1782,9 +2065,12 @@ private:
         CopyShadowTransform(entity, record->origin, record->axis);
         if (meshChanged)
         {
-            AppendIdentityEvent(
-                PtGeometryIdentityOperation::Upsert,
-                *record);
+			PtA8S1AppendUpsertAndStore(
+				*record,
+				[this](const PtGeometryShadowInstanceRecord& instance) {
+					return AppendIdentityEvent(
+						PtGeometryIdentityOperation::Upsert, instance);
+				});
         }
         if (changed)
         {
@@ -1846,52 +2132,38 @@ private:
 
     void ResetIdentityPublication()
     {
-        identityJournal.clear();
-        identityPublishedRecordCount = 0;
-        ++identityPublicationGeneration;
-        if (identityPublicationGeneration == 0)
-        {
-            identityPublicationGeneration = 1;
-        }
-        identityPublicationSequence = 0;
+		PtA8S1ResetIdentityPublication(
+			identityJournal,
+			identityPublishedRecordCount,
+			identityPublicationGeneration,
+			identityPublicationSequence);
     }
 
     void MaybeCompactIdentityJournal()
     {
-        constexpr std::size_t kIdentityJournalCompactThreshold = 16384;
-        if (identityJournal.size() < kIdentityJournalCompactThreshold ||
-            identityPublishedRecordCount != identityJournal.size())
-        {
-            return;
-        }
-
-        identityJournal.clear();
-        identityPublishedRecordCount = 0;
-        ++identityPublicationGeneration;
-        if (identityPublicationGeneration == 0)
-        {
-            identityPublicationGeneration = 1;
-        }
-        identityPublicationSequence = 0;
-        for (const PtGeometryShadowInstanceRecord& instance : instances)
-        {
-            if (instance.valid)
-            {
-                AppendIdentityEvent(
-                    PtGeometryIdentityOperation::Upsert,
-                    instance);
-            }
-        }
+		PtA8S1MaybeCompactIdentityJournal(
+			identityJournal,
+			identityPublishedRecordCount,
+			identityPublicationGeneration,
+			identityPublicationSequence,
+			instances,
+			[](const PtGeometryShadowInstanceRecord& instance) {
+				return instance.valid;
+			},
+			[this](const PtGeometryShadowInstanceRecord& instance) {
+				return AppendIdentityEvent(
+					PtGeometryIdentityOperation::Upsert, instance);
+			});
     }
 
-    void AppendIdentityEvent(
-        PtGeometryIdentityOperation operation,
-        const PtGeometryShadowInstanceRecord& instance)
+	std::uint64_t AppendIdentityEvent(
+		PtGeometryIdentityOperation operation,
+		const PtGeometryShadowInstanceRecord& instance)
     {
         if (!PtCanonicalInstanceKeyIsValid(instance.key) ||
             !PtCanonicalMeshKeyIsValid(instance.meshKey))
         {
-            return;
+			return 0;
         }
         PtGeometryIdentityTransportRecord event;
         event.operation = operation;
@@ -1901,7 +2173,8 @@ private:
         event.instanceHash = instance.hash;
         event.meshKey = instance.meshKey;
         event.meshHash = instance.meshHash;
-        identityJournal.push_back(event);
+		identityJournal.push_back(event);
+		return event.eventSequence;
     }
 
     void RemoveUnobservedEntitySurfaces(
@@ -1955,8 +2228,9 @@ private:
     std::uint64_t sourcePublicationSequence = 0;
     std::vector<PtGeometryIdentityTransportRecord> identityJournal;
     std::size_t identityPublishedRecordCount = 0;
-    std::uint64_t identityPublicationGeneration = 1;
-    std::uint64_t identityPublicationSequence = 0;
+	std::uint64_t identityPublicationGeneration = 1;
+	std::uint64_t identityPublicationSequence = 0;
+	mutable std::recursive_mutex shadowRecordsMutex;
 };
 
 namespace {
@@ -2024,6 +2298,28 @@ void BeginWorldMap(PtGeometryLifecycleWorldRegistry* registry, std::uint64_t map
     {
         registry->BeginMap(mapLoadSerial);
     }
+}
+
+bool ResolveFrontendCanonicalAuthority(
+    const void* world,
+    int renderDefIndex,
+    const idRenderModel* model,
+    PtCanonicalMeshSourceDomain sourceDomain,
+    PtFrontendCanonicalAuthority& outAuthority)
+{
+    outAuthority = PtFrontendCanonicalAuthority();
+    std::lock_guard<std::mutex> lock(g_liveWorldRegistriesMutex);
+    if (!world)
+    {
+        return false;
+    }
+    const auto it = g_liveWorldRegistries.find(world);
+    if (it == g_liveWorldRegistries.end() || it->second == nullptr)
+    {
+        return false;
+    }
+    return it->second->ResolveFrontendCanonicalAuthority(
+        renderDefIndex, model, sourceDomain, outAuthority);
 }
 
 PtCanonicalWorldKey CanonicalWorldKey(const void* world)
@@ -2233,20 +2529,75 @@ void CaptureSourceDelta(viewDef_t* viewDef)
     {
         return;
     }
-    viewDef->pathTraceGeometrySourceSnapshot = nullptr;
-    viewDef->pathTraceGeometryIdentitySnapshot = nullptr;
-    if (r_pathTracingGeometryShadowRegistry.GetInteger() == 0 ||
-        viewDef->isSubview)
+	viewDef->pathTraceGeometrySourceSnapshot = nullptr;
+	viewDef->pathTraceGeometryIdentitySnapshot = nullptr;
+	viewDef->pathTraceGeometryPresentIdentitySnapshot = nullptr;
+	if (viewDef->isSubview)
+	{
+		return;
+	}
+	if (r_pathTracingCpuProducerCanonicalIdentityS1.GetInteger() != 0)
+	{
+		viewDef->pathTraceGeometryPresentIdentitySnapshot =
+			new (R_ClearedFrameAlloc(
+				sizeof(PtGeometryPresentIdentitySnapshot),
+				FRAME_ALLOC_VIEW_DEF))
+				PtGeometryPresentIdentitySnapshot();
+	}
+	PtGeometryLifecycleWorldRegistry* registry =
+		RegistryForWorld(viewDef->renderWorld);
+	if (registry == nullptr)
+	{
+		return;
+	}
+	if (r_pathTracingGeometryShadowRegistry.GetInteger() == 0)
+	{
+		if (r_pathTracingCpuProducerCanonicalIdentityS1.GetInteger() != 0)
+		{
+			registry->CaptureIdentityDelta(viewDef);
+		}
+		return;
+	}
+	if (registry != nullptr)
+	{
+		registry->CaptureSourceDelta(viewDef);
+        registry->CaptureIdentityDelta(viewDef);
+    }
+}
+
+void PersistRigidMeshFromPresent(const idRenderModel* model)
+{
+    OPTICK_EVENT("PT Rigid Persist Wrapper Model");
+    RtSmokeGeometryUniverse* universe = RtSmokeGeometryUniverse::ActiveRigidMeshPersistTarget();
+	RtSmokeGeometryUniverse::NoteRigidMeshPersistCall();
+    if (!universe)
     {
         return;
     }
-    PtGeometryLifecycleWorldRegistry* registry =
-        RegistryForWorld(viewDef->renderWorld);
-    if (registry != nullptr)
+	const int persisted = universe->PersistRigidMeshFromPresent(
+		model, cpu_producer_publish::kRigidMeshInitialModelEpoch);
+	RtSmokeGeometryUniverse::NoteRigidMeshPersistedSurfaces(
+		persisted > 0 ? static_cast<uint32>(persisted) : 0u);
+}
+
+void PersistRigidMeshFromPresent(const idRenderEntityLocal* entity)
+{
+    OPTICK_EVENT("PT Rigid Persist Wrapper Entity");
+    if (!entity)
     {
-        registry->CaptureSourceDelta(viewDef);
-        registry->CaptureIdentityDelta(viewDef);
+        return;
     }
+    RtSmokeGeometryUniverse* universe = RtSmokeGeometryUniverse::ActiveRigidMeshPersistTarget();
+	RtSmokeGeometryUniverse::NoteRigidMeshPersistCall();
+    if (!universe)
+    {
+        return;
+    }
+	const int persisted = universe->PersistRigidMeshFromPresent(
+        entity->parms.hModel,
+        EntityModelEpoch(entity->world, entity->index));
+	RtSmokeGeometryUniverse::NoteRigidMeshPersistedSurfaces(
+		persisted > 0 ? static_cast<uint32>(persisted) : 0u);
 }
 
 void NotifyEntityAdded(const idRenderEntityLocal* entity)
@@ -2255,6 +2606,8 @@ void NotifyEntityAdded(const idRenderEntityLocal* entity)
     {
         return;
     }
+	RtSmokeGeometryUniverse::NoteRigidMeshPersistFirstEntityAdd(
+		RtSmokeGeometryUniverse::ActiveRigidMeshPersistTarget() != nullptr);
     PtGeometryLifecycleWorldRegistry* registry = RegistryForWorld(entity->world);
     if (!registry)
     {
@@ -2264,10 +2617,25 @@ void NotifyEntityAdded(const idRenderEntityLocal* entity)
     PtGeometryLifecycleSlotState& slot = EnsureSlot(registry->entitySlots, entity->index);
     slot.alive = true;
     ++g_lifecycleStats.entityAdds;
+    slot.dirtyThisFrame |= 8u; // kDirtyMesh
+    ++g_lifecycleFrameCounters.entityAdds;
     const PtGeometryLifecycleClass geometryClass = ClassifyEntity(entity);
     slot.geometryClass = geometryClass;
     AccumulateClass(geometryClass);
     registry->ObserveEntity(entity, geometryClass);
+    if (geometryClass == PtGeometryLifecycleClass::RigidAtRest ||
+        geometryClass == PtGeometryLifecycleClass::RigidMoving)
+    {
+        PersistRigidMeshFromPresent(entity);
+        const PtRenderDefKey presentKey = MakeEntityKey(entity);
+        std::vector<uint64_t> meshIds;
+        ResolveAuthoritativeRigidMeshIds(entity, slot.modelEpoch, meshIds);
+        WriteAuthoritativeRigidInstancePresent(slot, presentKey, meshIds, entity);
+    }
+    else
+    {
+        RetireAuthoritativeRigidInstance(slot);
+    }
 
     PtGeometryLifecycleEventSample sample;
     sample.eventKind = PtGeometryLifecycleEventKind::Add;
@@ -2300,18 +2668,69 @@ void NotifyEntityUpdated(
     PtGeometryLifecycleSlotState& slot = EnsureSlot(registry->entitySlots, entity->index);
     slot.alive = true;
     ++g_lifecycleStats.entityUpdates;
+    slot.dirtyThisFrame |= (1u | 4u); // kDirtyXform | kDirtyMaterial
+    ++g_lifecycleFrameCounters.entityUpdates;
     if (modelChanged)
     {
         AdvanceSlotModelEpoch(slot);
         ++g_lifecycleStats.entityModelSwaps;
+    slot.dirtyThisFrame |= 8u; // kDirtyMesh
+    ++g_lifecycleFrameCounters.entityModelSwaps;
     }
     PtGeometryLifecycleClass geometryClass = slot.geometryClass;
     if (sourceStable)
     {
         geometryClass = ClassifyEntity(entity);
         slot.geometryClass = geometryClass;
+        if (geometryClass == PtGeometryLifecycleClass::Deforming)
+        {
+            slot.dirtyThisFrame |= 2u; // kDirtyJoints
+        }
         AccumulateClass(geometryClass);
         registry->ObserveEntity(entity, geometryClass);
+        if (geometryClass == PtGeometryLifecycleClass::RigidAtRest ||
+            geometryClass == PtGeometryLifecycleClass::RigidMoving)
+        {
+            try
+            {
+                PersistRigidMeshFromPresent(entity);
+            }
+            catch (const std::length_error&)
+            {
+            }
+            const PtRenderDefKey updateKey = MakeEntityKey(entity);
+            std::vector<uint64_t> meshIds;
+            ResolveAuthoritativeRigidMeshIds(entity, slot.modelEpoch, meshIds);
+            WriteAuthoritativeRigidInstanceUpdate(slot, updateKey, meshIds, entity, modelChanged);
+        }
+        else
+        {
+            RetireAuthoritativeRigidInstance(slot);
+        }
+    }
+    else if (slot.rigidInstance.alive)
+    {
+        if (modelChanged)
+        {
+            try
+            {
+                PersistRigidMeshFromPresent(entity);
+            }
+            catch (const std::length_error&)
+            {
+            }
+        }
+        const PtRenderDefKey updateKey = MakeEntityKey(entity);
+        std::vector<uint64_t> meshIds;
+        if (modelChanged)
+        {
+            ResolveAuthoritativeRigidMeshIds(entity, slot.modelEpoch, meshIds);
+        }
+        else
+        {
+            meshIds = slot.rigidInstance.meshIds;
+        }
+        WriteAuthoritativeRigidInstanceUpdate(slot, updateKey, meshIds, entity, modelChanged);
     }
 
     PtGeometryLifecycleEventSample sample;
@@ -2343,6 +2762,7 @@ void NotifyEntityUnchanged(const idRenderEntityLocal* entity)
     PtGeometryLifecycleSlotState& slot = EnsureSlot(registry->entitySlots, entity->index);
     slot.alive = true;
     ++g_lifecycleStats.entityUnchanged;
+    ++g_lifecycleFrameCounters.entityUnchanged;
 }
 
 void NotifyEntityFreed(const idRenderEntityLocal* entity)
@@ -2360,10 +2780,12 @@ void NotifyEntityFreed(const idRenderEntityLocal* entity)
     PtGeometryLifecycleSlotState& slot = EnsureSlot(registry->entitySlots, entity->index);
     const PtRenderDefKey oldKey = registry->MakeKey(entity->world, entity->index, false);
     registry->RemoveEntity(entity, slot.generation);
+    RetireAuthoritativeRigidInstance(slot);
     slot.alive = false;
     AdvanceSlotGeneration(slot);
 
     ++g_lifecycleStats.entityFrees;
+    ++g_lifecycleFrameCounters.entityFrees;
     PtGeometryLifecycleEventSample sample;
     sample.eventKind = PtGeometryLifecycleEventKind::Free;
     sample.defKind = PtGeometryLifecycleDefKind::Entity;
@@ -2389,6 +2811,8 @@ void NotifyLightAdded(const idRenderLightLocal* light)
     }
     EnsureSlot(registry->lightSlots, light->index).alive = true;
     ++g_lifecycleStats.lightAdds;
+    EnsureSlot(registry->lightSlots, light->index).dirtyThisFrame |= 64u; // kDirtyLight
+    ++g_lifecycleFrameCounters.lightAdds;
 
     PtGeometryLifecycleEventSample sample;
     sample.eventKind = PtGeometryLifecycleEventKind::Add;
@@ -2413,6 +2837,8 @@ void NotifyLightUpdated(const idRenderLightLocal* light)
     slot.alive = true;
     AdvanceSlotGeneration(slot);
     ++g_lifecycleStats.lightUpdates;
+    slot.dirtyThisFrame |= (16u | 64u); // kDirtyIntensity | kDirtyLight
+    ++g_lifecycleFrameCounters.lightUpdates;
 
     PtGeometryLifecycleEventSample sample;
     sample.eventKind = PtGeometryLifecycleEventKind::Update;
@@ -2439,6 +2865,7 @@ void NotifyLightFreed(const idRenderLightLocal* light)
     AdvanceSlotGeneration(slot);
 
     ++g_lifecycleStats.lightFrees;
+    ++g_lifecycleFrameCounters.lightFrees;
     PtGeometryLifecycleEventSample sample;
     sample.eventKind = PtGeometryLifecycleEventKind::Free;
     sample.defKind = PtGeometryLifecycleDefKind::Light;
@@ -2539,4 +2966,130 @@ void MaybeDumpLifecycleStats(std::uint64_t frameIndex, const idRenderWorldLocal*
     r_pathTracingGeometryLifecycleDump.SetInteger(0);
 }
 
+
+void BeginProducerPackFrame()
+{
+    g_lifecycleFrameCounters = FrameCounters();
+    std::lock_guard<std::mutex> lock(g_liveWorldRegistriesMutex);
+    for (auto& worldIt : g_liveWorldRegistries)
+    {
+        PtGeometryLifecycleWorldRegistry* registry = worldIt.second;
+        if (!registry)
+        {
+            continue;
+        }
+        for (PtGeometryLifecycleSlotState& slot : registry->entitySlots)
+        {
+            slot.dirtyThisFrame = 0;
+        }
+        for (PtGeometryLifecycleSlotState& slot : registry->lightSlots)
+        {
+            slot.dirtyThisFrame = 0;
+        }
+    }
+}
+
+FrameCounters PeekFrameCounters()
+{
+    return g_lifecycleFrameCounters;
+}
+
+void SnapshotPackedIds(
+    const idRenderWorldLocal* world,
+    std::vector<PackedInstanceId>& instances,
+    std::vector<PackedLightId>& lights)
+{
+    instances.clear();
+    lights.clear();
+    PtGeometryLifecycleWorldRegistry* registry = RegistryForWorld(world);
+    if (!registry)
+    {
+        return;
+    }
+    for (int index = 0; index < static_cast<int>(registry->entitySlots.size()); ++index)
+    {
+        const PtGeometryLifecycleSlotState& slot = registry->entitySlots[static_cast<size_t>(index)];
+        if (!slot.alive && slot.dirtyThisFrame == 0)
+        {
+            continue;
+        }
+        PackedInstanceId rec;
+        rec.instanceId = cpu_producer_pack::PackDefId(registry->worldGeneration, index);
+        rec.meshId = slot.rigidInstance.alive && !slot.rigidInstance.meshIds.empty()
+            ? slot.rigidInstance.meshIds[0]
+            : registry->MeshIdForEntityIndex(index);
+        rec.dirty = slot.dirtyThisFrame;
+        rec.generation = slot.generation;
+        rec.live = slot.alive ? 1u : 0u;
+        instances.push_back(rec);
+    }
+    for (int index = 0; index < static_cast<int>(registry->lightSlots.size()); ++index)
+    {
+        const PtGeometryLifecycleSlotState& slot = registry->lightSlots[static_cast<size_t>(index)];
+        if (!slot.alive && slot.dirtyThisFrame == 0)
+        {
+            continue;
+        }
+        PackedLightId rec;
+        rec.lightId = cpu_producer_pack::PackDefId(registry->worldGeneration, index);
+        rec.dirty = slot.dirtyThisFrame;
+        rec.generation = slot.generation;
+        rec.live = slot.alive ? 1u : 0u;
+        lights.push_back(rec);
+    }
+}
+
+void SnapshotPresentedEntities(
+    const idRenderWorldLocal* world,
+    std::vector<PresentedEntityRecord>& entities)
+{
+    entities.clear();
+    PtGeometryLifecycleWorldRegistry* registry = RegistryForWorld(world);
+    if (!registry)
+    {
+        return;
+    }
+    for (int index = 0; index < static_cast<int>(registry->entitySlots.size()); ++index)
+    {
+        const PtGeometryLifecycleSlotState& slot = registry->entitySlots[static_cast<size_t>(index)];
+        if (!slot.alive)
+        {
+            continue;
+        }
+        PresentedEntityRecord rec;
+        rec.key.world = world;
+        rec.key.worldGeneration = registry->worldGeneration;
+        rec.key.index = index;
+        rec.key.generation = slot.generation;
+        rec.geometryClass = slot.geometryClass;
+        rec.alive = true;
+        entities.push_back(rec);
+    }
+}
+
+void SnapshotLiveRigidRegistryInstances(
+    const idRenderWorldLocal* world,
+    std::vector<cpu_producer_publish::RigidRegistryInstanceRecord>& instances)
+{
+    instances.clear();
+    PtGeometryLifecycleWorldRegistry* registry = RegistryForWorld(world);
+    if (!registry)
+    {
+        return;
+    }
+    for (int index = 0; index < static_cast<int>(registry->entitySlots.size()); ++index)
+    {
+        const PtGeometryLifecycleSlotState& slot = registry->entitySlots[static_cast<size_t>(index)];
+        if (!slot.alive || !slot.rigidInstance.alive)
+        {
+            continue;
+        }
+        if (slot.geometryClass != PtGeometryLifecycleClass::RigidAtRest &&
+            slot.geometryClass != PtGeometryLifecycleClass::RigidMoving)
+        {
+            continue;
+        }
+        instances.push_back(slot.rigidInstance);
+    }
+}
 }

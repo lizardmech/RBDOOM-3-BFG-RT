@@ -7,6 +7,7 @@
 // Long-lived cache ownership remains with PathTracePrimaryPass state.
 
 #include "PathTraceGeometry.h"
+#include "PathTraceAccelerationPlan.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -23,18 +24,24 @@ struct RtSmokeBlasCreateDesc
     int triangleMaterialCount = 0;
     bool enableOpaqueGeometry = false;
     const char* debugName = nullptr;
+    nvrhi::rt::AccelStructBuildFlags buildFlags = nvrhi::rt::AccelStructBuildFlags::PreferFastTrace;
 };
 
 struct RtSmokeBlasCreateResult
 {
     nvrhi::rt::AccelStructDesc accelStructDesc;
     nvrhi::rt::AccelStructHandle accelStruct;
+    RtSmokeBlasCreateStatus status = RtSmokeBlasCreateStatus::InvalidInput;
     const char* errorMessage = nullptr;
     int geometryCount = 0;
     int opaqueGeometryCount = 0;
     int nonOpaqueGeometryCount = 0;
 
-    bool Succeeded() const { return accelStruct && errorMessage == nullptr; }
+    bool Succeeded() const
+    {
+        return status == RtSmokeBlasCreateStatus::Success &&
+            accelStruct && errorMessage == nullptr;
+    }
 };
 
 struct RtSmokeAccelSubmitDesc
@@ -47,9 +54,11 @@ struct RtSmokeAccelSubmitDesc
     nvrhi::rt::AccelStructDesc dynamicBlasDesc;
     nvrhi::TimerQueryHandle dynamicBlasTimerQuery;
     const std::vector<nvrhi::rt::InstanceDesc>* extraTlasInstances = nullptr;
+    uint32_t tlasMaxInstances = 0;
     bool hasStaticBlas = false;
     bool hasDynamicBlas = false;
     bool staticBlasCacheHit = false;
+    bool dynamicBlasCacheHit = false;
     bool includeStaticBlasInTlas = true;
     bool diagnosticMarkers = false;
 };
@@ -74,6 +83,7 @@ struct RtSmokeBufferUploadItem
 {
     nvrhi::BufferHandle buffer;
     const void* data = nullptr;
+    const char* profileName = nullptr;
     size_t byteSize = 0;
     nvrhi::ResourceStates finalState = nvrhi::ResourceStates::ShaderResource;
     bool skip = false;
@@ -89,6 +99,8 @@ struct RtSmokeBufferUploadBatchDesc
 };
 
 void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, nvrhi::IBuffer* vertexBuffer, nvrhi::IBuffer* indexBuffer, int totalVertexCount, int indexOffset, int indexCount);
+bool ValidateSmokeTriangleGeometryBufferRanges(
+    const nvrhi::rt::GeometryTriangles& triangleGeometry);
 RtSmokeBlasCreateResult CreateSmokeBlas(const RtSmokeBlasCreateDesc& desc);
 uint64 ComputeSmokeBlasOpacitySignature(
     const uint32_t* triangleMaterialIds,

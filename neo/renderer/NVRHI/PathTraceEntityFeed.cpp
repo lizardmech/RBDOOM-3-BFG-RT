@@ -6,7 +6,6 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceEntityFeed.h"
 #include "PathTraceGeometryUniverse.h"
-#include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceRigidIdentity.h"
 #include "PathTraceSceneCapture.h"
@@ -634,8 +633,11 @@ float EntityFeedProjectedSizeProxy(const idRenderEntityLocal* entity, float dist
 bool EntityFeedMaterialIsEmissive(uint32_t materialId)
 {
     const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
-    const RtSmokeMaterialUniverseFacts& facts = GetSmokeMaterialUniverseFacts(materialId, info);
-    return facts.emissive;
+    return RtSmokeMaterialEmissiveFactFromLocalFacts(
+        info.emissive,
+        info.hasEmissiveImage,
+        info.hasSafeEmissiveTexture,
+        info.skyEnvironment);
 }
 
 const RtSmokeTranslucentClassifierInfo& EntityFeedMaterialClassifier(
@@ -859,6 +861,7 @@ int EntityFeedAreaDepth(const std::vector<int>& areaDepth, int areaIndex)
 std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     const viewDef_t* viewDef,
     idRenderWorldLocal* renderWorld,
+    RtSmokeGeometryUniverse& geometryUniverse,
     const RtPathTraceEntityFeedFrameSnapshot* frontendSnapshot,
     const std::vector<bool>& reachableAreas,
     const std::vector<int>& areaDepth,
@@ -1268,15 +1271,8 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     (activeEmissiveStage ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
                 const bool activeEmissiveStageDynamic = EntityFeedActiveEmissiveStageIsDynamic(material);
                 RtPathTraceMeshKey meshKey;
-                meshKey.tri = tri;
-                meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri->ambientCache);
-                meshKey.indexBufferIdentity = static_cast<uintptr_t>(tri->indexCache);
-                meshKey.numVerts = tri->numVerts;
-                meshKey.numIndexes = tri->numIndexes;
-                meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
-                meshKey.materialId = materialId;
-                meshKey.materialClassSignature = materialClassSignature;
-                meshKey.sourceKind = surfaceClassId;
+                FillPathTraceRigidRouteMeshKey(
+                    meshKey, tri, materialId, materialClassSignature, surfaceClassId);
 
                 PtRenderDefKey renderDefKey = entityRenderDefKey;
                 uint32_t modelEpoch = entityModelEpoch;
@@ -1313,6 +1309,13 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                         surfaceIndex,
                         sourceFlags);
                 }
+                geometryUniverse.RecordA8S1RouteObservation(
+                    rigidSnapshot.renderDefKey,
+                    rigidSnapshot.modelSurfaceIndex,
+                    rigidSnapshot.modelSurfaceIndexValid,
+                    rigidSnapshot.meshHash,
+                    model ? model->Name() : "<none>",
+                    PtA8S1RouteProducer::EntityFeed);
                 if (!candidateInstanceIds.insert(rigidSnapshot.instanceId).second)
                 {
                     continue;
@@ -1381,7 +1384,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
         }
     }
 
-    if (residentStore && r_pathTracingResidencyDump.GetInteger() != 0)
+    if (residentStore && r_pathTracingResidencyDump.GetInteger() == 1)
     {
         stats.residencyResidentRecords = CountEntityFeedResidentRecords(*residentStore);
     }
@@ -1421,7 +1424,7 @@ void DumpEntityFeedStats(const RtPathTraceEntityFeedStats& s)
 
 void DumpEntityFeedResidencyStatsIfNeeded(const RtPathTraceEntityFeedStats& s)
 {
-    if (r_pathTracingResidencyDump.GetInteger() == 0)
+    if (r_pathTracingResidencyDump.GetInteger() != 1)
     {
         return;
     }
@@ -1999,6 +2002,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
     const std::vector<EntityFeedCapturedRigidSurface> capturedSurfaces = CaptureEntityFeedRigidSurfaces(
         viewDef,
         renderWorld,
+        geometryUniverse,
         frontendSnapshot,
         reachableAreaSet.reachableAreas,
         reachableAreaSet.areaDepth,

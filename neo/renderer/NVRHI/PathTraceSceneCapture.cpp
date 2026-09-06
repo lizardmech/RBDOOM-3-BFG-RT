@@ -1,5 +1,7 @@
 #include "precompiled.h"
 #pragma hdrstop
+#include "PathTraceCpuProducerApplyGate.h"
+#include "PathTraceCpuProducerPublish.h"
 
 // Doom draw-surface capture implementation for the RT smoke scene.
 //
@@ -9,14 +11,20 @@
 // a later material system can represent it safely.
 
 #include "PathTraceCVars.h"
+#include "PathTraceCacheGate.h"
+#include "PathTraceCaptureProduct.h"
 #include "PathTraceSceneCapture.h"
+#include "PathTraceCpuProducerRewrite.h"
 #include "PathTraceAcceleration.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGeometryLifecycle.h"
 #include "PathTraceGuiSurfaces.h"
+#include "PathTraceMaterialIdKernel.h"
 #include "PathTraceMaterialTextureDiscovery.h"
+#include "PathTraceOwnerSemanticKernel.h"
 #include "PathTraceParticleCapture.h"
+#include "PathTraceProducerLaneContract.h"
 #include "PathTraceRigidIdentity.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSurfaceClassification.h"
@@ -27,6 +35,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <unordered_set>
 
 RtSmokeGeometryAdmissionBudget BuildSmokeDynamicGeometryAdmissionBudget()
 {
@@ -298,6 +307,7 @@ static bool SmokeRenderWorldContainsEntity(
     const viewDef_t* viewDef,
     const idRenderEntityLocal* entityDef)
 {
+    OPTICK_EVENT("PT Dynamic Validate Containment");
     if (!viewDef || !viewDef->renderWorld || !entityDef)
     {
         return false;
@@ -314,11 +324,24 @@ static bool SmokeRenderWorldContainsEntity(
     return false;
 }
 
-bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t*& tri, RtSmokeSurfaceSkipStats* skipStats)
+bool ValidateSmokeDrawSurface(
+    const viewDef_t* viewDef,
+    const drawSurf_t* drawSurf,
+    const srfTriangles_t*& tri,
+    RtSmokeSurfaceSkipStats* skipStats,
+    RtSmokeR1CacheValidationObservation* r1Observation)
 {
+    if (r1Observation)
+    {
+        *r1Observation = {};
+    }
     tri = nullptr;
     if (!drawSurf)
     {
+        if (r1Observation)
+        {
+            r1Observation->disposition = RtSmokeR1ValidationDisposition::NullSurface;
+        }
         if (skipStats)
         {
             ++skipStats->nullSurface;
@@ -328,6 +351,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
 
     if (!drawSurf->frontEndGeo)
     {
+        if (r1Observation)
+        {
+            r1Observation->disposition = RtSmokeR1ValidationDisposition::MissingFrontEndGeo;
+        }
         if (skipStats)
         {
             ++skipStats->missingGeometry;
@@ -337,6 +364,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
 
     if (!drawSurf->material)
     {
+        if (r1Observation)
+        {
+            r1Observation->disposition = RtSmokeR1ValidationDisposition::NullMaterial;
+        }
         if (skipStats)
         {
             ++skipStats->nullMaterial;
@@ -346,6 +377,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
 
     if (!SmokeDrawSurfaceHasAnyActiveStage(drawSurf))
     {
+        if (r1Observation)
+        {
+            r1Observation->disposition = RtSmokeR1ValidationDisposition::ConditionedOff;
+        }
         if (skipStats)
         {
             ++skipStats->conditionedOff;
@@ -356,6 +391,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
     const bool guiDrawSurface = IsSmokeGuiDrawSurface(drawSurf);
     if (guiDrawSurface && r_pathTracingAllowGuiSurfaces.GetInteger() == 0)
     {
+        if (r1Observation)
+        {
+            r1Observation->disposition = RtSmokeR1ValidationDisposition::GuiSurface;
+        }
         if (skipStats)
         {
             ++skipStats->guiSurface;
@@ -365,6 +404,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
 
     if (!drawSurf->space)
     {
+        if (r1Observation)
+        {
+            r1Observation->disposition = RtSmokeR1ValidationDisposition::NullSpace;
+        }
         if (skipStats)
         {
             ++skipStats->nullSpace;
@@ -391,6 +434,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
     }
     if (!guiDrawSurface && !worldSpace && !entityLive)
     {
+        if (r1Observation)
+        {
+            r1Observation->disposition = RtSmokeR1ValidationDisposition::NullModel;
+        }
         if (skipStats)
         {
             ++skipStats->nullModel;
@@ -400,6 +447,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
     const renderEntity_t* renderEntity = entityLive ? &entityDef->parms : nullptr;
     if (!guiDrawSurface && !worldSpace && !renderEntity->hModel)
     {
+        if (r1Observation)
+        {
+            r1Observation->disposition = RtSmokeR1ValidationDisposition::NullModel;
+        }
         if (skipStats)
         {
             ++skipStats->nullModel;
@@ -413,6 +464,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
         renderEntity->customShader != nullptr;
     if (!guiDrawSurface && riskyCallbackSurface && r_pathTracingSkipCallbackEntities.GetInteger() != 0)
     {
+        if (r1Observation)
+        {
+            r1Observation->disposition = RtSmokeR1ValidationDisposition::CallbackEntity;
+        }
         if (skipStats)
         {
             ++skipStats->callbackEntity;
@@ -423,6 +478,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
     tri = drawSurf->frontEndGeo;
     if (!tri->verts || !tri->indexes || tri->numVerts < 3 || tri->numIndexes < 3)
     {
+        if (r1Observation)
+        {
+            r1Observation->disposition = RtSmokeR1ValidationDisposition::MissingGeometryPayload;
+        }
         if (skipStats)
         {
             ++skipStats->missingGeometry;
@@ -435,6 +494,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
         drawSurf->numIndexes < 3 ||
         drawSurf->numIndexes > tri->numIndexes)
     {
+        if (r1Observation)
+        {
+            r1Observation->disposition = RtSmokeR1ValidationDisposition::InvalidIndexCount;
+        }
         if (skipStats)
         {
             ++skipStats->invalidIndexCount;
@@ -442,11 +505,40 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
         return false;
     }
 
-    const bool hasAmbientCache = tri->ambientCache != 0;
-    const bool hasIndexCache = tri->indexCache != 0;
-    if ((hasAmbientCache && !vertexCache.CacheIsCurrent(tri->ambientCache)) ||
-        (hasIndexCache && !vertexCache.CacheIsCurrent(tri->indexCache)))
+    RtSmokeLiveCacheGateSample* liveSample = r1Observation
+        ? &r1Observation->liveSample : nullptr;
+    const RtSmokeLiveCacheVerdict liveVerdict = EvaluateSmokeLiveCacheGate(
+        tri->ambientCache,
+        tri->indexCache,
+        vertexCache.currentFrame,
+        liveSample);
+    if (r1Observation)
     {
+        r1Observation->cacheEligible = true;
+        r1Observation->liveVerdict = liveVerdict;
+
+        // Diagnostic selection retains exactly one drawSurf-first/tri-fallback
+        // handle per slot. It never resamples through the live gate.
+        const RtSmokeCacheHandle drawAmbient = drawSurf->ambientCache;
+        const RtSmokeCacheHandle drawIndex = drawSurf->indexCache;
+        const RtSmokeCacheHandle triAmbient = tri->ambientCache;
+        const RtSmokeCacheHandle triIndex = tri->indexCache;
+        r1Observation->diagnosticVerdict = EvaluateSmokeDiagnosticCacheGate(
+            drawAmbient,
+            drawIndex,
+            triAmbient,
+            triIndex,
+            vertexCache.currentFrame,
+            &r1Observation->diagnosticSample);
+    }
+
+    if (SmokeLiveCacheGateRejects(liveVerdict))
+    {
+        if (r1Observation)
+        {
+            r1Observation->disposition =
+                RtSmokeR1ValidationDisposition::NonCurrentCache;
+        }
         if (skipStats)
         {
             ++skipStats->nonCurrentCache;
@@ -454,6 +546,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
         return false;
     }
 
+    if (r1Observation)
+    {
+        r1Observation->disposition = RtSmokeR1ValidationDisposition::Accepted;
+    }
     return true;
 }
 
@@ -864,6 +960,864 @@ bool SmokeDrawSurfaceHasActiveEmissiveStage(const drawSurf_t* drawSurf)
     return SmokeMaterialRegistersHaveActiveEmissiveStage(material, regs);
 }
 
+static bool AddPathTraceCaptureCount(std::size_t& value, std::size_t add)
+{
+    if (add > std::numeric_limits<std::size_t>::max() - value)
+    {
+        return false;
+    }
+    value += add;
+    return true;
+}
+
+static bool CapturePathTraceRuntimeMaterialStages(
+    const idMaterial* material,
+    RtPathTraceRuntimeMaterialStagePod* stages,
+    int stageCapacity);
+
+static bool PathTraceOwnerSnapshotModelFacts(
+    const viewDef_t* viewDef,
+    const drawSurf_t* drawSurf,
+    const idRenderModel*& model,
+    std::uint64_t& modelBits,
+    std::uint64_t& modelEpoch)
+{
+    model = nullptr;
+    modelBits = 0;
+    modelEpoch = 0;
+    if (!viewDef || !drawSurf || !drawSurf->frontEndGeo ||
+        !drawSurf->material || !drawSurf->space)
+    {
+        return false;
+    }
+    const viewEntity_t* space = drawSurf->space;
+    const idRenderEntityLocal* entity = space->entityDef;
+    const bool worldSpace = space == &viewDef->worldSpace;
+    const bool entityLive = SmokeRenderWorldContainsEntity(viewDef, entity);
+    if (!worldSpace && !IsSmokeGuiDrawSurface(drawSurf) && !entityLive)
+    {
+        return false;
+    }
+    const renderEntity_t* renderEntity = entityLive ? &entity->parms : nullptr;
+    model = renderEntity ? renderEntity->hModel : nullptr;
+    if (!model)
+    {
+        return false;
+    }
+    const PtRenderDefKey key = PtGeometryLifecycle::MakeEntityKey(entity);
+    modelBits = static_cast<std::uint64_t>(
+        reinterpret_cast<std::uintptr_t>(model));
+    modelEpoch = key.world && key.index >= 0
+        ? PtGeometryLifecycle::EntityModelEpoch(key.world, key.index) : 0;
+    return true;
+}
+
+static bool CountPathTraceOwnerModelTokenTables(
+    const viewDef_t* viewDef,
+    RtPathTraceCaptureCapacityCounts& counts)
+{
+    for (int ordinal = 0; ordinal < viewDef->numDrawSurfs; ++ordinal)
+    {
+        const idRenderModel* model = nullptr;
+        std::uint64_t modelBits = 0;
+        std::uint64_t modelEpoch = 0;
+        if (!PathTraceOwnerSnapshotModelFacts(viewDef,
+                viewDef->drawSurfs[ordinal], model, modelBits, modelEpoch))
+        {
+            continue;
+        }
+        bool duplicate = false;
+        for (int previous = 0; previous < ordinal; ++previous)
+        {
+            const idRenderModel* previousModel = nullptr;
+            std::uint64_t previousBits = 0;
+            std::uint64_t previousEpoch = 0;
+            if (PathTraceOwnerSnapshotModelFacts(viewDef,
+                    viewDef->drawSurfs[previous], previousModel,
+                    previousBits, previousEpoch) &&
+                previousBits == modelBits && previousEpoch == modelEpoch)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate)
+        {
+            continue;
+        }
+        const int modelSurfaceCount = model->NumSurfaces();
+        if (modelSurfaceCount < 0 ||
+            !AddPathTraceCaptureCount(counts.modelTables, 1) ||
+            !AddPathTraceCaptureCount(counts.modelSurfaceTokens,
+                static_cast<std::size_t>(modelSurfaceCount)))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool CapturePathTraceOwnerModelTokenTable(
+    const idRenderModel* model,
+    std::uint64_t modelBits,
+    std::uint64_t modelEpoch,
+    RtPathTraceCaptureOwnerSnapshot& snapshot,
+    std::uint32_t& modelTableIndex)
+{
+    modelTableIndex = RT_PT_CAPTURE_INVALID_MODEL_TABLE;
+    if (!model)
+    {
+        return true;
+    }
+    const std::uint32_t existing = FindPathTraceCaptureModelTokenTableFromPod(
+        modelBits, modelEpoch, snapshot.modelTables.data(),
+        snapshot.modelTables.size());
+    if (existing != RT_PT_CAPTURE_INVALID_MODEL_TABLE)
+    {
+        modelTableIndex = existing;
+        return true;
+    }
+    const int surfaceCount = model->NumSurfaces();
+    if (surfaceCount < 0 || snapshot.modelTables.size() >=
+            snapshot.modelTables.capacity() ||
+        static_cast<std::size_t>(surfaceCount) >
+            snapshot.modelSurfaceTokens.capacity() -
+                snapshot.modelSurfaceTokens.size() ||
+        snapshot.modelTables.size() > UINT32_MAX ||
+        snapshot.modelSurfaceTokens.size() > UINT32_MAX)
+    {
+        return false;
+    }
+    RtPathTraceCaptureModelTokenTablePod row;
+    row.modelBits = modelBits;
+    row.modelEpoch = modelEpoch;
+    row.tokenOffset = static_cast<std::uint32_t>(
+        snapshot.modelSurfaceTokens.size());
+    row.tokenCount = static_cast<std::uint32_t>(surfaceCount);
+    modelTableIndex = static_cast<std::uint32_t>(snapshot.modelTables.size());
+    snapshot.modelTables.push_back(row);
+    for (int surfaceIndex = 0; surfaceIndex < surfaceCount; ++surfaceIndex)
+    {
+        const modelSurface_t* surface = model->Surface(surfaceIndex);
+        snapshot.modelSurfaceTokens.push_back(static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(
+                surface ? surface->geometry : nullptr)));
+    }
+    return true;
+}
+
+static bool CountPathTraceOwnerRawSnapshot(
+    const viewDef_t* viewDef,
+    RtPathTraceCaptureCapacityCounts& counts)
+{
+    counts.surfaces = static_cast<std::size_t>(viewDef->numDrawSurfs);
+    counts.materialInfoIntents = counts.surfaces;
+    counts.materialVariantProposals = counts.surfaces;
+    counts.instanceObservationProposals = counts.surfaces;
+    counts.rigidCandidateProposals = counts.surfaces;
+    counts.preparedRigidPayloads = counts.surfaces;
+    counts.receiptSurfaces = counts.surfaces;
+    for (int ordinal = 0; ordinal < viewDef->numDrawSurfs; ++ordinal)
+    {
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[ordinal];
+        if (!drawSurf)
+        {
+            continue;
+        }
+        const idMaterial* material = drawSurf->material;
+        if (material)
+        {
+            if (!AddPathTraceCaptureCount(counts.classifierStages,
+                    static_cast<std::size_t>(Max(0, material->GetNumStages()))) ||
+                !AddPathTraceCaptureCount(counts.runtimeStages,
+                    static_cast<std::size_t>(Max(0, material->GetNumStages()))) ||
+                !AddPathTraceCaptureCount(counts.registers,
+                    static_cast<std::size_t>(Max(0, material->GetNumRegisters()))))
+            {
+                return false;
+            }
+        }
+        const srfTriangles_t* tri = drawSurf->frontEndGeo;
+        if (!tri || tri->numVerts < 0 || tri->numIndexes < 0 ||
+            drawSurf->numIndexes < 0)
+        {
+            continue;
+        }
+        if (!AddPathTraceCaptureCount(counts.vertices,
+                static_cast<std::size_t>(tri->numVerts)) ||
+            !AddPathTraceCaptureCount(counts.indexes,
+                static_cast<std::size_t>(tri->numIndexes)))
+        {
+            return false;
+        }
+        bool verticesFromFrameCache = false;
+        (void)SmokeDrawSurfaceVertices(drawSurf, tri, verticesFromFrameCache);
+        const idJointMat* joints = SmokeDrawSurfaceCpuSkinningJoints(
+            drawSurf, tri, verticesFromFrameCache);
+        if (joints)
+        {
+            int jointCount = 0;
+            if (drawSurf->jointCacheCpuSnapshot == joints)
+            {
+                jointCount = drawSurf->jointCacheCpuSnapshotCount;
+            }
+            else if (tri->staticModelWithJoints)
+            {
+                jointCount = tri->staticModelWithJoints->numInvertedJoints;
+            }
+            if (jointCount > 0 && jointCount <= 4096 &&
+                !AddPathTraceCaptureCount(counts.joints,
+                    static_cast<std::size_t>(jointCount)))
+            {
+                return false;
+            }
+        }
+    }
+    counts.preparedRigidVertices = counts.vertices;
+    counts.preparedRigidIndexes = counts.indexes;
+    return CountPathTraceOwnerModelTokenTables(viewDef, counts);
+}
+
+class RtPathTraceLiveSemanticFactsProvider final :
+    public RtPathTraceCaptureSemanticFactsProvider
+{
+public:
+    explicit RtPathTraceLiveSemanticFactsProvider(
+        RtSmokeGeometryUniverse& universe) : geometryUniverse(universe) {}
+
+    bool IsRigidRouteReady(std::uint64_t meshHash) const override
+    {
+        return geometryUniverse.IsRigidRouteReady(meshHash);
+    }
+    bool IsRigidRouteResidentReadyForEntityMaterial(
+        std::int32_t entityIndex, std::int32_t entityNum,
+        std::uint32_t materialId) const override
+    {
+        return geometryUniverse.IsRigidRouteResidentReadyForEntityMaterial(
+            entityIndex, entityNum, materialId);
+    }
+    const PtGeometryIdentityBinding* FindCanonicalIdentityBinding(
+        const PtCanonicalInstanceKey& instance) const override
+    {
+        return geometryUniverse.FindCanonicalIdentityBinding(instance);
+    }
+    const PtGeometrySourceRecord* FindCanonicalSourceRecord(
+        const PtCanonicalMeshKey& mesh) const override
+    {
+        return geometryUniverse.FindCanonicalSourceRecord(mesh);
+    }
+
+private:
+    RtSmokeGeometryUniverse& geometryUniverse;
+};
+
+static bool CapturePathTraceOwnerSnapshotInternal(
+    const viewDef_t* viewDef,
+    RtSmokeGeometryUniverse* geometryUniverse,
+    RtPathTraceInstanceUniverse* instanceUniverse,
+    const RtPathTracePlanningSnapshotEpoch& epoch,
+    bool recordAllInstanceClasses,
+    bool removeRoutedRigidDynamic,
+    bool rigidRouteEmissiveCards,
+    const PtSkinnedHitRouteRecord* skinnedAdmissionRoutes,
+    std::size_t skinnedAdmissionRouteCount,
+    bool skinnedCaptureSplitGate,
+    bool sourceOnly,
+    RtPathTraceCaptureOwnerSnapshot& snapshot,
+    std::size_t& slotBytes)
+{
+    OPTICK_EVENT("PT Producer Lanes Snapshot");
+    if (!viewDef || !viewDef->drawSurfs || viewDef->numDrawSurfs < 0 ||
+        (skinnedAdmissionRouteCount != 0 && !skinnedAdmissionRoutes) ||
+        (!sourceOnly && (!geometryUniverse || !instanceUniverse ||
+            !RtPathTracePlanningEpochValid(epoch))))
+    {
+        snapshot.ResetAndRelease();
+        return false;
+    }
+
+    RtPathTraceCaptureOwnerSnapshot candidate;
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+    try
+    {
+#endif
+        candidate.epoch = epoch;
+        candidate.viewIdentity = static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(viewDef));
+        candidate.registryGeneration = SmokeMaterialTextureRegistryGeneration();
+        candidate.residentMaterialFactsGeneration =
+            SmokeResidentMaterialFactsGeneration();
+        candidate.sourceDrawSurfCount =
+            static_cast<std::uint32_t>(viewDef->numDrawSurfs);
+        candidate.recordAllInstanceClasses = recordAllInstanceClasses;
+        candidate.removeRoutedRigidDynamic = removeRoutedRigidDynamic;
+        candidate.rigidRouteEmissiveCards = rigidRouteEmissiveCards;
+        const RtSmokeGeometryAdmissionBudget admission =
+            BuildSmokeDynamicGeometryAdmissionBudget();
+        candidate.admissionMaxSurfaces = static_cast<std::uint32_t>(
+            std::min<std::uint64_t>(admission.maxSurfaces,
+                static_cast<std::uint64_t>(INT_MAX)));
+        candidate.admissionMaxBytes = admission.maxBytes;
+        RtPathTraceInstanceUniverseSnapshotCounts instanceCounts;
+        RtSmokeGeometryUniverseSnapshotCounts geometryCounts;
+        const RtSmokeMaterialTextureRegistryEnumerationCounts registryCounts =
+            CountSmokeMaterialTextureRegistryEnumeration();
+        candidate.capacityCounts.applyGateKeys =
+            PtCpuProducerApplyGate::SnapshotKeyCount();
+        candidate.capacityCounts.variantBases = registryCounts.variantBases;
+        candidate.capacityCounts.registryMaterials = registryCounts.registryMaterials;
+        if ((!sourceOnly &&
+                (!instanceUniverse->CountInstanceUniverseSnapshot(epoch, instanceCounts) ||
+                 !geometryUniverse->CountGeometryUniversePlanningSnapshot(epoch, geometryCounts))) ||
+            !CountPathTraceOwnerRawSnapshot(viewDef, candidate.capacityCounts))
+        {
+            candidate.ResetAndRelease();
+            snapshot.ResetAndRelease();
+            return false;
+        }
+        candidate.capacityCounts.instanceMeshes = instanceCounts.meshes;
+        candidate.capacityCounts.instanceHistories = instanceCounts.histories;
+        candidate.capacityCounts.geometryStaticSurfaces = geometryCounts.staticSurfaces;
+        candidate.capacityCounts.geometryRigidRoutes = geometryCounts.rigidRoutes;
+        candidate.capacityCounts.geometryRigidResidents = geometryCounts.rigidResidents;
+
+        RtPathTraceCaptureProductCapacityPlan completePlan;
+        if (!PlanPathTraceCompleteSlotCapacity(candidate.capacityCounts,
+                sizeof(candidate) + slotBytes, completePlan))
+        {
+            candidate.ResetAndRelease();
+            snapshot.ResetAndRelease();
+            return false;
+        }
+        candidate.plannedCompleteSlotBytes = completePlan.peakSlotBytes;
+        const std::size_t nonSnapshotBytes = completePlan.candidateBytes +
+            completePlan.oracleBytes;
+        if (!ReservePathTraceCaptureOwnerSnapshotStorage(
+                candidate, slotBytes, completePlan))
+        {
+            candidate.ResetAndRelease();
+            snapshot.ResetAndRelease();
+            return false;
+        }
+        if ((!sourceOnly &&
+                (!PtCpuProducerApplyGate::FillSnapshotPreReserved(candidate.applyGate,
+                    candidate.capacityCounts.applyGateKeys) ||
+                 !geometryUniverse->FillGeometryUniversePlanningSnapshotPreReserved(
+                    candidate.geometryUniverse, epoch, geometryCounts) ||
+                 !instanceUniverse->FillInstanceUniverseSnapshotPreReserved(
+                    candidate.instanceUniverse, epoch, instanceCounts))) ||
+            !FillSmokeMaterialTextureRegistryEnumerationPreReserved(
+                registryCounts, candidate.variantBases, candidate.registryMaterials))
+        {
+            candidate.ResetAndRelease();
+            snapshot.ResetAndRelease();
+            return false;
+        }
+        candidate.historyCopyUs = candidate.instanceUniverse.historyCopyUs;
+        if (candidate.OwnedBytes() + nonSnapshotBytes + slotBytes >
+            RT_PT_CAPTURE_PRODUCT_SLOT_MAX_BYTES)
+        {
+            candidate.ResetAndRelease();
+            snapshot.ResetAndRelease();
+            return false;
+        }
+
+        for (int ordinal = 0; ordinal < viewDef->numDrawSurfs; ++ordinal)
+        {
+            const drawSurf_t* drawSurf = viewDef->drawSurfs[ordinal];
+            RtPathTraceCaptureRawSurface raw;
+            raw.ordinal = static_cast<std::uint32_t>(ordinal);
+            raw.guiAllowed = r_pathTracingAllowGuiSurfaces.GetInteger() != 0;
+            raw.callbackAllowed = true;
+            if (!drawSurf)
+            {
+                raw.safety = RtPathTraceCaptureSafetyDisposition::NullSurface;
+                candidate.surfaces.push_back(raw);
+                continue;
+            }
+            const srfTriangles_t* tri = drawSurf->frontEndGeo;
+            if (!tri)
+            {
+                raw.safety = RtPathTraceCaptureSafetyDisposition::MissingGeometry;
+                candidate.surfaces.push_back(raw);
+                continue;
+            }
+            raw.triIdentityBits = static_cast<std::uint64_t>(
+                reinterpret_cast<std::uintptr_t>(tri));
+            raw.currentTriToken = raw.triIdentityBits;
+            raw.ambientHandle = static_cast<std::uint64_t>(tri->ambientCache);
+            raw.indexHandle = static_cast<std::uint64_t>(tri->indexCache);
+            raw.jointHandle = static_cast<std::uint64_t>(drawSurf->jointCache);
+            raw.vertexBufferIdentity = static_cast<std::uint64_t>(
+                drawSurf->ambientCache != 0 ? drawSurf->ambientCache : tri->ambientCache);
+            raw.indexBufferIdentity = static_cast<std::uint64_t>(
+                drawSurf->indexCache != 0 ? drawSurf->indexCache : tri->indexCache);
+            raw.extraGLState = static_cast<std::uint64_t>(drawSurf->extraGLState);
+            raw.requestedModelSurfaceIndex = drawSurf->modelSurfaceIndex;
+            const idMaterial* material = drawSurf->material;
+            if (!material)
+            {
+                raw.safety = RtPathTraceCaptureSafetyDisposition::MissingMaterial;
+                candidate.surfaces.push_back(raw);
+                continue;
+            }
+            raw.materialIdentityBits = static_cast<std::uint64_t>(
+                reinterpret_cast<std::uintptr_t>(material));
+            RtPathTracePlanningCopyName(raw.materialName,
+                sizeof(raw.materialName), material->GetName());
+            const viewEntity_t* space = drawSurf->space;
+            if (!space)
+            {
+                raw.safety = RtPathTraceCaptureSafetyDisposition::MissingSpace;
+                candidate.surfaces.push_back(raw);
+                continue;
+            }
+            const idRenderEntityLocal* entity = space->entityDef;
+            const bool worldSpace = space == &viewDef->worldSpace;
+            const bool entityLive = SmokeRenderWorldContainsEntity(viewDef, entity);
+            if (!worldSpace && !IsSmokeGuiDrawSurface(drawSurf) && !entityLive)
+            {
+                raw.safety =
+                    RtPathTraceCaptureSafetyDisposition::WorldContainmentRejected;
+                candidate.surfaces.push_back(raw);
+                continue;
+            }
+            const renderEntity_t* renderEntity = entityLive ? &entity->parms : nullptr;
+            const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
+            raw.entityIndex = entity ? entity->index : -1;
+            raw.entityNum = renderEntity ? renderEntity->entityNum : -1;
+            raw.currentArea = -1;
+            raw.entityDefBits = static_cast<std::uint64_t>(
+                reinterpret_cast<std::uintptr_t>(entity));
+            raw.modelBits = static_cast<std::uint64_t>(
+                reinterpret_cast<std::uintptr_t>(model));
+            const PtRenderDefKey renderDefKey =
+                PtGeometryLifecycle::MakeEntityKey(entity);
+            raw.renderWorldIdentity = static_cast<std::uint64_t>(
+                reinterpret_cast<std::uintptr_t>(renderDefKey.world));
+            raw.renderDefIndex = renderDefKey.index;
+            raw.renderDefGeneration = renderDefKey.generation;
+            raw.modelEpoch = (renderDefKey.world && renderDefKey.index >= 0)
+                ? PtGeometryLifecycle::EntityModelEpoch(
+                    renderDefKey.world, renderDefKey.index)
+                : 0;
+            if (!CapturePathTraceOwnerModelTokenTable(
+                    model, raw.modelBits, raw.modelEpoch,
+                    candidate, raw.modelTableIndex))
+            {
+                candidate.ResetAndRelease();
+                snapshot.ResetAndRelease();
+                return false;
+            }
+            if (model)
+            {
+                RtPathTracePlanningCopyName(raw.modelName,
+                    sizeof(raw.modelName), model->Name());
+            }
+            std::memcpy(raw.modelMatrix, space->modelMatrix, sizeof(raw.modelMatrix));
+            std::memcpy(raw.objectToWorld, space->modelMatrix, sizeof(raw.objectToWorld));
+            raw.classify.isWorldSpace = worldSpace;
+            raw.classify.hasEntityDef = entity != nullptr;
+            raw.classify.hasJointCache = drawSurf->jointCache != 0;
+            raw.classify.hasStaticModelWithJoints =
+                tri->staticModelWithJoints != nullptr;
+            raw.classify.hasRenderEntityJoints = renderEntity &&
+                renderEntity->joints != nullptr && renderEntity->numJoints > 0;
+            raw.classify.ambientCacheIsStatic =
+                idVertexCache::CacheIsStatic(drawSurf->ambientCache);
+            raw.classify.indexCacheIsStatic =
+                idVertexCache::CacheIsStatic(drawSurf->indexCache);
+            raw.classify.modelDepthHack = space->modelDepthHack;
+            raw.weaponDepthHack = space->weaponDepthHack;
+            raw.allowSurfaceInView = renderEntity &&
+                renderEntity->allowSurfaceInViewID != 0;
+            raw.classify.material.materialPresent = true;
+            RtPathTracePlanningCopyName(raw.classify.material.materialName,
+                sizeof(raw.classify.material.materialName), raw.materialName);
+            raw.classify.material.coverage = static_cast<int>(material->Coverage());
+            raw.classify.material.deform = static_cast<int>(material->Deform());
+            raw.classify.material.stageCount = material->GetNumStages();
+            raw.classify.material.sort = material->GetSort();
+            raw.classify.material.guiSurface = IsSmokeGuiDrawSurface(drawSurf);
+            raw.classify.material.polygonOffset = material->TestMaterialFlag(MF_POLYGONOFFSET);
+            raw.classify.material.hasAlphaTest = false;
+            raw.particleCompositeEnabled =
+                r_pathTracingParticleComposite.GetInteger() != 0;
+            raw.liquidPoolEnabled = r_pathTracingLiquidPoolMode.GetInteger() != 0 ||
+                r_pathTracingLiquidPoolDebug.GetInteger() != 0;
+            raw.unifiedPtEnabled = r_pathTracingUnifiedPtEnable.GetInteger() != 0;
+            raw.removeAlphaClipEnabled =
+                r_pathTracingUnifiedPtRemoveAlphaClipSurfaces.GetInteger() != 0;
+            const idVec3 rawBoundsCenter = tri->bounds.GetCenter();
+            raw.boundsCenter[0] = rawBoundsCenter.x;
+            raw.boundsCenter[1] = rawBoundsCenter.y;
+            raw.boundsCenter[2] = rawBoundsCenter.z;
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                raw.triangleBoundsMin[axis] = tri->bounds[0][axis];
+                raw.triangleBoundsMax[axis] = tri->bounds[1][axis];
+            }
+            const shaderStage_t* onlyStage = material->GetNumStages() == 1
+                ? material->GetStage(0) : nullptr;
+            if (onlyStage)
+            {
+                const uint64 srcBlend = onlyStage->drawStateBits & GLS_SRCBLEND_BITS;
+                const uint64 dstBlend = onlyStage->drawStateBits & GLS_DSTBLEND_BITS;
+                raw.classify.material.singleStageAmbientAlphaBlend =
+                    onlyStage->lighting == SL_AMBIENT &&
+                    srcBlend == GLS_SRCBLEND_SRC_ALPHA &&
+                    dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+            }
+            raw.callbackAllowed = !(renderEntity && renderEntity->callback &&
+                renderEntity->customShader != nullptr &&
+                r_pathTracingSkipCallbackEntities.GetInteger() != 0);
+            raw.entityCallbackPresent = renderEntity && renderEntity->callback != nullptr;
+            raw.entityForceUpdate = renderEntity && renderEntity->forceUpdate != 0;
+            raw.dynamicModelPresent = entity && entity->dynamicModel != nullptr;
+            raw.cachedDynamicModelPresent = entity && entity->cachedDynamicModel != nullptr;
+            raw.customShaderPresent = renderEntity && renderEntity->customShader != nullptr;
+            raw.customSkinPresent = renderEntity && renderEntity->customSkin != nullptr;
+
+            const int stageCount = material->GetNumStages();
+            raw.classifierStageOffset =
+                static_cast<std::uint32_t>(candidate.classifierStages.size());
+            raw.classifierStageCount = static_cast<std::uint32_t>(Max(0, stageCount));
+            const std::size_t oldStageSize = candidate.classifierStages.size();
+            if (oldStageSize + raw.classifierStageCount >
+                candidate.classifierStages.capacity())
+            {
+                candidate.ResetAndRelease();
+                snapshot.ResetAndRelease();
+                return false;
+            }
+            candidate.classifierStages.resize(oldStageSize + raw.classifierStageCount);
+            if (!CaptureSmokeTranslucentClassifierInput(
+                    material, raw.classifier,
+                    raw.classifierStageCount != 0
+                        ? candidate.classifierStages.data() + oldStageSize : nullptr,
+                    static_cast<int>(raw.classifierStageCount)))
+            {
+                raw.safety = RtPathTraceCaptureSafetyDisposition::CopyFailed;
+                candidate.surfaces.push_back(raw);
+                continue;
+            }
+            raw.runtimeStageOffset =
+                static_cast<std::uint32_t>(candidate.runtimeStages.size());
+            raw.runtimeStageCount = raw.classifierStageCount;
+            const std::size_t oldRuntimeStageSize = candidate.runtimeStages.size();
+            if (oldRuntimeStageSize + raw.runtimeStageCount >
+                candidate.runtimeStages.capacity())
+            {
+                candidate.ResetAndRelease();
+                snapshot.ResetAndRelease();
+                return false;
+            }
+            candidate.runtimeStages.resize(
+                oldRuntimeStageSize + raw.runtimeStageCount);
+            if (!CapturePathTraceRuntimeMaterialStages(
+                    material,
+                    raw.runtimeStageCount != 0
+                        ? candidate.runtimeStages.data() + oldRuntimeStageSize
+                        : nullptr,
+                    static_cast<int>(raw.runtimeStageCount)))
+            {
+                raw.safety = RtPathTraceCaptureSafetyDisposition::CopyFailed;
+                candidate.surfaces.push_back(raw);
+                continue;
+            }
+            raw.registerOffset = static_cast<std::uint32_t>(candidate.registers.size());
+            raw.registerCount = static_cast<std::uint32_t>(Max(0, material->GetNumRegisters()));
+            const float* registers = drawSurf->shaderRegisters
+                ? drawSurf->shaderRegisters : material->ConstantRegisters();
+            raw.registersPresent = registers != nullptr;
+            if (registers && raw.registerCount != 0)
+            {
+                const std::size_t oldRegisters = candidate.registers.size();
+                if (oldRegisters + raw.registerCount > candidate.registers.capacity())
+                {
+                    candidate.ResetAndRelease();
+                    snapshot.ResetAndRelease();
+                    return false;
+                }
+                candidate.registers.resize(oldRegisters + raw.registerCount);
+                if (!SmokeTryCopyMemory(candidate.registers.data() + oldRegisters,
+                        registers, raw.registerCount * sizeof(float)))
+                {
+                    raw.safety = RtPathTraceCaptureSafetyDisposition::CopyFailed;
+                    candidate.surfaces.push_back(raw);
+                    continue;
+                }
+            }
+
+            if (!tri->verts || !tri->indexes || tri->numVerts < 3 ||
+                drawSurf->numIndexes < 3 || drawSurf->numIndexes > tri->numIndexes ||
+                (drawSurf->numIndexes % 3) != 0 || (tri->numIndexes % 3) != 0)
+            {
+                raw.safety = RtPathTraceCaptureSafetyDisposition::MissingPayload;
+                candidate.surfaces.push_back(raw);
+                continue;
+            }
+            const RtSmokeLiveCacheVerdict cacheVerdict = EvaluateSmokeLiveCacheGate(
+                tri->ambientCache, tri->indexCache, vertexCache.currentFrame, nullptr);
+            if (SmokeLiveCacheGateRejects(cacheVerdict))
+            {
+                raw.safety = RtPathTraceCaptureSafetyDisposition::NonCurrentCache;
+                candidate.surfaces.push_back(raw);
+                continue;
+            }
+            bool verticesFromFrameCache = false;
+            const idDrawVert* sourceVertices = SmokeDrawSurfaceVertices(
+                drawSurf, tri, verticesFromFrameCache);
+            const triIndex_t* sourceIndexes = SmokeDrawSurfaceIndexes(drawSurf, tri);
+            if (!sourceVertices || !sourceIndexes)
+            {
+                raw.safety = RtPathTraceCaptureSafetyDisposition::MissingPayload;
+                candidate.surfaces.push_back(raw);
+                continue;
+            }
+            raw.vertexOffset = static_cast<std::uint32_t>(candidate.vertices.size());
+            raw.vertexCount = static_cast<std::uint32_t>(tri->numVerts);
+            raw.indexOffset = static_cast<std::uint32_t>(candidate.indexes.size());
+            raw.indexCount = static_cast<std::uint32_t>(drawSurf->numIndexes);
+            raw.sourceTriIndexCount = static_cast<std::uint32_t>(tri->numIndexes);
+            // Own the full serial-rigid index authority in the same bounded
+            // vector. Dynamic emission still consumes only raw.indexCount.
+            const std::size_t capturedIndexCount = raw.sourceTriIndexCount;
+            if (candidate.vertices.size() + raw.vertexCount >
+                    candidate.vertices.capacity() ||
+                candidate.indexes.size() + capturedIndexCount >
+                    candidate.indexes.capacity())
+            {
+                candidate.ResetAndRelease();
+                snapshot.ResetAndRelease();
+                return false;
+            }
+            candidate.vertices.resize(candidate.vertices.size() + raw.vertexCount);
+            candidate.indexes.resize(candidate.indexes.size() + capturedIndexCount);
+            if (!SmokeTryCopyMemory(candidate.vertices.data() + raw.vertexOffset,
+                    sourceVertices, raw.vertexCount * sizeof(idDrawVert)) ||
+                !SmokeTryCopyMemory(candidate.indexes.data() + raw.indexOffset,
+                    sourceIndexes, capturedIndexCount * sizeof(triIndex_t)))
+            {
+                raw.safety = RtPathTraceCaptureSafetyDisposition::CopyFailed;
+                candidate.surfaces.push_back(raw);
+                continue;
+            }
+            const idJointMat* joints = SmokeDrawSurfaceCpuSkinningJoints(
+                drawSurf, tri, verticesFromFrameCache);
+            int jointCount = 0;
+            if (joints)
+            {
+                if (drawSurf->jointCacheCpuSnapshot == joints)
+                {
+                    jointCount = drawSurf->jointCacheCpuSnapshotCount;
+                }
+                else if (tri->staticModelWithJoints)
+                {
+                    jointCount = tri->staticModelWithJoints->numInvertedJoints;
+                }
+                if (jointCount <= 0 || jointCount > 4096)
+                {
+                    raw.safety = RtPathTraceCaptureSafetyDisposition::CopyFailed;
+                    candidate.surfaces.push_back(raw);
+                    continue;
+                }
+                raw.jointOffset = static_cast<std::uint32_t>(candidate.joints.size());
+                raw.jointCount = static_cast<std::uint32_t>(jointCount);
+                if (candidate.joints.size() + raw.jointCount >
+                    candidate.joints.capacity())
+                {
+                    candidate.ResetAndRelease();
+                    snapshot.ResetAndRelease();
+                    return false;
+                }
+                candidate.joints.resize(candidate.joints.size() + raw.jointCount);
+                if (!SmokeTryCopyMemory(candidate.joints.data() + raw.jointOffset,
+                        joints, raw.jointCount * sizeof(idJointMat)))
+                {
+                    raw.safety = RtPathTraceCaptureSafetyDisposition::CopyFailed;
+                    candidate.surfaces.push_back(raw);
+                    continue;
+                }
+                raw.rtCpuSkinned = true;
+            }
+            raw.bumpMatrix[0] = raw.bumpMatrix[4] = 1.0f;
+            for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+            {
+                const shaderStage_t* stage = material->GetStage(stageIndex);
+                if (!stage || stage->lighting != SL_BUMP || !stage->texture.hasMatrix)
+                {
+                    continue;
+                }
+                for (int row = 0; row < 2; ++row)
+                {
+                    for (int column = 0; column < 3; ++column)
+                    {
+                        const int reg = stage->texture.matrix[row][column];
+                        if (registers && reg >= 0 && reg < material->GetNumRegisters())
+                        {
+                            raw.bumpMatrix[row * 3 + column] = registers[reg];
+                        }
+                    }
+                }
+                break;
+            }
+            raw.materialInfoRegistrationRequested = true;
+            raw.triNumVerts = tri->numVerts > 0
+                ? static_cast<std::uint32_t>(tri->numVerts) : 0u;
+            raw.triNumIndexes = tri->numIndexes > 0
+                ? static_cast<std::uint32_t>(tri->numIndexes) : 0u;
+            raw.triTriangleCount = raw.triNumIndexes / 3u;
+            raw.canonicalInstance.worldGeneration = renderDefKey.worldGeneration;
+            raw.canonicalInstance.renderDefIndex = renderDefKey.index >= 0
+                ? static_cast<std::uint32_t>(renderDefKey.index) : UINT32_MAX;
+            raw.canonicalInstance.renderDefGeneration = renderDefKey.generation;
+            raw.canonicalInstance.subInstanceKind =
+                PtCanonicalSubInstanceKind::SkinnedSurface;
+            raw.canonicalInstance.modelSurfaceIndex =
+                drawSurf->modelSurfaceIndex >= 0
+                    ? static_cast<std::uint32_t>(drawSurf->modelSurfaceIndex)
+                    : UINT32_MAX;
+            raw.canonicalInstance.jointSubmeshIndex = -1;
+            if (raw.rtCpuSkinned)
+            {
+                raw.jointSource = reinterpret_cast<std::uintptr_t>(
+                    verticesFromFrameCache
+                        ? static_cast<const void*>(renderEntity
+                            ? renderEntity->joints : nullptr)
+                        : (tri->staticModelWithJoints
+                            ? static_cast<const void*>(tri->staticModelWithJoints)
+                            : static_cast<const void*>(renderEntity
+                                ? renderEntity->joints : nullptr)));
+            }
+            raw.safety = RtPathTraceCaptureSafetyDisposition::Ready;
+            candidate.surfaces.push_back(raw);
+        }
+
+        if (!sourceOnly)
+        {
+            RtPathTraceLiveSemanticFactsProvider facts(*geometryUniverse);
+            if (!FinalizePathTraceOwnerSemanticSnapshot(candidate, facts,
+                    skinnedAdmissionRoutes, skinnedAdmissionRouteCount,
+                    skinnedCaptureSplitGate))
+            {
+                candidate.ResetAndRelease();
+                snapshot.ResetAndRelease();
+                return false;
+            }
+        }
+        candidate.lateConsumeToken.mapTimeStamp = epoch.mapTimeStamp;
+        candidate.lateConsumeToken.mapLoadSerial = epoch.mapLoadSerial;
+        RtPathTracePlanningCopyName(candidate.lateConsumeToken.mapName,
+            sizeof(candidate.lateConsumeToken.mapName), epoch.mapName);
+        candidate.lateConsumeToken.capturedAfterBeginFrame =
+            epoch.capturedAfterBeginFrame;
+        candidate.lateConsumeToken.capturedAfterStaticPreload =
+            epoch.capturedAfterStaticPreload;
+        candidate.lateConsumeToken.registryGeneration =
+            candidate.registryGeneration;
+        candidate.lateConsumeToken.instanceUniverseGeneration =
+            candidate.instanceUniverse.ownerGeneration;
+        candidate.lateConsumeToken.geometryUniverseGeneration =
+            candidate.geometryUniverse.ownerGeneration;
+        const int producerMode = idMath::ClampInt(
+            0, 2, r_pathTracingProducerLanes.GetInteger());
+        const int producerLaneMask =
+            r_pathTracingProducerLaneMask.GetInteger() & 0x7;
+        candidate.lateConsumeToken.configFingerprint =
+            RtPathTraceOwnerSemanticConfigFingerprint(candidate,
+                producerMode, producerLaneMask, skinnedCaptureSplitGate);
+        candidate.complete = true;
+        const std::size_t ownedBytes = candidate.OwnedBytes();
+        if (ownedBytes > RT_PT_CAPTURE_PRODUCT_SLOT_MAX_BYTES ||
+            slotBytes > RT_PT_CAPTURE_PRODUCT_SLOT_MAX_BYTES - ownedBytes)
+        {
+            snapshot.ResetAndRelease();
+            return false;
+        }
+        snapshot = std::move(candidate);
+        slotBytes += ownedBytes;
+        return true;
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+    }
+    catch (const std::bad_alloc&)
+    {
+        snapshot.ResetAndRelease();
+        return false;
+    }
+    catch (const std::length_error&)
+    {
+        snapshot.ResetAndRelease();
+        return false;
+    }
+#endif
+}
+
+bool CapturePathTraceOwnerSnapshot(
+    const viewDef_t* viewDef,
+    RtSmokeGeometryUniverse& geometryUniverse,
+    RtPathTraceInstanceUniverse& instanceUniverse,
+    const RtPathTracePlanningSnapshotEpoch& epoch,
+    bool recordAllInstanceClasses,
+    bool removeRoutedRigidDynamic,
+    bool rigidRouteEmissiveCards,
+    const PtSkinnedHitRouteRecord* skinnedAdmissionRoutes,
+    std::size_t skinnedAdmissionRouteCount,
+    bool skinnedCaptureSplitGate,
+    RtPathTraceCaptureOwnerSnapshot& snapshot,
+    std::size_t& slotBytes)
+{
+    return CapturePathTraceOwnerSnapshotInternal(viewDef, &geometryUniverse,
+        &instanceUniverse, epoch, recordAllInstanceClasses,
+        removeRoutedRigidDynamic, rigidRouteEmissiveCards,
+        skinnedAdmissionRoutes, skinnedAdmissionRouteCount,
+        skinnedCaptureSplitGate, false, snapshot, slotBytes);
+}
+
+bool CapturePathTraceOwnerSourceSnapshot(
+    const viewDef_t* viewDef,
+    const RtPathTraceCommittedSemanticConfig& semanticConfig,
+    RtPathTraceCaptureOwnerSnapshot& snapshot,
+    std::size_t& slotBytes)
+{
+    if (!semanticConfig.configComplete ||
+        semanticConfig.configFingerprint == 0)
+    {
+        return false;
+    }
+    const RtPathTracePlanningSnapshotEpoch noSemanticEpoch{};
+    return CapturePathTraceOwnerSnapshotInternal(viewDef, nullptr, nullptr,
+        noSemanticEpoch, semanticConfig.recordAllInstanceClasses,
+        semanticConfig.removeRoutedRigidDynamic,
+        semanticConfig.rigidRouteEmissiveCards, nullptr, 0, false, true,
+        snapshot, slotBytes);
+}
+
+bool SmokeSkinnedCaptureSplitGateEnabled(bool admissionRoutesAvailable)
+{
+    const bool auditRequested =
+        r_pathTracingGeometrySkinnedConsumerAudit.GetInteger() != 0 ||
+        r_pathTracingGeometrySkinnedHitAudit.GetInteger() != 0 ||
+        r_pathTracingGeometrySkinnedEmissiveAudit.GetInteger() != 0 ||
+        r_pathTracingGeometrySkinnedAttributeDeriveDump.GetInteger() != 0;
+    return r_pathTracingGeometrySkinnedCaptureSplit.GetInteger() != 0 &&
+        r_pathTracingGeometrySkinnedTlasCompare.GetInteger() != 0 &&
+        r_pathTracingGpuSkinning.GetInteger() == 1 &&
+        r_pathTracingGeometryAuthoritativeGpuSkinning.GetInteger() != 0 &&
+        r_pathTracingGeometryShadowRegistry.GetInteger() != 0 &&
+        admissionRoutesAvailable && !auditRequested;
+}
+
+bool SmokeDrawSurfaceHasActiveEmissiveStage(
+    const drawSurf_t* drawSurf,
+    const RtSmokeTranslucentClassifierInfo& classifier)
+{
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    const float* regs = drawSurf && drawSurf->shaderRegisters ? drawSurf->shaderRegisters : (material ? material->ConstantRegisters() : nullptr);
+    return SmokeMaterialRegistersHaveActiveEmissiveStageWithClassifier(
+        material, regs, classifier);
+}
+
 bool SmokeEntitySurfaceHasActiveEmissiveStage(const viewDef_t* viewDef, const idRenderEntityLocal* entity, const idMaterial* material)
 {
     if (!material)
@@ -1085,11 +2039,11 @@ void ApplySmokeDetailDecalNormalOffset(
     if (!genericOffsetEnabled)
     {
         const uint32_t materialId = SmokeMaterialId(material);
-        const RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfo(materialId);
+        const RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfoReadOnly(materialId);
         if (!info || !SmokeMaterialTextureInfoHasMaterialMetadata(*info))
         {
             RegisterSmokeMaterialTextureInfo(material);
-            info = FindSmokeMaterialTextureInfo(materialId);
+            info = FindSmokeMaterialTextureInfoReadOnly(materialId);
         }
         if (!info || !SmokeMaterialTextureInfoHasMaterialMetadata(*info) || !info->liquidFilmCandidate)
         {
@@ -1171,6 +2125,7 @@ int AppendSmokeSurfaceGeometry(
     RtSmokeSurfaceSkipStats& skipStats,
     RtSmokeAttributeStats& attributeStats)
 {
+    OPTICK_EVENT("PT Merged Dynamic Copy Geometry");
     // Kept in the shared capture ABI for its existing callers; surface class
     // no longer overrides valid authored normals.
     (void)particleAlphaClassId;
@@ -1192,47 +2147,54 @@ int AppendSmokeSurfaceGeometry(
         return 0;
     }
 
-    for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
     {
-        PathTraceSmokeVertex vertex = BuildSmokeSurfaceVertexFromSource(drawSurf, sourceVertices, vertexIndex, rtCpuSkinningJoints);
-        const idVec3 normal = SmokeVertexNormal(vertex);
-        const idVec2 texCoord = SmokeVertexTexCoord(vertex);
-        if (!SmokeNormalIsUsable(normal))
+        OPTICK_EVENT_DYNAMIC(rtCpuSkinningJoints
+            ? "PT Merged Dynamic CPU Skin + Vertex Copy"
+            : "PT Merged Dynamic Vertex Copy");
+        for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
         {
-            ++attributeStats.classes[classIndex].invalidNormalVerts;
-            vertex.normal[0] = 0.0f;
-            vertex.normal[1] = 0.0f;
-            vertex.normal[2] = 0.0f;
+            PathTraceSmokeVertex vertex = BuildSmokeSurfaceVertexFromSource(drawSurf, sourceVertices, vertexIndex, rtCpuSkinningJoints);
+            const idVec3 normal = SmokeVertexNormal(vertex);
+            const idVec2 texCoord = SmokeVertexTexCoord(vertex);
+            if (!SmokeNormalIsUsable(normal))
+            {
+                ++attributeStats.classes[classIndex].invalidNormalVerts;
+                vertex.normal[0] = 0.0f;
+                vertex.normal[1] = 0.0f;
+                vertex.normal[2] = 0.0f;
+            }
+            if (!SmokeTexCoordIsUsable(texCoord))
+            {
+                ++attributeStats.classes[classIndex].invalidUvVerts;
+                vertex.texCoord[0] = 0.0f;
+                vertex.texCoord[1] = 0.0f;
+            }
+            vertices.push_back(vertex);
         }
-        if (!SmokeTexCoordIsUsable(texCoord))
-        {
-            ++attributeStats.classes[classIndex].invalidUvVerts;
-            vertex.texCoord[0] = 0.0f;
-            vertex.texCoord[1] = 0.0f;
-        }
-        vertices.push_back(vertex);
     }
 
-    for (int sourceIndex = 0; sourceIndex + 2 < drawSurf->numIndexes; sourceIndex += 3)
     {
-        triIndex_t sourceTriangle[3];
-        if (!SmokeTryCopyMemory(sourceTriangle, sourceIndexes + sourceIndex, sizeof(sourceTriangle)))
+        OPTICK_EVENT("PT Merged Dynamic Index Copy + Validate");
+        for (int sourceIndex = 0; sourceIndex + 2 < drawSurf->numIndexes; sourceIndex += 3)
         {
-            ++skipStats.missingGeometry;
-            vertices.resize(vertexStart);
-            indexes.resize(indexStart);
-            triangleClasses.resize(classStart);
-            triangleMaterials.resize(materialStart);
-            return 0;
-        }
-        const int i0 = sourceTriangle[0];
-        const int i1 = sourceTriangle[1];
-        const int i2 = sourceTriangle[2];
-        if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
-        {
-            ++skipStats.invalidIndexCount;
-            continue;
-        }
+            triIndex_t sourceTriangle[3];
+            if (!SmokeTryCopyMemory(sourceTriangle, sourceIndexes + sourceIndex, sizeof(sourceTriangle)))
+            {
+                ++skipStats.missingGeometry;
+                vertices.resize(vertexStart);
+                indexes.resize(indexStart);
+                triangleClasses.resize(classStart);
+                triangleMaterials.resize(materialStart);
+                return 0;
+            }
+            const int i0 = sourceTriangle[0];
+            const int i1 = sourceTriangle[1];
+            const int i2 = sourceTriangle[2];
+            if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
+            {
+                ++skipStats.invalidIndexCount;
+                continue;
+            }
 
         PathTraceSmokeVertex v0;
         PathTraceSmokeVertex v1;
@@ -1290,7 +2252,8 @@ int AppendSmokeSurfaceGeometry(
         }
 
         triangleClasses.push_back(surfaceClassId | perSurfaceTriangleFlags | (preferGeometricNormal ? forceGeometricNormalFlag : 0u));
-        triangleMaterials.push_back(materialId);
+            triangleMaterials.push_back(materialId);
+        }
     }
 
     const int emittedIndexes = static_cast<int>(indexes.size() - indexStart);
@@ -1790,7 +2753,74 @@ enum class RtSmokeDynamicEvalBuildResult
     Built
 };
 
-RtSmokeDynamicEvalBuildResult BuildSmokeDynamicMaterialEvalSampleForId(const drawSurf_t* drawSurf, uint32_t materialId, RtSmokeDynamicMaterialEvalSample& surfaceSample)
+static RtSmokeDynamicEvalBuildResult SmokeMaterialSampleFromEvaluation(
+    const idMaterial* material, uint32_t materialId,
+    const RtPathTraceRuntimeMaterialEvalPod& evaluated,
+    RtSmokeDynamicMaterialEvalSample& surfaceSample)
+{
+    surfaceSample.valid =
+        evaluated.result == RtPathTraceRuntimeEvalBuildResult::Built;
+    surfaceSample.id = materialId;
+    surfaceSample.name = material->GetName();
+    surfaceSample.stageIndex = evaluated.selectedStageIndex;
+    surfaceSample.stagePriority = evaluated.selectedStagePriority;
+    surfaceSample.enabledStages = evaluated.enabledStages;
+    surfaceSample.disabledStages = evaluated.disabledStages;
+    surfaceSample.colorStages = evaluated.colorStages;
+    surfaceSample.alphaStages = evaluated.alphaStages;
+    surfaceSample.alphaTestStages = evaluated.alphaTestStages;
+    surfaceSample.texMatrixStages = evaluated.texMatrixStages;
+    surfaceSample.dynamicImageStages = evaluated.dynamicImageStages;
+    surfaceSample.cinematicStages = evaluated.cinematicStages;
+    surfaceSample.guiRenderTargetStages = evaluated.guiRenderTargetStages;
+    surfaceSample.programStages = evaluated.programStages;
+    surfaceSample.selectedStageEmissive = evaluated.selectedStageEmissive;
+    surfaceSample.condition = evaluated.condition;
+    surfaceSample.alphaTest = evaluated.alphaTest;
+    std::memcpy(surfaceSample.color, evaluated.color, sizeof(surfaceSample.color));
+    std::memcpy(surfaceSample.texMatrix, evaluated.texMatrix,
+        sizeof(surfaceSample.texMatrix));
+    surfaceSample.hasDiffuseStageColor = evaluated.hasDiffuseStageColor;
+    std::memcpy(surfaceSample.diffuseStageColor,
+        evaluated.diffuseStageColor, sizeof(surfaceSample.diffuseStageColor));
+    surfaceSample.diffuseStageCondition = evaluated.diffuseStageCondition;
+    surfaceSample.orderedStageCount = static_cast<int>(evaluated.orderedStageCount);
+    surfaceSample.orderedStageOverflow = evaluated.orderedStageOverflow;
+    for (std::uint32_t index = 0; index < evaluated.orderedStageCount; ++index)
+    {
+        const RtPathTraceRuntimeStageEvalPod& source =
+            evaluated.orderedStages[index];
+        RtSmokeDynamicStageEval& destination = surfaceSample.orderedStages[index];
+        destination.stageIndex = source.stageIndex;
+        destination.enabled = source.enabled;
+        destination.emissive = source.emissive;
+        destination.hasAlphaTest = source.hasAlphaTest;
+        destination.hasTexMatrix = source.hasTexMatrix;
+        destination.condition = source.condition;
+        destination.alphaTest = source.alphaTest;
+        std::memcpy(destination.color, source.color, sizeof(destination.color));
+        std::memcpy(destination.texMatrix, source.texMatrix,
+            sizeof(destination.texMatrix));
+    }
+    surfaceSample.hasSurfaceOrigin = evaluated.hasSurfaceOrigin;
+    surfaceSample.surfaceOrigin.Set(evaluated.surfaceOrigin[0],
+        evaluated.surfaceOrigin[1], evaluated.surfaceOrigin[2]);
+    if (evaluated.selectedStageIndex >= 0 &&
+        evaluated.selectedStageIndex < material->GetNumStages())
+    {
+        const shaderStage_t* selected =
+            material->GetStage(evaluated.selectedStageIndex);
+        surfaceSample.image = selected ? selected->texture.image : nullptr;
+    }
+    return evaluated.result == RtPathTraceRuntimeEvalBuildResult::Built
+        ? RtSmokeDynamicEvalBuildResult::Built
+        : RtSmokeDynamicEvalBuildResult::NoSelectedStage;
+}
+
+RtSmokeDynamicEvalBuildResult BuildSmokeDynamicMaterialEvalSampleForId(
+    const drawSurf_t* drawSurf, uint32_t materialId,
+    RtSmokeDynamicMaterialEvalSample& surfaceSample,
+    RtPathTraceRuntimeMaterialEvalPod* podResult = nullptr)
 {
     surfaceSample = RtSmokeDynamicMaterialEvalSample();
     const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
@@ -1805,175 +2835,46 @@ RtSmokeDynamicEvalBuildResult BuildSmokeDynamicMaterialEvalSampleForId(const dra
         return RtSmokeDynamicEvalBuildResult::NoRegisters;
     }
 
-    const int registerCount = material->GetNumRegisters();
-    surfaceSample.valid = false;
-    surfaceSample.id = materialId;
-    surfaceSample.name = material->GetName();
-
-    // Detail-decal channels: evaluate the first SL_DIFFUSE stage directly (the
-    // generic selection below prefers the brightest stage and can pick a white
-    // bump stage over the authored diffuse tint), and record a representative
-    // world position for spectrum light association.
-    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    std::vector<RtPathTraceRuntimeMaterialStagePod> stages(
+        static_cast<std::size_t>(Max(0, material->GetNumStages())));
+    if (!CapturePathTraceRuntimeMaterialStages(material,
+            stages.empty() ? nullptr : stages.data(),
+            static_cast<int>(stages.size())))
     {
-        const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage || stage->lighting != SL_DIFFUSE)
-        {
-            continue;
-        }
-        surfaceSample.hasDiffuseStageColor = true;
-        SmokeEvalRegister(regs, registerCount, stage->conditionRegister, 1.0f, surfaceSample.diffuseStageCondition);
-        for (int component = 0; component < 4; ++component)
-        {
-            SmokeEvalRegister(regs, registerCount, stage->color.registers[component], 1.0f, surfaceSample.diffuseStageColor[component]);
-        }
-        break;
+        return RtSmokeDynamicEvalBuildResult::NoSelectedStage;
     }
-    const srfTriangles_t* surfaceTri = drawSurf->frontEndGeo;
+    float origin[3] = {};
+    bool hasOrigin = false;
+    const bool frameOwned = drawSurf->space && drawSurf->space->pathTraceMaterialSnapshot;
+    if (frameOwned)
+    {
+        std::copy(drawSurf->pathTraceSurfaceOrigin, drawSurf->pathTraceSurfaceOrigin + 3, origin);
+        hasOrigin = true;
+    }
+    const srfTriangles_t* surfaceTri = frameOwned ? nullptr : drawSurf->frontEndGeo;
     if (surfaceTri)
     {
         idVec3 worldCenter;
         TransformSurfacePointToWorld(drawSurf, surfaceTri->bounds.GetCenter(), worldCenter);
-        surfaceSample.hasSurfaceOrigin = true;
-        surfaceSample.surfaceOrigin = worldCenter;
+        origin[0] = worldCenter.x;
+        origin[1] = worldCenter.y;
+        origin[2] = worldCenter.z;
+        hasOrigin = true;
     }
-
-    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    // Reuse the live predicate: reconstructing only part of its route POD loses
+    // the single ambient alpha-blend fact required by switchable swinglights.
+    const bool opaqueCompatibility = SmokeMaterialUsesOpaqueSwinglightCompatibility(material);
+    const RtPathTraceRuntimeMaterialEvalPod evaluated =
+        BuildPathTraceRuntimeMaterialEvalFromPod(
+            true, materialId, stages.data(), stages.size(), regs,
+            static_cast<std::size_t>(Max(0, material->GetNumRegisters())),
+            opaqueCompatibility, origin, hasOrigin);
+    if (podResult)
     {
-        const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!SmokeStageUsesPerSurfaceMaterialState(material, stage))
-        {
-            continue;
-        }
-
-        float condition = 1.0f;
-        SmokeEvalRegister(regs, registerCount, stage->conditionRegister, 1.0f, condition);
-        const bool enabled = condition != 0.0f;
-        ++surfaceSample.enabledStages;
-        if (!enabled)
-        {
-            --surfaceSample.enabledStages;
-            ++surfaceSample.disabledStages;
-        }
-
-        bool hasColor = false;
-        float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-        for (int component = 0; component < 4; ++component)
-        {
-            hasColor = SmokeEvalRegister(regs, registerCount, stage->color.registers[component], 1.0f, color[component]) || hasColor;
-        }
-        if (hasColor)
-        {
-            ++surfaceSample.colorStages;
-        }
-        if (hasColor && idMath::Fabs(color[3] - 1.0f) > 1.0e-4f)
-        {
-            ++surfaceSample.alphaStages;
-        }
-
-        float alphaTest = 0.0f;
-        const bool hasAlphaTest = stage->hasAlphaTest &&
-            SmokeEvalRegister(regs, registerCount, stage->alphaTestRegister, 0.0f, alphaTest);
-        if (hasAlphaTest)
-        {
-            ++surfaceSample.alphaTestStages;
-        }
-
-        bool hasTexMatrix = false;
-        float texMatrix[2][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
-        if (stage->texture.hasMatrix)
-        {
-            hasTexMatrix = true;
-            ++surfaceSample.texMatrixStages;
-            for (int row = 0; row < 2; ++row)
-            {
-                for (int column = 0; column < 3; ++column)
-                {
-                    const float fallback = row == column ? 1.0f : 0.0f;
-                    SmokeEvalRegister(regs, registerCount, stage->texture.matrix[row][column], fallback, texMatrix[row][column]);
-                }
-            }
-        }
-        if (stage->texture.dynamic != DI_STATIC || stage->texture.dynamicFrameCount > 0)
-        {
-            ++surfaceSample.dynamicImageStages;
-        }
-        if (stage->texture.cinematic != nullptr)
-        {
-            ++surfaceSample.cinematicStages;
-        }
-        if (stage->texture.texgen == TG_SCREEN ||
-            stage->texture.texgen == TG_SCREEN2 ||
-            SmokeStageIsRenderMap(stage))
-        {
-            ++surfaceSample.guiRenderTargetStages;
-        }
-        if (stage->newStage != nullptr)
-        {
-            ++surfaceSample.programStages;
-        }
-
-        const bool stageEmissive = SmokeDynamicEvalStageIsEmissiveLike(stage) ||
-            (stageIndex == 0 && SmokeMaterialUsesOpaqueSwinglightCompatibility(material));
-        if (surfaceSample.orderedStageCount < RT_SMOKE_DYNAMIC_ORDERED_STAGE_CAPACITY)
-        {
-            RtSmokeDynamicStageEval& orderedStage = surfaceSample.orderedStages[surfaceSample.orderedStageCount++];
-            orderedStage.stageIndex = stageIndex;
-            orderedStage.enabled = enabled;
-            orderedStage.emissive = stageEmissive;
-            orderedStage.hasAlphaTest = hasAlphaTest;
-            orderedStage.hasTexMatrix = hasTexMatrix;
-            orderedStage.condition = condition;
-            orderedStage.alphaTest = alphaTest;
-            for (int component = 0; component < 4; ++component)
-            {
-                orderedStage.color[component] = color[component];
-            }
-            for (int row = 0; row < 2; ++row)
-            {
-                for (int column = 0; column < 3; ++column)
-                {
-                    orderedStage.texMatrix[row][column] = texMatrix[row][column];
-                }
-            }
-        }
-        else
-        {
-            surfaceSample.orderedStageOverflow = true;
-        }
-        // The single-record bridge must preserve the stage that owns clipping.
-        // Give authored alpha-test stages priority even while disabled so their
-        // condition can turn clipping off for this entity this frame.
-        const int stagePriority = (stage->hasAlphaTest ? 8 : 0) + (enabled ? 4 : 0) + (stageEmissive ? 2 : 0);
-        RtSmokeDynamicMaterialEvalSample stageSample;
-        stageSample.valid = true;
-        stageSample.stageIndex = stageIndex;
-        stageSample.stagePriority = stagePriority;
-        stageSample.selectedStageEmissive = stageEmissive;
-        stageSample.condition = condition;
-        stageSample.alphaTest = alphaTest;
-        stageSample.image = stage->texture.image;
-        for (int component = 0; component < 4; ++component)
-        {
-            stageSample.color[component] = color[component];
-        }
-        if (hasTexMatrix)
-        {
-            for (int row = 0; row < 2; ++row)
-            {
-                for (int column = 0; column < 3; ++column)
-                {
-                    stageSample.texMatrix[row][column] = texMatrix[row][column];
-                }
-            }
-        }
-        if (SmokeDynamicEvalSampleShouldReplace(surfaceSample, stageSample))
-        {
-            SmokeDynamicEvalCopySelectedStage(surfaceSample, stageSample);
-        }
+        *podResult = evaluated;
     }
 
-    return surfaceSample.valid ? RtSmokeDynamicEvalBuildResult::Built : RtSmokeDynamicEvalBuildResult::NoSelectedStage;
+    return SmokeMaterialSampleFromEvaluation(material, materialId, evaluated, surfaceSample);
 }
 
 void AddSmokeDynamicMaterialEvalStatsInternal(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes, uint32_t materialId)
@@ -2239,7 +3140,7 @@ static bool SmokeResidencySkipsDynamicMaterialEval(uint32_t materialId)
     {
         return false;
     }
-    const RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfo(materialId);
+    const RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfoReadOnly(materialId);
     return info && SmokeMaterialTextureInfoHasMaterialMetadata(*info) && !info->isDynamic;
 }
 
@@ -2252,60 +3153,106 @@ void AddSmokeDynamicMaterialEvalStatsForMaterialId(RtSmokeMaterialStats& stats, 
     AddSmokeDynamicMaterialEvalStatsInternal(stats, drawSurf, indexes, materialId);
 }
 
-uint32_t SmokeRuntimeMaterialVariantIdForDrawSurf(const drawSurf_t* drawSurf, uint32_t baseMaterialId)
+static bool BuildSmokeRuntimeMaterialDecisionInput(
+    const drawSurf_t* drawSurf,
+    uint32_t baseMaterialId,
+    RtPathTraceRuntimeMaterialVariantPod& key,
+    RtPathTraceRuntimeMaterialEvalPod& runtimeEval,
+    const RtPathTraceRuntimeMaterialEvalPod* prepared = nullptr)
 {
+    key = {};
+    runtimeEval = {};
+    runtimeEval.materialId = baseMaterialId;
     if (!drawSurf || !drawSurf->material || baseMaterialId == 0u)
     {
-        return baseMaterialId;
+        return false;
     }
     if (SmokeResidencySkipsDynamicMaterialEval(baseMaterialId))
     {
-        return baseMaterialId;
+        return false;
     }
 
-    RtSmokeDynamicMaterialEvalSample surfaceSample;
-    if (BuildSmokeDynamicMaterialEvalSampleForId(drawSurf, baseMaterialId, surfaceSample) != RtSmokeDynamicEvalBuildResult::Built)
+    if (prepared)
     {
-        return baseMaterialId;
+        runtimeEval = *prepared;
+        if (runtimeEval.result != RtPathTraceRuntimeEvalBuildResult::Built) return false;
+    }
+    else
+    {
+        RtSmokeDynamicMaterialEvalSample surfaceSample;
+        if (BuildSmokeDynamicMaterialEvalSampleForId(drawSurf, baseMaterialId, surfaceSample, &runtimeEval) !=
+            RtSmokeDynamicEvalBuildResult::Built) return false;
     }
 
     const viewEntity_t* space = drawSurf->space;
+    if (space && space->pathTraceMaterialSnapshot)
+    {
+        key = BuildPathTraceRuntimeMaterialVariantKeyFromPod(baseMaterialId,
+            space->pathTraceRenderDefIndex, space->pathTraceEntityNum,
+            drawSurf->modelSurfaceIndex, 0, nullptr, 0);
+        return true;
+    }
     const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
     const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
     if (!entity)
     {
-        return baseMaterialId;
+        return false;
+    }
+
+    const int entityNum = renderEntity ? renderEntity->entityNum : -1;
+    bool snapshotOracleActive = false;
+    if (BuildPathTraceCaptureSerialRuntimeMaterialVariantKey(
+            baseMaterialId, entity->index, entityNum,
+            key, snapshotOracleActive))
+    {
+        return true;
+    }
+    if (snapshotOracleActive)
+    {
+        return false;
     }
 
     const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
     const int resolvedModelSurfaceIndex = ResolvePathTraceRigidModelSurfaceIndex(
-        renderModel,
-        drawSurf->frontEndGeo,
-        drawSurf->modelSurfaceIndex);
-    if (resolvedModelSurfaceIndex >= 0)
-    {
-        return SmokeRuntimeMaterialVariantIdForEntitySurfaceKey(entity, resolvedModelSurfaceIndex, baseMaterialId);
-    }
+        renderModel, drawSurf->frontEndGeo, drawSurf->modelSurfaceIndex);
+    key = BuildPathTraceRuntimeMaterialVariantKeyFromPod(
+        baseMaterialId, entity->index, entityNum,
+        resolvedModelSurfaceIndex,
+        static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(
+            drawSurf->frontEndGeo)), nullptr, 0);
+    return true;
+}
 
-    uint32_t hash = 2166136261u;
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, 0x72747632u);
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, baseMaterialId);
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(entity ? entity->index : -1));
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(renderEntity ? renderEntity->entityNum : -1));
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(drawSurf->modelSurfaceIndex));
-    if (drawSurf->modelSurfaceIndex < 0)
-    {
-        const uintptr_t triIdentity = reinterpret_cast<uintptr_t>(drawSurf->frontEndGeo);
-        hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(triIdentity));
-        hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(triIdentity >> 32));
-    }
+static RtPathTraceRuntimeMaterialDecisionPod BuildSmokeRuntimeMaterialDecision(
+    const drawSurf_t* drawSurf,
+    uint32_t baseMaterialId)
+{
+    RtPathTraceRuntimeMaterialVariantPod key;
+    RtPathTraceRuntimeMaterialEvalPod runtimeEval;
+    (void)BuildSmokeRuntimeMaterialDecisionInput(
+        drawSurf, baseMaterialId, key, runtimeEval);
+    key.baseMaterialId = baseMaterialId;
+    const RtSmokeMaterialTextureInfo* baseInfo =
+        FindSmokeMaterialTextureInfoReadOnly(baseMaterialId);
+    return SelectPathTraceRuntimeMaterialVariant(
+        key, runtimeEval, baseInfo != nullptr,
+        baseInfo && SmokeMaterialTextureInfoHasMaterialMetadata(*baseInfo) &&
+            !baseInfo->isDynamic,
+        [](std::uint32_t candidate)
+        {
+            return FindSmokeMaterialTextureInfoReadOnly(candidate) != nullptr;
+        },
+        [](std::uint32_t candidate, std::uint32_t base)
+        {
+            return SmokeMaterialTextureVariantBase(candidate) == base;
+        });
+}
 
-    uint32_t variantMaterialId = hash | 0x80000000u;
-    if (variantMaterialId == 0u || variantMaterialId == baseMaterialId)
-    {
-        variantMaterialId = (hash ^ 0x5bd1e995u) | 0x80000000u;
-    }
-    return variantMaterialId != 0u ? variantMaterialId : baseMaterialId;
+uint32_t SmokeRuntimeMaterialVariantIdForDrawSurf(
+    const drawSurf_t* drawSurf, uint32_t baseMaterialId)
+{
+    return BuildSmokeRuntimeMaterialDecision(
+        drawSurf, baseMaterialId).initialCandidateId;
 }
 
 static bool SmokeMaterialUsesRuntimeMaterialState(const idMaterial* material)
@@ -2366,26 +3313,426 @@ static uint32_t SmokeRuntimeMaterialVariantIdForEntitySurface(const idRenderEnti
     return SmokeRuntimeMaterialVariantIdForEntitySurfaceKey(entity, modelSurfaceIndex, baseMaterialId);
 }
 
-uint32_t SmokeRuntimeMaterialTableIdForDrawSurf(const drawSurf_t* drawSurf, uint32_t baseMaterialId)
+static uint32_t SmokeRuntimeMaterialTableIdPrepared(const drawSurf_t* drawSurf, uint32_t baseMaterialId,
+    const RtPathTraceRuntimeMaterialEvalPod* prepared, bool baseHydrated)
 {
-    const uint32_t variantMaterialId = SmokeRuntimeMaterialVariantIdForDrawSurf(drawSurf, baseMaterialId);
-    if (variantMaterialId == baseMaterialId)
+    RtPathTraceRuntimeMaterialVariantPod key;
+    RtPathTraceRuntimeMaterialEvalPod runtimeEval;
+    (void)BuildSmokeRuntimeMaterialDecisionInput(
+        drawSurf, baseMaterialId, key, runtimeEval, prepared);
+    key.baseMaterialId = baseMaterialId;
+    const auto selectFromLiveRegistry = [&]()
     {
+        const RtSmokeMaterialTextureInfo* baseInfo =
+            FindSmokeMaterialTextureInfoReadOnly(baseMaterialId);
+        return SelectPathTraceRuntimeMaterialVariant(
+            key, runtimeEval, baseInfo != nullptr,
+            baseInfo && SmokeMaterialTextureInfoHasMaterialMetadata(*baseInfo) &&
+                !baseInfo->isDynamic,
+            [](std::uint32_t candidate)
+            {
+                return FindSmokeMaterialTextureInfoReadOnly(candidate) != nullptr;
+            },
+            [](std::uint32_t candidate, std::uint32_t base)
+            {
+                return SmokeMaterialTextureVariantBase(candidate) == base;
+            });
+    };
+    RtPathTraceRuntimeMaterialDecisionPod decision = selectFromLiveRegistry();
+    if (decision.initialCandidateId == baseMaterialId)
+    {
+        NotePathTraceCaptureSerialRuntimeMaterial(UINT32_MAX, decision);
         return baseMaterialId;
     }
-    RegisterSmokeMaterialTextureInfo(drawSurf ? drawSurf->material : nullptr);
-    uint32_t candidateMaterialId = variantMaterialId;
-    for (uint32_t attempt = 0; attempt < 16u; ++attempt)
+    if (!baseHydrated) RegisterSmokeMaterialTextureInfo(drawSurf ? drawSurf->material : nullptr);
+    if (decision.chosenMaterialId != baseMaterialId &&
+        RegisterSmokeMaterialTextureVariant(
+            decision.chosenMaterialId, baseMaterialId))
     {
-        if (candidateMaterialId != 0u &&
-            candidateMaterialId != baseMaterialId &&
-            RegisterSmokeMaterialTextureVariant(candidateMaterialId, baseMaterialId))
-        {
-            return candidateMaterialId;
-        }
-        candidateMaterialId = SmokeRuntimeMaterialVariantHashValue(candidateMaterialId ^ 0x9e3779b9u, attempt + 1u) | 0x80000000u;
+        NotePathTraceCaptureSerialRuntimeMaterial(UINT32_MAX, decision);
+        NotePathTraceCaptureSerialMaterialVariant(
+            baseMaterialId, decision.initialCandidateId,
+            decision.chosenMaterialId, decision.collisionCount,
+            decision.fallbackUsed,
+            drawSurf && drawSurf->material ? drawSurf->material->GetName() : "");
+        return decision.chosenMaterialId;
     }
+    decision.chosenMaterialId = baseMaterialId;
+    decision.fallbackUsed = true;
+    NotePathTraceCaptureSerialRuntimeMaterial(UINT32_MAX, decision);
+    NotePathTraceCaptureSerialMaterialVariant(
+        baseMaterialId,
+        decision.initialCandidateId,
+        baseMaterialId,
+        decision.collisionCount,
+        true,
+        drawSurf && drawSurf->material ? drawSurf->material->GetName() : "");
     return baseMaterialId;
+}
+
+uint32_t SmokeRuntimeMaterialTableIdForDrawSurf(const drawSurf_t* drawSurf, uint32_t baseMaterialId)
+{
+    return SmokeRuntimeMaterialTableIdPrepared(drawSurf, baseMaterialId, nullptr, false);
+}
+
+static bool CapturePathTraceRuntimeMaterialStages(
+    const idMaterial* material,
+    RtPathTraceRuntimeMaterialStagePod* stages,
+    int stageCapacity)
+{
+    if (!material || stageCapacity != material->GetNumStages() ||
+        (stageCapacity != 0 && stages == nullptr))
+    {
+        return false;
+    }
+    for (int stageIndex = 0; stageIndex < stageCapacity; ++stageIndex)
+    {
+        RtPathTraceRuntimeMaterialStagePod& output = stages[stageIndex];
+        output = {};
+        output.stageIndex = stageIndex;
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage)
+        {
+            continue;
+        }
+        output.valid = true;
+        output.usesPerSurfaceState =
+            SmokeStageUsesPerSurfaceMaterialState(material, stage);
+        output.diffuse = stage->lighting == SL_DIFFUSE;
+        output.conditionRegister = stage->conditionRegister;
+        for (int component = 0; component < 4; ++component)
+        {
+            output.colorRegisters[component] =
+                stage->color.registers[component];
+        }
+        output.hasAlphaTest = stage->hasAlphaTest;
+        output.alphaTestRegister = stage->alphaTestRegister;
+        output.hasTexMatrix = stage->texture.hasMatrix;
+        for (int row = 0; row < 2; ++row)
+        {
+            for (int column = 0; column < 3; ++column)
+            {
+                output.texMatrixRegisters[row * 3 + column] =
+                    stage->texture.matrix[row][column];
+            }
+        }
+        output.dynamicImage = stage->texture.dynamic != DI_STATIC ||
+            stage->texture.dynamicFrameCount > 0;
+        output.cinematic = stage->texture.cinematic != nullptr;
+        output.guiRenderTarget = stage->texture.texgen == TG_SCREEN ||
+            stage->texture.texgen == TG_SCREEN2 || SmokeStageIsRenderMap(stage);
+        output.program = stage->newStage != nullptr;
+        output.emissiveLike = SmokeDynamicEvalStageIsEmissiveLike(stage);
+        output.drawStateBits = static_cast<std::uint64_t>(stage->drawStateBits);
+        output.lighting = static_cast<std::int32_t>(stage->lighting);
+        output.texgen = static_cast<std::int32_t>(stage->texture.texgen);
+        output.imageDynamic = static_cast<std::int32_t>(stage->texture.dynamic);
+        output.imagePresent = stage->texture.image != nullptr;
+    }
+    return true;
+}
+
+// Owner-local immutable numeric definitions. Revision keys never require retaining
+// or later dereferencing an idMaterial pointer; images/bindings remain live elsewhere.
+struct SmokeRewriteConstantMaterialRoute
+{
+    RtCpuRewriteMaterialFrameSurface route;
+    bool eligible = false;
+};
+static SmokeRewriteConstantMaterialRoute BuildSmokeRewriteConstantMaterialRoute(const idMaterial* material)
+{
+    SmokeRewriteConstantMaterialRoute result;
+    if (!material || !material->ConstantRegisters() || material->Deform()!=DFRM_NONE ||
+        material->GetNumStages()<0 || material->GetNumStages()>MAX_SHADER_STAGES ||
+        material->GetNumRegisters()<0 || material->GetNumRegisters()>MAX_EXPRESSION_REGISTERS) return result;
+    RtCpuRewriteMaterialSource source;
+    source.stages.resize(material->GetNumStages());
+    if (!CapturePathTraceRuntimeMaterialStages(material,source.stages.data(),material->GetNumStages())) return result;
+    source.opaqueCompatibility=SmokeMaterialUsesOpaqueSwinglightCompatibility(material);
+    // With no selected runtime stage, the old route chooses its primary fallback.
+    // Be conservative about ambient-only definitions whose fallback uses registry images.
+    for (int i=0;i<material->GetNumStages();++i) {
+        const auto* stage=material->GetStage(i);
+        if (source.primaryFallbackStage<0 && stage->lighting==SL_DIFFUSE) source.primaryFallbackStage=i;
+        if (source.normalStage<0 && stage->lighting==SL_BUMP && stage->texture.hasMatrix) source.normalStage=i;
+    }
+    if (source.primaryFallbackStage<0) return result;
+    result.eligible=BuildRtCpuConstantMaterialRoute(true,SmokeMaterialId(material),source,
+        material->ConstantRegisters(),material->GetNumRegisters(),result.route);
+    return result;
+}
+
+bool CaptureSmokeRewriteMaterialMembership(const viewDef_t* viewDef,
+    RtSmokeRewriteMaterialMembership& snapshot)
+{
+    OPTICK_EVENT("PT CPU Material Membership Snapshot");
+    static_assert(RtCpuMaterialMembership::kMaxRows == RtCpuRewriteMaterialInput::kMaxSurfaces, "membership cap");
+    snapshot = {};
+    if (!viewDef || !viewDef->pathTraceRewriteRootFrame) return false;
+    snapshot.membership.Reserve(viewDef->pathTraceRewriteSurfaceCount);
+    snapshot.rows.reserve(std::min<size_t>(viewDef->pathTraceRewriteSurfaceCount, RtCpuMaterialMembership::kMaxRows));
+    std::unordered_set<uint32_t> bases;
+    for (const drawSurf_t* ds = viewDef->pathTraceRewriteSurfaces; ds; ds = ds->nextOnLight)
+    {
+        if (!ds->material || !ds->space || !ds->space->pathTraceMaterialSnapshot || ds->modelSurfaceIndex < 0) continue;
+        if (snapshot.rows.size() == RtCpuMaterialMembership::kMaxRows) return false;
+        const uint32_t base = SmokeMaterialId(ds->material);
+        const uint32_t entity = static_cast<uint32_t>(ds->space->pathTraceRenderDefIndex);
+        const uint32_t surface = static_cast<uint32_t>(ds->modelSurfaceIndex);
+        if (!snapshot.membership.Add(entity, surface, base)) return false;
+        snapshot.rows.push_back({ds, base, entity, surface});
+        if (bases.insert(base).second) snapshot.baseIds.push_back(base);
+    }
+    snapshot.rootFrame = viewDef->pathTraceRewriteRootFrame;
+    OPTICK_TAG("materialMembershipRows", static_cast<uint32_t>(snapshot.rows.size()));
+    OPTICK_TAG("materialMembershipKeys", static_cast<uint32_t>(snapshot.membership.Size()));
+    return true;
+}
+
+bool BuildSmokeRewriteMaterialSamples(const viewDef_t* viewDef,
+    RtCpuProducerRewriteService& service, std::vector<RtSmokeDynamicMaterialEvalSample>& samples, RtCpuRewriteMaterialFrame& frame,
+    std::shared_ptr<RtSmokeMaterialBindingFrame>& bindings,
+    const std::function<bool()>& prepareOwnerLightInput,
+    const RtSmokeRewriteMaterialMembership& membership, nvrhi::ICommandList* commandList)
+{
+    bool consumed = false;
+    uint32_t rejectReason = 1;
+    struct FrameReport
+    {
+        bool& consumed; uint32_t& reason;
+        ~FrameReport()
+        {
+            OPTICK_TAG("materialFrameConsumed", consumed ? 1u : 0u);
+            OPTICK_TAG("materialFrameRejected", consumed ? 0u : 1u);
+            OPTICK_TAG("materialFrameRejectReason", consumed ? 0u : reason);
+        }
+    } frameReport { consumed, rejectReason };
+    RtCpuRewriteMaterialInput input;
+    input.prepareFrame = true;
+    input.rootFrame = viewDef->pathTraceRewriteRootFrame;
+    if (!input.rootFrame || membership.rootFrame != input.rootFrame) return false;
+    OPTICK_TAG("materialMembershipSnapshotReused", 1u);
+    OPTICK_TAG("materialMembershipLinkedWalksSkipped", 1u);
+    std::vector<const drawSurf_t*> surfaces;
+    std::vector<const idMaterial*> materials;
+    std::unordered_map<const idMaterial*, uint32_t> sourceLookup;
+    static thread_local std::unordered_map<uint64_t,SmokeRewriteConstantMaterialRoute> constantDefinitions;
+    static thread_local uint64_t constantLifecycle=0;
+    if (constantLifecycle!=service.LifecycleGeneration()) {
+        constantDefinitions.clear();constantLifecycle=service.LifecycleGeneration();
+    }
+    uint32_t candidates=0,constantBuilt=0,constantReused=0;
+
+    size_t charged = 0;
+    const auto charge = [&](size_t bytes) {
+        if (bytes > RtCpuRewriteMaterialInput::kMaxBytes - charged) return false;
+        charged += bytes; return true;
+    };
+    {
+        OPTICK_EVENT("PT CPU Material Capture");
+        for (const auto& member : membership.rows)
+        {
+            const drawSurf_t* ds = member.surface;
+            if (++candidates > RtCpuRewriteMaterialInput::kMaxSurfaces) return false;
+            const idMaterial* material = ds->material;
+            const uint32_t baseId=member.baseId;
+            const float* constantRegisters=material->ConstantRegisters();
+            if (constantRegisters && (!ds->shaderRegisters || ds->shaderRegisters==constantRegisters)) {
+                const uint64_t revision=material->GetDefinitionRevision();
+                auto cached=constantDefinitions.find(revision);
+                if (cached==constantDefinitions.end()) {
+                    auto definition=BuildSmokeRewriteConstantMaterialRoute(material);
+                    if (constantDefinitions.size()>=8192) constantDefinitions.clear();
+                    cached=constantDefinitions.emplace(revision,std::move(definition)).first;
+                    ++constantBuilt;
+                } else ++constantReused;
+                const auto* info=FindSmokeMaterialTextureInfoReadOnly(baseId);
+                if (cached->second.eligible && cached->second.route.baseId==baseId && info && SmokeMaterialTextureInfoHasMaterialMetadata(*info) && !info->isDynamic) {
+                    if (!charge(sizeof(RtCpuRewriteMaterialFrameSurface))) return false;
+                    auto row=cached->second.route;
+                    row.entityIndex=member.entityIndex;
+                    row.modelSurfaceIndex=member.surfaceIndex;
+                    input.constantSurfaces.push_back(row);
+                    continue; // no registers/stages/evaluation/variant/sample for this surface
+                }
+            }
+            if (!charge(sizeof(RtCpuRewriteMaterialSurface) + sizeof(RtPathTraceRuntimeMaterialEvalPod))) return false;
+            auto found = sourceLookup.find(material);
+            uint32_t sourceIndex = 0;
+            if (found == sourceLookup.end())
+            {
+                const int count = material->GetNumStages();
+                if (count < 0 || static_cast<size_t>(count) > RtCpuRewriteMaterialInput::kMaxBytes / sizeof(RtPathTraceRuntimeMaterialStagePod) ||
+                    !charge(sizeof(RtCpuRewriteMaterialSource) + static_cast<size_t>(count) * sizeof(RtPathTraceRuntimeMaterialStagePod))) return false;
+                RtCpuRewriteMaterialSource source;
+                source.stages.resize(count);
+                if (!CapturePathTraceRuntimeMaterialStages(material, source.stages.data(), count)) return false;
+                source.opaqueCompatibility = SmokeMaterialUsesOpaqueSwinglightCompatibility(material);
+                sourceIndex = static_cast<uint32_t>(input.sources.size());
+                sourceLookup.emplace(material, sourceIndex);
+                input.sources.push_back(std::move(source));
+                materials.push_back(material);
+            }
+            else sourceIndex = found->second;
+            RtCpuRewriteMaterialSurface surface;
+            surface.source = sourceIndex;
+            surface.materialId = baseId;
+            surface.entityIndex = static_cast<int>(member.entityIndex);
+            surface.entityNum = ds->space->pathTraceEntityNum;
+            surface.modelSurfaceIndex = static_cast<int>(member.surfaceIndex);
+            const float* regs = ds->shaderRegisters ? ds->shaderRegisters : material->ConstantRegisters();
+            const int count = regs ? material->GetNumRegisters() : 0;
+            if (count < 0 || static_cast<size_t>(count) > RtCpuRewriteMaterialInput::kMaxBytes / sizeof(float) ||
+                !charge(static_cast<size_t>(count) * sizeof(float))) return false;
+            surface.hasRegisters = regs != nullptr;
+            surface.registerBegin = static_cast<uint32_t>(input.registers.size());
+            surface.registerCount = count;
+            if (count) input.registers.insert(input.registers.end(), regs, regs + count);
+            std::copy(ds->pathTraceSurfaceOrigin, ds->pathTraceSurfaceOrigin + 3, surface.origin);
+            input.surfaces.push_back(surface);
+            surfaces.push_back(ds);
+        }
+        OPTICK_TAG("materialCaptureCandidateSurfaces",candidates);
+        OPTICK_TAG("materialConstantSurfacesSkipped",static_cast<uint32_t>(input.constantSurfaces.size()));
+        OPTICK_TAG("materialConstantDefinitionsBuilt",constantBuilt);
+        OPTICK_TAG("materialConstantDefinitionsReused",constantReused);
+        OPTICK_TAG("materialConstantCacheEntries",static_cast<uint32_t>(constantDefinitions.size()));
+        OPTICK_TAG("materialCapturedSurfaces", static_cast<uint32_t>(surfaces.size()));
+        OPTICK_TAG("materialCapturedSources", static_cast<uint32_t>(materials.size()));
+        OPTICK_TAG("materialCapturedBytes", static_cast<uint32_t>(charged));
+    }
+    // Hydrate base metadata before freezing the identity registry. Cold constant
+    // materials need registration too; reload must not be their first hydration.
+    // No mutable registry access or resource handle enters the frame producer.
+    uint32_t firstUseDefinitions=0;
+    for (size_t i = 0; i < materials.size(); ++i)
+    {
+        auto& source = input.sources[i];
+        const auto* info = FindSmokeMaterialTextureInfoReadOnly(SmokeMaterialId(materials[i]));
+        const bool needsMetadata = !info || !SmokeMaterialTextureInfoHasMaterialMetadata(*info);
+        if (needsMetadata || info->isDynamic)
+        {
+            bool varying = source.opaqueCompatibility;
+            for (const auto& stage : source.stages) varying = varying || stage.usesPerSurfaceState;
+            if (needsMetadata || varying) {
+                RegisterSmokeMaterialTextureInfo(materials[i]);
+                if (needsMetadata) ++firstUseDefinitions;
+            }
+        }
+        info = FindSmokeMaterialTextureInfoReadOnly(SmokeMaterialId(materials[i]));
+        // Preserve the legacy primary diffuse/ambient and first matrix-bearing bump choices.
+        for (int stageIndex = 0; stageIndex < materials[i]->GetNumStages(); ++stageIndex)
+        {
+            const auto* stage = materials[i]->GetStage(stageIndex);
+            if (!stage) continue;
+            if (source.normalStage < 0 && stage->lighting == SL_BUMP && stage->texture.hasMatrix)
+                source.normalStage = stageIndex;
+            if (stage->lighting == SL_DIFFUSE)
+            {
+                source.primaryFallbackStage = stageIndex;
+                break;
+            }
+            if (source.primaryFallbackStage < 0 && stage->lighting == SL_AMBIENT && info &&
+                stage->texture.image == info->diffuseImage) source.primaryFallbackStage = stageIndex;
+        }
+        // Bump stages may follow the diffuse stage.
+        if (source.normalStage < 0)
+            for (int stageIndex = 0; stageIndex < materials[i]->GetNumStages(); ++stageIndex)
+            {
+                const auto* stage = materials[i]->GetStage(stageIndex);
+                if (stage && stage->lighting == SL_BUMP && stage->texture.hasMatrix)
+                { source.normalStage = stageIndex; break; }
+            }
+    }
+    OPTICK_TAG("materialFirstUseDefinitions", firstUseDefinitions);
+    SnapshotSmokeMaterialIdentities(input.registry);
+    if (!input.WithinCapacity()) return false;
+    // Binding capture includes excluded constant bases; resource lifetime stays current.
+    input.registryGeneration = SmokeMaterialTextureRegistryGeneration();
+    const auto job = service.SubmitMaterials(std::move(input));
+    rejectReason = 2;
+    if (!job) return false;
+    std::shared_ptr<RtCpuRewriteLightJob> bindingJob;
+    // Failed capture/application must drain both slots, without publishing an old
+    // product or retaining renderer resources in a worker closure.
+    struct MaterialJobsGuard {
+        RtCpuProducerRewriteService& service;
+        const std::shared_ptr<RtCpuRewriteMaterialJob>& numeric;
+        const std::shared_ptr<RtCpuRewriteLightJob>& binding;
+        uint64_t root;
+        bool numericJoined=false, bindingJoined=false;
+        ~MaterialJobsGuard() {
+            if (!numericJoined) service.FinishMaterials(numeric);
+            if (binding && !bindingJoined) service.FinishMaterialBindingPreparation(binding,root);
+        }
+    } jobsGuard{service,job,bindingJob,viewDef->pathTraceRewriteRootFrame};
+    // Synchronous owner work on independent exact-frame light bytes. Never pass
+    // this renderer closure to a worker; the guard drains numeric work on failure.
+    rejectReason = 9;
+    if (!prepareOwnerLightInput || !prepareOwnerLightInput()) return false;
+    struct BindingWork { RtCpuMaterialBindingPlanInput input; RtCpuMaterialBindingPlan output; };
+    auto bindingWork=std::make_shared<BindingWork>();
+    bindings = SnapshotSmokeMaterialBindingFrame(bindingWork->input, RtCpuMaterialBindingPlanInput::kMaxBytes, &membership.baseIds);
+    rejectReason = 8;
+    if (!bindings) return false;
+    const bool prepareBindings=SmokeMaterialBindingNeedsPreparation(*bindings);
+    OPTICK_TAG("materialBindingWorkerSkipped",prepareBindings ? 0u : 1u);
+    if (prepareBindings) {
+        bindingJob=service.SubmitMaterialBindingPreparation(viewDef->pathTraceRewriteRootFrame,
+            bindingWork->input.ChargedBytes(),[owned=bindingWork] {
+                const bool valid=BuildRtCpuMaterialBindingPlan(owned->input,owned->output);
+                OPTICK_TAG("materialBindingPreparedRows",static_cast<uint32_t>(owned->output.rows.size()));
+                OPTICK_TAG("materialBindingPreparedRules",static_cast<uint32_t>(owned->output.rules.size()));
+                return valid;
+            });
+        if (!bindingJob) return false;
+    }
+    if (!ResolveSmokeMaterialBindingResources(*bindings, commandList)) return false;
+    rejectReason = 2;
+    const bool numericComplete=service.FinishMaterials(job);jobsGuard.numericJoined=true;
+    if (!numericComplete) return false;
+    rejectReason = 3;
+    if (job->input.rootFrame != viewDef->pathTraceRewriteRootFrame) return false;
+    rejectReason = 4;
+    if (job->input.registryGeneration != SmokeMaterialTextureRegistryGeneration()) return false;
+    rejectReason = 5;
+    if (job->output.size() != surfaces.size() || job->frame.decisions.size() != surfaces.size()) return false;
+    OPTICK_EVENT("PT CPU Material Publish");
+    {
+        OPTICK_EVENT("PT CPU Material Emissive Samples Apply");
+        samples.resize(job->frame.emissiveSampleOrdinals.size());
+        for (size_t i=0;i<samples.size();++i)
+        {
+            const uint32_t ordinal=job->frame.emissiveSampleOrdinals[i];
+            if (ordinal>=surfaces.size()) return false;
+            SmokeMaterialSampleFromEvaluation(surfaces[ordinal]->material,
+                job->frame.decisions[ordinal].chosenMaterialId,job->output[ordinal],samples[i]);
+        }
+        OPTICK_TAG("materialOwnerFullSampleConversionsSkipped",static_cast<uint32_t>(surfaces.size()));
+        OPTICK_TAG("materialOwnerEmissiveSamples",static_cast<uint32_t>(samples.size()));
+    }
+    rejectReason = 7;
+    const bool bindingComplete=!prepareBindings || service.FinishMaterialBindingPreparation(bindingJob,viewDef->pathTraceRewriteRootFrame);
+    jobsGuard.bindingJoined=true;
+    if (!bindingComplete || !CompleteSmokeMaterialBindingFrame(*bindings,std::move(bindingWork->output))) return false;
+    rejectReason = 6;
+    OPTICK_EVENT("PT CPU Material Variants Apply");
+    for (size_t i = 0; i < surfaces.size(); ++i)
+    {
+        const auto& decision = job->frame.decisions[i];
+        const uint32_t base = job->input.surfaces[i].materialId;
+        const uint32_t id = decision.chosenMaterialId;
+        if (id != base && !RegisterSmokeMaterialTextureVariant(id, base, bindings.get())) return false;
+        NotePathTraceCaptureSerialRuntimeMaterial(UINT32_MAX, decision);
+        if (decision.initialCandidateId != base)
+            NotePathTraceCaptureSerialMaterialVariant(base, decision.initialCandidateId, id,
+                decision.collisionCount, decision.fallbackUsed, surfaces[i]->material->GetName());
+    }
+    frame = std::move(job->frame);
+    consumed = true;
+    OPTICK_TAG("materialSerialEvaluationsSkipped", static_cast<uint32_t>(surfaces.size()));
+    OPTICK_TAG("materialFrameOwnerReplaySkipped", 1u);
+    return true;
 }
 
 uint32_t SmokeRuntimeMaterialTableIdForEntitySurface(const idRenderEntityLocal* entity, int modelSurfaceIndex, const idMaterial* material, uint32_t baseMaterialId)
@@ -2410,7 +3757,7 @@ uint32_t SmokeRuntimeMaterialTableIdForEntitySurface(const idRenderEntityLocal* 
     return baseMaterialId;
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint32_t>* triangleInstanceData, std::vector<uint32_t>* triangleIdentityData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& captureAnchor, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint32_t>* triangleInstanceData, std::vector<uint32_t>* triangleIdentityData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& captureAnchor, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture, std::vector<uint64_t>* staticWalkedIds, std::vector<uint32_t>* staticWalkedTriangles)
 {
     OPTICK_EVENT("PT Capture Doom Surfaces Detail");
 
@@ -2554,6 +3901,15 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 sourceVerts += tri->numVerts;
                 sourceIndexes += tri->numIndexes;
                 AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, tri->numIndexes);
+                if (staticWalkedIds)
+                {
+                    staticWalkedIds->push_back(staticSurfaceKey);
+                    if (staticWalkedTriangles)
+                    {
+                        staticWalkedTriangles->push_back(
+                            static_cast<uint32_t>(tri->numIndexes / 3));
+                    }
+                }
                 continue;
             }
 
@@ -2609,6 +3965,15 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             sourceVerts += tri->numVerts;
             sourceIndexes += emittedIndexes;
             AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
+            if (staticWalkedIds)
+            {
+                staticWalkedIds->push_back(staticSurfaceKey);
+                if (staticWalkedTriangles)
+                {
+                    staticWalkedTriangles->push_back(
+                        static_cast<uint32_t>(emittedIndexes / 3));
+                }
+            }
         }
     }
 
@@ -2619,6 +3984,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         {
             const int surfaceIndex = (anchorSurface + surfaceOffset) % viewDef->numDrawSurfs;
             const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+            if (PtCpuProducerApplyGate::ShouldSkipDrawSurf(drawSurf))
+            {
+                continue;
+            }
             const srfTriangles_t* tri = nullptr;
             const int validationStartMs = Sys_Milliseconds();
             if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, &skipStats))

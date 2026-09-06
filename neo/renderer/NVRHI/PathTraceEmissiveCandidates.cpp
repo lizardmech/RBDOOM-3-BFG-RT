@@ -119,6 +119,82 @@ float SmokeMaterialEmissiveLuminance(const PathTraceSmokeMaterial& material)
     return r * 0.2126f + g * 0.7152f + b * 0.0722f;
 }
 
+int BuildSmokeEmissiveInventoryPartitionRanges(
+    size_t staticSourceUnits,
+    size_t dynamicSourceUnits,
+    int requestedPartitions,
+    RtSmokeEmissiveInventorySourceRange* ranges,
+    int rangeCapacity)
+{
+    if (!ranges || rangeCapacity <= 0 ||
+        staticSourceUnits > SIZE_MAX - dynamicSourceUnits)
+    {
+        return 0;
+    }
+    const size_t totalSourceUnits =
+        staticSourceUnits + dynamicSourceUnits;
+    const int partitionCount = idMath::ClampInt(
+        1,
+        rangeCapacity,
+        totalSourceUnits == 0
+            ? 1
+            : Min(
+                requestedPartitions,
+                static_cast<int>(Min(
+                    totalSourceUnits,
+                    static_cast<size_t>(INT_MAX)))));
+    const size_t quotient = totalSourceUnits /
+        static_cast<size_t>(partitionCount);
+    const size_t remainder = totalSourceUnits %
+        static_cast<size_t>(partitionCount);
+    const auto boundary = [quotient, remainder](int ordinal)
+    {
+        const size_t index = static_cast<size_t>(ordinal);
+        return quotient * index + Min(index, remainder);
+    };
+    for (int partitionIndex = 0;
+         partitionIndex < partitionCount;
+         ++partitionIndex)
+    {
+        const size_t begin = boundary(partitionIndex);
+        const size_t end = boundary(partitionIndex + 1);
+        RtSmokeEmissiveInventorySourceRange& range = ranges[partitionIndex];
+        range.staticBegin = Min(begin, staticSourceUnits);
+        range.staticEnd = Min(end, staticSourceUnits);
+        range.dynamicBegin =
+            begin > staticSourceUnits ? begin - staticSourceUnits : 0;
+        range.dynamicEnd =
+            end > staticSourceUnits ? end - staticSourceUnits : 0;
+        range.includeStatic = range.staticBegin < range.staticEnd ||
+            (partitionIndex == 0 && staticSourceUnits == 0);
+        range.includeDynamic = range.dynamicBegin < range.dynamicEnd;
+    }
+    size_t nextStatic = 0;
+    size_t nextDynamic = 0;
+    for (int partitionIndex = 0;
+         partitionIndex < partitionCount;
+         ++partitionIndex)
+    {
+        const RtSmokeEmissiveInventorySourceRange& range =
+            ranges[partitionIndex];
+        if (range.staticBegin != nextStatic ||
+            range.staticEnd < range.staticBegin ||
+            range.dynamicBegin != nextDynamic ||
+            range.dynamicEnd < range.dynamicBegin)
+        {
+            return 0;
+        }
+        nextStatic = range.staticEnd;
+        nextDynamic = range.dynamicEnd;
+    }
+    if (nextStatic != staticSourceUnits ||
+        nextDynamic != dynamicSourceUnits)
+    {
+        return 0;
+    }
+    return partitionCount;
+}
+
 void AppendSmokeEmissiveInventoryForGeometry(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,
@@ -137,12 +213,22 @@ void AppendSmokeEmissiveInventoryForGeometry(
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
-    RtSmokeEmissiveInventoryStats& stats)
+    RtSmokeEmissiveInventoryStats& stats,
+    const std::vector<uint32_t>* materialUniverseIndexes = nullptr,
+    std::vector<float>* areaContributions = nullptr,
+    std::vector<float>* weightedLuminanceContributions = nullptr,
+    size_t primitiveBegin = 0,
+    size_t primitiveEnd = SIZE_MAX)
 {
     OPTICK_EVENT("PT Emissive Append Geometry");
 
-    const int triangleCount = Min(static_cast<int>(triangleMaterialIndexes.size()), static_cast<int>(indexes.size() / 3));
-    for (int primitiveIndex = 0; primitiveIndex < triangleCount; ++primitiveIndex)
+    const size_t triangleCount = Min(
+        triangleMaterialIndexes.size(), indexes.size() / 3);
+    primitiveBegin = Min(primitiveBegin, triangleCount);
+    primitiveEnd = Min(Max(primitiveBegin, primitiveEnd), triangleCount);
+    for (size_t primitiveIndex = primitiveBegin;
+         primitiveIndex < primitiveEnd;
+         ++primitiveIndex)
     {
         const uint32_t materialIndex = triangleMaterialIndexes[primitiveIndex];
         if (materialIndex >= materials.size() || materialIndex >= materialIds.size())
@@ -159,7 +245,10 @@ void AppendSmokeEmissiveInventoryForGeometry(
             continue;
         }
 
-        const uint32_t triangleClassAndFlags = primitiveIndex < static_cast<int>(triangleClasses.size()) ? triangleClasses[primitiveIndex] : 0u;
+        const uint32_t triangleClassAndFlags =
+            primitiveIndex < triangleClasses.size()
+                ? triangleClasses[primitiveIndex]
+                : 0u;
         const uint32_t surfaceClass = triangleClassAndFlags & triangleClassMask;
         if ((triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) != 0u)
         {
@@ -173,25 +262,21 @@ void AppendSmokeEmissiveInventoryForGeometry(
         }
 
         const uint32_t identityInstanceId =
-            (triangleInstanceIds && primitiveIndex < static_cast<int>(triangleInstanceIds->size()))
+            (triangleInstanceIds && primitiveIndex < triangleInstanceIds->size())
                 ? (*triangleInstanceIds)[primitiveIndex]
                 : instanceId;
         const uint32_t identityPrimitiveIndex =
-            (triangleIdentityIds && primitiveIndex < static_cast<int>(triangleIdentityIds->size()))
+            (triangleIdentityIds && primitiveIndex < triangleIdentityIds->size())
                 ? (*triangleIdentityIds)[primitiveIndex]
                 : static_cast<uint32_t>(primitiveIndex);
         const uint32_t recordInstanceId =
             (triangleRecordInstanceIds &&
-                primitiveIndex <
-                    static_cast<int>(
-                        triangleRecordInstanceIds->size()))
+                primitiveIndex < triangleRecordInstanceIds->size())
                 ? (*triangleRecordInstanceIds)[primitiveIndex]
                 : instanceId;
         const uint32_t recordPrimitiveIndex =
             (triangleRecordPrimitiveIds &&
-                primitiveIndex <
-                    static_cast<int>(
-                        triangleRecordPrimitiveIds->size()))
+                primitiveIndex < triangleRecordPrimitiveIds->size())
                 ? (*triangleRecordPrimitiveIds)[primitiveIndex]
                 : static_cast<uint32_t>(primitiveIndex);
         ++stats.totalTriangles;
@@ -208,7 +293,7 @@ void AppendSmokeEmissiveInventoryForGeometry(
             stats.materialIndexes.push_back(materialIndex);
         }
 
-        const int indexOffset = primitiveIndex * 3;
+        const size_t indexOffset = primitiveIndex * 3;
         const uint32_t i0 = indexes[indexOffset + 0];
         const uint32_t i1 = indexes[indexOffset + 1];
         const uint32_t i2 = indexes[indexOffset + 2];
@@ -244,6 +329,14 @@ void AppendSmokeEmissiveInventoryForGeometry(
         const float sampleWeight = area * luminance;
         stats.totalArea += area;
         stats.totalWeightedLuminance += sampleWeight;
+        if (areaContributions)
+        {
+            areaContributions->push_back(area);
+        }
+        if (weightedLuminanceContributions)
+        {
+            weightedLuminanceContributions->push_back(sampleWeight);
+        }
 
         if (static_cast<int>(emissiveTriangles.size()) >= maxRecords)
         {
@@ -285,8 +378,19 @@ void AppendSmokeEmissiveInventoryForGeometry(
         record.emissiveTextureWidth = material.emissiveTextureWidth;
         record.emissiveTextureHeight = material.emissiveTextureHeight;
         record.materialId = materialId;
-        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
-        record.universeMaterialIndex = GetSmokeMaterialUniverseFacts(materialId, info).universeIndex;
+        if (materialUniverseIndexes &&
+            materialIndex < materialUniverseIndexes->size())
+        {
+            record.universeMaterialIndex =
+                (*materialUniverseIndexes)[materialIndex];
+        }
+        else
+        {
+            const RtSmokeMaterialTextureInfo info =
+                ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
+            record.universeMaterialIndex =
+                GetSmokeMaterialUniverseFacts(materialId, info).universeIndex;
+        }
         const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity(materialId, identityInstanceId, identityPrimitiveIndex, materialIndex, triangleClassAndFlags);
         record.identityHashLo = static_cast<uint32_t>(identityHash & 0xffffffffu);
         record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
@@ -319,7 +423,13 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
     const std::vector<uint32_t>*
         triangleClassOverrides,
     const std::vector<uint32_t>*
-        triangleMaterialIndexOverrides)
+        triangleMaterialIndexOverrides,
+    const std::vector<uint32_t>*
+        materialUniverseIndexes,
+    std::vector<float>* areaContributions,
+    std::vector<float>* weightedLuminanceContributions,
+    size_t routeBegin,
+    size_t routeEnd)
 {
     OPTICK_EVENT("PT Static Bucket Emissive Inventory");
 
@@ -339,8 +449,11 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
         BuildSmokeStaticBucketCanonicalAddressPlan(geometryPack);
     if (!canonicalAddressPlan.exact)
     {
-        stats.skippedInvalidMaterialTriangles +=
-            static_cast<int>(geometryPack.triangleClasses.size());
+        if (routeBegin == 0)
+        {
+            stats.skippedInvalidMaterialTriangles +=
+                static_cast<int>(geometryPack.triangleClasses.size());
+        }
         return;
     }
 
@@ -352,8 +465,10 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
         geometryPack.vertexBytes.data(),
         geometryPack.vertexBytes.size());
 
-    for (size_t routeIndex = 0;
-         routeIndex < publication.routeRecords.size();
+    routeBegin = Min(routeBegin, publication.routeRecords.size());
+    routeEnd = Min(Max(routeBegin, routeEnd), publication.routeRecords.size());
+    for (size_t routeIndex = routeBegin;
+         routeIndex < routeEnd;
          ++routeIndex)
     {
         const RtSmokeStaticBucketPackedRecord& bucket =
@@ -521,18 +636,19 @@ void AppendSmokeStaticBucketEmissiveTriangleInventory(
             maxRecords,
             emissiveTriangles,
             emissiveGeometry,
-            stats);
+            stats,
+            materialUniverseIndexes,
+            areaContributions,
+            weightedLuminanceContributions);
     }
 }
 
-void FinalizeSmokeEmissiveTriangleSamplingFields(std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles, const RtSmokeEmissiveInventoryStats& stats)
+void FinalizeSmokeEmissiveTriangleSamplingFields(std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles, const RtSmokeEmissiveInventoryStats& stats, float uniformMixture)
 {
     OPTICK_EVENT("PT Emissive Sampling Fields");
 
     const float inverseTotalWeightedLuminance = stats.totalWeightedLuminance > 1.0e-8f ? 1.0f / stats.totalWeightedLuminance : 0.0f;
     const float inverseTotalArea = stats.totalArea > 1.0e-8f ? 1.0f / stats.totalArea : 0.0f;
-    const float uniformMixture = idMath::ClampFloat(
-        0.0f, 1.0f, r_pathTracingEmissiveUniformMixture.GetFloat());
     const float powerMixture = 1.0f - uniformMixture;
     const float uniformPdf = emissiveTriangles.empty()
         ? 0.0f : 1.0f / static_cast<float>(emissiveTriangles.size());
@@ -550,6 +666,12 @@ void FinalizeSmokeEmissiveTriangleSamplingFields(std::vector<PathTraceSmokeEmiss
         record.sampleWeightAndPdf[3] = record.centerAndArea[3] * inverseTotalArea;
         record.centroidUvAndWeight[3] = record.sampleWeightAndPdf[1];
     }
+}
+
+void FinalizeSmokeEmissiveTriangleSamplingFields(std::vector<PathTraceSmokeEmissiveTriangle>& triangles, const RtSmokeEmissiveInventoryStats& stats)
+{
+    FinalizeSmokeEmissiveTriangleSamplingFields(triangles, stats,
+        idMath::ClampFloat(0.0f, 1.0f, r_pathTracingEmissiveUniformMixture.GetFloat()));
 }
 
 RtSmokeEmissiveDistributionBuild BuildSmokeEmissiveDistribution(const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles)
@@ -608,6 +730,21 @@ RtSmokeEmissiveDistributionBuild BuildSmokeEmissiveDistribution(const std::vecto
     return build;
 }
 
+std::vector<RtSmokeEmissiveMaterialFacts> SnapshotSmokeEmissiveMaterialFacts(
+    const std::vector<uint32_t>& materialIds, const std::vector<PtSkinnedEmissiveAuditTriangle>& triangles)
+{
+    std::vector<RtSmokeEmissiveMaterialFacts> result(materialIds.size());
+    for (const auto& triangle : triangles)
+    {
+        const auto index = triangle.materialIndex;
+        if (index >= materialIds.size() || materialIds[index] != triangle.materialId || result[index].valid) continue;
+        const auto info = ResolveSmokeMaterialTextureInfo(triangle.materialId, index);
+        const auto& facts = GetSmokeMaterialUniverseFacts(triangle.materialId, info);
+        result[index] = { triangle.materialId, facts.universeIndex, true, facts.hasEmissiveImage, facts.hasSafeEmissiveTexture };
+    }
+    return result;
+}
+
 PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,
@@ -615,10 +752,15 @@ PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory
     const std::vector<PathTraceSkinnedPreviousPosition>& previousPositions,
     const std::vector<PtSkinnedEmissiveAuditTriangle>& triangles,
     uint32_t emissiveMaterialFlag,
-    int maxRecords)
+    int maxRecords,
+    const std::vector<RtSmokeEmissiveMaterialFacts>* ownedFacts,
+    RtSmokeEmissiveInventoryStats* currentStatsOut, float ownedUniformMixture)
 {
     PtSkinnedEmissiveAuditInventory inventory;
     inventory.inputTriangles = triangles.size();
+    // Owned worker calls must never fall through to the live setting reader.
+    if (ownedFacts && !(ownedUniformMixture >= 0.0f && ownedUniformMixture <= 1.0f))
+    { ++inventory.invalidTriangles; return inventory; }
     maxRecords = Max(1, maxRecords);
 
     auto appendRecord =
@@ -747,14 +889,18 @@ PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory
             record.emissiveTextureHeight =
                 material.emissiveTextureHeight;
             record.materialId = source.materialId;
-            const RtSmokeMaterialTextureInfo info =
-                ResolveSmokeMaterialTextureInfo(
-                    source.materialId,
-                    source.materialIndex);
-            record.universeMaterialIndex =
-                GetSmokeMaterialUniverseFacts(
-                    source.materialId,
-                    info).universeIndex;
+            if (ownedFacts)
+            {
+                if (source.materialIndex >= ownedFacts->size() || !(*ownedFacts)[source.materialIndex].valid ||
+                    (*ownedFacts)[source.materialIndex].materialId != source.materialId)
+                { ++inventory.invalidTriangles; return; }
+                record.universeMaterialIndex = (*ownedFacts)[source.materialIndex].universeIndex;
+            }
+            else
+            {
+                const auto info = ResolveSmokeMaterialTextureInfo(source.materialId, source.materialIndex);
+                record.universeMaterialIndex = GetSmokeMaterialUniverseFacts(source.materialId, info).universeIndex;
+            }
             record.identityHashLo =
                 static_cast<uint32_t>(
                     source.identityHash & 0xffffffffu);
@@ -837,17 +983,22 @@ PtSkinnedEmissiveAuditInventory BuildSmokeCanonicalSkinnedEmissiveAuditInventory
     RtSmokeEmissiveInventoryStats currentStats =
         BuildSmokeEmissiveInventoryStatsForRecords(
             materialIds,
-            inventory.current);
+            inventory.current, ownedFacts);
     RtSmokeEmissiveInventoryStats previousStats =
         BuildSmokeEmissiveInventoryStatsForRecords(
             materialIds,
-            inventory.previous);
-    FinalizeSmokeEmissiveTriangleSamplingFields(
-        inventory.current,
-        currentStats);
-    FinalizeSmokeEmissiveTriangleSamplingFields(
-        inventory.previous,
-        previousStats);
+            inventory.previous, ownedFacts);
+    if (ownedUniformMixture >= 0.0f)
+    {
+        FinalizeSmokeEmissiveTriangleSamplingFields(inventory.current, currentStats, ownedUniformMixture);
+        FinalizeSmokeEmissiveTriangleSamplingFields(inventory.previous, previousStats, ownedUniformMixture);
+    }
+    else
+    {
+        FinalizeSmokeEmissiveTriangleSamplingFields(inventory.current, currentStats);
+        FinalizeSmokeEmissiveTriangleSamplingFields(inventory.previous, previousStats);
+    }
+    if (currentStatsOut) *currentStatsOut = std::move(currentStats);
     return inventory;
 }
 
@@ -1028,21 +1179,32 @@ BuildSmokeCanonicalEmissiveLightRemap(
     return remap;
 }
 
-void AppendSmokeRigidRouteEmissiveTriangleInventory(
+static bool AppendSmokeRigidRouteEmissiveTriangleInventoryInternal(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,
+    const std::vector<uint32_t>* materialUniverseIndexes,
     const RtPathTraceRigidRouteBuild& rigidRouteBuild,
     uint32_t emissiveMaterialFlag,
     int maxRecords,
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
-    RtSmokeEmissiveInventoryStats& stats)
+    RtSmokeEmissiveInventoryStats& stats,
+    std::vector<float>* areaContributions,
+    std::vector<float>* weightedLuminanceContributions)
 {
     OPTICK_EVENT("PT Emissive Append Rigid Route");
 
+    if (materialUniverseIndexes &&
+        (materialUniverseIndexes->size() != materialIds.size() ||
+            materialUniverseIndexes->size() != materials.size()))
+    {
+        assert(!"rigid-route emissive worker material snapshot is incomplete");
+        return false;
+    }
+
     if (rigidRouteBuild.instances.empty() || rigidRouteBuild.instanceObjectToWorld.empty())
     {
-        return;
+        return true;
     }
 
     maxRecords = Max(1, maxRecords);
@@ -1164,6 +1326,14 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
                 Max(0.0f, material.emissiveColor[1]),
                 Max(0.0f, material.emissiveColor[2]));
             const float sampleWeight = area * luminance;
+            if (areaContributions)
+            {
+                areaContributions->push_back(area);
+            }
+            if (weightedLuminanceContributions)
+            {
+                weightedLuminanceContributions->push_back(sampleWeight);
+            }
             stats.totalArea += area;
             stats.totalWeightedLuminance += sampleWeight;
             stats.routedRigidArea += area;
@@ -1210,8 +1380,22 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
             record.emissiveTextureWidth = material.emissiveTextureWidth;
             record.emissiveTextureHeight = material.emissiveTextureHeight;
             record.materialId = materialIds[materialIndex];
-            const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(record.materialId, materialIndex);
-            record.universeMaterialIndex = GetSmokeMaterialUniverseFacts(record.materialId, info).universeIndex;
+            if (materialUniverseIndexes)
+            {
+                record.universeMaterialIndex =
+                    (*materialUniverseIndexes)[materialIndex];
+            }
+            else
+            {
+                const RtSmokeMaterialTextureInfo info =
+                    ResolveSmokeMaterialTextureInfo(
+                        record.materialId,
+                        materialIndex);
+                record.universeMaterialIndex =
+                    GetSmokeMaterialUniverseFacts(
+                        record.materialId,
+                        info).universeIndex;
+            }
             const uint64 sourceInstanceId =
                 static_cast<uint64>(routeInstance.instanceIdLo) |
                 (static_cast<uint64>(routeInstance.instanceIdHi) << 32);
@@ -1229,6 +1413,169 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
 
     stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
     stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
+    return true;
+}
+
+void AppendSmokeRigidRouteEmissiveTriangleInventory(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const RtPathTraceRigidRouteBuild& rigidRouteBuild,
+    uint32_t emissiveMaterialFlag,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
+    RtSmokeEmissiveInventoryStats& stats)
+{
+    AppendSmokeRigidRouteEmissiveTriangleInventoryInternal(
+        materialIds,
+        materials,
+        nullptr,
+        rigidRouteBuild,
+        emissiveMaterialFlag,
+        maxRecords,
+        emissiveTriangles,
+        emissiveGeometry,
+        stats,
+        nullptr,
+        nullptr);
+}
+
+bool BuildSmokeRigidRouteEmissiveTriangleInventorySnapshot(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const std::vector<uint32_t>& materialUniverseIndexes,
+    const RtPathTraceRigidRouteBuild& rigidRouteBuild,
+    uint32_t emissiveMaterialFlag,
+    int maxRecords,
+    RtSmokeRigidRouteEmissiveAppendResult& result)
+{
+    result = RtSmokeRigidRouteEmissiveAppendResult();
+    if (materialIds.size() != materials.size() ||
+        materialIds.size() != materialUniverseIndexes.size())
+    {
+        assert(!"rigid-route emissive worker material snapshot cardinality mismatch");
+        return false;
+    }
+
+    result.valid = AppendSmokeRigidRouteEmissiveTriangleInventoryInternal(
+        materialIds,
+        materials,
+        &materialUniverseIndexes,
+        rigidRouteBuild,
+        emissiveMaterialFlag,
+        maxRecords,
+        result.triangles,
+        result.geometry,
+        result.stats,
+        &result.areaContributions,
+        &result.weightedLuminanceContributions);
+    result.valid = result.valid &&
+        result.triangles.size() == result.geometry.size() &&
+        result.areaContributions.size() ==
+            result.weightedLuminanceContributions.size() &&
+        result.areaContributions.size() ==
+            static_cast<size_t>(Max(0, result.stats.totalTriangles));
+    return result.valid;
+}
+
+bool MergeSmokeRigidRouteEmissiveAppendResult(
+    const RtSmokeRigidRouteEmissiveAppendResult& result,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
+    RtSmokeEmissiveInventoryStats& stats)
+{
+    if (!result.valid ||
+        result.triangles.size() != result.geometry.size() ||
+        result.areaContributions.size() !=
+            result.weightedLuminanceContributions.size() ||
+        result.areaContributions.size() !=
+            static_cast<size_t>(Max(0, result.stats.totalTriangles)) ||
+        emissiveTriangles.size() != emissiveGeometry.size())
+    {
+        return false;
+    }
+
+    maxRecords = Max(1, maxRecords);
+    const size_t availableRecords =
+        emissiveTriangles.size() < static_cast<size_t>(maxRecords)
+            ? static_cast<size_t>(maxRecords) - emissiveTriangles.size()
+            : 0u;
+    const size_t acceptedRecords =
+        Min(availableRecords, result.triangles.size());
+    if (acceptedRecords >
+        static_cast<size_t>(Max(0, result.stats.totalTriangles)))
+    {
+        return false;
+    }
+
+    emissiveTriangles.insert(
+        emissiveTriangles.end(),
+        result.triangles.begin(),
+        result.triangles.begin() + acceptedRecords);
+    emissiveGeometry.insert(
+        emissiveGeometry.end(),
+        result.geometry.begin(),
+        result.geometry.begin() + acceptedRecords);
+
+    stats.totalTriangles += result.stats.totalTriangles;
+    stats.dynamicTriangles += result.stats.dynamicTriangles;
+    stats.routedRigidTriangles += result.stats.routedRigidTriangles;
+    stats.skippedInvalidMaterialTriangles +=
+        result.stats.skippedInvalidMaterialTriangles;
+    stats.skippedRuntimeInactiveTriangles +=
+        result.stats.skippedRuntimeInactiveTriangles;
+    stats.routedRigidInstances += result.stats.routedRigidInstances;
+    stats.routedRigidSeenInstances +=
+        result.stats.routedRigidSeenInstances;
+    stats.routedRigidCacheInstances +=
+        result.stats.routedRigidCacheInstances;
+    stats.routedRigidEmissiveInstances +=
+        result.stats.routedRigidEmissiveInstances;
+    stats.routedRigidEmissiveSeenInstances +=
+        result.stats.routedRigidEmissiveSeenInstances;
+    stats.routedRigidEmissiveCacheInstances +=
+        result.stats.routedRigidEmissiveCacheInstances;
+    stats.routedRigidInvalidTriangles +=
+        result.stats.routedRigidInvalidTriangles;
+    stats.routedRigidNonEmissiveTriangles +=
+        result.stats.routedRigidNonEmissiveTriangles;
+
+    for (size_t index = 0;
+         index < result.areaContributions.size();
+         ++index)
+    {
+        stats.totalArea += result.areaContributions[index];
+        stats.totalWeightedLuminance +=
+            result.weightedLuminanceContributions[index];
+        stats.routedRigidArea += result.areaContributions[index];
+        stats.routedRigidWeightedLuminance +=
+            result.weightedLuminanceContributions[index];
+    }
+
+    for (uint32_t materialIndex : result.stats.materialIndexes)
+    {
+        if (std::find(
+                stats.materialIndexes.begin(),
+                stats.materialIndexes.end(),
+                materialIndex) == stats.materialIndexes.end())
+        {
+            stats.materialIndexes.push_back(materialIndex);
+        }
+    }
+
+    const int acceptedCount = static_cast<int>(acceptedRecords);
+    const int cappedCount = result.stats.totalTriangles - acceptedCount;
+    if (cappedCount < 0)
+    {
+        return false;
+    }
+    stats.cappedTriangles += cappedCount;
+    stats.routedRigidCappedTriangles += cappedCount;
+    stats.routedRigidCapturedTriangles += acceptedCount;
+    stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
+    stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
+    return true;
 }
 
 std::vector<uint32_t> BuildSmokeWorldStaticEmissiveMaterialIds(const viewDef_t* viewDef)
@@ -1486,7 +1833,8 @@ std::vector<PathTraceSmokeMaterial> BuildSmokeEmissiveMaterialViews(const std::v
 void BuildSmokeEmissiveLightCandidateSummaries(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
-    RtSmokeEmissiveInventoryStats& stats)
+    RtSmokeEmissiveInventoryStats& stats,
+    const std::vector<RtSmokeEmissiveMaterialFacts>* ownedFacts = nullptr)
 {
     OPTICK_EVENT("PT Emissive Candidate Summaries");
 
@@ -1518,8 +1866,19 @@ void BuildSmokeEmissiveLightCandidateSummaries(
 
         if (!candidate)
         {
-            const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
-            const RtSmokeMaterialUniverseFacts& facts = GetSmokeMaterialUniverseFacts(materialId, info);
+            RtSmokeEmissiveMaterialFacts facts;
+            if (ownedFacts)
+            {
+                if (size_t(materialIndex) >= ownedFacts->size() || !(*ownedFacts)[materialIndex].valid ||
+                    (*ownedFacts)[materialIndex].materialId != materialId) continue;
+                facts = (*ownedFacts)[materialIndex];
+            }
+            else
+            {
+                const auto info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
+                const auto& live = GetSmokeMaterialUniverseFacts(materialId, info);
+                facts = { materialId, live.universeIndex, true, live.hasEmissiveImage, live.hasSafeEmissiveTexture };
+            }
             RtSmokeEmissiveLightCandidateSummary newCandidate = {};
             newCandidate.materialId = materialId;
             newCandidate.universeMaterialIndex = facts.universeIndex;
@@ -1648,7 +2007,8 @@ std::vector<PathTraceSmokeLightCandidate> BuildSmokeLightCandidateBufferRecords(
 
 RtSmokeEmissiveInventoryStats BuildSmokeEmissiveInventoryStatsForRecords(
     const std::vector<uint32_t>& materialIds,
-    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles)
+    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    const std::vector<RtSmokeEmissiveMaterialFacts>* ownedFacts)
 {
     OPTICK_EVENT("PT Emissive Stats From Records");
 
@@ -1687,8 +2047,283 @@ RtSmokeEmissiveInventoryStats BuildSmokeEmissiveInventoryStatsForRecords(
     }
 
     stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
-    BuildSmokeEmissiveLightCandidateSummaries(materialIds, emissiveTriangles, stats);
+    BuildSmokeEmissiveLightCandidateSummaries(materialIds, emissiveTriangles, stats, ownedFacts);
     return stats;
+}
+
+void BuildSmokeEmissiveTriangleInventoryPartition(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const std::vector<uint32_t>& materialUniverseIndexes,
+    const std::vector<PathTraceSmokeVertex>& staticVertices,
+    const std::vector<uint32_t>& staticIndexes,
+    const std::vector<uint32_t>& staticTriangleClasses,
+    const std::vector<uint32_t>& staticTriangleMaterialIndexes,
+    const RtSmokeStaticBucketGeometryPack* staticBucketGeometryPack,
+    const std::vector<uint32_t>* staticBucketTriangleMaterialIndexes,
+    const RtPathTraceStaticBucketActivePublication* staticBucketPublication,
+    const std::vector<PathTraceSmokeVertex>& dynamicVertices,
+    const std::vector<uint32_t>& dynamicIndexes,
+    const std::vector<uint32_t>& dynamicTriangleClasses,
+    const std::vector<uint32_t>& dynamicTriangleMaterialIndexes,
+    const std::vector<uint32_t>& dynamicTriangleInstanceIds,
+    const std::vector<uint32_t>& dynamicTriangleIdentityIds,
+    const RtSmokeEmissiveInventorySourceRange& sourceRange,
+    uint32_t emissiveMaterialFlag,
+    uint32_t triangleClassMask,
+    uint32_t skinnedSurfaceClassId,
+    int maxRecords,
+    RtSmokeEmissiveInventoryPartitionResult& result)
+{
+    OPTICK_EVENT("PT Emissive Triangle Inventory Partition");
+
+    result = RtSmokeEmissiveInventoryPartitionResult();
+    maxRecords = Max(1, maxRecords);
+    result.triangles.reserve(Min(maxRecords, 1024));
+    result.geometry.reserve(Min(maxRecords, 1024));
+    const std::vector<PathTraceSmokeMaterial> materialViews =
+        BuildSmokeEmissiveMaterialViews(
+            materialIds, materials, emissiveMaterialFlag);
+    if (sourceRange.includeStatic &&
+        staticBucketGeometryPack &&
+        staticBucketTriangleMaterialIndexes &&
+        staticBucketPublication)
+    {
+        AppendSmokeStaticBucketEmissiveTriangleInventory(
+            materialIds,
+            materialViews,
+            *staticBucketGeometryPack,
+            *staticBucketTriangleMaterialIndexes,
+            *staticBucketPublication,
+            emissiveMaterialFlag,
+            triangleClassMask,
+            skinnedSurfaceClassId,
+            maxRecords,
+            result.triangles,
+            result.geometry,
+            result.stats,
+            nullptr,
+            nullptr,
+            nullptr,
+            &materialUniverseIndexes,
+            &result.areaContributions,
+            &result.weightedLuminanceContributions,
+            sourceRange.staticBegin,
+            sourceRange.staticEnd);
+    }
+    else if (sourceRange.includeStatic)
+    {
+        AppendSmokeEmissiveInventoryForGeometry(
+            materialIds,
+            materialViews,
+            staticVertices,
+            staticIndexes,
+            staticTriangleClasses,
+            staticTriangleMaterialIndexes,
+            0,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            emissiveMaterialFlag,
+            triangleClassMask,
+            skinnedSurfaceClassId,
+            maxRecords,
+            result.triangles,
+            result.geometry,
+            result.stats,
+            &materialUniverseIndexes,
+            &result.areaContributions,
+            &result.weightedLuminanceContributions,
+            sourceRange.staticBegin,
+            sourceRange.staticEnd);
+    }
+    if (sourceRange.includeDynamic)
+    {
+        AppendSmokeEmissiveInventoryForGeometry(
+            materialIds,
+            materialViews,
+            dynamicVertices,
+            dynamicIndexes,
+            dynamicTriangleClasses,
+            dynamicTriangleMaterialIndexes,
+            1,
+            &dynamicTriangleInstanceIds,
+            &dynamicTriangleIdentityIds,
+            nullptr,
+            nullptr,
+            emissiveMaterialFlag,
+            triangleClassMask,
+            skinnedSurfaceClassId,
+            maxRecords,
+            result.triangles,
+            result.geometry,
+            result.stats,
+            &materialUniverseIndexes,
+            &result.areaContributions,
+            &result.weightedLuminanceContributions,
+            sourceRange.dynamicBegin,
+            sourceRange.dynamicEnd);
+    }
+}
+
+bool MergeSmokeEmissiveInventoryPartitions(
+    const std::vector<uint32_t>& materialIds,
+    RtSmokeEmissiveInventoryPartitionResult* const* partitions,
+    size_t partitionCount,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    std::vector<PathTraceUptEmissiveGeometry>& emissiveGeometry,
+    RtSmokeEmissiveInventoryStats& stats)
+{
+    if (!partitions || partitionCount == 0)
+    {
+        return false;
+    }
+
+    maxRecords = Max(1, maxRecords);
+    emissiveTriangles.clear();
+    emissiveGeometry.clear();
+    emissiveTriangles.reserve(Min(maxRecords, 1024));
+    emissiveGeometry.reserve(Min(maxRecords, 1024));
+    stats = RtSmokeEmissiveInventoryStats();
+
+    int64_t eligibleTriangleCount = 0;
+    const auto addCounter = [](int& destination, int value) -> bool
+    {
+        const int64_t sum =
+            static_cast<int64_t>(destination) + static_cast<int64_t>(value);
+        if (sum < 0 || sum > INT_MAX)
+        {
+            return false;
+        }
+        destination = static_cast<int>(sum);
+        return true;
+    };
+    for (size_t partitionIndex = 0;
+         partitionIndex < partitionCount;
+         ++partitionIndex)
+    {
+        RtSmokeEmissiveInventoryPartitionResult* partition =
+            partitions[partitionIndex];
+        if (!partition ||
+            partition->triangles.size() != partition->geometry.size() ||
+            partition->stats.capturedTriangles !=
+                static_cast<int>(partition->triangles.size()) ||
+            !partition->stats.lightCandidates.empty())
+        {
+            return false;
+        }
+
+        const int64_t localEligible =
+            static_cast<int64_t>(partition->stats.capturedTriangles) +
+            static_cast<int64_t>(partition->stats.cappedTriangles);
+        if (localEligible < 0 ||
+            eligibleTriangleCount > INT_MAX - localEligible ||
+            partition->areaContributions.size() !=
+                static_cast<size_t>(localEligible) ||
+            partition->weightedLuminanceContributions.size() !=
+                static_cast<size_t>(localEligible) ||
+            partition->stats.routedRigidArea != 0.0f ||
+            partition->stats.routedRigidWeightedLuminance != 0.0f)
+        {
+            return false;
+        }
+        eligibleTriangleCount += localEligible;
+
+#define RT_SMOKE_MERGE_EMISSIVE_COUNTER(field) \
+        if (!addCounter(stats.field, partition->stats.field)) return false
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(totalTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(staticTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(dynamicTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(routedRigidTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(fullLevelStaticTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(skippedSkinnedTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(skippedInvalidMaterialTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(skippedNonEmissiveMaterialTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(skippedRuntimeInactiveTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(zeroAreaTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(worldStaticScannedEntities);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(worldStaticScannedSurfaces);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(worldStaticScannedTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(worldStaticAcceptedSurfaces);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(worldStaticAcceptedTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(worldStaticSkippedInvalidMaterialTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(worldStaticSkippedNonEmissiveMaterialTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(worldStaticZeroAreaTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(worldStaticCappedTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(worldStaticFinalAppended);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(routedRigidInstances);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(routedRigidSeenInstances);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(routedRigidCacheInstances);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(routedRigidEmissiveInstances);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(routedRigidEmissiveSeenInstances);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(routedRigidEmissiveCacheInstances);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(routedRigidCapturedTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(routedRigidCappedTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(routedRigidInvalidTriangles);
+        RT_SMOKE_MERGE_EMISSIVE_COUNTER(routedRigidNonEmissiveTriangles);
+#undef RT_SMOKE_MERGE_EMISSIVE_COUNTER
+
+        // Replay the original per-eligible-triangle fold in source-range order.
+        // Partition aggregates would change float parenthesization and PDFs.
+        for (size_t contributionIndex = 0;
+             contributionIndex < partition->areaContributions.size();
+             ++contributionIndex)
+        {
+            stats.totalArea +=
+                partition->areaContributions[contributionIndex];
+            stats.totalWeightedLuminance +=
+                partition->weightedLuminanceContributions[
+                    contributionIndex];
+        }
+        for (uint32_t materialIndex : partition->stats.materialIndexes)
+        {
+            if (std::find(
+                    stats.materialIndexes.begin(),
+                    stats.materialIndexes.end(),
+                    materialIndex) == stats.materialIndexes.end())
+            {
+                stats.materialIndexes.push_back(materialIndex);
+            }
+        }
+
+        const size_t remaining =
+            static_cast<size_t>(maxRecords) - emissiveTriangles.size();
+        const size_t take = Min(remaining, partition->triangles.size());
+        for (size_t localIndex = 0; localIndex < take; ++localIndex)
+        {
+            emissiveTriangles.push_back(
+                std::move(partition->triangles[localIndex]));
+            emissiveGeometry.push_back(
+                std::move(partition->geometry[localIndex]));
+        }
+    }
+
+    if (eligibleTriangleCount <
+        static_cast<int64_t>(emissiveTriangles.size()))
+    {
+        return false;
+    }
+    const int64_t globallyCapped =
+        eligibleTriangleCount -
+        static_cast<int64_t>(emissiveTriangles.size());
+    if (globallyCapped > INT_MAX)
+    {
+        return false;
+    }
+    stats.cappedTriangles = static_cast<int>(globallyCapped);
+    stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
+    stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
+    FinalizeSmokeEmissiveTriangleSamplingFields(emissiveTriangles, stats);
+    BuildSmokeEmissiveLightCandidateSummaries(
+        materialIds, emissiveTriangles, stats);
+    if (emissiveTriangles.empty())
+    {
+        emissiveTriangles.resize(1);
+        emissiveGeometry.resize(1);
+    }
+    return true;
 }
 
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(

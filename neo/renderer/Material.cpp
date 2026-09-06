@@ -33,6 +33,9 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 
 #include "RenderCommon.h"
+#include <atomic>
+
+namespace { std::atomic<uint64> materialDefinitionRevision { 0 }; }
 
 idCVar r_useConstantMaterials( "r_useConstantMaterials", "1", CVAR_RENDERER | CVAR_BOOL, "use pre-calculated material registers if possible" );
 
@@ -83,6 +86,7 @@ idMaterial::CommonInit
 */
 void idMaterial::CommonInit()
 {
+	definitionRevision = materialDefinitionRevision.fetch_add( 1, std::memory_order_relaxed ) + 1;
 	desc = "<none>";
 	renderBump = "";
 	contentFlags = CONTENTS_SOLID;
@@ -170,6 +174,7 @@ idMaterial::FreeData
 */
 void idMaterial::FreeData()
 {
+	definitionRevision = materialDefinitionRevision.fetch_add( 1, std::memory_order_relaxed ) + 1;
 	int i;
 
 	if( stages )

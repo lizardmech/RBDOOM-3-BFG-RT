@@ -52,6 +52,35 @@ struct PtGeometryIdentityTransportSnapshot
     const PtGeometryIdentityTransportRecord* records = nullptr;
 };
 
+// A8-S1 always-present, frame-owned Present witness. Unlike the optional
+// transport delta above, this DTO exists on every primary S1 view, including
+// EmptyDelta frames. modelName is stored in frame-owned bytes by offset/length;
+// no idStr or live model/shadow pointer crosses to the backend.
+struct PtGeometryPresentIdentityRecord
+{
+    std::uint32_t valid = 0;
+    PtCanonicalInstanceKey instanceKey;
+    std::uint64_t instanceHash = 0;
+    PtCanonicalMeshKey meshKey;
+    std::uint64_t meshHash = 0;
+    std::uint64_t lastUpsertSequence = 0;
+    std::uint32_t modelNameOffset = 0;
+    std::uint32_t modelNameLength = 0;
+};
+
+struct PtGeometryPresentIdentitySnapshot
+{
+    std::uint32_t available = 0;
+    std::uint64_t worldGeneration = 0;
+    std::uint64_t publicationGeneration = 0;
+    std::uint64_t recordCount = 0;
+    std::uint64_t modelNameBytes = 0;
+    std::uint64_t packedBytes = 0;
+    std::uint64_t captureMicroseconds = 0;
+    const PtGeometryPresentIdentityRecord* records = nullptr;
+    const char* modelNames = nullptr;
+};
+
 enum class PtGeometryIdentityTransportResult : std::uint32_t
 {
     Success = 0,

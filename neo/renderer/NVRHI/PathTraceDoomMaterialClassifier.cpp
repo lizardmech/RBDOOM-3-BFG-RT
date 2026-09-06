@@ -2,7 +2,13 @@
 #pragma hdrstop
 
 #include "PathTraceDoomMaterialClassifier.h"
+#include "PathTraceMaterialClassifierNameCache.h"
+#include "PathTraceOwnerSemanticKernel.h"
 #include "../Image.h"
+
+static_assert(
+    RT_SMOKE_TRANSLUCENT_CLASSIFIER_NAME_CAPACITY == MAX_STRING_CHARS,
+    "classifier capture bound must match the renderer material-name bound");
 
 bool SmokeNameContainsAny(const idStr& name, const char* const* tokens, int tokenCount)
 {
@@ -31,6 +37,13 @@ bool SmokeStageBlendUsesSourceAlpha(const shaderStage_t* stage)
         dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 }
 
+static bool SmokeDrawStateIsAdditiveBlend(uint64 drawStateBits)
+{
+    const uint64 srcBlend = drawStateBits & GLS_SRCBLEND_BITS;
+    const uint64 dstBlend = drawStateBits & GLS_DSTBLEND_BITS;
+    return (srcBlend == GLS_SRCBLEND_ONE || srcBlend == GLS_SRCBLEND_SRC_ALPHA) && dstBlend == GLS_DSTBLEND_ONE;
+}
+
 bool SmokeStageIsAdditiveBlend(const shaderStage_t* stage)
 {
     if (!stage)
@@ -38,9 +51,7 @@ bool SmokeStageIsAdditiveBlend(const shaderStage_t* stage)
         return false;
     }
 
-    const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
-    const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-    return (srcBlend == GLS_SRCBLEND_ONE || srcBlend == GLS_SRCBLEND_SRC_ALPHA) && dstBlend == GLS_DSTBLEND_ONE;
+    return SmokeDrawStateIsAdditiveBlend(stage->drawStateBits);
 }
 
 bool SmokeNameHasDefault0200Code(const idStr& name)
@@ -172,72 +183,115 @@ const char* SmokeStageAlphaSemanticName(const shaderStage_t* stage)
     return "unknown";
 }
 
-RtSmokeTranslucentClassifierInfo BuildSmokeTranslucentClassifierInfo(const idMaterial* material)
+static RtSmokeTranslucentClassifierStageInput
+CaptureSmokeTranslucentClassifierStageInput(const shaderStage_t* stage);
+
+bool CaptureSmokeTranslucentClassifierInput(
+    const idMaterial* material,
+    RtSmokeTranslucentClassifierInput& input,
+    RtSmokeTranslucentClassifierStageInput* stages,
+    int stageCapacity)
 {
-    RtSmokeTranslucentClassifierInfo info;
+    input = RtSmokeTranslucentClassifierInput();
     if (!material)
     {
-        return info;
+        return true;
     }
 
-    idStr materialName = material->GetName();
-    const float sort = material->GetSort();
-    info.sortIsGuiOrSubview = sort <= SS_GUI;
-    info.sortIsDecal = sort >= SS_DECAL && sort < SS_FAR;
-    info.sortIsPostProcess = sort >= SS_POST_PROCESS;
-    info.polygonOffsetDecal = material->TestMaterialFlag(MF_POLYGONOFFSET);
-
-    static const char* guiTokens[] = { "gui", "guis/", "video", "cinematic", "terminal", "console", "pda", "cursor" };
-    static const char* particleTokens[] = { "particle", "smoke", "dust", "steam", "fog", "muzzle", "spark", "bloodcloud" };
-    static const char* decalTokens[] = { "decal", "stain", "grime", "dirt", "scorch", "burn", "bullet", "mud", "blood", "splat", "mark" };
-    static const char* glassTokens[] = { "glass", "window", "visor", "transparent" };
-    static const char* glowTokens[] = { "glow", "light", "lamp", "beam", "flare", "strip", "striplight", "tube", "neon", "emissive", "emit", "bulb", "fluoro", "flouro" };
-    static const char* signageTokens[] = { "logo", "sign", "label", "snack", "soda", "cola", "add", "screen", "monitor" };
-    info.nameLooksGui = SmokeNameContainsAny(materialName, guiTokens, sizeof(guiTokens) / sizeof(guiTokens[0]));
-    info.nameLooksParticle = SmokeNameContainsAny(materialName, particleTokens, sizeof(particleTokens) / sizeof(particleTokens[0]));
-    info.nameLooksDecal = SmokeNameContainsAny(materialName, decalTokens, sizeof(decalTokens) / sizeof(decalTokens[0]));
-    info.nameLooksGlass = SmokeNameContainsAny(materialName, glassTokens, sizeof(glassTokens) / sizeof(glassTokens[0]));
-    info.nameLooksGlow = SmokeNameContainsAny(materialName, glowTokens, sizeof(glowTokens) / sizeof(glowTokens[0]));
-    info.nameLooksSignage = SmokeNameContainsAny(materialName, signageTokens, sizeof(signageTokens) / sizeof(signageTokens[0]));
-
-    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    const char* materialName = material->GetName();
+    const size_t materialNameLength = materialName ? strlen(materialName) : 0;
+    input.materialPresent = true;
+    input.sort = material->GetSort();
+    input.sortIsGuiOrSubview = input.sort <= SS_GUI;
+    input.sortIsDecal = input.sort >= SS_DECAL && input.sort < SS_FAR;
+    input.sortIsPostProcess = input.sort >= SS_POST_PROCESS;
+    input.polygonOffsetDecal = material->TestMaterialFlag(MF_POLYGONOFFSET);
+    input.stageCount = material->GetNumStages();
+    if (!RtSmokeTranslucentClassifierCaptureFits(
+            materialNameLength, input.stageCount, stageCapacity) ||
+        (input.stageCount > 0 && !stages))
     {
-        const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage)
-        {
-            continue;
-        }
+        return false;
+    }
+    if (materialNameLength > 0)
+    {
+        memcpy(input.materialName, materialName, materialNameLength);
+    }
+    input.materialName[materialNameLength] = '\0';
 
-        if (stage->texture.texgen == TG_SCREEN || stage->texture.texgen == TG_SCREEN2 || SmokeStageIsRenderMap(stage))
-        {
-            info.hasScreenTexgen = true;
-        }
-        if (stage->texture.image && SmokeNameLooksAddDefault0200Texture(stage->texture.image->GetName()))
-        {
-            info.hasAddDefault0200Texture = true;
-        }
-        if (stage->lighting == SL_AMBIENT)
-        {
-            info.hasAmbientStage = true;
-        }
-        else if (stage->lighting == SL_DIFFUSE)
-        {
-            info.hasDiffuseStage = true;
-        }
+    for (int stageIndex = 0; stageIndex < input.stageCount; ++stageIndex)
+    {
+        stages[stageIndex] = CaptureSmokeTranslucentClassifierStageInput(
+            material->GetStage(stageIndex));
+    }
+    return true;
+}
 
-        const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
-        const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-        if (SmokeStageIsAdditiveBlend(stage))
-        {
-            info.hasAdditiveBlend = true;
-        }
-        if (stage->lighting == SL_AMBIENT && (dstBlend != GLS_DSTBLEND_ZERO || srcBlend == GLS_SRCBLEND_DST_COLOR || srcBlend == GLS_SRCBLEND_ONE_MINUS_DST_COLOR))
-        {
-            info.hasAmbientBlendStage = true;
-        }
+static RtSmokeTranslucentClassifierStageInput
+CaptureSmokeTranslucentClassifierStageInput(const shaderStage_t* stage)
+{
+    RtSmokeTranslucentClassifierStageInput destination;
+    if (!stage)
+    {
+        return destination;
+    }
+    destination.valid = true;
+    destination.lighting = static_cast<int>(stage->lighting);
+    destination.texgen = static_cast<int>(stage->texture.texgen);
+    destination.drawStateBits = stage->drawStateBits;
+    destination.conditionRegister = stage->conditionRegister;
+    destination.isRenderMap = SmokeStageIsRenderMap(stage);
+    destination.hasImage = stage->texture.image != nullptr;
+    destination.looksAddDefault0200 =
+        destination.hasImage &&
+        SmokeNameLooksAddDefault0200Texture(stage->texture.image->GetName());
+    destination.hasScreenTexgen =
+        stage->texture.texgen == TG_SCREEN ||
+        stage->texture.texgen == TG_SCREEN2 ||
+        destination.isRenderMap;
+    destination.isAdditiveBlend =
+        SmokeDrawStateIsAdditiveBlend(stage->drawStateBits);
+    destination.isAmbientStage = stage->lighting == SL_AMBIENT;
+    destination.isDiffuseStage = stage->lighting == SL_DIFFUSE;
+    const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+    const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+    destination.hasAmbientBlendStage =
+        destination.isAmbientStage &&
+        (dstBlend != GLS_DSTBLEND_ZERO ||
+         srcBlend == GLS_SRCBLEND_DST_COLOR ||
+         srcBlend == GLS_SRCBLEND_ONE_MINUS_DST_COLOR);
+    return destination;
+}
+
+RtSmokeTranslucentClassifierInfo BuildSmokeTranslucentClassifierInfo(const idMaterial* material)
+{
+    OPTICK_EVENT("PT Material Translucent Classifier Build");
+    if (!material)
+    {
+        return RtSmokeTranslucentClassifierInfo();
     }
 
-    return info;
+    RtSmokeTranslucentClassifierInput input;
+    input.materialPresent = true;
+    input.sort = material->GetSort();
+    input.sortIsGuiOrSubview = input.sort <= SS_GUI;
+    input.sortIsDecal = input.sort >= SS_DECAL && input.sort < SS_FAR;
+    input.sortIsPostProcess = input.sort >= SS_POST_PROCESS;
+    input.polygonOffsetDecal = material->TestMaterialFlag(MF_POLYGONOFFSET);
+    input.stageCount = material->GetNumStages();
+    const RtSmokeClassifierNameInfo names = SmokeThreadClassifierNameCache().Get(
+        material->GetName(), [](const char* name) {
+            OPTICK_EVENT("PT Material Classifier Name Build");
+            return BuildSmokeClassifierNameInfo(name);
+        });
+    return BuildSmokeTranslucentClassifierInfoFromSource(
+        input,
+        material->GetName(),
+        input.stageCount,
+        [material](int stageIndex) {
+            return CaptureSmokeTranslucentClassifierStageInput(
+                material->GetStage(stageIndex));
+        }, &names);
 }
 
 bool IsSmokeDetailDecalCardMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)

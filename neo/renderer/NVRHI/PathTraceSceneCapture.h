@@ -10,11 +10,15 @@
 #include "PathTraceGeometry.h"
 #include "PathTraceGeometryAdmissionPlan.h"
 #include "PathTraceGeometryUniverse.h"
+#include "PathTraceR1Ledger.h"
 #include "PathTraceSkinnedHistoryPolicy.h"
 #include "PathTraceSurfaceClassification.h"
+#include "PathTraceMaterialMembership.h"
 
 #include <cstdint>
 #include <vector>
+#include <memory>
+#include <functional>
 
 struct drawSurf_t;
 struct srfTriangles_t;
@@ -396,7 +400,13 @@ void ApplySmokeDetailDecalNormalOffset(
     const std::vector<uint32_t>& indexes,
     size_t vertexStart,
     size_t indexStart);
-bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t*& tri, RtSmokeSurfaceSkipStats* skipStats);
+
+bool ValidateSmokeDrawSurface(
+    const viewDef_t* viewDef,
+    const drawSurf_t* drawSurf,
+    const srfTriangles_t*& tri,
+    RtSmokeSurfaceSkipStats* skipStats,
+    RtSmokeR1CacheValidationObservation* r1Observation = nullptr);
 uint64 BuildSmokeStaticSurfaceKeyForDiagnostics(const drawSurf_t* drawSurf, const srfTriangles_t* tri);
 void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes);
 void AddSmokeDynamicMaterialEvalStatsForMaterialId(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes, uint32_t materialId);
@@ -405,6 +415,9 @@ uint32_t SmokeRuntimeMaterialVariantIdForDrawSurf(const drawSurf_t* drawSurf, ui
 uint32_t SmokeRuntimeMaterialTableIdForDrawSurf(const drawSurf_t* drawSurf, uint32_t baseMaterialId);
 uint32_t SmokeRuntimeMaterialTableIdForEntitySurface(const idRenderEntityLocal* entity, int modelSurfaceIndex, const idMaterial* material, uint32_t baseMaterialId);
 bool SmokeDrawSurfaceHasActiveEmissiveStage(const drawSurf_t* drawSurf);
+bool SmokeDrawSurfaceHasActiveEmissiveStage(
+    const drawSurf_t* drawSurf,
+    const RtSmokeTranslucentClassifierInfo& classifier);
 bool SmokeEntitySurfaceHasActiveEmissiveStage(const viewDef_t* viewDef, const idRenderEntityLocal* entity, const idMaterial* material);
 bool SmokeEntitySurfaceHasActiveEmissiveStage(const viewDef_t* viewDef, const idRenderEntityLocal* entity, const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier);
 bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, int& anchorSurface, int& anchorTriangle, RtSmokeSceneCaptureTiming* captureTiming = nullptr);
@@ -439,6 +452,8 @@ void AddSmokeSkinnedSurfaceRecord(
     int vertexCount,
     int indexCount,
     int triangleCount);
+
+bool SmokeSkinnedCaptureSplitGateEnabled(bool admissionRoutesAvailable);
 void FinalizeSmokeSkinnedSurfaceRecordOffsets(
     std::vector<RtSmokeSkinnedSurfaceRecord>* records,
     int bucketIndex,
@@ -486,4 +501,29 @@ bool CaptureDoomSurfacesForSmokeTest(
     std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords = nullptr,
     bool skipStaticWorldCapture = false,
     bool skipPromotedStaticSurfaceCapture = false,
-    bool skipDynamicCapture = false);
+    bool skipDynamicCapture = false,
+    std::vector<uint64_t>* staticWalkedIds = nullptr,
+    std::vector<uint32_t>* staticWalkedTriangles = nullptr);
+
+class RtCpuProducerRewriteService;
+struct RtCpuRewriteMaterialFrame;
+struct RtSmokeMaterialBindingFrame;
+// Owner-only borrowed surfaces. Never store beyond this root-view backend call
+// or capture this snapshot in a worker closure.
+struct RtSmokeRewriteMaterialMembership
+{
+    struct Row { const drawSurf_t* surface; uint32_t baseId, entityIndex, surfaceIndex; };
+    uint64_t rootFrame = 0;
+    std::vector<Row> rows;
+    std::vector<uint32_t> baseIds;
+    RtCpuMaterialMembership membership;
+};
+bool CaptureSmokeRewriteMaterialMembership(const viewDef_t* viewDef,
+    RtSmokeRewriteMaterialMembership& snapshot);
+// Rewrite output samples are first-emissive owner adapters only. Complete numeric
+// samples are owned by frame.recordSamples and transferred to record preparation.
+bool BuildSmokeRewriteMaterialSamples(const viewDef_t* viewDef,
+    RtCpuProducerRewriteService& service, std::vector<RtSmokeDynamicMaterialEvalSample>& samples,
+    RtCpuRewriteMaterialFrame& frame, std::shared_ptr<RtSmokeMaterialBindingFrame>& bindings,
+    const std::function<bool()>& prepareOwnerLightInput,
+    const RtSmokeRewriteMaterialMembership& membership, nvrhi::ICommandList* commandList);
