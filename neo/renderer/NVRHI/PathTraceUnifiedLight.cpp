@@ -399,14 +399,18 @@ PathTraceUnifiedEmissiveLookupBuild BuildPathTraceUnifiedEmissiveLookup(
         return build;
     }
 
-    const uint64_t requestedCapacities[2] = {
+    // Resident CPU production exposes larger, clustered hit-identity sets than
+    // view-local capture. Retry bounded storage growth before declaring the
+    // lookup inexact; the shader hash and 16-probe contract stay unchanged.
+    const uint64_t requestedCapacities[] = {
         uint64_t(emissiveRangeCount) * 2u,
-        uint64_t(emissiveRangeCount) * 4u
+        uint64_t(emissiveRangeCount) * 4u,
+        uint64_t(emissiveRangeCount) * 8u,
+        uint64_t(emissiveRangeCount) * 16u
     };
-    for (uint32_t capacityAttempt = 0u; capacityAttempt < 2u; ++capacityAttempt)
+    for (const uint64_t requestedCapacity : requestedCapacities)
     {
-        const uint32_t capacity = NextPowerOfTwoAtLeastTwo(
-            requestedCapacities[capacityAttempt]);
+        const uint32_t capacity = NextPowerOfTwoAtLeastTwo(requestedCapacity);
         if (capacity == 0u || uint64_t(capacity) >
                 std::numeric_limits<size_t>::max() /
                     sizeof(PathTraceUnifiedEmissiveLookupEntry))

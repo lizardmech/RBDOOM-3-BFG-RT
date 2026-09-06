@@ -94,6 +94,70 @@ static uint64_t OutputDigest(const PathTraceRemixLightManagerPrepareResult& r) {
     d.Add(r.haveLastSignatures); d.Add(r.lightUniverseHistoryValid); d.Add(r.lastPrepareWasLightUniverse);
     return d.value;
 }
+// Reproduce the resident-scene collision using the production table builder.
+// The independent lookup below follows the unchanged Slang hash/probe contract.
+static unsigned CheckResidentEmissiveLookup() {
+    struct IdentityRun { uint32_t instance, first, count; };
+    static const IdentityRun runs[] = {
+#include "fixtures/upt_emissive_lookup_mars_city1.inc"
+    };
+    std::vector<PathTraceUnifiedLightRecord> lights;
+    for (const auto& run : runs) {
+        for (uint32_t primitive = run.first; primitive < run.first + run.count; ++primitive) {
+            PathTraceUnifiedLightRecord light = {};
+            light.type = PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE;
+            light.sourceIndex = static_cast<uint32_t>(lights.size());
+            light.instanceId = run.instance;
+            light.primitiveIndex = primitive;
+            lights.push_back(light);
+        }
+    }
+    if (lights.size() != 4096) return 1;
+    std::vector<PathTraceEmissiveDistributionEntry> distribution(lights.size());
+    for (uint32_t i = 0; i < distribution.size(); ++i) {
+        distribution[i].emissiveTriangleIndex = i;
+        distribution[i].denseLightIndex = i;
+        distribution[i].cumulativePdf = float(i + 1u) / float(lights.size());
+    }
+    const auto lookup = BuildPathTraceUnifiedEmissiveLookup(lights, distribution, 0, 4096);
+    if (!lookup.exact) {
+        std::cerr << "Resident emissive fixture cannot form an exact lookup within the shader probe limit\n";
+        return 1;
+    }
+    if (lookup.entries.size() < 2 || (lookup.entries.size() & (lookup.entries.size() - 1)) != 0 ||
+        lookup.entries.size() > lights.size() * 16u) return 1;
+    const uint32_t mask = static_cast<uint32_t>(lookup.entries.size() - 1);
+    uint32_t maxProbes = 0;
+    for (uint32_t i = 0; i < lights.size(); ++i) {
+        const auto& light = lights[i];
+        uint32_t hash = light.instanceId ^ (light.primitiveIndex + 0x9e3779b9u +
+            (light.instanceId << 6u) + (light.instanceId >> 2u));
+        hash ^= hash >> 16u; hash *= 0x7feb352du;
+        hash ^= hash >> 15u; hash *= 0x846ca68bu; hash ^= hash >> 16u;
+        bool found = false;
+        for (uint32_t probe = 0; probe < 16u; ++probe) {
+            const auto& entry = lookup.entries[(hash + probe) & mask];
+            if (!entry.occupied) break;
+            if (entry.instanceId == light.instanceId && entry.primitiveIndex == light.primitiveIndex) {
+                if (entry.denseLightIndex != i || entry.conditionalIdentityPdf != 1.0f / 4096.0f) return 1;
+                maxProbes = std::max(maxProbes, probe + 1u);
+                found = true;
+                break;
+            }
+        }
+        if (!found) return 1;
+    }
+    auto duplicate = lights;
+    duplicate.back().instanceId = lights.front().instanceId;
+    duplicate.back().primitiveIndex = lights.front().primitiveIndex;
+    if (BuildPathTraceUnifiedEmissiveLookup(duplicate, distribution, 0, 4096).exact) return 1;
+    auto badCdf = distribution;
+    badCdf[2].cumulativePdf = 0.0f;
+    if (BuildPathTraceUnifiedEmissiveLookup(lights, badCdf, 0, 4096).exact) return 1;
+    std::cout << "4096 resident emissive identities resolved in " << lookup.entries.size()
+        << " entries, max probes " << maxProbes << "; duplicate and malformed-CDF rejection preserved\n";
+    return 0;
+}
 int main(int argc,char** argv) {
     const bool record=argc==2 && std::string(argv[1])=="--record";
     std::ifstream golden(std::filesystem::path(__FILE__).parent_path()/"pathtrace_remix_light_manager_golden.txt");
@@ -168,5 +232,6 @@ int main(int argc,char** argv) {
         std::cout<<"48 complete-output comparisons; duplicate cases "<<duplicateFrames
             <<", stable analytic cases "<<stableFrames<<", failures "<<failures<<"\n";
     }
+    if (!record) failures += CheckResidentEmissiveLookup();
     return failures?1:0;
 }
