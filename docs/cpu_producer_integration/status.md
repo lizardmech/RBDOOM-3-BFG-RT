@@ -1,5 +1,7 @@
 # Current integration status
 
+Launcher correction after user feedback: launch-rewrite.cmd and launch-legacy.cmd now match the original launchUTP.bat arguments and saved settings. They no longer execute upt.cfg. Live probes show zero shared renderer CVar value differences. Earlier smoke evidence below used the broader upt.cfg configuration; visual/performance equivalence is still pending. See launcher_baseline.md.
+
 Candidate: codex/cpu-producer-integration-20260907, based on restir-development 5a58d58a.
 Accepted producer source: 794929bf (R4-039 complete-source checkpoint).
 
