@@ -10893,7 +10893,10 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
                     if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
                     return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
                 }
+                const bool gpuMarkers = r_pathTracingNsightGpuMarkers.GetInteger() != 0;
+                if (gpuMarkers) commandList->beginMarker("CPURewrite.Rigid BLAS Cache Miss");
                 nvrhi::utils::BuildBottomLevelAccelStruct(commandList, meshBlasResult.accelStruct, meshBlasResult.accelStructDesc);
+                if (gpuMarkers) commandList->endMarker();
                 ++rigidAttribution.rigidColdBlasCount;
                 }
                 RtCpuRewriteRetainedDedicatedMesh rec = {};
@@ -11206,6 +11209,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     submitDesc.includeStaticBlasInTlas = false;
     submitDesc.extraTlasInstances = rewriteExtraTlas.empty() ? nullptr : &rewriteExtraTlas;
     submitDesc.tlasMaxInstances = tlasSlot->maxInstances;
+    submitDesc.diagnosticMarkers = r_pathTracingNsightGpuMarkers.GetInteger() != 0;
     RtSmokeAccelSubmitTiming timing = {};
     if (!SubmitSmokeAccelerationBuilds(submitDesc, timing))
     {
@@ -12072,7 +12076,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             --optickCaptureDelayFrames;
         }
-        else if (Optick::StartCapture(Optick::Mode::INSTRUMENTATION))
+        else if (Optick::StartCapture(static_cast<Optick::Mode::Type>(Optick::Mode::INSTRUMENTATION | Optick::Mode::TAGS)))
         {
             optickCaptureActive = true;
             optickCaptureFramesRemaining =

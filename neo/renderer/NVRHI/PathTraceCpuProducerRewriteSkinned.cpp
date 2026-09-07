@@ -461,9 +461,40 @@ bool PathTracePrimaryPass::CommitRewriteSkinnedGpuSkinAndHitRoute(
             commandList->setComputeState(state);
             uint32_t maxVerts = 1;
             for (const auto& d : dispatches) maxVerts = std::max(maxVerts, d.vertexCount);
+            const bool gpuMarkers = r_pathTracingNsightGpuMarkers.GetInteger() != 0;
+            if (gpuMarkers) commandList->beginMarker("CPURewrite.Skinned Skinning");
             commandList->dispatch((maxVerts + 63u) / 64u, join.skinnedCount, 1);
+            if (gpuMarkers) commandList->endMarker();
             commandList->setBufferState(p.output, nvrhi::ResourceStates::AccelStructBuildInput);
             commandList->commitBarriers();
+            if (gpuMarkers) commandList->beginMarker(tx.replace ? "CPURewrite.Skinned BLAS Replace" :
+                (tx.refresh ? "CPURewrite.Skinned BLAS Refresh" : "CPURewrite.Skinned BLAS Update"));
+            const bool updateBarriersPrepared = !tx.replace && !tx.refresh;
+            if (updateBarriersPrepared)
+            {
+                // Each mesh owns a distinct BLAS and index buffer. Prepare the
+                // prior-build read dependency for the whole package, then its
+                // in-place read/write state, before recording any updates.
+                // Otherwise NVRHI commits two AS-stage barriers per mesh and
+                // serializes independent updates behind preceding mesh work.
+                for (const auto& mesh : p.meshes)
+                {
+                    commandList->setBufferState(mesh.indexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
+                    commandList->setAccelStructState(mesh.blas, nvrhi::ResourceStates::AccelStructBuildBlas);
+                }
+                commandList->commitBarriers();
+                for (const auto& mesh : p.meshes)
+                    commandList->setAccelStructState(mesh.blas,
+                        nvrhi::ResourceStates::AccelStructBuildBlas | nvrhi::ResourceStates::AccelStructWrite);
+                commandList->commitBarriers();
+            }
+            struct RestoreAutomaticBarriers
+            {
+                nvrhi::ICommandList* commands;
+                bool disabled;
+                ~RestoreAutomaticBarriers() { if (disabled) commands->setEnableAutomaticBarriers(true); }
+            } restoreBarriers { commandList, updateBarriersPrepared };
+            if (updateBarriersPrepared) commandList->setEnableAutomaticBarriers(false);
             for (uint32_t si = 0; si < join.skinnedCount; ++si)
             {
                 const auto& mesh = p.meshes[si];
@@ -473,6 +504,8 @@ bool PathTracePrimaryPass::CommitRewriteSkinnedGpuSkinAndHitRoute(
                     mesh.desc.bottomLevelGeometries.size(), flags);
                 if (tx.replace || tx.refresh) ++tx.fullBuilds; else ++tx.updates;
             }
+            if (gpuMarkers) commandList->endMarker();
+            OPTICK_TAG("skinnedUpdateBarrierBatches", updateBarriersPrepared ? 2u : 0u);
             if (tx.replace) p.layout = std::move(layout);
             tx.outcome = tx.replace ? 1u : (tx.refresh ? 3u : 2u);
         }
