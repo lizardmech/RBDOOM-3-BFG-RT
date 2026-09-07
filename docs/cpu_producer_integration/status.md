@@ -1,5 +1,7 @@
 # Current integration status
 
+Current blocker: the user's Mars City walk triggered latched legacy fallback. mergebug.opt records 74 legacy frames, recovery reason4 (120 consecutive rejected rewrite updates), and median MainThread scene-build time of 66.153 ms. I3 (aea3f841c) adds user-requested fatal-on-recovery and a rejection-site log; the underlying rejection is not yet identified. Current launchers select the distinct I3 diagnostic EXE, fail-on-recovery=1 and logFile=2, retaining matched launchUTP settings. See I3_recovery_failure.md.
+
 Launcher correction after user feedback: launch-rewrite.cmd and launch-legacy.cmd now match the original launchUTP.bat arguments and saved settings. They no longer execute upt.cfg. Live probes show zero shared renderer CVar value differences. Earlier smoke evidence below used the broader upt.cfg configuration; visual/performance equivalence is still pending. See launcher_baseline.md.
 
 Candidate: codex/cpu-producer-integration-20260907, based on restir-development 5a58d58a.
