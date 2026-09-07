@@ -1,6 +1,6 @@
 # CPU producer: current architecture
 
-The opt-in CPU producer builds geometry, material and light inputs for the existing Vulkan path tracer. The backend still owns GPU resources, command recording and final scene publication. Set r_pathTracingCpuProducerRewrite to 1 to request warmup and the rewrite route; 0 requests the retained legacy route. Route transitions occur after rendering and Game/Draw have joined.
+The default CPU producer builds geometry, material and light inputs for the existing Vulkan path tracer. The backend still owns GPU resources, command recording and final scene publication. r_pathTracingCpuProducerRewrite defaults to 1, requesting warmup and the rewrite route; explicitly setting it to 0 selects the retained legacy route for troubleshooting. Route transitions occur after rendering and Game/Draw have joined.
 
 ## Follow one frame
 
@@ -45,7 +45,7 @@ PathTraceMaterialTextureDiscovery.cpp is the protected accepted implementation; 
 
 ## Failure and diagnostics
 
-Capacity pressure and persistent scene rejection request recovery. With r_pathTracingCpuProducerRewriteFailOnRecovery=1 (the accepted test launcher), the idle boundary reports the reason and raises an engine fatal error before switching to legacy. With its source default of 0, the existing announced, latched legacy recovery remains available. Temporary keep-last reuse is still permitted. The accepted instance limit is 65536; overlay rows/joints grow within fixed byte bounds. Rigid packing and GPU retirement retain their byte/count checks. A fallback that renders correctly is not proof of rewrite consumption.
+Capacity pressure and persistent scene rejection request recovery. r_pathTracingCpuProducerRewriteFailOnRecovery defaults to 1: the idle boundary reports the reason and raises an engine fatal error before switching to legacy. Explicitly setting it to 0 permits the existing announced, latched legacy recovery. Temporary keep-last reuse is still permitted. The accepted instance limit is 65536; overlay rows/joints grow within fixed byte bounds. Rigid packing and GPU retirement retain their byte/count checks. A fallback that renders correctly is not proof of rewrite consumption.
 
 For runtime evidence, inspect the PT CPU worker scopes, GPU commit/reuse counters, material/light consumption, rejection reasons and rewriteConsecutiveRejectedFrames/rewriteRecoveryReason. Require the replaced legacy owner work to be skipped on successful rewrite frames. CPU harnesses validate contracts and deterministic behavior; they do not establish native GPU appearance or frame-time improvement.
 

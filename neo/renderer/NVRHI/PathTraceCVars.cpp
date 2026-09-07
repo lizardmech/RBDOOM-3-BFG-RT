@@ -201,13 +201,13 @@ idCVar r_pathTracingCpuResidentPortalDepth(
 
 idCVar r_pathTracingCpuProducerRewrite(
     "r_pathTracingCpuProducerRewrite",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "R1 CPU producer rewrite route: 0=LegacyOnly, 1=RewriteWarmup then latch RewriteOnly" );
 
 idCVar r_pathTracingCpuProducerRewriteFailOnRecovery(
     "r_pathTracingCpuProducerRewriteFailOnRecovery",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
     "Stop with a fatal error on CPU producer emergency recovery instead of draining to legacy; temporary worker reuse remains allowed" );
 

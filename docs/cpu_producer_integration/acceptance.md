@@ -1,5 +1,7 @@
 # CPU producer integration acceptance
 
+Subsequent authorization, 2026-09-07: after the accepted integration landed, the user requested the new mode by default and the old mode only for troubleshooting. Source defaults are now rewrite=1 and fail-on-recovery=1. This supersedes the default-off boundary in the historical transfer record below. No existing runtime binary or launcher was replaced by the source-default change.
+
 2026-09-07. The user reported extensive gameplay across multiple levels for approximately 30 minutes with everything else appearing fine. They confirmed I4 fixed the large AS build/update GPU regression, observed little change from I5 on UPT, and reported that UPTX did not show the minor residual issue. They explicitly accepted that difference and asked to stop tuning it. Following the proposed move to main-branch integration, the user replied "yes continue".
 
 This authorizes transferring the validated integration into the active restir-development branch. It does not request another renderer redesign, light-domain change, default-route change, runtime replacement, or remote push. Keep the unrelated dirty main files and original producer checkout intact. Legacy/default selection and named rollback executables remain available.

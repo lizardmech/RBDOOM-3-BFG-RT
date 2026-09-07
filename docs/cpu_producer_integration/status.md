@@ -1,8 +1,10 @@
 # Current integration status
 
+Default promotion, 2026-09-07: after landing the accepted integration, the user explicitly requested the new mode by default and retained the old mode only for troubleshooting. New builds default to r_pathTracingCpuProducerRewrite=1 and r_pathTracingCpuProducerRewriteFailOnRecovery=1, preserving the earlier request to stop on emergency recovery. Set rewrite=0 explicitly to select legacy. Existing binaries are unchanged; this is a source-default change.
+
 Runtime acceptance recorded 2026-09-07: the user reported approximately 30 minutes of extensive play across multiple levels with everything else appearing fine. I4 fixed the major acceleration-structure GPU regression. The remaining small upload difference was explicitly accepted; further light-domain or performance tuning is closed. The user then authorized continuing with main-branch integration. See acceptance.md for scope and receipts.
 
-The accepted integration includes I1 through I5, ending at code checkpoint 9f2c36704. The distinct I5 EXE is EF03F967B9E3D8DBEC082A043725D8EDC584AFC567A06523E39753BB6FC4AB5E, with matching MAP and shaders in E:/prog/rbdoom-3-BFG-prebuilt_cpu_integration. Use launch-rewrite-I5-uploads.cmd for that candidate. The generic launch-rewrite.cmd still selects I3; prior candidates remain rollback artifacts. Source defaults remain opt-in (rewrite=0); the tested launcher explicitly requests rewrite=1 and fail-on-recovery=1. This integration does not promote the original runtime launcher or change those defaults.
+The accepted integration includes I1 through I5, ending at code checkpoint 9f2c36704. The distinct I5 EXE is EF03F967B9E3D8DBEC082A043725D8EDC584AFC567A06523E39753BB6FC4AB5E, with matching MAP and shaders in E:/prog/rbdoom-3-BFG-prebuilt_cpu_integration. Use launch-rewrite-I5-uploads.cmd for that candidate; its explicit settings already match the promoted defaults. The generic launch-rewrite.cmd still selects I3; prior candidates remain rollback artifacts. The original runtime launcher has not been replaced.
 
 The earlier persistent rejection was not localized to a root cause. I3 added the user-requested fatal-on-recovery policy and rejection-site diagnostics; subsequent reported gameplay did not expose another issue. This is practical runtime acceptance, not proof of exhaustive stress coverage or a claim that the earlier rejection was repaired. See I3_recovery_failure.md.
 
@@ -11,7 +13,7 @@ Launcher correction after user feedback matched the original launchUTP.bat argum
 Candidate: codex/cpu-producer-integration-20260907, based on restir-development 5a58d58a.
 Accepted producer source: 794929bf (R4-039 complete-source checkpoint).
 
-The first integration imports the 158 neo source/build/test paths in source-manifest.tsv. It retains the legacy route and its production dependencies. It does not import historical checkpoint documents, external-agent machinery or producer shader files. Main's 73 destination-only neo files have identical content after newline normalization; all existing main CVar defaults are unchanged. The rewrite default remains 0.
+The first integration imports the 158 neo source/build/test paths in source-manifest.tsv. It retains the legacy route and its production dependencies. It does not import historical checkpoint documents, external-agent machinery or producer shader files. Main's 73 destination-only neo files had identical content after newline normalization. The initial transplant preserved defaults; the subsequent authorized default promotion is recorded above.
 
 Local integration review resolved two textual conflicts and these semantic boundaries:
 
