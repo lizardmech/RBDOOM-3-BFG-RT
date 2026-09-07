@@ -1,8 +1,12 @@
 # Current integration status
 
-Current blocker: the user's Mars City walk triggered latched legacy fallback. mergebug.opt records 74 legacy frames, recovery reason4 (120 consecutive rejected rewrite updates), and median MainThread scene-build time of 66.153 ms. I3 (aea3f841c) adds user-requested fatal-on-recovery and a rejection-site log; the underlying rejection is not yet identified. Current launchers select the distinct I3 diagnostic EXE, fail-on-recovery=1 and logFile=2, retaining matched launchUTP settings. See I3_recovery_failure.md.
+Runtime acceptance recorded 2026-09-07: the user reported approximately 30 minutes of extensive play across multiple levels with everything else appearing fine. I4 fixed the major acceleration-structure GPU regression. The remaining small upload difference was explicitly accepted; further light-domain or performance tuning is closed. The user then authorized continuing with main-branch integration. See acceptance.md for scope and receipts.
 
-Launcher correction after user feedback: launch-rewrite.cmd and launch-legacy.cmd now match the original launchUTP.bat arguments and saved settings. They no longer execute upt.cfg. Live probes show zero shared renderer CVar value differences. Earlier smoke evidence below used the broader upt.cfg configuration; visual/performance equivalence is still pending. See launcher_baseline.md.
+The accepted integration includes I1 through I5, ending at code checkpoint 9f2c36704. The distinct I5 EXE is EF03F967B9E3D8DBEC082A043725D8EDC584AFC567A06523E39753BB6FC4AB5E, with matching MAP and shaders in E:/prog/rbdoom-3-BFG-prebuilt_cpu_integration. Use launch-rewrite-I5-uploads.cmd for that candidate. The generic launch-rewrite.cmd still selects I3; prior candidates remain rollback artifacts. Source defaults remain opt-in (rewrite=0); the tested launcher explicitly requests rewrite=1 and fail-on-recovery=1. This integration does not promote the original runtime launcher or change those defaults.
+
+The earlier persistent rejection was not localized to a root cause. I3 added the user-requested fatal-on-recovery policy and rejection-site diagnostics; subsequent reported gameplay did not expose another issue. This is practical runtime acceptance, not proof of exhaustive stress coverage or a claim that the earlier rejection was repaired. See I3_recovery_failure.md.
+
+Launcher correction after user feedback matched the original launchUTP.bat arguments and saved settings, with zero shared renderer CVar differences in live probes. Earlier automated smoke evidence below used the broader upt.cfg configuration. Keep effective settings equal for comparisons; the user subsequently tested UPT and UPTX and accepted their minor remaining disparity. See launcher_baseline.md.
 
 Candidate: codex/cpu-producer-integration-20260907, based on restir-development 5a58d58a.
 Accepted producer source: 794929bf (R4-039 complete-source checkpoint).
@@ -18,11 +22,15 @@ Local integration review resolved two textual conflicts and these semantic bound
 - Main's opaque diffuse/additive-emission coverage fix, both mesh/instance material identities, current dispatch code and sky UAV layout survive the merge.
 - Protected Discovery is copied byte-for-byte from the verified accepted source.
 
-Evidence directory: E:/prog/cpu-producer-integration-20260907. It contains original checkout status manifests, accepted build/deployment records, runtime shader/config manifests and new build/test logs. Main and producer checkouts are not modified by this integration.
+Evidence directory: E:/prog/cpu-producer-integration-20260907. It contains original checkout status manifests, accepted build/deployment records, runtime shader/config manifests and build/test logs. The isolated preparation preserved both original checkouts. The approved final transfer advances restir-development while preserving its unrelated working files; main-merge contains before/after receipts.
 
-Code checkpoints: d4bfbfd7d83b3a28fec0d5dbb203bae5d65bfe6b (integration) and f0879461e8cc5eb574d756216415d3b84c46353c (bounded lookup allocation fix). Vulkan Release builds successfully. All 36 registered harnesses pass on I2 (22.10 seconds). Native rewrite, route-switch, reload and gameplay-event smoke checks complete without UPT rejection or crash. User image/performance acceptance and main merge remain pending.
+Code checkpoints: d4bfbfd7d (integration), f0879461e (lookup allocation), aea3f841c (fail-on-recovery), 4ef597cb7 (batched skinned update barriers), and 9f2c36704 (exact lighting-upload reuse). The latest Vulkan Release build passes and all 36 registered harnesses pass on I5 (22.54 seconds). Native I2 smoke and later user gameplay observations are recorded separately, with their limitations.
 
 Runtime pairing matters: 190 of main's 432 Vulkan shader files differ from the accepted CPU runtime. The combined executable must use a matching main shader set. Keep the accepted CPU EXE/MAP and shaders together as the comparison baseline.
+## Historical I1/I2 validation record
+
+The remaining sections record the earlier baseline validation and deployment. Their pending-acceptance statements and candidate names are superseded by the current status above.
+
 ## Re-evaluated aggregate harness assertions
 
 The first candidate CTest run passed CPU planning and the rewrite harness (19.76 seconds), while the aggregate reported four source pins. Source inspection established:

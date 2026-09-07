@@ -45,7 +45,7 @@ PathTraceMaterialTextureDiscovery.cpp is the protected accepted implementation; 
 
 ## Failure and diagnostics
 
-Capacity pressure and persistent scene rejection request the existing announced, latched recovery to legacy. The accepted instance limit is 65536; overlay rows/joints grow within fixed byte bounds. Rigid packing and GPU retirement retain their byte/count checks. A fallback that renders correctly is not proof of rewrite consumption.
+Capacity pressure and persistent scene rejection request recovery. With r_pathTracingCpuProducerRewriteFailOnRecovery=1 (the accepted test launcher), the idle boundary reports the reason and raises an engine fatal error before switching to legacy. With its source default of 0, the existing announced, latched legacy recovery remains available. Temporary keep-last reuse is still permitted. The accepted instance limit is 65536; overlay rows/joints grow within fixed byte bounds. Rigid packing and GPU retirement retain their byte/count checks. A fallback that renders correctly is not proof of rewrite consumption.
 
 For runtime evidence, inspect the PT CPU worker scopes, GPU commit/reuse counters, material/light consumption, rejection reasons and rewriteConsecutiveRejectedFrames/rewriteRecoveryReason. Require the replaced legacy owner work to be skipped on successful rewrite frames. CPU harnesses validate contracts and deterministic behavior; they do not establish native GPU appearance or frame-time improvement.
 
