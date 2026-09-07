@@ -51,7 +51,7 @@ endforeach()
 
 add_custom_target(PathTraceSlangUpt46Glass
     DEPENDS ${UPT46_ALL_OUTPUTS} ${UPT46_RUNTIME_OUTPUTS})
-set_target_properties(PathTraceSlangUpt46Glass PROPERTIES FOLDER "Shaders/UPT-46")
+set_target_properties(PathTraceSlangUpt46Glass PROPERTIES FOLDER "Shader Targets/UPT-46")
 if(TARGET RBDoom3BFG)
     add_dependencies(RBDoom3BFG PathTraceSlangUpt46Glass)
 endif()

@@ -34,14 +34,14 @@ add_custom_command(
 add_executable(PathTraceSlangUpt10Oracle
     "${CMAKE_CURRENT_SOURCE_DIR}/upt10_contract_oracle.cpp")
 target_compile_features(PathTraceSlangUpt10Oracle PRIVATE cxx_std_17)
-set_target_properties(PathTraceSlangUpt10Oracle PROPERTIES FOLDER "Shaders/UPT-30")
+set_target_properties(PathTraceSlangUpt10Oracle PROPERTIES FOLDER "Shader Targets/UPT-30")
 
 add_executable(PathTraceSlangUpt10GpuHarness
     "${CMAKE_CURRENT_SOURCE_DIR}/upt10_gpu_harness.cpp")
 target_compile_features(PathTraceSlangUpt10GpuHarness PRIVATE cxx_std_17)
 target_link_libraries(PathTraceSlangUpt10GpuHarness PRIVATE nvrhi nvrhi_vk ${Vulkan_LIBRARY})
 add_dependencies(PathTraceSlangUpt10GpuHarness PathTraceSlangUpt10Oracle)
-set_target_properties(PathTraceSlangUpt10GpuHarness PROPERTIES FOLDER "Shaders/UPT-30")
+set_target_properties(PathTraceSlangUpt10GpuHarness PROPERTIES FOLDER "Shader Targets/UPT-30")
 
 set(UPT10_ORACLE_STAMP "${UPT10_OUTPUT_DIR}/upt10_cpu_oracle_passed.txt")
 add_custom_command(
@@ -64,7 +64,7 @@ add_custom_command(
 add_custom_target(PathTraceSlangUpt10Contract
     DEPENDS ${upt10_outputs} "${UPT10_VERIFY_STAMP}" "${UPT10_ORACLE_STAMP}"
         "${UPT10_GPU_STAMP}")
-set_target_properties(PathTraceSlangUpt10Contract PROPERTIES FOLDER "Shaders/UPT-30")
+set_target_properties(PathTraceSlangUpt10Contract PROPERTIES FOLDER "Shader Targets/UPT-30")
 if(TARGET RBDoom3BFG)
     add_dependencies(RBDoom3BFG PathTraceSlangUpt10Contract)
 endif()

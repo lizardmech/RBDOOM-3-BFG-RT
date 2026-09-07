@@ -101,7 +101,7 @@ endforeach()
 
 add_custom_target(PathTraceSlangUpt05Resolve
     DEPENDS ${resolve_outputs} "${UPT05_VERIFY_STAMP}" ${UPT05_RUNTIME_OUTPUTS})
-set_target_properties(PathTraceSlangUpt05Resolve PROPERTIES FOLDER "Shaders/UPT-05")
+set_target_properties(PathTraceSlangUpt05Resolve PROPERTIES FOLDER "Shader Targets/UPT-05")
 if(TARGET PathTraceSlangUpt04ProductionRuntime)
     add_dependencies(PathTraceSlangUpt05Resolve
         PathTraceSlangUpt04ProductionRuntime)

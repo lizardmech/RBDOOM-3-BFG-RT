@@ -3165,7 +3165,7 @@ void TestRigidMeshPersist()
 	const fs::path rigidSubsystemAbs(
 		"E:/prog/rbdoom-3-bfg-rt-producer/neo/renderer/NVRHI/PathTraceRigidCandidatePreparedDelta.cpp");
 	const fs::path modelFromHarness =
-		fs::path(__FILE__).parent_path() / ".." / ".." / "renderer" / "Model.cpp";
+		fs::path(__FILE__).parent_path() / ".." / "renderer" / "Model.cpp";
 	const fs::path modelAbs(
 		"E:/prog/rbdoom-3-bfg-rt-producer/neo/renderer/Model.cpp");
 	const fs::path identFromHarness =

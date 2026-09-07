@@ -118,7 +118,7 @@ add_custom_command(
 
 add_custom_target(PathTraceSlangUpt04ModuleGraph
     DEPENDS ${UPT04_ALL_OUTPUTS} "${UPT04_VERIFY_STAMP}")
-set_target_properties(PathTraceSlangUpt04ModuleGraph PROPERTIES FOLDER "Shaders/UPT-04")
+set_target_properties(PathTraceSlangUpt04ModuleGraph PROPERTIES FOLDER "Shader Targets/UPT-04")
 
 set(UPT04_BACKEND_OUTPUTS)
 path_tracing_declare_slang_spirv_module(
@@ -1914,7 +1914,7 @@ add_custom_command(
 
 add_custom_target(PathTraceSlangUpt04BackendClosure
     DEPENDS ${UPT04_BACKEND_OUTPUTS} "${UPT04_BACKEND_VERIFY_STAMP}")
-set_target_properties(PathTraceSlangUpt04BackendClosure PROPERTIES FOLDER "Shaders/UPT-04")
+set_target_properties(PathTraceSlangUpt04BackendClosure PROPERTIES FOLDER "Shader Targets/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04BackendClosure)
 
 set(UPT04_GEOMETRY_MODULES
@@ -1967,7 +1967,7 @@ add_custom_command(
 
 add_custom_target(PathTraceSlangUpt04GeometryClosure
     DEPENDS ${geometry_outputs} "${UPT04_GEOMETRY_VERIFY_STAMP}")
-set_target_properties(PathTraceSlangUpt04GeometryClosure PROPERTIES FOLDER "Shaders/UPT-04")
+set_target_properties(PathTraceSlangUpt04GeometryClosure PROPERTIES FOLDER "Shader Targets/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04GeometryClosure)
 
 set(UPT04_STATIC_SPECIALIZATION_OUTPUTS)
@@ -2186,7 +2186,7 @@ add_custom_command(
 
 add_custom_target(PathTraceSlangUpt04StaticSpecializations
     DEPENDS ${UPT04_STATIC_SPECIALIZATION_OUTPUTS} "${UPT04_STATIC_VERIFY_STAMP}")
-set_target_properties(PathTraceSlangUpt04StaticSpecializations PROPERTIES FOLDER "Shaders/UPT-04")
+set_target_properties(PathTraceSlangUpt04StaticSpecializations PROPERTIES FOLDER "Shader Targets/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04StaticSpecializations)
 
 set(UPT05_MATERIAL_BOUNDARY_STAMP
@@ -2212,7 +2212,7 @@ add_custom_command(
 add_custom_target(PathTraceSlangUpt05MaterialBoundary
     DEPENDS "${UPT05_MATERIAL_BOUNDARY_STAMP}")
 set_target_properties(PathTraceSlangUpt05MaterialBoundary
-    PROPERTIES FOLDER "Shaders/UPT-05")
+    PROPERTIES FOLDER "Shader Targets/UPT-05")
 add_dependencies(PathTraceSlangUpt04ModuleGraph
     PathTraceSlangUpt05MaterialBoundary)
 
@@ -2238,7 +2238,7 @@ add_custom_command(
 add_custom_target(PathTraceSlangUpt05Repeatability
     DEPENDS "${UPT05_REPEATABILITY_STAMP}")
 set_target_properties(PathTraceSlangUpt05Repeatability
-    PROPERTIES FOLDER "Shaders/UPT-05")
+    PROPERTIES FOLDER "Shader Targets/UPT-05")
 add_dependencies(PathTraceSlangUpt04ModuleGraph
     PathTraceSlangUpt05Repeatability)
 
@@ -2340,7 +2340,7 @@ add_custom_command(
 add_custom_target(PathTraceSlangUpt35ThreeVertex
     DEPENDS "${UPT35_VERIFY_STAMP}")
 set_target_properties(PathTraceSlangUpt35ThreeVertex
-    PROPERTIES FOLDER "Shaders/UPT-04")
+    PROPERTIES FOLDER "Shader Targets/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph
     PathTraceSlangUpt35ThreeVertex)
 set(UPT56_VERIFY_STAMP
@@ -2372,7 +2372,7 @@ add_custom_command(
 add_custom_target(PathTraceSlangUpt56EmissiveClosure
     DEPENDS "${UPT56_VERIFY_STAMP}")
 set_target_properties(PathTraceSlangUpt56EmissiveClosure
-    PROPERTIES FOLDER "Shaders/UPT-04")
+    PROPERTIES FOLDER "Shader Targets/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph
     PathTraceSlangUpt56EmissiveClosure)
 set(UPT04_LIGHT_TILE_VERIFY_STAMP
@@ -2394,7 +2394,7 @@ add_custom_command(
 add_custom_target(PathTraceSlangUpt04LightTiles
     DEPENDS "${UPT04_LIGHT_TILE_VERIFY_STAMP}")
 set_target_properties(PathTraceSlangUpt04LightTiles
-    PROPERTIES FOLDER "Shaders/UPT-04")
+    PROPERTIES FOLDER "Shader Targets/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04LightTiles)
 
 set(UPT04_NATIVE_LIGHT_VIEW_VERIFY_STAMP
@@ -2416,7 +2416,7 @@ add_custom_command(
 add_custom_target(PathTraceSlangUpt04NativeLightView
     DEPENDS "${UPT04_NATIVE_LIGHT_VIEW_VERIFY_STAMP}")
 set_target_properties(PathTraceSlangUpt04NativeLightView
-    PROPERTIES FOLDER "Shaders/UPT-04")
+    PROPERTIES FOLDER "Shader Targets/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph
     PathTraceSlangUpt04NativeLightView)
 
@@ -2737,12 +2737,12 @@ list(APPEND UPT04_RUNTIME_OUTPUTS
 
 add_custom_target(PathTraceSlangUpt04RuntimeArtifacts
     DEPENDS ${UPT04_RUNTIME_OUTPUTS})
-set_target_properties(PathTraceSlangUpt04RuntimeArtifacts PROPERTIES FOLDER "Shaders/UPT-04")
+set_target_properties(PathTraceSlangUpt04RuntimeArtifacts PROPERTIES FOLDER "Shader Targets/UPT-04")
 add_dependencies(PathTraceSlangUpt04ModuleGraph PathTraceSlangUpt04RuntimeArtifacts)
 add_custom_target(PathTraceSlangUpt04ProductionRuntime
     DEPENDS ${UPT04_PRODUCTION_RUNTIME_OUTPUTS})
 set_target_properties(PathTraceSlangUpt04ProductionRuntime
-    PROPERTIES FOLDER "Shaders/UPT-04")
+    PROPERTIES FOLDER "Shader Targets/UPT-04")
 if(TARGET RBDoom3BFG)
     add_dependencies(RBDoom3BFG PathTraceSlangUpt04ProductionRuntime)
 endif()

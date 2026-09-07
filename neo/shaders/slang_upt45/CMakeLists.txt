@@ -32,7 +32,7 @@ add_custom_command(
 
 add_custom_target(PathTraceSlangUpt45Glass
     DEPENDS ${upt45_compose_outputs} "${UPT45_RUNTIME_OUTPUT}")
-set_target_properties(PathTraceSlangUpt45Glass PROPERTIES FOLDER "Shaders/UPT-45")
+set_target_properties(PathTraceSlangUpt45Glass PROPERTIES FOLDER "Shader Targets/UPT-45")
 if(TARGET RBDoom3BFG)
     add_dependencies(RBDoom3BFG PathTraceSlangUpt45Glass)
 endif()

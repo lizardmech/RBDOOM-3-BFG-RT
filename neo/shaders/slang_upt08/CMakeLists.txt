@@ -66,7 +66,7 @@ add_custom_target(PathTraceSlangUpt08Duplication
     DEPENDS ${upt08_fill_outputs} ${upt08_compute_outputs}
         "${UPT08_VERIFY_STAMP}"
         "${UPT08_FILL_RUNTIME_OUTPUT}" "${UPT08_COMPUTE_RUNTIME_OUTPUT}")
-set_target_properties(PathTraceSlangUpt08Duplication PROPERTIES FOLDER "Shaders/UPT-08")
+set_target_properties(PathTraceSlangUpt08Duplication PROPERTIES FOLDER "Shader Targets/UPT-08")
 if(TARGET RBDoom3BFG)
     add_dependencies(RBDoom3BFG PathTraceSlangUpt08Duplication)
 endif()

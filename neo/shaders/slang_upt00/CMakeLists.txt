@@ -125,7 +125,7 @@ add_custom_target(PathTraceSlangUpt00Shaders DEPENDS
     "${UPT00_OUTPUT_DIR}/toolchain.txt"
     "${UPT00_VERIFY_STAMP}"
     "${UPT00_METRICS_OUTPUT}")
-set_target_properties(PathTraceSlangUpt00Shaders PROPERTIES FOLDER "Shaders/UPT-00")
+set_target_properties(PathTraceSlangUpt00Shaders PROPERTIES FOLDER "Shader Targets/UPT-00")
 
 # Standalone Vulkan/NVRHI proof executable. It owns a tiny synthetic workload
 # and is deliberately not linked into, or run by, the game target.
@@ -135,7 +135,7 @@ add_executable(PathTraceSlangUpt00Harness
 target_compile_features(PathTraceSlangUpt00Harness PRIVATE cxx_std_17)
 target_link_libraries(PathTraceSlangUpt00Harness PRIVATE nvrhi nvrhi_vk ${Vulkan_LIBRARY})
 add_dependencies(PathTraceSlangUpt00Harness PathTraceSlangUpt00Shaders)
-set_target_properties(PathTraceSlangUpt00Harness PROPERTIES FOLDER "Shaders/UPT-00")
+set_target_properties(PathTraceSlangUpt00Harness PROPERTIES FOLDER "Shader Targets/UPT-00")
 
 add_custom_target(RunPathTraceSlangUpt00Harness
     COMMAND "${CMAKE_COMMAND}"
@@ -145,4 +145,4 @@ add_custom_target(RunPathTraceSlangUpt00Harness
     DEPENDS PathTraceSlangUpt00Harness PathTraceSlangUpt00Shaders
     COMMENT "UPT-00 running isolated Vulkan ABI/readback and compiler timing comparison"
     VERBATIM)
-set_target_properties(RunPathTraceSlangUpt00Harness PROPERTIES FOLDER "Shaders/UPT-00")
+set_target_properties(RunPathTraceSlangUpt00Harness PROPERTIES FOLDER "Shader Targets/UPT-00")

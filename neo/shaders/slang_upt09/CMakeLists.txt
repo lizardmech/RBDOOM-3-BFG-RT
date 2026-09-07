@@ -659,7 +659,7 @@ add_custom_target(PathTraceSlangUpt09Spatial
         "${UPT34_SPATIAL_WORKGROUP_MULTI3_RUNTIME_OUTPUT}"
         "${UPT38_SPATIAL_THREE_VERTEX_RUNTIME_OUTPUT}"
         "${UPT42_SPATIAL_REUSE_TEXTURE_THREE_VERTEX_RUNTIME_OUTPUT}")
-set_target_properties(PathTraceSlangUpt09Spatial PROPERTIES FOLDER "Shaders/UPT-09")
+set_target_properties(PathTraceSlangUpt09Spatial PROPERTIES FOLDER "Shader Targets/UPT-09")
 
 # UPT-41 production reachability set.  Keep the full historical UPT-09 target
 # above for explicit validation, while normal engine builds retain only the
@@ -682,7 +682,7 @@ add_custom_target(PathTraceSlangUpt09ProductionRuntime
         "${UPT42_SPATIAL_VERIFY_STAMP}"
         "${UPT435_SPATIAL_VERIFY_STAMP}")
 set_target_properties(PathTraceSlangUpt09ProductionRuntime PROPERTIES
-    FOLDER "Shaders/UPT-09")
+    FOLDER "Shader Targets/UPT-09")
 if(TARGET RBDoom3BFG)
     add_dependencies(RBDoom3BFG PathTraceSlangUpt09ProductionRuntime)
 endif()
@@ -692,4 +692,4 @@ add_custom_target(PathTraceSlangUpt38ThreeVertexSpatial
         "${UPT38_SPATIAL_VERIFY_STAMP}"
         "${UPT38_SPATIAL_THREE_VERTEX_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt38ThreeVertexSpatial PROPERTIES
-    FOLDER "Shaders/UPT-09")
+    FOLDER "Shader Targets/UPT-09")

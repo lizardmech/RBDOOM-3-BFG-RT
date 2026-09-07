@@ -66,7 +66,7 @@ endif()
 compile_shaders(
     TARGET ParticleCompositeShaders
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/particle_composite_shaders.cfg
-    FOLDER "Shaders"
+    FOLDER "Shader Targets"
     SPIRV_DXC ${CMAKE_CURRENT_SOURCE_DIR}/../../base/renderprogs2/spirv
     SHADER_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
     SOURCES ${PARTICLE_COMPOSITE_SHADER_SOURCES})
@@ -86,7 +86,7 @@ if(USE_VULKAN)
         COMMENT "Compiling particle-card lighting ray-query CS (SPIR-V)"
         VERBATIM)
     add_custom_target(ParticleLightingShader DEPENDS ${PARTICLE_LIGHTING_SPIRV_OUTPUT})
-    set_target_properties(ParticleLightingShader PROPERTIES FOLDER "Shaders")
+    set_target_properties(ParticleLightingShader PROPERTIES FOLDER "Shader Targets")
     add_dependencies(ParticleCompositeShaders ParticleLightingShader)
 endif()
 

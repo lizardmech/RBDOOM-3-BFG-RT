@@ -39,7 +39,7 @@ add_custom_command(
 
 add_custom_target(PathTraceSlangUpt03Shaders
     DEPENDS ${upt03_outputs} "${UPT03_VERIFY_STAMP}")
-set_target_properties(PathTraceSlangUpt03Shaders PROPERTIES FOLDER "Shaders/UPT-03")
+set_target_properties(PathTraceSlangUpt03Shaders PROPERTIES FOLDER "Shader Targets/UPT-03")
 
 add_executable(PathTraceSlangUpt03Harness
     "${CMAKE_CURRENT_SOURCE_DIR}/upt03_gpu_harness.cpp")
@@ -48,11 +48,11 @@ target_include_directories(PathTraceSlangUpt03Harness PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../../tests/upt02")
 target_link_libraries(PathTraceSlangUpt03Harness PRIVATE nvrhi nvrhi_vk ${Vulkan_LIBRARY})
 add_dependencies(PathTraceSlangUpt03Harness PathTraceSlangUpt03Shaders)
-set_target_properties(PathTraceSlangUpt03Harness PROPERTIES FOLDER "Shaders/UPT-03")
+set_target_properties(PathTraceSlangUpt03Harness PROPERTIES FOLDER "Shader Targets/UPT-03")
 
 add_custom_target(RunPathTraceSlangUpt03Harness
     COMMAND $<TARGET_FILE:PathTraceSlangUpt03Harness> "${UPT03_OUTPUT_DIR}"
     DEPENDS PathTraceSlangUpt03Harness PathTraceSlangUpt03Shaders
     COMMENT "UPT-03 running bounded Vulkan CPU/GPU codec byte comparison"
     VERBATIM)
-set_target_properties(RunPathTraceSlangUpt03Harness PROPERTIES FOLDER "Shaders/UPT-03")
+set_target_properties(RunPathTraceSlangUpt03Harness PROPERTIES FOLDER "Shader Targets/UPT-03")

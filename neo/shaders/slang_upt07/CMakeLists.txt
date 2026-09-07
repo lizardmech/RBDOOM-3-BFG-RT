@@ -952,7 +952,7 @@ add_custom_target(PathTraceSlangUpt07TemporalOwnership
         ${UPT43_TEMPORAL_RUNTIME_OUTPUTS}
         "${UPT436_TEMPORAL_BOILING_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt07TemporalOwnership PROPERTIES
-    FOLDER "Shaders/UPT-07")
+    FOLDER "Shader Targets/UPT-07")
 
 # UPT-41 production reachability set.  The full ownership target above keeps
 # every historical route/reconnect/frozen/probe specialization explicitly
@@ -973,7 +973,7 @@ add_custom_target(PathTraceSlangUpt07ProductionRuntime
         "${UPT437_TEMPORAL_PERMUTATION_VERIFY_STAMP}"
         "${UPT07_RUNTIME_DIR}/upt07_temporal_unified_rayquery_light64_duplication_lambert.bin")
 set_target_properties(PathTraceSlangUpt07ProductionRuntime PROPERTIES
-    FOLDER "Shaders/UPT-07")
+    FOLDER "Shader Targets/UPT-07")
 if(TARGET RBDoom3BFG)
     add_dependencies(RBDoom3BFG PathTraceSlangUpt07ProductionRuntime)
 endif()
@@ -983,4 +983,4 @@ add_custom_target(PathTraceSlangUpt36ThreeVertexTemporal
         "${UPT36_TEMPORAL_VERIFY_STAMP}"
         "${UPT36_TEMPORAL_RUNTIME_OUTPUT}")
 set_target_properties(PathTraceSlangUpt36ThreeVertexTemporal PROPERTIES
-    FOLDER "Shaders/UPT-07")
+    FOLDER "Shader Targets/UPT-07")

@@ -38,7 +38,9 @@ If you have questions concerning this license or the applicable additional terms
 #include "Model_lwo.h"
 #include "Model_ma.h"
 #include "Model_obj.h"
+#if !defined( DMAP )
 #include "NVRHI/PathTraceGeometryLifecycle.h"
+#endif
 
 idCVar idRenderModelStatic::r_mergeModelSurfaces( "r_mergeModelSurfaces", "1", CVAR_BOOL | CVAR_RENDERER, "combine model surfaces with the same material" );
 idCVar idRenderModelStatic::r_slopVertex( "r_slopVertex", "0.01", CVAR_RENDERER, "merge xyz coordinates this far apart" );
@@ -625,7 +627,10 @@ bool idRenderModelStatic::LoadBinaryModel( idFile* file, const ID_TIME_T sourceT
 	file->ReadBig( hasInteractingSurfaces );
 	file->ReadBig( hasShadowCastingSurfaces );
 
+	// The standalone map compiler has no runtime geometry producer.
+#if !defined( DMAP )
 	PtGeometryLifecycle::PersistRigidMeshFromPresent( this );
+#endif
 	return true;
 }
 
@@ -1370,7 +1375,9 @@ void idRenderModelStatic::FinishSurfaces( bool useMikktspace )
 		}
 	}
 
+#if !defined( DMAP )
 	PtGeometryLifecycle::PersistRigidMeshFromPresent( this );
+#endif
 }
 
 
