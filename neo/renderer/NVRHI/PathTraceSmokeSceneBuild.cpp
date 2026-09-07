@@ -9546,15 +9546,23 @@ bool PathTracePrimaryPass::FinishRewriteLighting(nvrhi::IDevice* device, nvrhi::
     auto& restirLightManagerCurrentPayloadRecords = work->manager.currentLightPayloads;
     auto& restirLightManagerPreviousPayloadRecords = work->manager.previousLightPayloads;
     const auto& remixLightManagerSignatureStats = work->manager.stats;
-    uint64_t capacityBytes = 0, uploadBytes = 0;
-    uint32_t created = 0;
+    uint64_t capacityBytes = 0, uploadBytes = 0, reusedBytes = 0, cachedBytes = 0;
+    uint32_t created = 0, reusedBuffers = 0;
     {
         OPTICK_EVENT("PT CPU Lights Upload");
+        struct LightUploadMarker
+        {
+            nvrhi::ICommandList* commands;
+            bool enabled;
+            ~LightUploadMarker() { if (enabled) commands->endMarker(); }
+        } marker { commandList, r_pathTracingNsightGpuMarkers.GetInteger() != 0 };
+        if (marker.enabled) commandList->beginMarker("CPURewrite.Lighting Upload");
         rejectStage = 5;
         auto upload = [&](int index, const auto& records, nvrhi::BufferHandle& handle, const char* name) {
             using Record = typename std::decay<decltype(records)>::type::value_type;
             const size_t bytes = Max(size_t(1), records.size()) * sizeof(Record);
-            auto buffer = m_rewriteLightGpuSlots[idleSlot].buffers[index];
+            auto& slot = m_rewriteLightGpuSlots[idleSlot];
+            auto buffer = slot.buffers[index];
             if (!buffer || buffer->getDesc().byteSize < bytes) {
                 nvrhi::BufferDesc desc;
                 desc.byteSize = bytes;
@@ -9570,11 +9578,31 @@ bool PathTracePrimaryPass::FinishRewriteLighting(nvrhi::IDevice* device, nvrhi::
             if (!buffer || buffer->getDesc().byteSize > 128ull * 1024 * 1024 - capacityBytes) return false;
             capacityBytes += buffer->getDesc().byteSize;
             Record zero = {};
-            commandList->writeBuffer(buffer, records.empty() ? &zero : records.data(), bytes);
+            const void* data = records.empty() ? &zero : records.data();
+            const bool cacheable = bytes <= 8ull * 1024 * 1024 - cachedBytes;
+            if (cacheable) cachedBytes += bytes;
+            const bool unchanged = cacheable && buffer == slot.buffers[index] &&
+                slot.contents[index].size() == bytes &&
+                std::memcmp(slot.contents[index].data(), data, bytes) == 0;
+            if (unchanged)
+            {
+                reusedBytes += bytes;
+                ++reusedBuffers;
+            }
+            else
+            {
+                // Allocate the candidate receipt before recording. Invalidate
+                // the old receipt before any write: a later scene rejection
+                // must never reuse bytes from before this attempted upload.
+                if (cacheable) candidate.gpu.contents[index].assign(
+                    static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + bytes);
+                std::vector<uint8_t>().swap(slot.contents[index]);
+                commandList->writeBuffer(buffer, data, bytes);
+                uploadBytes += bytes;
+            }
             commandList->setBufferState(buffer, nvrhi::ResourceStates::ShaderResource);
             candidate.gpu.buffers[index] = buffer;
             handle = buffer;
-            uploadBytes += bytes;
             return true;
         };
         if (!upload(0, emissiveTriangles, candidate.inputs.emissiveTriangleBuffer, "Rewrite emissiveTriangleBuffer")) return false;
@@ -9640,6 +9668,9 @@ bool PathTracePrimaryPass::FinishRewriteLighting(nvrhi::IDevice* device, nvrhi::
     OPTICK_TAG("lightUnifiedCount", static_cast<uint32_t>(unifiedLights.currentLights.size()));
     OPTICK_TAG("lightBufferCreates", created);
     OPTICK_TAG("lightUploadBytes", uploadBytes);
+    OPTICK_TAG("lightUploadReusedBytes", reusedBytes);
+    OPTICK_TAG("lightUploadReusedBuffers", reusedBuffers);
+    OPTICK_TAG("lightUploadCachedBytes", cachedBytes);
     OPTICK_TAG("lightCapacityBytes", capacityBytes);
     candidate.emissives = std::move(emissiveTriangles);
     candidate.uploadBytes = uploadBytes;
@@ -11888,6 +11919,11 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         OPTICK_TAG("materialUploadBytes", uploadedBytes);
     }
     CommitRayTracingSmokeSceneResources(resourceCommitDesc);
+    // Unchanged buffers retain their exact receipts without copying them.
+    // Changed buffers publish only the candidate receipt after scene commit.
+    for (int i = 0; i < 19; ++i)
+        if (lighting.gpu.contents[i].empty())
+            lighting.gpu.contents[i].swap(m_rewriteLightGpuSlots[idleSlot].contents[i]);
     m_rewriteLightGpuSlots[idleSlot] = std::move(lighting.gpu);
     m_rewritePreviousEmissives = std::move(lighting.emissives);
     m_remixLightManager.ApplyPrepareResult(std::move(lighting.manager));

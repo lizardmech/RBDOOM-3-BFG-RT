@@ -947,6 +947,8 @@ private:
     struct RtCpuRewriteLightGpuSlot
     {
         nvrhi::BufferHandle buffers[19];
+        // Exact upload receipts, bounded to 8 MiB per idle slot.
+        std::vector<uint8_t> contents[19];
     };
     struct RtCpuRewriteLightCandidate
     {

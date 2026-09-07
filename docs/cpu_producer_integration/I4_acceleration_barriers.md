@@ -1,5 +1,7 @@
 # I4: skinned update synchronization and AS attribution
 
+Follow-up: the user confirmed I4 fixed the AS regression on 2026-09-07. The remaining approximately 0.2 ms post-TLAS copy work is tracked separately in I5_light_upload_reuse.md. The original validation record below is retained.
+
 2026-09-07. Parent candidate: I3, e205cb937. User reports hundreds of consecutive vkCmdBuildAccelerationStructuresKHR calls in every settled frame, costing about 4 ms, versus two in the old executable. The supplied screenshot selects a 0.78 ms individual call. The reported aggregate cost has not been independently measured.
 
 ## Source finding and bounded change
