@@ -11574,6 +11574,39 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     buffers.restirLightManagerCurrentToPreviousBuffer = lighting.gpu.buffers[18];
     if (!buffers.IsValid()) return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
 
+    // Bootstrap can run indoors before any sky material is admitted. Refresh the
+    // cube with authored material changes instead of retaining that white cube
+    // for the lifetime of the rewrite route. Publish it only with scene commit.
+    nvrhi::TextureHandle skyEnvironmentCube = m_smokeSkyEnvironmentCube;
+    nvrhi::BindingSetHandle skyCubeProbeBindingSet = m_smokeSkyCubeProbeBindingSet;
+    idStr changedSkyEnvironmentSourceName;
+    if (authoredMaterialChanged)
+    {
+        for (const RtSmokeMaterialTextureInfo& info : grownMaterialTable.materialInfos)
+        {
+            if (!info.skyEnvironment || !info.skyImage) continue;
+            if (m_smokeSkyEnvironmentSourceName.Icmp(info.skyImage->GetName()) != 0)
+            {
+                changedSkyEnvironmentSourceName = info.skyImage->GetName();
+                skyEnvironmentCube = CreateSmokeSkyEnvironmentCube(commandList, device, info.skyImage);
+                if (!skyEnvironmentCube)
+                    return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
+                skyCubeProbeBindingSet = nullptr;
+                if (m_smokeSkyCubeProbeBindingLayout && m_smokeSkyCubeProbeOutputTexture)
+                {
+                    nvrhi::BindingSetDesc probeDesc;
+                    probeDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(
+                        0, skyEnvironmentCube, nvrhi::Format::UNKNOWN,
+                        nvrhi::AllSubresources, nvrhi::TextureDimension::TextureCube));
+                    probeDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_smokeSkyCubeProbeOutputTexture));
+                    probeDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_LinearClampSampler));
+                    skyCubeProbeBindingSet = device->createBindingSet(probeDesc, m_smokeSkyCubeProbeBindingLayout);
+                }
+            }
+            break;
+        }
+    }
+
     const nvrhi::TextureHandle fallbackTexture = globalImages && globalImages->whiteImage ? globalImages->whiteImage->GetTextureHandle() : nullptr;
     RtSmokeBindingBuildDesc bindingBuildDesc = {};
     bindingBuildDesc.device = device;
@@ -11593,7 +11626,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     bindingBuildDesc.rrGuideResetMaskTexture = m_frameResources.rrGuideResetMaskTexture;
     bindingBuildDesc.rrGuidePositionTexture = m_frameResources.rrGuidePositionTexture;
     bindingBuildDesc.fallbackTexture = fallbackTexture;
-    bindingBuildDesc.skyEnvironmentCube = m_smokeSkyEnvironmentCube;
+    bindingBuildDesc.skyEnvironmentCube = skyEnvironmentCube;
     bindingBuildDesc.constantsBuffer = m_smokeConstantsBuffer;
     bindingBuildDesc.boundsOverlayLineBuffer = m_smokeBoundsOverlayLineBuffer;
     bindingBuildDesc.liquidPoolStatusBuffer = m_liquidPoolStatusBuffer;
@@ -11759,7 +11792,8 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     resourceCommitBuildDesc.bindingSet = bindingBuildResult.bindingSet;
     resourceCommitBuildDesc.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
     resourceCommitBuildDesc.activeTextureTable = &bindingBuildResult.activeTextureTable;
-    resourceCommitBuildDesc.skyEnvironmentCube = m_smokeSkyEnvironmentCube;
+    resourceCommitBuildDesc.skyEnvironmentCube = skyEnvironmentCube;
+    resourceCommitBuildDesc.skyCubeProbeBindingSet = skyCubeProbeBindingSet;
     resourceCommitBuildDesc.textureDescriptorTableCreated = bindingBuildResult.textureDescriptorTableCreated;
     resourceCommitBuildDesc.textureDescriptorTableWritten = bindingBuildResult.textureDescriptorTableWritten;
     resourceCommitBuildDesc.materialTableEntryCount = sceneInputs.materials.materialTableEntryCount;
@@ -11919,6 +11953,12 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         OPTICK_TAG("materialUploadBytes", uploadedBytes);
     }
     CommitRayTracingSmokeSceneResources(resourceCommitDesc);
+    if (!changedSkyEnvironmentSourceName.IsEmpty())
+    {
+        m_smokeSkyEnvironmentSourceName = changedSkyEnvironmentSourceName;
+        common->Printf("PathTracePrimaryPass: rewrite sky environment committed source='%s'\n",
+            m_smokeSkyEnvironmentSourceName.c_str());
+    }
     // Unchanged buffers retain their exact receipts without copying them.
     // Changed buffers publish only the candidate receipt after scene commit.
     for (int i = 0; i < 19; ++i)
