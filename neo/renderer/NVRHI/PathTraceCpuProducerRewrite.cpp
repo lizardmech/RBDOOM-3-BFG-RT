@@ -4971,6 +4971,19 @@ void RtCpuProducerRewrite_OnFrameBoundary()
     const auto before = g_service->Route();
     const auto epoch = g_service->LifecycleGeneration();
     const auto recoveryBefore = g_service->RecoveryReason();
+    const int requestedRoute = r_pathTracingCpuProducerRewrite.GetInteger();
+    const auto pendingRecovery = g_service->PendingRecoveryReason();
+    const auto failedRecovery = pendingRecovery ? pendingRecovery : recoveryBefore;
+    if (requestedRoute != 0 && r_pathTracingCpuProducerRewriteFailOnRecovery.GetBool() && failedRecovery)
+    {
+        // Stop before ApplyRouteAtFrameBoundary consumes the request and starts
+        // the legacy drain. The renderer and frontend are idle at this boundary.
+        common->Printf("CPU producer rewrite fatal recovery: reason %u. See preceding rejection-site diagnostic for persistent rejection.\n",
+            failedRecovery);
+        common->FatalError("CPU producer rewrite emergency recovery (reason %u). Fail-on-recovery is enabled; see qconsole.log for rejection details.",
+            failedRecovery);
+        return;
+    }
     const int suppressedEntity = r_pathTracingGeometrySuppressEntityIndex.GetInteger();
     const uint32_t suppressedMaterial = static_cast<uint32_t>(Max(0,
         r_pathTracingGeometrySuppressMaterialId.GetInteger()));
@@ -4982,7 +4995,7 @@ void RtCpuProducerRewrite_OnFrameBoundary()
         // Rebuild retained membership through the existing drain/ack protocol.
         RtCpuProducerRewrite_Invalidate(RtCpuRewriteInvalidReason::LifecycleReset);
     }
-    g_service->ApplyRouteAtFrameBoundary(r_pathTracingCpuProducerRewrite.GetInteger());
+    g_service->ApplyRouteAtFrameBoundary(requestedRoute);
     if (g_service->LifecycleGeneration() != epoch) ClearFrontendResidents();
     OPTICK_TAG("routeBoundaryBefore", static_cast<uint32_t>(before));
     OPTICK_TAG("routeBoundaryAfter", static_cast<uint32_t>(g_service->Route()));

@@ -1,0 +1,12 @@
+# I3: recovery failure diagnostics
+
+User mergebug.opt (5.494 seconds, 74 CPU frames) records routeBoundaryBefore/After=0 and rewriteRecoveryReason=4 throughout. Embedded source paths identify the integration checkout. MainThread PT Build Scene median=66.153 ms, Capture Doom Surfaces=40.604 ms; GPU DrawView_3D median=13.467 ms. The capture begins after the failure. Source reason4 is the existing 120-consecutive-rejected-scene threshold; it does not identify which rejection site caused it. The user was walking around Mars City.
+
+The user explicitly requests that emergency recovery crash/stop the game instead of switching to serial. I3 adds an opt-in fail-on-recovery diagnostic, enables it in the candidate launchers, and records the rejecting source line at the existing threshold. Fatal handling occurs at the main-thread idle boundary before ApplyRouteAtFrameBoundary can drain/promote legacy. Normal temporary keep-last handling and the 120-frame threshold remain unchanged. Source default of the new diagnostic is off; the candidate launcher selects it on. The original legacy/recovery implementation remains available when the diagnostic is off.
+
+Allowed edits: PathTraceCVars.cpp/.h; PathTraceCpuProducerRewrite.cpp/.h (non-consuming pending reason inspection and idle-boundary fatal); PathTraceSmokeSceneBuild.cpp (rejection site telemetry and threshold warning); the existing rewrite harness recovery case; these docs and candidate-only launcher/deployment files. No geometry, lighting, shader, ownership, retirement or scheduling algorithm changes.
+
+1. Add the diagnostic switch and inspect pending/latched recovery without consuming it. Report reason at the fatal boundary, and report source line/root/family at persistent rejection.
+2. Preserve the first pending reason and existing off/on/map-reset recovery behavior in focused tests. Build Vulkan Release; use the complete test suite after the shared header/source rebuild.
+3. Keep I2 EXE/MAP and launcher snapshots as rollback. Deploy a distinct I3 EXE/MAP with matched shaders, same launchUTP renderer flags, fail-on-recovery=1 and immediate logfile flushing. Verify deployment and flags.
+4. Use the next Mars City failure's console log/rejection site to diagnose the underlying bug. Do not label the bug fixed merely because fallback becomes fatal. Do not disable safeguards or auto-retry forever.

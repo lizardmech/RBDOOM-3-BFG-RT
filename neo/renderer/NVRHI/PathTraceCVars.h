@@ -40,6 +40,7 @@ extern idCVar r_pathTracingMaterialClassifyRingParity;
 extern idCVar r_pathTracingCommittedDynamicGeometry;
 extern idCVar r_pathTracingProducerLanes;
 extern idCVar r_pathTracingCpuProducerRewrite;
+extern idCVar r_pathTracingCpuProducerRewriteFailOnRecovery;
 extern idCVar r_pathTracingCpuResidentPortalDepth;
 extern idCVar r_pathTracingProducerLaneMask;
 extern idCVar r_pathTracingProducerLaneLog;

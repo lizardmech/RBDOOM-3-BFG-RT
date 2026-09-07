@@ -9845,8 +9845,10 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         return false;
     };
     RtCpuRewriteKeepLastFamily frameKeepLastFamily = RtCpuRewriteKeepLastFamily::OtherScene;
-    auto keepRewrite = [&]() -> bool
+    auto keepRewrite = [&](uint32_t rejectSite) -> bool
     {
+        const uint64_t rejectedProductRoot = gotProduct && view ? view->rootFrame : 0;
+        OPTICK_TAG("rewriteRejectSite", rejectSite);
         if (gotProduct)
         {
             service->ReleaseConsumedProduct(true);
@@ -9859,7 +9861,13 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         m_rewriteKeepLastFamily = keepLast.next.family;
         m_rewriteKeepLastWarned = keepLast.next.warned;
         if (m_rewriteConsecutiveRejectedFrames < 120 && ++m_rewriteConsecutiveRejectedFrames == 120)
+        {
+            common->Warning("CPU producer rewrite rejection limit: PathTraceSmokeSceneBuild.cpp:%u root=%llu productRoot=%llu family=%u skinnedReason=%u; requesting recovery reason 4",
+                rejectSite, static_cast<unsigned long long>(viewDef->pathTraceRewriteRootFrame),
+                static_cast<unsigned long long>(rejectedProductRoot),
+                static_cast<uint32_t>(m_rewriteKeepLastFamily), m_rewriteSkinnedLastRejectReason);
             service->RequestRecovery(4);
+        }
         OPTICK_TAG("rewriteConsecutiveRejectedFrames", m_rewriteConsecutiveRejectedFrames);
         if (keepLast.warnNow)
         {
@@ -9880,7 +9888,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         OPTICK_TAG("materialReceiptValid", materialReceiptValid ? 1u : 0u);
         OPTICK_TAG("materialTableEntries", static_cast<uint32_t>(m_rewriteMaterialBindings.size()));
         if (!materialReceiptValid)
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
     const uint64_t viewRootFrame = viewDef->pathTraceRewriteRootFrame;
     bool overlayAcquired = false;
@@ -9952,7 +9960,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     if (dependencyResult)
     {
         if (overlayAcquired) service->ReleaseConsumedOverlay();
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
     const bool haveStatic = gotProduct && view && view->vertexCount >= 3 && view->indexCount >= 3;
     const bool haveRigidMeshes = gotProduct && view && view->rigidMeshCount > 0;
@@ -9965,13 +9973,13 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         }
         else
         {
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
     }
     else if (!haveStatic && !haveRigidMeshes && !haveSkinnedMeshes)
     {
         if (overlayAcquired) service->ReleaseConsumedOverlay();
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
 
     OPTICK_EVENT("PT CPU GPU Geometry Commit");
@@ -10128,7 +10136,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     if (!rigidResolveJob)
     {
         if (overlayAcquired) service->ReleaseConsumedOverlay();
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
     std::vector<RtCpuRewriteTextureMatrices> staticTextureMatrices;
     RtSmokeMaterialTableBuild grownMaterialTable = std::move(m_rewriteFrameMaterialTable), authoredMaterialCandidate;
@@ -10278,7 +10286,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
                     if (!rigidResolved)
                     {
                         if (overlayAcquired) service->ReleaseConsumedOverlay();
-                        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
                     }
                     materialRecordJob=service->SubmitMaterialRecords(viewRootFrame,recordCharge,[owned=materialRecordWork] {
                         owned->records=BuildRtCpuMaterialRecords(owned->input);
@@ -10301,7 +10309,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         if (!valid)
         {
             if (overlayAcquired) service->ReleaseConsumedOverlay();
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
     }
     const auto& frameMaterialBindings = materialGrowth ? grownMaterialBindings : m_rewriteMaterialBindings;
@@ -10331,7 +10339,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         if (lateMaterialChanged)
         {
             if (overlayAcquired) service->ReleaseConsumedOverlay();
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
     }
     auto matrixSignature = [](const RtCpuRewriteTextureMatrices& matrices)
@@ -10467,7 +10475,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     {
         m_rewriteSkinnedLastRejectReason = static_cast<uint32_t>(RtCpuRewriteSkinnedRejectReason::SerialOverflow);
         if (overlayAcquired) service->ReleaseConsumedOverlay();
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
     nextSerial = m_rewriteTlasCommitSerial + 1;
     for (int slot = 0; slot < 3; ++slot)
@@ -10519,7 +10527,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         if (!valid)
         {
             if (overlayAcquired) service->ReleaseConsumedOverlay();
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
     }
     bool lightSubmitted = false;
@@ -10533,10 +10541,10 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     if (!lightSubmitted)
     {
         if (overlayAcquired) service->ReleaseConsumedOverlay();
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
     if (!service->FinishMaterialRecords(materialRecordJob,viewRootFrame))
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     frameDynamicMaterials=std::move(materialRecordWork->records);
     for (uint32_t row=0;row<grownMaterialTable.materials.size();++row)
         ApplySmokeDynamicAlphaRecordToGpuMaterial(row,frameDynamicMaterials,grownMaterialTable.materials[row]);
@@ -10594,7 +10602,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     if (!materialBuffersValid)
     {
         if (overlayAcquired) service->ReleaseConsumedOverlay();
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
     OPTICK_EVENT(transformOnly ? "PT CPU Commit Transform Only" : "PT CPU Commit Full");
 
@@ -10634,7 +10642,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
                     source.triangleBegin > view->triangleCount || source.triangleCount > view->triangleCount - source.triangleBegin)
                 {
                     if (overlayAcquired) service->ReleaseConsumedOverlay();
-                    return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                    return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
                 }
                 uint32_t materialIndex = 0;
                 if (RtCpuRewriteResolveMaterial(frameMaterialBindings, staticSourceMaterialIds[i], materialIndex)) mapped += source.triangleCount;
@@ -10671,7 +10679,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         catch (const std::bad_alloc&)
         {
             if (overlayAcquired) service->ReleaseConsumedOverlay();
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
     }
     if (rebuildStatic)
@@ -10692,7 +10700,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
             {
                 service->ReleaseConsumedOverlay();
             }
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
     }
 
@@ -10744,7 +10752,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
             {
                 service->ReleaseConsumedOverlay();
             }
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
         ++rigidAttribution.rigidColdBlasCount;
         candidateStaticLogicalBytes = static_cast<uint64_t>(vertexBytes) + static_cast<uint64_t>(indexBytes);
@@ -10760,7 +10768,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
             {
                 ++m_rewriteRetirementLedger.metadataReserveFailures;
                 if (overlayAcquired) service->ReleaseConsumedOverlay();
-                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
             }
         }
         // Allocation is not publication. Keep the candidate local through BLAS/TLAS
@@ -10819,7 +10827,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
             {
                 OPTICK_TAG("rigidResolveCandidateRejected", 1u);
                 if (overlayAcquired) service->ReleaseConsumedOverlay();
-                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
             }
             const int retainIndex = resolved.append ? -1 : resolved.candidate;
             nvrhi::rt::AccelStructHandle meshBlas;
@@ -10853,7 +10861,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
                 if (!meshDyn.IsValid())
                 {
                     if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
-                    return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                    return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
                 }
                 RtSmokeBufferUploadItem meshUploads[2] = {};
                 meshUploads[0] = { meshDyn.vertexBuffer, mesh.vertices, "rewrite dedicated verts", vBytes, nvrhi::ResourceStates::AccelStructBuildInput };
@@ -10883,7 +10891,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
                 if (!meshBlasResult.Succeeded())
                 {
                     if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
-                    return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                    return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
                 }
                 nvrhi::utils::BuildBottomLevelAccelStruct(commandList, meshBlasResult.accelStruct, meshBlasResult.accelStructDesc);
                 ++rigidAttribution.rigidColdBlasCount;
@@ -10969,7 +10977,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
             {
                 if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
                 service->NoteJoinCommitFail(kRtCpuRewriteJoinMaskZero);
-                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
             }
             rewriteExtraTlas.push_back(extra);
             }
@@ -10985,7 +10993,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
             {
                 OPTICK_TAG("rigidResolveCandidateRejected", 1u);
                 if (overlayAcquired) service->ReleaseConsumedOverlay();
-                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
             }
             if (retainIndex < 0)
             {
@@ -11015,7 +11023,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
             {
                 if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
                 service->NoteJoinCommitFail(kRtCpuRewriteJoinMaskZero);
-                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
             }
             rewriteExtraTlas.push_back(extra);
             }
@@ -11046,7 +11054,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     {
         if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
         frameKeepLastFamily = RtCpuRewriteKeepLastFamily::OtherScene;
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
     rigidExtraCount = static_cast<uint32_t>(rewriteExtraTlas.size());
     m_rewriteRetirementRejectedThisAttempt = false;
@@ -11077,13 +11085,13 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
             else
             {
                 if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
-                return keepRewrite();
+                return keepRewrite(__LINE__);
             }
         }
         else
         {
             if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
     }
     if (!staticRetirementBatch.empty())
@@ -11108,7 +11116,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
             OPTICK_TAG("staticCandidateRetirementRejected", static_cast<uint32_t>(decision));
             frameKeepLastFamily = RtCpuRewriteKeepLastFamily::OtherScene;
             if (overlayAcquired) service->ReleaseConsumedOverlay();
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
     }
     const RtCpuRewriteSkinnedPackage& candidateSkin = skinnedTransaction.zero
@@ -11152,7 +11160,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     {
         if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
         service->NoteJoinCommitFail(kRtCpuRewriteJoinRetainCap);
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
     if (skippedAllDedicated && !packedInstances.empty())
     {
@@ -11163,7 +11171,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     if (idleSlot < 0)
     {
         if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
     tlasSlot = &m_rewriteTlasSlots[idleSlot];
     const uint32_t neededInstances = 1u + static_cast<uint32_t>(rewriteExtraTlas.size());
@@ -11180,7 +11188,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         if (!candidateTlas)
         {
             if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
         tlasSlot->tlas = candidateTlas;
         tlasSlot->maxInstances = newMax;
@@ -11202,7 +11210,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     if (!SubmitSmokeAccelerationBuilds(submitDesc, timing))
     {
         if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
     ++rigidAttribution.rigidTlasBuildCount;
 
@@ -11238,7 +11246,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         if (!staticCreated.buffers.staticVertexBuffer)
         {
             if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
         m_rewritePlaceholderStaticVertex = staticCreated.buffers.staticVertexBuffer;
         buffers.staticVertexBuffer = staticCreated.buffers.staticVertexBuffer;
@@ -11267,7 +11275,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         {
             if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
             service->NoteJoinCommitFail(kRtCpuRewriteJoinInstanceIdUnresolved);
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
         routeDesc.device = device;
         routeDesc.existingBuffers.rigidRouteVertexBuffer = m_rewritePackedRouteVertexBuffer;
@@ -11316,7 +11324,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         if (!routeCreated.buffers.rigidRouteVertexBuffer || !routeCreated.buffers.rigidRouteInstanceBuffer)
         {
             if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
         if (skipPackedGeometryFill)
         {
@@ -11327,7 +11335,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
                 routeCreated.buffers.rigidRouteInstanceBuffer != m_rewriteLastCommittedPackedInstanceBuffer)
             {
                 if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
-                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+                return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
             }
         }
         if (partialPackedUpdate &&
@@ -11335,7 +11343,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
              routeCreated.buffers.rigidRouteIndexBuffer != m_rewriteLastCommittedPackedIndexBuffer ||
              routeCreated.buffers.rigidRouteTriangleMaterialBuffer != m_rewriteLastCommittedPackedTriMatBuffer ||
              routeCreated.buffers.rigidRouteTriangleMaterialIndexBuffer != m_rewriteLastCommittedPackedTriMatIndexBuffer))
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         m_rewritePackedRouteVertexBuffer = routeCreated.buffers.rigidRouteVertexBuffer;
         m_rewritePackedRouteIndexBuffer = routeCreated.buffers.rigidRouteIndexBuffer;
         m_rewritePackedRouteTriMatBuffer = routeCreated.buffers.rigidRouteTriangleMaterialBuffer;
@@ -11500,7 +11508,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         ? m_smokeSkinnedEmissiveWorkBuffer : nullptr;
     if (!skinnedHandles.valid || skinnedHandles.usesWarmupGeometry)
     {
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
 
     RtCpuRewriteLightCandidate lighting;
@@ -11509,7 +11517,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         lightsReady = FinishRewriteLighting(device, commandList, idleSlot, viewRootFrame, *service, lightWork, lighting);
     } catch (const std::bad_alloc&) { m_rewriteLightHistoryValid = false; }
     OPTICK_TAG("lightRejected", lightsReady ? 0u : 1u);
-    if (!lightsReady) return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    if (!lightsReady) return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     buffers.emissiveTriangleBuffer = lighting.inputs.emissiveTriangleBuffer;
     buffers.previousEmissiveTriangleBuffer = lighting.inputs.previousEmissiveTriangleBuffer;
     buffers.emissiveRemapBuffer = lighting.inputs.emissiveRemapBuffer;
@@ -11529,7 +11537,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     buffers.unifiedPtEmissiveLookupBuffer = lighting.inputs.unifiedPtEmissiveLookupBuffer;
     buffers.unifiedPtEmissiveGeometryBuffer = lighting.inputs.unifiedPtEmissiveGeometryBuffer;
     buffers.restirLightManagerCurrentToPreviousBuffer = lighting.gpu.buffers[18];
-    if (!buffers.IsValid()) return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+    if (!buffers.IsValid()) return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
 
     const nvrhi::TextureHandle fallbackTexture = globalImages && globalImages->whiteImage ? globalImages->whiteImage->GetTextureHandle() : nullptr;
     RtSmokeBindingBuildDesc bindingBuildDesc = {};
@@ -11584,7 +11592,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         if (!bindingBuildResult.Succeeded())
         {
             if (overlayAcquired) service->ReleaseConsumedOverlay();
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
     }
 
@@ -11682,7 +11690,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     {
         if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
         service->NoteJoinCommitFail(kRtCpuRewriteJoinInstanceIdUnresolved);
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
     const uint32_t extraCount = static_cast<uint32_t>(rewriteExtraTlas.size());
     std::vector<uint32_t> extraMasks(extraCount);
@@ -11703,7 +11711,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
     {
         if (overlayAcquired) { service->ReleaseConsumedOverlay(); }
         service->NoteJoinCommitFail(routeFail);
-        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+        return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
     }
 
     RtSmokeSceneResourceCommitBuildDesc resourceCommitBuildDesc = {};
@@ -11798,7 +11806,7 @@ bool PathTracePrimaryPass::TryBuildCpuProducerRewriteScene(
         {
             service->NoteJoinCommitFail(kRtCpuRewriteJoinRetainCap);
             if (overlayAcquired) service->ReleaseConsumedOverlay();
-            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite() : failWarmup();
+            return (route == RtCpuProducerRewriteRoute::RewriteOnly) ? keepRewrite(__LINE__) : failWarmup();
         }
     }
     if (partialPackedUpdate) {

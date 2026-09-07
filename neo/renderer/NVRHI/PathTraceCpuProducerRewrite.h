@@ -1075,6 +1075,8 @@ public:
     void ApplyRouteAtFrameBoundary(int cvarValue);
     void NotifyBackendDrained();
     void RequestRecovery(std::uint32_t reason);
+    // Diagnostic inspection must not consume the request before the idle boundary.
+    std::uint32_t PendingRecoveryReason() const { return m_pendingRecovery.load(); }
     std::uint32_t RecoveryReason() const { return m_recoveryReason.load(); }
 
 	bool TryAcquireRootInput(std::uint64_t rootFrame, std::uint64_t worldGeneration, std::uint64_t mapGeneration);

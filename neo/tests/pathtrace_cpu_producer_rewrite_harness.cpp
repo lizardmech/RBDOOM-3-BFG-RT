@@ -3694,7 +3694,13 @@ void TestR4039HistoryAndRecovery()
     service.Invalidate(RtCpuRewriteInvalidReason::MapWorldChange);
     Check(service.LastCommittedRootFrame()==0,"R4-039 lifecycle clears committed overlay history");
     service.RequestRecovery(1);
+    const auto routeBeforeInspection = service.Route();
+    service.RequestRecovery(4);
+    Check(service.PendingRecoveryReason()==1 && service.PendingRecoveryReason()==1 &&
+        !service.RecoveryReason() && service.Route()==routeBeforeInspection,
+        "I3 fail-on-recovery inspection preserves the first request without consuming it or switching routes");
     service.ApplyRouteAtFrameBoundary(1);
+    Check(!service.PendingRecoveryReason(), "I3 normal idle-boundary recovery consumes the inspected request");
     Check(service.Route()==RtCpuProducerRewriteRoute::DrainingToLegacy && service.RecoveryReason()==1,
         "R4-039 capacity request drains at idle boundary");
     service.NotifyBackendDrained(); service.ApplyRouteAtFrameBoundary(1);
